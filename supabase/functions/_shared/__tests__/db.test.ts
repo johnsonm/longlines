@@ -1,5 +1,12 @@
 import { assertEquals, assertRejects, assertThrows } from "@std/assert";
-import { createIngestDb, createRbnDb, createServiceClient, createWatchlistDb } from "../db.ts";
+import {
+  createArchiveDb,
+  createArchiveStore,
+  createIngestDb,
+  createRbnDb,
+  createServiceClient,
+  createWatchlistDb,
+} from "../db.ts";
 import type { NormalizedSpot, RbnSpotRow } from "../types.ts";
 import { fakeSupabase } from "./fake_supabase.ts";
 
@@ -114,5 +121,95 @@ Deno.test("ingestRbnSpots treats a non-number as 0 and throws on error", async (
     () => createRbnDb(b.client).ingestRbnSpots([]),
     Error,
     "ingest_rbn_spots failed: boom",
+  );
+});
+
+const SLICE = { slice_start: "2026-10-11T14:10:00+00:00", slice_end: "2026-10-11T14:20:00+00:00" };
+
+Deno.test("pendingSlices calls archive_pending_slices with an ISO cutoff", async () => {
+  const { client, calls } = fakeSupabase({ rpc: { archive_pending_slices: { data: [SLICE] } } });
+  const before = new Date("2026-10-11T18:00:00Z");
+  assertEquals(await createArchiveDb(client).pendingSlices("rbn", before, 24), [SLICE]);
+  assertEquals(calls.rpc, [{
+    fn: "archive_pending_slices",
+    args: { p_source: "rbn", p_before: "2026-10-11T18:00:00.000Z", p_limit: 24 },
+  }]);
+});
+
+Deno.test("sliceNdjson returns the RPC's single row, or an empty slice", async () => {
+  const a = fakeSupabase({
+    rpc: { archive_ndjson: { data: [{ row_count: 2, ndjson: "{}\n{}" }] } },
+  });
+  assertEquals(await createArchiveDb(a.client).sliceNdjson("rbn", SLICE), {
+    row_count: 2,
+    ndjson: "{}\n{}",
+  });
+  assertEquals(a.calls.rpc[0]!.args, {
+    p_source: "rbn",
+    p_from: SLICE.slice_start,
+    p_to: SLICE.slice_end,
+  });
+  const b = fakeSupabase({ rpc: { archive_ndjson: { data: [] } } });
+  assertEquals(await createArchiveDb(b.client).sliceNdjson("pota", SLICE), {
+    row_count: 0,
+    ndjson: "",
+  });
+});
+
+Deno.test("logArchive passes every field to log_archive", async () => {
+  const { client, calls } = fakeSupabase();
+  await createArchiveDb(client).logArchive({
+    source: "rbn",
+    ...SLICE,
+    row_count: 3,
+    bytes: 120,
+    object_path: "rbn/2026/10/11/1410.ndjson.gz",
+  });
+  assertEquals(calls.rpc, [{
+    fn: "log_archive",
+    args: {
+      p_source: "rbn",
+      p_slice_start: SLICE.slice_start,
+      p_slice_end: SLICE.slice_end,
+      p_row_count: 3,
+      p_bytes: 120,
+      p_object_path: "rbn/2026/10/11/1410.ndjson.gz",
+    },
+  }]);
+});
+
+Deno.test("archive RPC errors are thrown with the function name", async () => {
+  const { client } = fakeSupabase({
+    rpc: { archive_pending_slices: boom, archive_ndjson: boom, log_archive: boom },
+  });
+  const db = createArchiveDb(client);
+  await assertRejects(
+    () => db.pendingSlices("rbn", new Date(), 1),
+    Error,
+    "archive_pending_slices failed: boom",
+  );
+  await assertRejects(() => db.sliceNdjson("rbn", SLICE), Error, "archive_ndjson failed: boom");
+  await assertRejects(
+    () => db.logArchive({ source: "rbn", ...SLICE, row_count: 0, bytes: null, object_path: null }),
+    Error,
+    "log_archive failed: boom",
+  );
+});
+
+Deno.test("createArchiveStore uploads gzip to the private archive bucket, replacing any object", async () => {
+  const { client, calls } = fakeSupabase();
+  const bytes = new Uint8Array([1, 2, 3]);
+  await createArchiveStore(client).upload("rbn/2026/10/11/1410.ndjson.gz", bytes);
+  assertEquals(calls.storage, [{
+    bucket: "archive",
+    path: "rbn/2026/10/11/1410.ndjson.gz",
+    body: bytes,
+    options: { contentType: "application/gzip", upsert: true },
+  }]);
+  const failing = fakeSupabase({ storageUpload: boom });
+  await assertRejects(
+    () => createArchiveStore(failing.client).upload("p", bytes),
+    Error,
+    "archive upload failed for p: boom",
   );
 });

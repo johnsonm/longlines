@@ -1,5 +1,6 @@
 // Minimal stand-in for the slice of SupabaseClient the handlers and db.ts use:
-// rpc, from(...).select/eq/single/maybeSingle/insert, and a few auth calls.
+// rpc, from(...).select/eq/single/maybeSingle/insert, storage.from(...).upload,
+// and a few auth calls.
 // Every call is recorded so tests can assert what was sent.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -23,6 +24,7 @@ export interface FakeSupabaseOptions {
   getUser?: FakeResult;
   deleteUser?: FakeResult;
   signInWithPassword?: FakeResult;
+  storageUpload?: FakeResult;
 }
 
 export interface FakeCalls {
@@ -31,6 +33,7 @@ export interface FakeCalls {
   getUser: string[];
   deleteUser: string[];
   signInWithPassword: Array<{ email: string; password: string }>;
+  storage: Array<{ bucket: string; path: string; body: unknown; options: unknown }>;
 }
 
 function settle(
@@ -48,6 +51,7 @@ export function fakeSupabase(
     getUser: [],
     deleteUser: [],
     signInWithPassword: [],
+    storage: [],
   };
 
   const fake = {
@@ -98,6 +102,16 @@ export function fakeSupabase(
           calls.deleteUser.push(id);
           return settle(options.deleteUser);
         },
+      },
+    },
+    storage: {
+      from(bucket: string) {
+        return {
+          upload(path: string, body: unknown, uploadOptions?: unknown) {
+            calls.storage.push({ bucket, path, body, options: uploadOptions });
+            return settle(options.storageUpload);
+          },
+        };
       },
     },
   };

@@ -4,6 +4,10 @@
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type {
+  ArchiveDb,
+  ArchiveLogEntry,
+  ArchiveSlice,
+  ArchiveStore,
   IngestDb,
   InsertedSpot,
   NormalizedSpot,
@@ -91,6 +95,55 @@ export function createRbnDb(client: SupabaseClient): RbnDb {
       const { data, error } = await client.rpc("ingest_rbn_spots", { p_rows: rows });
       if (error) throw new Error(`ingest_rbn_spots failed: ${error.message}`);
       return typeof data === "number" ? data : 0;
+    },
+  };
+}
+
+export function createArchiveDb(client: SupabaseClient): ArchiveDb {
+  return {
+    async pendingSlices(source: Source, before: Date, limit: number): Promise<ArchiveSlice[]> {
+      const { data, error } = await client.rpc("archive_pending_slices", {
+        p_source: source,
+        p_before: before.toISOString(),
+        p_limit: limit,
+      });
+      if (error) throw new Error(`archive_pending_slices failed: ${error.message}`);
+      return (data ?? []) as ArchiveSlice[];
+    },
+
+    async sliceNdjson(source: Source, slice: ArchiveSlice) {
+      const { data, error } = await client.rpc("archive_ndjson", {
+        p_source: source,
+        p_from: slice.slice_start,
+        p_to: slice.slice_end,
+      });
+      if (error) throw new Error(`archive_ndjson failed: ${error.message}`);
+      const row = (data as Array<{ row_count: number; ndjson: string | null }> | null)?.[0];
+      return { row_count: Number(row?.row_count ?? 0), ndjson: row?.ndjson ?? "" };
+    },
+
+    async logArchive(entry: ArchiveLogEntry): Promise<void> {
+      const { error } = await client.rpc("log_archive", {
+        p_source: entry.source,
+        p_slice_start: entry.slice_start,
+        p_slice_end: entry.slice_end,
+        p_row_count: entry.row_count,
+        p_bytes: entry.bytes,
+        p_object_path: entry.object_path,
+      });
+      if (error) throw new Error(`log_archive failed: ${error.message}`);
+    },
+  };
+}
+
+export function createArchiveStore(client: SupabaseClient): ArchiveStore {
+  return {
+    async upload(path: string, bytes: Uint8Array): Promise<void> {
+      const { error } = await client.storage.from("archive").upload(path, bytes, {
+        contentType: "application/gzip",
+        upsert: true,
+      });
+      if (error) throw new Error(`archive upload failed for ${path}: ${error.message}`);
     },
   };
 }
