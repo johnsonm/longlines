@@ -110,6 +110,11 @@ relay on pushes to main; nothing else deploys automatically.
 
 ## Delivery rules
 
+- `deliver` and `archive` authorize with `isServiceRole` (`_shared/auth.ts`): the runtime's
+  `SUPABASE_SERVICE_ROLE_KEY` (now the `sb_secret_` key) or a JWT with `role: service_role`, which
+  is what pg_cron sends from Vault. The JWT is trusted only because the gateway verified it, so both
+  functions keep `verify_jwt = true` in `config.toml`.
+
 - Matching lives in SQL (`spot_matches`, `match_pending_spots`); never re-implement the predicate in
   TypeScript. The preview RPC and the matcher must stay on the same function.
 - The worker (`supabase/functions/deliver`) only talks to the database through the

@@ -5,7 +5,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { runArchive } from "../archive.ts";
-import { bearerToken } from "../auth.ts";
+import { isServiceRole } from "../auth.ts";
 import { createArchiveDb, createArchiveStore } from "../db.ts";
 
 export interface ArchiveDeps {
@@ -19,7 +19,7 @@ export async function handleArchive(
   now: Date = new Date(),
 ): Promise<Response> {
   // Only the service role (cron) may run the archive.
-  if (!deps.serviceRoleKey || bearerToken(req) !== deps.serviceRoleKey) {
+  if (!isServiceRole(req, deps.serviceRoleKey)) {
     return Response.json({ error: "Forbidden" }, { status: 403 });
   }
   const client = deps.db();
