@@ -5,6 +5,13 @@ import type { LatestStats } from "./types";
 
 export const fmt = (n: number): string => n.toLocaleString("en-US");
 
+/** Axis labels for counts that span thousands to millions: 950, 12k, 1.5M. */
+export function compact(n: number): string {
+  if (n >= 1e6) return `${+(n / 1e6).toFixed(1)}M`;
+  if (n >= 1e3) return `${+(n / 1e3).toFixed(1)}k`;
+  return String(n);
+}
+
 export const hourLabel = (hour: number): string => `${String(hour).padStart(2, "0")}:00`;
 
 const WEEKDAY = new Intl.DateTimeFormat("en-US", { weekday: "short", timeZone: "UTC" });
@@ -20,6 +27,12 @@ export function weekday(day: string): string {
 export function dayLabel(day: string): string {
   const d = new Date(`${day}T00:00:00Z`);
   return `${weekday(day)} ${d.getUTCMonth() + 1}/${d.getUTCDate()}`;
+}
+
+/** "Tue 10/6 14:00" for an hour of the hourly series, an ISO UTC instant. */
+export function slotLabel(hour: Date | string): string {
+  const d = typeof hour === "string" ? new Date(hour) : hour;
+  return `${dayLabel(d.toISOString().slice(0, 10))} ${hourLabel(d.getUTCHours())}`;
 }
 
 /** The caption under the page title; copy from docs/ui-mock.html. */

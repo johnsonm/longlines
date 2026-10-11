@@ -138,6 +138,58 @@ isOneToOne: false
                   Relationships: [
                     
                   ]
+                },"rbn_daily_skimmers": {
+                  Row: {
+                    "band": string | null,"day": string,"spots": number,"spotter": string
+                  }
+                  Insert: {
+                    "band"?: string | null,"day": string,"spots": number,"spotter": string
+                  }
+                  Update: {
+                    "band"?: string | null,"day"?: string,"spots"?: number,"spotter"?: string
+                  }
+                  Relationships: [
+                    
+                  ]
+                },"rbn_daily_stations": {
+                  Row: {
+                    "callsign": string,"day": string,"spots": number
+                  }
+                  Insert: {
+                    "callsign": string,"day": string,"spots": number
+                  }
+                  Update: {
+                    "callsign"?: string,"day"?: string,"spots"?: number
+                  }
+                  Relationships: [
+                    
+                  ]
+                },"rbn_hourly": {
+                  Row: {
+                    "hour": string,"spots": number
+                  }
+                  Insert: {
+                    "hour": string,"spots": number
+                  }
+                  Update: {
+                    "hour"?: string,"spots"?: number
+                  }
+                  Relationships: [
+                    
+                  ]
+                },"rbn_rollup_days": {
+                  Row: {
+                    "day": string,"rolled_at": string
+                  }
+                  Insert: {
+                    "day": string,"rolled_at": string
+                  }
+                  Update: {
+                    "day"?: string,"rolled_at"?: string
+                  }
+                  Relationships: [
+                    
+                  ]
                 },"rbn_spots": {
                   Row: {
                     "band": string | null,"callsign": string,"frequency_khz": number,"ingested_at": string,"line": string,"mode": string | null,"mode_family": string | null,"received_at": string,"snr": number,"speed": number,"speed_unit": string,"spot_time": string,"spot_type": string,"spotter": string
@@ -147,6 +199,19 @@ isOneToOne: false
                   }
                   Update: {
                     "band"?: string | null,"callsign"?: string,"frequency_khz"?: number,"ingested_at"?: string,"line"?: string,"mode"?: string | null,"mode_family"?: string | null,"received_at"?: string,"snr"?: number,"speed"?: number,"speed_unit"?: string,"spot_time"?: string,"spot_type"?: string,"spotter"?: string
+                  }
+                  Relationships: [
+                    
+                  ]
+                },"rbn_top_stations": {
+                  Row: {
+                    "callsign": string,"skimmers": number,"spots": number,"window_start": string
+                  }
+                  Insert: {
+                    "callsign": string,"skimmers": number,"spots": number,"window_start": string
+                  }
+                  Update: {
+                    "callsign"?: string,"skimmers"?: number,"spots"?: number,"window_start"?: string
                   }
                   Relationships: [
                     
@@ -422,6 +487,9 @@ isOneToOne: false
 { Args: Record<PropertyKey, never>; Returns: undefined
                            },
 "retire_rbn_day":
+{ Args: { "p_day": string }; Returns: undefined
+                           },
+"rollup_rbn_day":
 { Args: { "p_day": string }; Returns: undefined
                            },
 "rotate_signing_secret":

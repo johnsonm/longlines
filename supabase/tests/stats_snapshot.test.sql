@@ -1,9 +1,9 @@
 -- pgTAP: stats_snapshots table, refresh_stats_snapshot() payload shape and
--- numbers, window boundaries, pruning to 48 rows, RLS.
+-- numbers, the RBN rollup, window boundaries, pruning to 48 rows, RLS.
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(77);
+select plan(102);
 
 -- Start from empty tables so every count below is exact. Both are empty on a
 -- fresh CI database; locally the cron jobs may have filled them. deliveries
@@ -11,6 +11,11 @@ select plan(77);
 delete from deliveries;
 delete from raw_spots;
 delete from stats_snapshots;
+delete from rbn_spots;
+delete from rbn_hourly;
+delete from rbn_daily_skimmers;
+delete from rbn_daily_stations;
+delete from rbn_rollup_days;
 
 -- Day k of the window (0 = oldest, 6 = yesterday, 7 = today) at hour h UTC,
 -- derived from the current UTC date so the test is stable at any time of day.
@@ -58,6 +63,24 @@ values
   ('sotawatch', 's6', 's6', pg_temp.at_utc(6, 14), 'SQ1GPR/P', 'SQ1GPR', 7032,   '40m', 'cw',  '', null, null, null, 'SP/SS-004',  '{}'),
   -- RBN: a skimmer report of a watched station, in the window. Not activity, so no total, chart or table counts it.
   ('rbn', 'r1', 'r1', pg_temp.at_utc(2, 20), 'RB1N', 'W3LPL', 14035, '20m', 'cw', '12 dB 22 WPM CQ', null, null, null, null, '{}');
+-- RBN firehose (rbn_spots). Seven in-window spots from three skimmers of three stations; W3LPL hears
+-- K1ABC twice on 20m at different frequencies. One spot has no band. Today and eight days ago are out.
+insert into rbn_spots (spot_time, received_at, spotter, callsign, frequency_khz, band, mode, mode_family, snr, speed, speed_unit, spot_type, line)
+select t, t, sp, cs, f, b, 'cw', 'cw', 10, 25, 'WPM', 'CQ', 'line'
+from (values
+  (pg_temp.at_utc(2, 20),  'W3LPL', 'K1ABC', 14025.0, '20m'),
+  (pg_temp.at_utc(2, 20),  'W3LPL', 'K1ABC', 14030.0, '20m'),
+  (pg_temp.at_utc(2, 20),  'W3LPL', 'N4XX',  7025.0,  '40m'),
+  (pg_temp.at_utc(2, 20),  'DK8NE', 'K1ABC', 14025.0, '20m'),
+  (pg_temp.at_utc(3, 5),   'DK8NE', 'K1ABC', 999.0,   null),
+  (pg_temp.at_utc(4, 3),   'W3LPL', 'N4XX',  1825.0,  '160m'),
+  (pg_temp.at_utc(6, 23),  'VE7CC', 'JA1XX', 21025.0, '15m'),
+  (pg_temp.at_utc(7, 1),   'VE7CC', 'XX1OUT', 14025.0, '20m'),
+  (pg_temp.at_utc(-1, 12), 'VE7CC', 'XX1OUT', 14025.0, '20m')
+) as v(t, sp, cs, f, b);
+-- A rollup left from a day before the window; the refresh deletes it.
+insert into rbn_daily_stations (day, callsign, spots) values ((pg_temp.at_utc(-2, 0) at time zone 'utc')::date, 'OLD1', 1);
+
 -- Ingest stores mode_family from _shared/modes.ts; these rows bypass ingest, so set it the way modes.ts would.
 update raw_spots set mode_family = case
   when mode = 'cw'                          then 'cw'
@@ -108,9 +131,9 @@ select is((pg_temp.snap() #>> '{busiestSlot,hour}')::int, 14, 'busiestSlot.hour 
 
 -- daily: seven entries, oldest first, zero-filled.
 select is(jsonb_array_length(pg_temp.snap() -> 'daily'), 7, 'daily has exactly 7 entries');
-select is(pg_temp.snap() -> 'daily' -> 0, jsonb_build_object('day', pg_temp.day_str(0), 'pota', 0, 'sota', 0), 'daily starts at the oldest day and a day without spots is zero-filled');
-select is(pg_temp.snap() -> 'daily' -> 1, jsonb_build_object('day', pg_temp.day_str(1), 'pota', 3, 'sota', 0), 'daily POTA count for day 1');
-select is(pg_temp.snap() -> 'daily' -> 6, jsonb_build_object('day', pg_temp.day_str(6), 'pota', 0, 'sota', 4), 'daily ends yesterday with the SOTA count');
+select is(pg_temp.snap() -> 'daily' -> 0, jsonb_build_object('day', pg_temp.day_str(0), 'pota', 0, 'sota', 0, 'rbn', 0), 'daily starts at the oldest day and a day without spots is zero-filled');
+select is(pg_temp.snap() -> 'daily' -> 1, jsonb_build_object('day', pg_temp.day_str(1), 'pota', 3, 'sota', 0, 'rbn', 0), 'daily POTA count for day 1');
+select is(pg_temp.snap() -> 'daily' -> 6, jsonb_build_object('day', pg_temp.day_str(6), 'pota', 0, 'sota', 4, 'rbn', 1), 'daily ends yesterday with the SOTA and RBN counts');
 
 -- potaByState: 51 keys; the NC/VA park counts once in each; CA-ON is ignored; "US-NC, US-GA" is trimmed.
 select is((select count(*) from jsonb_object_keys(pg_temp.snap() -> 'potaByState')), 51::bigint, 'potaByState has 50 states plus DC');
@@ -124,12 +147,12 @@ select is((select sum(value::int) from jsonb_each_text(pg_temp.snap() -> 'potaBy
 -- sotaAssociations: prefix before '/', busiest first.
 select is(pg_temp.snap() -> 'sotaAssociations', '[{"code":"SP","spots":4},{"code":"W4C","spots":2}]'::jsonb, 'W4C/CM-001 rolls up to association W4C');
 
--- bands: eleven fixed entries; 70cm and null are excluded here but counted in totals.
-select is(jsonb_array_length(pg_temp.snap() -> 'bands'), 11, 'bands has 11 entries');
+-- bands: twelve fixed entries; 70cm and null are excluded here but counted in totals.
+select is(jsonb_array_length(pg_temp.snap() -> 'bands'), 12, 'bands has 12 entries');
 select is((select string_agg(e ->> 'band', ',' order by ord) from jsonb_array_elements(pg_temp.snap() -> 'bands') with ordinality as t(e, ord)),
-          '80m,60m,40m,30m,20m,17m,15m,12m,10m,6m,2m', 'bands are in the fixed order');
-select is(pg_temp.snap() -> 'bands' -> 2, '{"band":"40m","pota":3,"sota":5}'::jsonb, '40m split by program');
-select is(pg_temp.snap() -> 'bands' -> 4, '{"band":"20m","pota":5,"sota":0}'::jsonb, '20m split by program');
+          '160m,80m,60m,40m,30m,20m,17m,15m,12m,10m,6m,2m', 'bands are in the fixed order, starting at 160m');
+select is(pg_temp.snap() -> 'bands' -> 3, '{"band":"40m","pota":3,"sota":5}'::jsonb, '40m split by program');
+select is(pg_temp.snap() -> 'bands' -> 5, '{"band":"20m","pota":5,"sota":0}'::jsonb, '20m split by program');
 select is((select sum((e ->> 'pota')::int + (e ->> 'sota')::int) from jsonb_array_elements(pg_temp.snap() -> 'bands') e), 14::bigint,
           'the 70cm spot and the null-band spot are excluded from bands (14 of 16 spots)');
 
@@ -159,18 +182,54 @@ select is(pg_temp.snap() -> 'topReferences' -> 3, '{"reference":"US-0817","name"
           'a park activated on two days has two activations');
 select is(pg_temp.snap() #>> '{topReferences,7,reference}', 'W4C/CM-001', 'the eighth slot goes to the alphabetically first of the one-spot references');
 
+-- hourly: 168 hours, oldest first, zero-filled. POTA and SOTA come from raw_spots (the RBN row there is
+-- not counted twice), RBN from rbn_spots through the rollup.
+select is(jsonb_array_length(pg_temp.snap() -> 'hourly'), 168, 'hourly has exactly 168 entries');
+select is(pg_temp.snap() -> 'hourly' -> 0,
+          jsonb_build_object('hour', to_char(pg_temp.at_utc(0, 0) at time zone 'utc', 'YYYY-MM-DD"T"HH24":00:00Z"'), 'pota', 0, 'sota', 0, 'rbn', 0),
+          'hourly starts at window_start and an empty hour is zero-filled');
+select is(pg_temp.snap() -> 'hourly' -> 68,
+          jsonb_build_object('hour', to_char(pg_temp.at_utc(2, 20) at time zone 'utc', 'YYYY-MM-DD"T"HH24":00:00Z"'), 'pota', 1, 'sota', 0, 'rbn', 4),
+          'day 2 at 20 UTC: one POTA spot and four RBN spots');
+select is((pg_temp.snap() #>> '{hourly,167,rbn}')::int, 1, 'hourly ends at 23 UTC yesterday');
+select is((select sum((e ->> 'pota')::int + (e ->> 'sota')::int) from jsonb_array_elements(pg_temp.snap() -> 'hourly') e), 16::bigint,
+          'hourly POTA and SOTA add up to totals.spots');
+select is((select sum((e ->> 'rbn')::int) from jsonb_array_elements(pg_temp.snap() -> 'hourly') e), 7::bigint,
+          'hourly RBN adds up to rbn.spots');
+
+-- rbn: totals, bands and most heard stations from the rollup.
+select is((pg_temp.snap() #>> '{rbn,spots}')::int, 7, 'rbn.spots counts in-window rbn_spots rows only');
+select is((pg_temp.snap() #>> '{rbn,skimmers}')::int, 3, 'rbn.skimmers: W3LPL, DK8NE, VE7CC');
+select is((select string_agg(e ->> 'band', ',' order by ord) from jsonb_array_elements(pg_temp.snap() #> '{rbn,bands}') with ordinality as t(e, ord)),
+          '160m,80m,60m,40m,30m,20m,17m,15m,12m,10m,6m,2m', 'rbn.bands share the fixed order of bands');
+select is(pg_temp.snap() #> '{rbn,bands,0}', '{"band":"160m","spots":1}'::jsonb, 'rbn 160m count');
+select is(pg_temp.snap() #> '{rbn,bands,5}', '{"band":"20m","spots":3}'::jsonb, 'rbn 20m count');
+select is((select sum((e ->> 'spots')::int) from jsonb_array_elements(pg_temp.snap() #> '{rbn,bands}') e), 6::bigint,
+          'the null-band spot is left out of rbn.bands');
+-- K1ABC: four spots by two skimmers over two days; N4XX: two spots by one skimmer on two bands.
+select is(pg_temp.snap() #> '{rbn,topStations}',
+          '[{"callsign":"K1ABC","spots":4,"skimmers":2},{"callsign":"N4XX","spots":2,"skimmers":1},{"callsign":"JA1XX","spots":1,"skimmers":1}]'::jsonb,
+          'rbn.topStations by spots, with distinct skimmers over the week');
+
+-- The rollup: every window day once, old rollups gone.
+select is((select count(*) from rbn_rollup_days), 7::bigint, 'each window day is rolled up');
+select is((select count(*) from rbn_hourly), 168::bigint, 'a rolled-up day has 24 hourly rows, zeros included');
+select is((select count(*) from rbn_daily_stations where callsign = 'OLD1'), 0::bigint, 'rollups older than the window are deleted');
 -- RLS: anyone reads every row (the Stats page is public); nobody writes or refreshes through the API.
 select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
 select is((select count(*) from stats_snapshots), 1::bigint, 'signed-in users can read snapshots');
 select throws_ok($$ insert into stats_snapshots (window_start, window_end, payload) values (now(), now(), '{}') $$, '42501', null, 'clients cannot insert snapshots');
 select throws_ok('delete from stats_snapshots', '42501', null, 'clients cannot delete snapshots');
 select throws_ok('select refresh_stats_snapshot()', '42501', null, 'clients cannot run the refresh');
+select throws_ok('select count(*) from rbn_hourly', '42501', null, 'clients cannot read the RBN rollup');
+select throws_ok('select rollup_rbn_day(current_date)', '42501', null, 'clients cannot run the RBN rollup');
 reset role;
 
 set local role anon;
 select is((select count(*) from stats_snapshots), 1::bigint, 'anon can read snapshots');
 select throws_ok($$ insert into stats_snapshots (window_start, window_end, payload) values (now(), now(), '{}') $$, '42501', null, 'anon cannot insert snapshots');
 select throws_ok('select refresh_stats_snapshot()', '42501', null, 'anon cannot run the refresh');
+select throws_ok('select count(*) from rbn_daily_skimmers', '42501', null, 'anon cannot read the RBN rollup');
 reset role;
 
 -- Window boundaries: exactly window_end is out, exactly window_start is in.
@@ -196,6 +255,21 @@ select is((select count(*) from stats_snapshots), 48::bigint, 'refresh prunes to
 select ok((select id from stats_snapshots order by generated_at desc, id desc limit 1) > (select id from before_refresh),
           'the newest row is the one the refresh just inserted');
 select is((select count(*) from stats_snapshots where payload ? 'dummy'), 44::bigint, 'the six oldest dummy rows were deleted');
+
+-- Day 5 was rolled up long after it ended, so a row added now is not picked up. Day 6 looks rolled up
+-- five minutes after it ended, inside the relay's buffer time, so it is rolled up again.
+insert into rbn_spots (spot_time, received_at, spotter, callsign, frequency_khz, band, mode, mode_family, snr, speed, speed_unit, spot_type, line)
+values (pg_temp.at_utc(5, 12), now(), 'VE7CC', 'LATE1', 14025.0, '20m', 'cw', 'cw', 10, 25, 'WPM', 'CQ', 'line'),
+       (pg_temp.at_utc(6, 23), now(), 'VE7CC', 'LATE2', 14025.0, '20m', 'cw', 'cw', 10, 25, 'WPM', 'CQ', 'line');
+update rbn_rollup_days set rolled_at = pg_temp.at_utc(6, 3) where day = (pg_temp.at_utc(5, 0) at time zone 'utc')::date;
+update rbn_rollup_days set rolled_at = pg_temp.at_utc(7, 0) + interval '5 minutes' where day = (pg_temp.at_utc(6, 0) at time zone 'utc')::date;
+select lives_ok('select refresh_stats_snapshot()', 'refresh runs after late RBN rows');
+select is((pg_temp.snap() #>> '{rbn,spots}')::int, 8, 'a day rolled up within an hour of its end is rolled up again; a final day is not');
+select is((pg_temp.snap() #>> '{hourly,167,rbn}')::int, 2, 'the re-rolled hour shows the late row');
+select ok((select rolled_at from rbn_rollup_days where day = (pg_temp.at_utc(5, 0) at time zone 'utc')::date) = pg_temp.at_utc(6, 3),
+          'the final day kept its rollup');
+select is((select count(*) from rbn_hourly), 168::bigint, 're-rolling a day replaces its hourly rows');
+select is(jsonb_array_length(pg_temp.snap() #> '{rbn,topStations}'), 4, 'a rollup recounts the most heard stations (LATE2 joins)');
 
 select * from finish();
 rollback;
