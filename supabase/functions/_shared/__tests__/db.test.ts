@@ -1,6 +1,6 @@
 import { assertEquals, assertRejects, assertThrows } from "@std/assert";
-import { createIngestDb, createServiceClient, createWatchlistDb } from "../db.ts";
-import type { NormalizedSpot } from "../types.ts";
+import { createIngestDb, createRbnDb, createServiceClient, createWatchlistDb } from "../db.ts";
+import type { NormalizedSpot, RbnSpotRow } from "../types.ts";
 import { fakeSupabase } from "./fake_supabase.ts";
 
 const boom = { error: { message: "boom" } };
@@ -96,5 +96,23 @@ Deno.test("watchedCallsigns treats a null result as an empty list and throws on 
     () => createWatchlistDb(b.client).watchedCallsigns("rbn"),
     Error,
     "watched_callsigns failed: boom",
+  );
+});
+
+Deno.test("ingestRbnSpots sends the batch to the RPC and returns the inserted count", async () => {
+  const { client, calls } = fakeSupabase({ rpc: { ingest_rbn_spots: { data: 2 } } });
+  const rows = [{ callsign: "K1ABC" }] as unknown as RbnSpotRow[];
+  assertEquals(await createRbnDb(client).ingestRbnSpots(rows), 2);
+  assertEquals(calls.rpc, [{ fn: "ingest_rbn_spots", args: { p_rows: rows } }]);
+});
+
+Deno.test("ingestRbnSpots treats a non-number as 0 and throws on error", async () => {
+  const a = fakeSupabase({ rpc: { ingest_rbn_spots: { data: null } } });
+  assertEquals(await createRbnDb(a.client).ingestRbnSpots([]), 0);
+  const b = fakeSupabase({ rpc: { ingest_rbn_spots: boom } });
+  await assertRejects(
+    () => createRbnDb(b.client).ingestRbnSpots([]),
+    Error,
+    "ingest_rbn_spots failed: boom",
   );
 });
