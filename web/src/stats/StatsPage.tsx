@@ -101,7 +101,9 @@ function Dashboard({ payload }: { payload: StatsPayload }) {
   const days = payload.daily.map((d) => dayLabel(d.day));
   const bands = payload.bands.map((b) => b.band);
   const busiest = topStates(payload.potaByState);
-  const count = (v: number | null) => fmt(v ?? 0);
+  // Also covers fields missing from a snapshot written before they existed (the newest row
+  // keeps its old shape until the next hourly refresh), so an older payload renders 0, not a crash.
+  const count = (v: number | null | undefined) => fmt(v ?? 0);
   const axis = (v: unknown) => fmt(Number(v));
 
   return (
@@ -120,15 +122,15 @@ function Dashboard({ payload }: { payload: StatsPayload }) {
         <Grid size={{ xs: 6, md: 4 }}>
           <Kpi
             label="Activations"
-            value={fmt(payload.totals.activations)}
-            detail={`${fmt(payload.totals.potaActivations)} POTA, ${fmt(payload.totals.sotaActivations)} SOTA`}
+            value={count(payload.totals.activations)}
+            detail={`${count(payload.totals.potaActivations)} POTA, ${count(payload.totals.sotaActivations)} SOTA`}
           />
         </Grid>
         <Grid size={{ xs: 6, md: 4 }}>
           <Kpi
             label="Chasers"
-            value={fmt(payload.totals.chasers)}
-            detail={`${fmt(payload.totals.potaChasers)} POTA, ${fmt(payload.totals.sotaChasers)} SOTA`}
+            value={count(payload.totals.chasers)}
+            detail={`${count(payload.totals.potaChasers)} POTA, ${count(payload.totals.sotaChasers)} SOTA`}
           />
         </Grid>
         <Grid size={{ xs: 6, md: 4 }}>
@@ -252,7 +254,7 @@ function Dashboard({ payload }: { payload: StatsPayload }) {
               {...GRID}
               rows={payload.topReferences.map((r, id) => ({ id, ...r, name: r.name ?? "" }))}
               columns={REFERENCE_COLUMNS}
-              columnVisibilityModel={{ name: !mobile }}
+              columnVisibilityModel={{ name: !mobile, program: !mobile }}
             />
           </ChartCard>
         </Grid>

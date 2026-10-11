@@ -286,6 +286,9 @@ isOneToOne: false
 "archive_slice_minutes":
 { Args: { "p_source": string }; Returns: number
                            },
+"base_callsign":
+{ Args: { "p_call": string }; Returns: string
+                           },
 "callsign_available":
 { Args: { "p_callsign": string }; Returns: boolean
                            },
@@ -324,6 +327,9 @@ isOneToOne: false
                            },
 "is_private_host":
 { Args: { "p_host": string }; Returns: boolean
+                           },
+"is_self_spot":
+{ Args: { "p_callsign": string,"p_spotter": string }; Returns: boolean
                            },
 "jsonb_text_array":
 { Args: { "p_case": string,"p_values": Json }; Returns: (string)[]
@@ -395,6 +401,9 @@ isOneToOne: false
               "count": number,"spots": Json
             }[]
                            },
+"rbn_day_archived":
+{ Args: { "p_day": string }; Returns: boolean
+                           },
 "rbn_day_slices":
 { Args: { "p_day": string }; Returns: {
               "archived_rows": number,"db_rows": number,"slice_start": string
@@ -413,7 +422,7 @@ isOneToOne: false
 { Args: Record<PropertyKey, never>; Returns: undefined
                            },
 "retire_rbn_day":
-{ Args: { "p_day": string }; Returns: boolean
+{ Args: { "p_day": string }; Returns: undefined
                            },
 "rotate_signing_secret":
 { Args: { "p_destination_id": string }; Returns: string

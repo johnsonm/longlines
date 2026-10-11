@@ -80,4 +80,17 @@ describe("StatsPage", () => {
     renderPage(<StatsPage />);
     expect(screen.getByText("Most spotted parks and summits")).toBeInTheDocument();
   });
+
+  it("renders a snapshot written before activations and chasers existed", () => {
+    // After a migration the newest row keeps its old shape until the next hourly refresh.
+    const totals: Record<string, number> = { ...PAYLOAD.totals };
+    for (const key of ["activations", "potaActivations", "sotaActivations", "chasers", "potaChasers", "sotaChasers"]) {
+      delete totals[key];
+    }
+    const stats = { ...STATS, payload: { ...PAYLOAD, totals } } as unknown as LatestStats;
+    vi.mocked(useStats).mockReturnValue({ stats, loading: false, error: null });
+    renderPage(<StatsPage />);
+    expect(screen.getByText("12,345")).toBeInTheDocument();
+    expect(screen.getAllByText("0 POTA, 0 SOTA")).toHaveLength(2);
+  });
 });
