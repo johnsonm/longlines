@@ -12,7 +12,7 @@
     "check": "deno check supabase/functions/*/index.ts relay/main.ts",
     "lint": "deno lint supabase/functions scripts relay",
     "fmt": "deno fmt supabase/functions scripts relay deno.json",
-    "coverage": "rm -rf coverage && deno test -P --coverage=coverage supabase/functions/_shared/__tests__/ && deno coverage --exclude=__tests__ coverage && deno coverage --lcov --output=coverage/lcov.info --exclude=__tests__ coverage && deno run --allow-read scripts/check-coverage.ts coverage/lcov.info 80"
+    "coverage": "rm -rf coverage && deno test -P --coverage=coverage supabase/functions/_shared/__tests__/ relay/__tests__/ && deno coverage --exclude=__tests__ coverage && deno coverage --lcov --output=coverage/lcov.info --exclude=__tests__ coverage && deno run --allow-read scripts/check-coverage.ts coverage/lcov.info 80"
   },
   "lint": {
     "rules": {
