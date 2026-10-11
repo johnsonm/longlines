@@ -67,6 +67,16 @@ begin
   assert exists (select 1 from cron.job where jobname = 'maintain-rbn-spots'),
     'maintain-rbn-spots should be scheduled';
 
+  -- Archive: the slice RPCs answer, the job is scheduled, the bucket is private.
+  assert (select row_count from public.archive_ndjson('rbn', now() - interval '1 day', now() + interval '1 minute')) >= 1,
+    'archive_ndjson should see the smoke rbn row';
+  perform * from public.archive_pending_slices('pota', now(), 10);
+  assert exists (select 1 from cron.job where jobname = 'archive-spots' and schedule = '*/10 * * * *'),
+    'archive-spots should run every 10 minutes';
+  assert to_regclass('storage.buckets') is null
+      or exists (select 1 from storage.buckets where id = 'archive' and not public),
+    'the archive bucket should exist and be private';
+
   -- Stats snapshot: cron job exists and the refresh inserts one row.
   assert exists (select 1 from cron.job where jobname = 'refresh-stats-snapshot' and schedule = '5 * * * *'),
     'refresh-stats-snapshot should run at five past every hour';

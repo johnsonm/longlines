@@ -23,7 +23,20 @@ export type Database = {
           }
         },"public": {
           Tables: {
-            "deliveries": {
+            "archive_log": {
+                  Row: {
+                    "archived_at": string,"bytes": number | null,"object_path": string | null,"row_count": number,"slice_end": string,"slice_start": string,"source": string
+                  }
+                  Insert: {
+                    "archived_at"?: string,"bytes"?: number | null,"object_path"?: string | null,"row_count": number,"slice_end": string,"slice_start": string,"source": string
+                  }
+                  Update: {
+                    "archived_at"?: string,"bytes"?: number | null,"object_path"?: string | null,"row_count"?: number,"slice_end"?: string,"slice_start"?: string,"source"?: string
+                  }
+                  Relationships: [
+                    
+                  ]
+                },"deliveries": {
                   Row: {
                     "attempts": number,"created_at": string,"destination_id": string,"id": number,"last_error": string | null,"sent_at": string | null,"spot_id": number,"status": string,"subscription_id": string
                   }
@@ -224,7 +237,14 @@ isOneToOne: false
                 }
           }
           Views: {
-            "ingest_health": {
+            "archive_status": {
+                  Row: {
+                    "archived_through": string | null,"pending_slices": number | null,"source": string | null
+                  }
+                  Relationships: [
+                    
+                  ]
+                },"ingest_health": {
                   Row: {
                     "consecutive_failures": number | null,"last_error": string | null,"last_run_at": string | null,"last_success_at": string | null,"seconds_since_last_success": number | null,"source": string | null,"spots_last_24h": number | null,"spots_last_hour": number | null,"total_spots_ingested": number | null
                   }
@@ -253,7 +273,20 @@ isOneToOne: false
                 }
           }
           Functions: {
-            "callsign_available":
+            "archive_ndjson":
+{ Args: { "p_from": string,"p_source": string,"p_to": string }; Returns: {
+              "ndjson": string,"row_count": number
+            }[]
+                           },
+"archive_pending_slices":
+{ Args: { "p_before": string,"p_limit": number,"p_source": string }; Returns: {
+              "slice_end": string,"slice_start": string
+            }[]
+                           },
+"archive_slice_minutes":
+{ Args: { "p_source": string }; Returns: number
+                           },
+"callsign_available":
 { Args: { "p_callsign": string }; Returns: boolean
                            },
 "claim_deliveries":
@@ -336,6 +369,9 @@ isOneToOne: false
         isOneToOne: false
         isSetofReturn: true
       } },
+"log_archive":
+{ Args: { "p_bytes": number,"p_object_path": string,"p_row_count": number,"p_slice_end": string,"p_slice_start": string,"p_source": string }; Returns: undefined
+                           },
 "maintain_rbn_spots":
 { Args: Record<PropertyKey, never>; Returns: undefined
                            },
@@ -359,6 +395,11 @@ isOneToOne: false
               "count": number,"spots": Json
             }[]
                            },
+"rbn_day_slices":
+{ Args: { "p_day": string }; Returns: {
+              "archived_rows": number,"db_rows": number,"slice_start": string
+            }[]
+                           },
 "record_ingest_failure":
 { Args: { "p_error": string,"p_source": string }; Returns: undefined
                            },
@@ -370,6 +411,9 @@ isOneToOne: false
                            },
 "refresh_stats_snapshot":
 { Args: Record<PropertyKey, never>; Returns: undefined
+                           },
+"retire_rbn_day":
+{ Args: { "p_day": string }; Returns: boolean
                            },
 "rotate_signing_secret":
 { Args: { "p_destination_id": string }; Returns: string

@@ -64,8 +64,8 @@ select ok(has_function_privilege('service_role', 'public.ingest_rbn_spots(jsonb)
 select throws_ok(
   format('select ingest_rbn_spots(%L::jsonb)', jsonb_build_array(pg_temp.spot(now(), 'K5BAD') || '{"speed_unit":"FPS"}')),
   '23514', null, 'speed_unit must be WPM or BPS');
-select ok(exists (select 1 from cron.job where jobname = 'maintain-rbn-spots' and schedule = '30 3 * * *'),
-  'maintain-rbn-spots runs daily at 03:30 UTC');
+select ok(exists (select 1 from cron.job where jobname = 'maintain-rbn-spots' and schedule = '35 3 * * *'),
+  'maintain-rbn-spots runs daily at 03:35 UTC (moved off the archive grid by 20261011000005)');
 
 select * from finish();
 rollback;

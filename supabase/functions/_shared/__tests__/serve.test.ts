@@ -1,7 +1,7 @@
 import { assertEquals } from "@std/assert";
 import { runIngest } from "../ingest.ts";
 import { ingestHandler, pushIngestHandler } from "../serve.ts";
-import type { IngestDb, Source, SourceAdapter, WatchlistDb } from "../types.ts";
+import type { IngestDb, SourceAdapter } from "../types.ts";
 
 function adapter(feed: unknown): SourceAdapter {
   return {
@@ -52,25 +52,17 @@ Deno.test("ingestHandler stringifies non-Error throws", async () => {
 const SECRET = "relay-secret";
 
 function pushHandler(
-  overrides: { secret?: string; watchlist?: () => Promise<string[]> } = {},
-): { handler: (req: Request) => Promise<Response>; bodies: unknown[]; watched: Source[] } {
+  overrides: { secret?: string } = {},
+): { handler: (req: Request) => Promise<Response>; bodies: unknown[] } {
   const bodies: unknown[] = [];
-  const watched: Source[] = [];
-  const pushDb: IngestDb & WatchlistDb = {
-    ...db,
-    watchedCallsigns: (source) => {
-      watched.push(source);
-      return overrides.watchlist?.() ?? Promise.resolve(["K1ABC", "W1AW"]);
-    },
-  };
-  const handler = pushIngestHandler("rbn", (body, d) => {
+  const handler = pushIngestHandler("rbn", (body, d: IngestDb) => {
     bodies.push(body);
     return runIngest({ ...adapter([]), source: "rbn" }, d);
   }, {
-    db: () => pushDb,
+    db: () => db,
     secret: () => "secret" in overrides ? overrides.secret : SECRET,
   });
-  return { handler, bodies, watched };
+  return { handler, bodies };
 }
 
 function relayRequest(method: string, secret: string | null, body?: string): Request {
@@ -91,24 +83,9 @@ Deno.test("pushIngestHandler rejects a missing or wrong relay secret", async () 
 
 Deno.test("pushIngestHandler fails closed when the secret is not configured", async () => {
   const { handler } = pushHandler({ secret: undefined });
-  const res = await handler(relayRequest("GET", ""));
+  const res = await handler(relayRequest("POST", "", "{}"));
   assertEquals(res.status, 500);
   assertEquals((await res.json()).error, "missing environment variable LONGLINES_RELAY_SECRET");
-});
-
-Deno.test("pushIngestHandler GET returns the watchlist for its source", async () => {
-  const { handler, watched } = pushHandler();
-  const res = await handler(relayRequest("GET", SECRET));
-  assertEquals(res.status, 200);
-  assertEquals(await res.json(), { source: "rbn", callsigns: ["K1ABC", "W1AW"] });
-  assertEquals(watched, ["rbn"]);
-});
-
-Deno.test("pushIngestHandler GET reports a watchlist failure as a 500", async () => {
-  const { handler } = pushHandler({ watchlist: () => Promise.reject(new Error("db down")) });
-  const res = await handler(relayRequest("GET", SECRET));
-  assertEquals(res.status, 500);
-  assertEquals(await res.json(), { source: "rbn", error: "db down" });
 });
 
 Deno.test("pushIngestHandler POST runs the ingest over the request body", async () => {
@@ -133,10 +110,15 @@ Deno.test("pushIngestHandler refuses other methods", async () => {
 
 Deno.test("pushIngestHandler POST turns a run error into a 500 naming the source", async () => {
   const handler = pushIngestHandler("rbn", () => Promise.reject(new Error("disk full")), {
-    db: () => ({ ...db, watchedCallsigns: () => Promise.resolve([]) }),
+    db: () => db,
     secret: () => SECRET,
   });
   const res = await handler(relayRequest("POST", SECRET, JSON.stringify({ lines: [] })));
   assertEquals(res.status, 500);
   assertEquals(await res.json(), { source: "rbn", error: "disk full" });
+});
+
+Deno.test("pushIngestHandler refuses GET now that the relay no longer reads a watchlist", async () => {
+  const { handler } = pushHandler();
+  assertEquals((await handler(relayRequest("GET", SECRET))).status, 405);
 });
