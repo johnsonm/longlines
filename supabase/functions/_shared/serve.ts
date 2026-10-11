@@ -3,12 +3,12 @@
 //
 // Pulled sources (POTA, SOTAwatch) are invoked by pg_cron with the service-role
 // key. Pushed sources (RBN) are invoked by the relay, which holds only the
-// relay secret: GET returns the watchlist, POST ingests a batch of lines.
+// relay secret, with POST batches of lines.
 
 import { createIngestDb, createRbnDb, createServiceClient, createWatchlistDb } from "./db.ts";
 import { runIngest } from "./ingest.ts";
 import type { RbnPushDb } from "./rbn_push.ts";
-import type { IngestDb, IngestSummary, Source, SourceAdapter, WatchlistDb } from "./types.ts";
+import type { IngestDb, IngestSummary, Source, SourceAdapter } from "./types.ts";
 
 const RELAY_SECRET_ENV = "LONGLINES_RELAY_SECRET";
 
@@ -49,13 +49,13 @@ async function secretsMatch(provided: string, expected: string): Promise<boolean
   return diff === 0;
 }
 
-export interface PushDeps<D extends WatchlistDb> {
+export interface PushDeps<D> {
   db: () => D;
   /** The shared secret the relay sends in x-relay-secret; undefined when unset. */
   secret: () => string | undefined;
 }
 
-export function pushIngestHandler<D extends WatchlistDb>(
+export function pushIngestHandler<D>(
   source: Source,
   run: (body: unknown, db: D) => Promise<IngestSummary>,
   deps: PushDeps<D>,
@@ -69,17 +69,6 @@ export function pushIngestHandler<D extends WatchlistDb>(
     }
     if (!await secretsMatch(req.headers.get("x-relay-secret") ?? "", expected)) {
       return Response.json({ source, error: "unauthorized" }, { status: 401 });
-    }
-
-    if (req.method === "GET") {
-      try {
-        const callsigns = await deps.db().watchedCallsigns(source);
-        return Response.json({ source, callsigns });
-      } catch (error) {
-        const message = errorMessage(error);
-        console.error(`ingest-${source} watchlist failed: ${message}`);
-        return Response.json({ source, error: message }, { status: 500 });
-      }
     }
 
     if (req.method === "POST") {
