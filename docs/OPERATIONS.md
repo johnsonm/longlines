@@ -283,21 +283,26 @@ supabase secrets set LONGLINES_RELAY_SECRET=<secret>
 supabase functions deploy ingest-rbn
 
 # 2. Relay (Fly side), from the repository root
-fly apps create longlines-relay                    # name must match app in relay/fly.toml
-fly secrets set --config relay/fly.toml \
+fly apps create longlines-relay                    # name must match app in fly.toml
+fly secrets set \
   LONGLINES_FUNCTIONS_URL=https://<project-ref>.supabase.co/functions/v1 \
   LONGLINES_RELAY_SECRET=<secret> \
   RELAY_LOGIN_CALL=<callsign>
-fly deploy . --config relay/fly.toml --dockerfile relay/Dockerfile --ha=false
-fly scale count 1 --config relay/fly.toml          # exactly one machine: one telnet session
+fly deploy --ha=false                              # --ha=false: one machine, not two
+fly scale count 1                                  # exactly one machine: one telnet session
 ```
 
 ## Automatic deploys
 
 Deploys on merge to `main` come from Fly's GitHub integration, set up in the Fly dashboard rather
-than in this repo. It must build from the repository root (the image needs
-`supabase/functions/_shared`) with `relay/fly.toml` and `relay/Dockerfile`, the same as the
+than in this repo. It deploys from the root `fly.toml`, which builds `relay/Dockerfile` with the
+repository root as context (the image needs `supabase/functions/_shared`), the same as the
 `fly deploy` line above.
+
+When the integration was first connected, Fly's launcher opened a PR (#30) with its own generic
+`fly.toml`, `Dockerfile` and `example.ts`. That config ran a nonexistent `main.ts` as root, added a
+public HTTP service that auto-stops idle machines, and created two machines. Do not merge such a
+PR again; the root `fly.toml` here is the relay's real config.
 
 Two things to know about it:
 
@@ -309,7 +314,7 @@ Two things to know about it:
 
 It deploys only the relay. Migrations (`supabase db push`) and the `ingest-rbn` function
 (`supabase functions deploy ingest-rbn`) are still applied by hand; do those first when a change
-needs both sides. After the first deploy, check `fly scale show --config relay/fly.toml` reports
+needs both sides. After the first deploy, check `fly scale show` reports
 one machine.
 
 A deploy restarts the machine; the relay pushes what it has buffered before exiting.
@@ -317,8 +322,8 @@ A deploy restarts the machine; the relay pushes what it has buffered before exit
 ## Is it running?
 
 ```sh
-fly logs --config relay/fly.toml          # "connected to ...", "watchlist: N callsigns", stats every 10 min
-fly checks list --config relay/fly.toml   # /healthz: per-feed connected, last_data_at, watching, pushed
+fly logs                                  # "connected to ...", "watchlist: N callsigns", stats every 10 min
+fly checks list                           # /healthz: per-feed connected, last_data_at, watching, pushed
 ```
 
 ```sql
@@ -343,7 +348,7 @@ Set the new value on both sides; spots buffered in between are retried and kept.
 
 ```sh
 supabase secrets set LONGLINES_RELAY_SECRET=<new>
-fly secrets set LONGLINES_RELAY_SECRET=<new> --config relay/fly.toml
+fly secrets set LONGLINES_RELAY_SECRET=<new>
 ```
 
 ## Local run

@@ -1,6 +1,6 @@
 // Long Lines stream relay. Holds one telnet connection per feed, keeps the
 // lines that report a watched callsign, and pushes them to the feed's Edge
-// Function. Runs on Fly.io (see relay/fly.toml); docs/OPERATIONS.md has the
+// Function. Runs on Fly.io (see the root fly.toml); docs/OPERATIONS.md has the
 // deploy steps.
 
 import { loadConfig, type RelayConfig } from "./config.ts";
