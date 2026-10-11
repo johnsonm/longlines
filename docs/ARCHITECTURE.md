@@ -281,15 +281,20 @@ refresh prunes older ones.
 
 ## Counting rules
 
-- Every `raw_spots` row is one spot. A station spotted by both sources counts twice; callsigns are
+- Only `pota` and `sotawatch` rows count; other sources (RBN) report watched stations, not
+  activity. Every such row is one spot. A station spotted by both sources counts twice; callsigns are
   counted exactly as stored (`/P` and the like are kept). A spot is one report, not a contact: a
   busy activation is re-spotted many times, so spot counts run far ahead of operating activity.
-- An activation is one distinct (callsign, reference, UTC day), per program. Only spotted
-  activations are visible and no QSO count is known, so this is a floor on the programs' own
-  numbers. The totals and both top-8 tables carry it next to the spot count.
+- An activation is one distinct (callsign, reference, UTC day), per program. It is an estimate in
+  both directions, not a floor on the programs' own numbers: unspotted activations are missing,
+  while a callsign stored two ways (`KK4PWJ` and `KK4PWJ/P`) at one park on one day, or an attempt
+  that ends short of the QSO minimum, adds one. The totals and both top-8 tables carry it next to
+  the spot count.
 - A chaser is a distinct spotter callsign, excluding null spotters and self-spots. A self-spot is
-  one whose spotter equals any `/`-separated part of the activator callsign (`SQ1GPR` spotting
-  `SQ1GPR/P`, `G4OBK` spotting `W4/G4OBK`). RBN skimmers are stored as plain callsigns and count.
+  one where spotter and activator share a base callsign, the longest `/`-separated part
+  (`base_callsign()`; `is_self_spot()` is the one definition): `SQ1GPR` or `SQ1GPR/M` spotting
+  `SQ1GPR/P`, `EA2/G4OBK` spotting itself, `G4OBK/P` spotting `W4/G4OBK`. An RBNHole spot whose
+  comment names no skimmer has a null spotter. Skimmers named by RBNHole count as chasers.
 - POTA state counts come from `pota_location`, a comma-separated list such as `US-NC,US-VA`; a park
   spanning two states counts once in each. Non-US entries and territories are ignored and all 51
   codes (50 states and DC) are always present, zero-filled.

@@ -1,7 +1,7 @@
 // Pure normalization helpers shared by the source adapters. No I/O.
 
 const TEST_COMMENT = /\btest(ing)?\b/i;
-const RBNHOLE_SPOTTER = /\[RBNHole\]\s+at\s+(\S+)\s/;
+const RBNHOLE_SPOTTER = /\[RBNHole\]\s+at\s+(\S+)/i;
 const HAS_UTC_OFFSET = /(Z|[+-]\d{2}:?\d{2})$/i;
 
 /** Uppercase with every whitespace character removed. */
@@ -18,7 +18,8 @@ export function cleanPotaSpotter(value: string | null | undefined): string | nul
 
 /**
  * SOTAwatch spotter: uppercase, trimmed. RBNHOLE spots carry the real spotter
- * in the comment ("[RBNHole] at DL1HWS 21 WPM ..."); use it when present.
+ * in the comment ("[RBNHole] at DL1HWS 21 WPM ..."); use it when present, and
+ * null (unknown) when it is not, since RBNHOLE is the bot, not a station.
  */
 export function cleanSotaSpotter(
   value: string | null | undefined,
@@ -29,7 +30,7 @@ export function cleanSotaSpotter(
   if (cleaned === "") return null;
   if (cleaned === "RBNHOLE") {
     const match = RBNHOLE_SPOTTER.exec(comment);
-    if (match?.[1]) return match[1];
+    return match?.[1] ? match[1].toUpperCase() : null;
   }
   return cleaned;
 }

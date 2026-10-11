@@ -3,7 +3,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(66);
+select plan(77);
 
 -- Start from empty tables so every count below is exact. Both are empty on a
 -- fresh CI database; locally the cron jobs may have filled them. deliveries
@@ -32,10 +32,11 @@ values
   ('pota', 'x1', 'x1', pg_temp.at_utc(7, 1),   'XX1OUT', null, 14062, '20m', 'cw', '', 'US-9999', 'Out Park', 'US-WY', null, '{}'),
   ('pota', 'x2', 'x2', pg_temp.at_utc(-1, 12), 'XX1OUT', null, 14062, '20m', 'cw', '', 'US-9999', 'Out Park', 'US-WY', null, '{}'),
   -- Day 1: KK4PWJ at a park spanning NC and VA. The newest row has no park name. Three spots, one
-  -- activation; K1GMS spots twice and the third spot is a self-spot (not a chaser).
+  -- activation; K1GMS spots twice and the third spot is a self-spot (not a chaser) even though the
+  -- spotter carries a suffix the activator does not.
   ('pota', 'p1', 'p1', pg_temp.at_utc(1, 20), 'KK4PWJ', 'K1GMS',  14062, '20m', 'cw',  '', 'US-2763', 'Old Park Name', 'US-NC,US-VA', null, '{}'),
   ('pota', 'p2', 'p2', pg_temp.at_utc(1, 21), 'KK4PWJ', 'K1GMS',  14062, '20m', 'cw',  '', 'US-2763', 'New Park Name', 'US-NC,US-VA', null, '{}'),
-  ('pota', 'p3', 'p3', pg_temp.at_utc(1, 22), 'KK4PWJ', 'KK4PWJ', 7185,  '40m', 'ssb', '', 'US-2763', null,            'US-NC,US-VA', null, '{}'),
+  ('pota', 'p3', 'p3', pg_temp.at_utc(1, 22), 'KK4PWJ', 'KK4PWJ/P', 7185,  '40m', 'ssb', '', 'US-2763', null,            'US-NC,US-VA', null, '{}'),
   -- Days 2 and 3: N4DXX at the same park on two days (one reference, two activations); usb and lsb
   -- both land in SSB. One location has a space after the comma. K1GMS chases again, VE3ABC once.
   ('pota', 'p4', 'p4', pg_temp.at_utc(2, 20), 'N4DXX', 'K1GMS',  7185, '40m', 'usb', '', 'US-0817', 'Park B', 'US-NC, US-GA', null, '{}'),
@@ -47,14 +48,16 @@ values
   ('pota', 'p8',  'p8',  pg_temp.at_utc(4, 20), 'W1AW', null, 14080, '20m', 'ft4', '', 'US-0002', 'Park D', 'US-MA', null, '{}'),
   ('pota', 'p9',  'p9',  pg_temp.at_utc(4, 11), 'W1AW', null, 14062, '20m', null,  '', 'US-0003', 'Park E', 'US-MA', null, '{}'),
   ('pota', 'p10', 'p10', pg_temp.at_utc(4, 20), 'W1AW', null, 14074, '20m', 'ft8', '', 'US-0003', 'Park E', 'US-MA', null, '{}'),
-  -- Days 5 and 6: SOTA. W4C twice; SP four times in one hour, the busiest slot. SQ1GPR spotting
-  -- SQ1GPR/P is a self-spot despite the suffix, so W4ABC is the only SOTA chaser.
+  -- Days 5 and 6: SOTA. W4C twice; SP four times in one hour, the busiest slot. SQ1GPR/P is spotted
+  -- by SQ1GPR, by SQ1GPR/P exactly and by SQ1GPR/M: all self-spots, so W4ABC is the only SOTA chaser.
   ('sotawatch', 's1', 's1', pg_temp.at_utc(5, 12), 'W4/G4OBK', 'W4ABC',  7032,   '40m', 'cw',  '', null, null, null, 'W4C/CM-001', '{}'),
   ('sotawatch', 's2', 's2', pg_temp.at_utc(5, 13), 'W4/G4OBK', 'W4ABC',  7032,   '40m', 'cw',  '', null, null, null, 'W4C/CM-002', '{}'),
   ('sotawatch', 's3', 's3', pg_temp.at_utc(6, 14), 'SQ1GPR/P', 'SQ1GPR', 7097,   '40m', 'ssb', '', null, null, null, 'SP/SS-004',  '{}'),
-  ('sotawatch', 's4', 's4', pg_temp.at_utc(6, 14), 'SQ1GPR/P', 'SQ1GPR', 145500, '2m',  'fm',  '', null, null, null, 'SP/SS-004',  '{}'),
-  ('sotawatch', 's5', 's5', pg_temp.at_utc(6, 14), 'SQ1GPR/P', 'SQ1GPR', 7032,   '40m', 'cw',  '', null, null, null, 'SP/SS-004',  '{}'),
-  ('sotawatch', 's6', 's6', pg_temp.at_utc(6, 14), 'SQ1GPR/P', 'SQ1GPR', 7032,   '40m', 'cw',  '', null, null, null, 'SP/SS-004',  '{}');
+  ('sotawatch', 's4', 's4', pg_temp.at_utc(6, 14), 'SQ1GPR/P', 'SQ1GPR/P', 145500, '2m',  'fm',  '', null, null, null, 'SP/SS-004',  '{}'),
+  ('sotawatch', 's5', 's5', pg_temp.at_utc(6, 14), 'SQ1GPR/P', 'SQ1GPR/M', 7032,   '40m', 'cw',  '', null, null, null, 'SP/SS-004',  '{}'),
+  ('sotawatch', 's6', 's6', pg_temp.at_utc(6, 14), 'SQ1GPR/P', 'SQ1GPR', 7032,   '40m', 'cw',  '', null, null, null, 'SP/SS-004',  '{}'),
+  -- RBN: a skimmer report of a watched station, in the window. Not activity, so no total, chart or table counts it.
+  ('rbn', 'r1', 'r1', pg_temp.at_utc(2, 20), 'RB1N', 'W3LPL', 14035, '20m', 'cw', '12 dB 22 WPM CQ', null, null, null, null, '{}');
 -- Ingest stores mode_family from _shared/modes.ts; these rows bypass ingest, so set it the way modes.ts would.
 update raw_spots set mode_family = case
   when mode = 'cw'                          then 'cw'
@@ -68,8 +71,9 @@ select is((select count(*) from stats_snapshots), 1::bigint, 'refresh inserts ex
 select is((select window_start from stats_snapshots), pg_temp.at_utc(0, 0), 'window_start is 00:00 UTC seven days ago');
 select is((select window_end from stats_snapshots), pg_temp.at_utc(7, 0), 'window_end is 00:00 UTC today');
 
--- totals: 16 in-window rows; today and eight days ago are excluded.
+-- totals: 16 in-window POTA and SOTA rows; today, eight days ago and the RBN row are excluded.
 select is((pg_temp.snap() #>> '{totals,spots}')::int, 16, 'totals.spots counts only in-window rows');
+select is((select count(*) from raw_spots where source = 'rbn')::int, 1, 'setup: an in-window RBN row exists and is left out of every count');
 select is((pg_temp.snap() #>> '{totals,potaSpots}')::int, 10, 'totals.potaSpots');
 select is((pg_temp.snap() #>> '{totals,sotaSpots}')::int, 6, 'totals.sotaSpots');
 select is((pg_temp.snap() #>> '{totals,activators}')::int, 6, 'totals.activators counts distinct callsigns as stored');
@@ -79,11 +83,23 @@ select is((pg_temp.snap() #>> '{totals,references}')::int, 9, 'totals.references
 select is((pg_temp.snap() #>> '{totals,activations}')::int, 10, 'totals.activations: 7 POTA + 3 SOTA, one more than references');
 select is((pg_temp.snap() #>> '{totals,potaActivations}')::int, 7, 'totals.potaActivations');
 select is((pg_temp.snap() #>> '{totals,sotaActivations}')::int, 3, 'totals.sotaActivations');
--- chasers: distinct spotters, excluding null and self-spots (spotter equal to any '/'-separated part of
--- the activator callsign). K1GMS is counted once across three spots; KK4PWJ and SQ1GPR are self-spots.
+-- chasers: distinct spotters, excluding null and self-spots (spotter and activator share a base
+-- callsign). K1GMS is counted once across three spots; KK4PWJ/P and every SQ1GPR form are self-spots.
 select is((pg_temp.snap() #>> '{totals,chasers}')::int, 3, 'totals.chasers: K1GMS, VE3ABC, W4ABC');
-select is((pg_temp.snap() #>> '{totals,potaChasers}')::int, 2, 'totals.potaChasers excludes the exact self-spot');
-select is((pg_temp.snap() #>> '{totals,sotaChasers}')::int, 1, 'totals.sotaChasers excludes the suffixed self-spot');
+select is((pg_temp.snap() #>> '{totals,potaChasers}')::int, 2, 'totals.potaChasers excludes a self-spot by a suffixed spotter');
+select is((pg_temp.snap() #>> '{totals,sotaChasers}')::int, 1, 'totals.sotaChasers excludes plain, exact and re-suffixed self-spots');
+
+-- base_callsign and is_self_spot, the one definition of a self-spot.
+select is(base_callsign('G4OBK'), 'G4OBK', 'base_callsign: a plain call is its own base');
+select is(base_callsign('W4/G4OBK'), 'G4OBK', 'base_callsign: prefix dropped');
+select is(base_callsign('KK4PWJ/P'), 'KK4PWJ', 'base_callsign: suffix dropped');
+select is(base_callsign('EA8/G4OBK/QRP'), 'G4OBK', 'base_callsign: prefix and suffix dropped');
+select is(base_callsign('VP2V/W1AW'), 'W1AW', 'base_callsign: a tie goes to the later part');
+select ok(is_self_spot('EA2/G4OBK', 'EA2/G4OBK'), 'is_self_spot: exact slashed call');
+select ok(is_self_spot('W4/G4OBK', 'G4OBK/P'), 'is_self_spot: different prefix and suffix on each side');
+select ok(not is_self_spot('W4/G4OBK', 'W4'), 'is_self_spot: sharing only a prefix is not a self-spot');
+select ok(not is_self_spot('KK4PWJ', null), 'is_self_spot: a null spotter is not a self-spot');
+select ok(not has_function_privilege('authenticated', 'public.is_self_spot(text, text)', 'execute'), 'clients cannot call is_self_spot');
 
 -- peakHour sums over the week (hour 20: five spots on four days); busiestSlot is one bucket (day 6, hour 14: four spots).
 select is((pg_temp.snap() ->> 'peakHour')::int, 20, 'peakHour is the hour with most spots across the whole window');

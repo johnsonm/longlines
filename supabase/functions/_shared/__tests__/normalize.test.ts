@@ -36,8 +36,15 @@ Deno.test("cleanSotaSpotter extracts the real spotter from an RBNHole comment", 
   assertEquals(cleanSotaSpotter("RBNHOLE", "[RBNHole] at WX7V/5 13 WPM 15 dB SNR"), "WX7V/5");
 });
 
-Deno.test("cleanSotaSpotter keeps RBNHOLE when the comment has no match", () => {
-  assertEquals(cleanSotaSpotter("RBNHOLE", "something else"), "RBNHOLE");
+Deno.test("cleanSotaSpotter uppercases the RBNHole spotter and accepts it at the end of the comment", () => {
+  assertEquals(cleanSotaSpotter("RBNHOLE", "[RBNHole] at dl1hws 21 WPM 23 dB SNR"), "DL1HWS");
+  assertEquals(cleanSotaSpotter("RBNHOLE", "[RBNHole] at DL1HWS"), "DL1HWS");
+});
+
+Deno.test("cleanSotaSpotter returns null for an RBNHole spot whose comment names no skimmer", () => {
+  // RBNHOLE is the relay bot, not a station; storing it would count it as a chaser.
+  assertEquals(cleanSotaSpotter("RBNHOLE", "something else"), null);
+  assertEquals(cleanSotaSpotter("rbnhole", ""), null);
 });
 
 Deno.test("cleanPotaComment trims and maps null to empty string", () => {
