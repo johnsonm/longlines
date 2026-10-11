@@ -215,3 +215,31 @@ Two PRs:
 
 Deploy order for each: migrations and Edge Functions first, then the relay. The new `ingest-rbn`
 accepts the current relay's watched-only batches, so the order is safe in between.
+
+## Amendment after measurement (2026-10-11, before PR 2)
+
+The CPU budget's open item was measured with a throwaway prototype: one synthetic full RBN hour
+(62,000 rows) built as NDJSON in Postgres in six 10-minute slices, fetched with supabase-js and
+gzipped with `CompressionStream`.
+
+| Measure | Result |
+| --- | --- |
+| NDJSON for the hour | 22.1 MB |
+| Gzipped | 1.59 MB (14x) |
+| Process CPU (user + sys, three runs) | ~0.33 s, of which ~0.04 s is Deno start-up |
+| Wall time | ~0.8 s |
+| One 10-minute slice built in Postgres | 72 ms (not function CPU) |
+
+A normal hour fits the 2 s limit, but a contest hour (several times the average rate) would come
+close on slower hosted hardware. So:
+
+- **Slice length per source.** RBN is archived in 10-minute slices; POTA and SOTAwatch stay
+  hourly. Objects are named by slice start: `<source>/YYYY/MM/DD/HHMM.ndjson.gz` (`HH00` for the
+  hourly sources). `archive_log` is keyed by `(source, slice_start)` with `slice_end`; the slice
+  length lives in one SQL function, `archive_slice_minutes(source)`.
+- **Schedule.** The `archive` function runs every 10 minutes (`*/10 * * * *`), not hourly. Each run
+  takes pending slices oldest first (POTA, SOTAwatch, then RBN) and stops starting new slices once
+  it has archived 60,000 rows, so a normal run does one RBN slice and a backlog clears about six
+  times faster than real time. The two-hour lag is unchanged.
+- **Retention** compares counts per 10-minute RBN slice instead of per hour.
+- **`ingest-rbn` GET** is removed in PR 2: the relay deployed with PR 1 no longer calls it.
