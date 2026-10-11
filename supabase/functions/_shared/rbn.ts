@@ -1,8 +1,8 @@
 // Reverse Beacon Network source adapter. RBN spots are pushed, not pulled: the
-// relay (relay/main.ts) holds the telnet stream at telnet.reversebeacon.net:7000,
-// keeps the lines whose station is on the watchlist, and POSTs them to
-// ingest-rbn. rbnAdapter() wraps one such request body so runIngest can treat
-// it like a fetched feed.
+// relay (relay/main.ts) holds the telnet stream at telnet.reversebeacon.net:7000
+// and POSTs every spot line to ingest-rbn. rbnSpotRow() turns each line into an
+// rbn_spots row; rbnAdapter() wraps the watched lines of a request so runIngest
+// can treat them like a fetched feed (see rbn_push.ts).
 //
 // Request body:
 //   { "lines": [{ "line": "<telnet line>", "received_at": "<ISO 8601 UTC>" }, ...] }
@@ -25,6 +25,9 @@ import type { JsonObject, NormalizeResult, RbnSpotRow, SourceAdapter } from "./t
 
 const MAX_AGE_MS = 5 * 60 * 1000;
 const MAX_LINES = 1000;
+// rbn_spots.snr and speed are smallint; a larger value would fail the whole
+// batch in Postgres instead of just this line.
+const SMALLINT_MAX = 32767;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 const SPOT_LINE =
@@ -117,9 +120,15 @@ function rbnComment(parsed: RbnLine): string {
  */
 export function rbnSpotRow(raw: JsonObject): RbnSpotRow {
   const line = requireString(raw, "line");
+  // jsonb rejects U+0000, so a NUL would fail the whole batch in Postgres.
+  if (line.includes("\u0000")) throw new Error("line contains a NUL character");
   const receivedAt = parseUtc(requireString(raw, "received_at"));
   const parsed = parseRbnLine(line);
   if (!parsed) throw new Error("not an RBN spot line");
+  const snr = Number(parsed.snr);
+  const speed = Number(parsed.speed);
+  if (Math.abs(snr) > SMALLINT_MAX) throw new Error(`snr out of range: ${parsed.snr}`);
+  if (speed > SMALLINT_MAX) throw new Error(`speed out of range: ${parsed.speed}`);
   const frequencyKhz = parseKhz(parsed.frequency, "khz");
   const mode = resolveMode(parsed.mode, rbnComment(parsed));
   return {
@@ -131,8 +140,8 @@ export function rbnSpotRow(raw: JsonObject): RbnSpotRow {
     band: bandForFrequency(frequencyKhz),
     mode,
     mode_family: modeFamily(mode),
-    snr: Number(parsed.snr),
-    speed: Number(parsed.speed),
+    snr,
+    speed,
     speed_unit: parsed.speedUnit,
     spot_type: parsed.type,
     line,

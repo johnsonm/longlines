@@ -21,6 +21,11 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/** The item with every U+0000 removed: ingest_failures.raw_payload is jsonb, which rejects it. */
+function withoutNul(raw: JsonObject): JsonObject {
+  return JSON.parse(JSON.stringify(raw).replaceAll("\\u0000", "")) as JsonObject;
+}
+
 export async function runRbnPush(
   body: unknown,
   db: RbnPushDb,
@@ -40,7 +45,7 @@ export async function runRbnPush(
         rows.push(rbnSpotRow(raw));
         kept.push(raw);
       } catch (error) {
-        failures.push({ source: "rbn", error: errorMessage(error), raw_payload: raw });
+        failures.push({ source: "rbn", error: errorMessage(error), raw_payload: withoutNul(raw) });
       }
     }
     if (rows.length > 0) stored = await db.ingestRbnSpots(rows);

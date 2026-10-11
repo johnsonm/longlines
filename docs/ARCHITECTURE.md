@@ -328,8 +328,9 @@ uses about 20 MB). Issue #13 records the options that were weighed first.
   before the firehose and can be removed once none remain.
 - **Everything is stored; watched callsigns are alerted.** The relay forwards every spot line.
   `ingest-rbn` writes each batch to `rbn_spots` (one RPC, `ingest_rbn_spots`), a table
-  partitioned by UTC day that keeps seven days in the database and is archived to Storage (spec
-  `docs/superpowers/specs/2026-10-11-rbn-firehose-archive-design.md`). Only lines whose station is
+  partitioned by UTC day. The design keeps seven days in the database and archives older days to
+  Storage (spec `docs/superpowers/specs/2026-10-11-rbn-firehose-archive-design.md`); until that
+  archive and retention work lands, nothing is dropped. Only lines whose station is
   in `watched_callsigns('rbn')` (callsigns named by enabled subscriptions whose sources are empty or
   include `rbn`) continue through `runIngest` into `raw_spots` and the matcher, so alerting sees a
   few hundred RBN rows a day.

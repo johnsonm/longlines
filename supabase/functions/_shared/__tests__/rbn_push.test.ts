@@ -113,3 +113,13 @@ Deno.test("runRbnPush records the failure and rethrows on a malformed body", asy
   assertEquals(calls.failure.length, 1);
   assertEquals(calls.stored, []);
 });
+
+Deno.test("runRbnPush stores a failure for a NUL line without the NUL", async () => {
+  const { db, calls } = fakeDb();
+  const nul = "DX de W3LPL-#:  14035.10  K1\u0000ABC        CW    12 dB  22 WPM  CQ      1454Z";
+  await runRbnPush({ lines: [item(nul), item(otherLine)] }, db, NOW);
+  assertEquals(calls.stored[0]!.map((r) => r.callsign), ["N2GM"]);
+  const failed = calls.failures.flat();
+  assertEquals(failed.length, 1);
+  assertEquals(String(failed[0]!.raw_payload["line"]).includes("\u0000"), false);
+});

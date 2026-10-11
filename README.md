@@ -53,7 +53,8 @@ new row. Spots that cannot be normalized go to `ingest_failures` instead of abor
 hold, so `relay/` (a small Deno process on one Fly.io machine) keeps a single connection open.
 It forwards every spot in batches every 10 seconds, and pushes an empty batch at least once a
 minute so source health shows the relay is alive. `ingest-rbn` stores every spot in `rbn_spots`
-(seven days in the database, archived to Storage) and sends only spots of callsigns named in a
+(partitioned by day; a rolling seven days with older days archived to Storage once the archive
+work lands, nothing is dropped until then) and sends only spots of callsigns named in a
 subscription on to matching, through the same orchestrator as the pulled sources. The relay
 authenticates with a shared secret and never holds
 a Supabase key. An RBN spot only matches subscriptions that name callsigns, so a broad "any
@@ -91,7 +92,7 @@ verification example in [docs/WEBHOOKS.md](docs/WEBHOOKS.md).
 | `supabase/functions/_shared/` | All Edge Function logic: ingest orchestrator, source adapters, mode canonicalization, delivery formatting and sending. |
 | `supabase/functions/ingest-*`, `deliver`, `send-test`, `sign-in`, `delete-account` | Thin entrypoints around `_shared`. `ingest-rbn` is the push endpoint the relay calls. |
 | `supabase/functions/_shared/__tests__/` | Deno unit tests and the fixtures captured from the real feeds (POTA and SOTAwatch JSON, an RBN telnet capture). Nothing in the suite calls an upstream. |
-| `relay/` | The stream relay that runs on Fly.io: telnet session, watchlist, batching forwarder, `/healthz`, and its Dockerfile. It imports the RBN parser from `_shared`. Tests use a local TCP server, never RBN. |
+| `relay/` | The stream relay that runs on Fly.io: telnet session, batching forwarder, `/healthz`, and its Dockerfile. It imports the RBN parser from `_shared`. Tests use a local TCP server, never RBN. |
 | `fly.toml` | The relay's Fly.io config. It sits at the root because Fly's GitHub integration deploys from there and the image needs `supabase/functions/_shared`. |
 | `supabase/tests/` | pgTAP suites that assert grants, RLS and RPC behavior against a fresh database. |
 | `scripts/` | `smoke-test.sql` (also run by CI) and the one-time `setup-db-settings.sql` for Vault. |
@@ -168,8 +169,9 @@ LONGLINES_RELAY_SECRET=local-secret RELAY_LOGIN_CALL=<your callsign> \
 deno run --allow-net --allow-env relay/main.ts
 ```
 
-This opens a real connection to `telnet.reversebeacon.net`, so stop it when you are done. It
-stores nothing until a subscription includes RBN and names a callsign.
+This opens a real connection to `telnet.reversebeacon.net`, so stop it when you are done. Every
+spot lands in `rbn_spots` (tens of thousands an hour); only callsigns named in a subscription that
+includes RBN go on to `raw_spots` and matching.
 
 The worker refuses plain-http and private addresses, so a receiver on your own machine is
 rejected by default. For local testing only, create `supabase/functions/.env` containing

@@ -200,3 +200,12 @@ Deno.test("parseRelayBody returns the items and rejects bad shapes and oversize 
   assertThrows(() => parseRelayBody({ lines: [null] }));
   assertThrows(() => parseRelayBody({ lines: Array(1001).fill(items[0]) }), Error, "limit is 1000");
 });
+
+Deno.test("rbnSpotRow rejects values Postgres would refuse, so one line cannot fail a batch", () => {
+  const big = "DX de W3LPL-#:  14035.10  K1ABC          CW  99999 dB  22 WPM  CQ      1200Z";
+  assertThrows(() => rbnSpotRow(item(big)), Error, "snr out of range");
+  const fast = "DX de W3LPL-#:  14035.10  K1ABC          CW    12 dB  70000 WPM  CQ      1200Z";
+  assertThrows(() => rbnSpotRow(item(fast)), Error, "speed out of range");
+  const nul = "DX de W3LPL-#:  14035.10  K1\u0000ABC        CW    12 dB  22 WPM  CQ      1200Z";
+  assertThrows(() => rbnSpotRow(item(nul)), Error, "NUL");
+});

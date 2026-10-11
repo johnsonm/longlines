@@ -169,3 +169,8 @@ Deno.test("runTelnet backs off after a refused connection", async () => {
   assertEquals(sleeps.length, 3);
   assertEquals(sleeps[1]! > sleeps[0]!, true);
 });
+
+Deno.test("TelnetDecoder drops NUL bytes (telnet CR NUL padding)", () => {
+  const d = new TelnetDecoder();
+  assertEquals(d.push(new Uint8Array([...enc("ab\r"), 0, ...enc("cd\n")])), ["abcd"]);
+});

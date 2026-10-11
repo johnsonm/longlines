@@ -64,6 +64,16 @@ begin
   if to_regclass('partitions.' || v_name) is not null then
     return;
   end if;
+  -- Hold the default partition while rows move out of it. Without the lock, a
+  -- row for this day committed between the delete and the attach (the relay
+  -- pushes every 10 s) makes ATTACH fail, and every later run with it. Inserts
+  -- into other partitions are not blocked; inserts into the default partition
+  -- wait for this transaction. Checked again under the lock in case a concurrent
+  -- call created the partition first.
+  lock table partitions.rbn_spots_default in exclusive mode;
+  if to_regclass('partitions.' || v_name) is not null then
+    return;
+  end if;
   execute format('create table partitions.%I (like rbn_spots including defaults including constraints)', v_name);
   execute format(
     'with moved as (delete from partitions.rbn_spots_default where spot_time >= %L and spot_time < %L returning *)
