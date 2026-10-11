@@ -322,12 +322,13 @@ A deploy restarts the machine; the relay pushes what it has buffered before exit
 ## Is it running?
 
 ```sh
-fly logs                                  # "connected to ...", "watchlist: N callsigns", stats every 10 min
-fly checks list                           # /healthz: per-feed connected, last_data_at, watching, pushed
+fly logs                                  # "connected to ...", stats every 10 min
+fly checks list                           # /healthz: per-feed connected, last_data_at, dropped, pushed
 ```
 
 ```sql
 select * from ingest_health where source = 'rbn';
+select count(*) from rbn_spots where spot_time > now() - interval '1 hour';  -- tens of thousands when RBN is busy
 ```
 
 `last_success_at` should never be more than about a minute old: the relay pushes a heartbeat
@@ -337,10 +338,18 @@ watched station was on the air.
 ## Why is a watched station not showing up?
 
 1. `select * from watched_callsigns('rbn');` must list it. Only enabled subscriptions whose sources
-   are empty or include RBN contribute. The relay picks up changes within five minutes.
+   are empty or include RBN contribute. Changes apply to the next batch.
 2. The callsign must match exactly, as RBN reports it (`W1AW/4` is not `W1AW`).
 3. RBN hears CW and RTTY on port 7000 only. FT8/FT4 is not connected.
 4. Check `ingest_failures where source = 'rbn'` and the relay logs for `push failed`.
+5. Check `rbn_spots` for the call: if it is there but not in `raw_spots`, the subscription does not
+   watch it; if it is not there, RBN did not hear it.
+
+## rbn_spots size
+
+About 1.5 million rows and 350 MB a day. Until archiving and retention land (PR 2) nothing is
+dropped. `select pg_size_pretty(pg_total_relation_size('rbn_spots'));` shows the total;
+`select tableoid::regclass, count(*) from rbn_spots group by 1 order by 1;` shows rows per day.
 
 ## Rotating the relay secret
 

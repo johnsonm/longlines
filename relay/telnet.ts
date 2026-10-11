@@ -31,8 +31,9 @@ export class TelnetDecoder {
     for (const b of bytes) {
       switch (this.#state) {
         case "data":
+          // NUL is telnet padding (CR NUL), never content; Postgres jsonb rejects it.
           if (b === IAC) this.#state = "iac";
-          else data.push(b);
+          else if (b !== 0) data.push(b);
           break;
         case "iac":
           if (b === IAC) {

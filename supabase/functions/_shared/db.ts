@@ -7,6 +7,8 @@ import type {
   IngestDb,
   InsertedSpot,
   NormalizedSpot,
+  RbnDb,
+  RbnSpotRow,
   Source,
   SpotFailure,
   WatchlistDb,
@@ -79,6 +81,16 @@ export function createWatchlistDb(client: SupabaseClient): WatchlistDb {
       const { data, error } = await client.rpc("watched_callsigns", { p_source: source });
       if (error) throw new Error(`watched_callsigns failed: ${error.message}`);
       return Array.isArray(data) ? data.filter((c): c is string => typeof c === "string") : [];
+    },
+  };
+}
+
+export function createRbnDb(client: SupabaseClient): RbnDb {
+  return {
+    async ingestRbnSpots(rows: RbnSpotRow[]): Promise<number> {
+      const { data, error } = await client.rpc("ingest_rbn_spots", { p_rows: rows });
+      if (error) throw new Error(`ingest_rbn_spots failed: ${error.message}`);
+      return typeof data === "number" ? data : 0;
     },
   };
 }

@@ -1,5 +1,5 @@
 import { assertEquals, assertRejects, assertThrows } from "@std/assert";
-import { parseRbnLine, rbnAdapter, spotTimeFromHhmm } from "../rbn.ts";
+import { parseRbnLine, parseRelayBody, rbnAdapter, rbnSpotRow, spotTimeFromHhmm } from "../rbn.ts";
 import { contentHash } from "../hash.ts";
 import type { JsonObject } from "../types.ts";
 
@@ -148,4 +148,64 @@ Deno.test("rbnAdapter.normalize throws on lines it cannot process", async () => 
   await assertRejects(() => adapter.normalize(item("Local users: 586"), NOW));
   await assertRejects(() => adapter.normalize({ line: line("DX de SM1HEV-#") }, NOW));
   await assertRejects(() => adapter.normalize(item(line("DX de SM1HEV-#"), "yesterday"), NOW));
+});
+
+Deno.test("rbnSpotRow maps a fixture line to an rbn_spots row", () => {
+  const raw = item(line("DX de SM1HEV-#"));
+  assertEquals(rbnSpotRow(raw), {
+    spot_time: "2026-10-11T14:54:00.000Z",
+    received_at: "2026-10-11T14:55:30.000Z",
+    spotter: "SM1HEV",
+    callsign: "CT1JGA/P",
+    frequency_khz: 14038.3,
+    band: "20m",
+    mode: "cw",
+    mode_family: "cw",
+    snr: 8,
+    speed: 24,
+    speed_unit: "WPM",
+    spot_type: "CQ",
+    line: line("DX de SM1HEV-#"),
+  });
+});
+
+Deno.test("rbnSpotRow keeps BPS and marks RTTY digital", () => {
+  const row = rbnSpotRow(item(line("DX de LZ7AA-#:   7043.73")));
+  assertEquals([row.mode, row.mode_family, row.speed, row.speed_unit], [
+    "rtty",
+    "digital",
+    45,
+    "BPS",
+  ]);
+});
+
+Deno.test("rbnSpotRow dates a 2359Z spot received after midnight on the previous day", () => {
+  const text = "DX de W3LPL-#:  14035.10  K1ABC          CW    12 dB  22 WPM  CQ      2359Z";
+  assertEquals(
+    rbnSpotRow(item(text, "2026-10-12T00:00:10Z")).spot_time,
+    "2026-10-11T23:59:00.000Z",
+  );
+});
+
+Deno.test("rbnSpotRow throws on a banner, a missing received_at or a bad one", () => {
+  assertThrows(() => rbnSpotRow(item("Local users: 586")), Error, "not an RBN spot line");
+  assertThrows(() => rbnSpotRow({ line: line("DX de SM1HEV-#") }), Error, "received_at");
+  assertThrows(() => rbnSpotRow(item(line("DX de SM1HEV-#"), "yesterday")));
+});
+
+Deno.test("parseRelayBody returns the items and rejects bad shapes and oversize batches", () => {
+  const items = [item(line("DX de SM1HEV-#"))];
+  assertEquals(parseRelayBody({ lines: items }), items);
+  assertThrows(() => parseRelayBody([]));
+  assertThrows(() => parseRelayBody({ lines: [null] }));
+  assertThrows(() => parseRelayBody({ lines: Array(1001).fill(items[0]) }), Error, "limit is 1000");
+});
+
+Deno.test("rbnSpotRow rejects values Postgres would refuse, so one line cannot fail a batch", () => {
+  const big = "DX de W3LPL-#:  14035.10  K1ABC          CW  99999 dB  22 WPM  CQ      1200Z";
+  assertThrows(() => rbnSpotRow(item(big)), Error, "snr out of range");
+  const fast = "DX de W3LPL-#:  14035.10  K1ABC          CW    12 dB  70000 WPM  CQ      1200Z";
+  assertThrows(() => rbnSpotRow(item(fast)), Error, "speed out of range");
+  const nul = "DX de W3LPL-#:  14035.10  K1\u0000ABC        CW    12 dB  22 WPM  CQ      1200Z";
+  assertThrows(() => rbnSpotRow(item(nul)), Error, "NUL");
 });

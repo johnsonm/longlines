@@ -58,6 +58,15 @@ begin
   select count(*) into n from ingest_health;
   assert n = 3, 'ingest_health should have one row per source';
 
+  -- rbn_spots: the bulk RPC inserts (dedup is covered in rbn_spots.test.sql).
+  assert public.ingest_rbn_spots(jsonb_build_array(jsonb_build_object(
+    'spot_time', now(), 'received_at', now(), 'spotter', 'W3LPL', 'callsign', 'SM0KE',
+    'frequency_khz', 14035.1, 'band', '20m', 'mode', 'cw', 'mode_family', 'cw', 'snr', 12,
+    'speed', 22, 'speed_unit', 'WPM', 'spot_type', 'CQ', 'line', 'smoke'))) = 1,
+    'ingest_rbn_spots should insert one row';
+  assert exists (select 1 from cron.job where jobname = 'maintain-rbn-spots'),
+    'maintain-rbn-spots should be scheduled';
+
   -- Stats snapshot: cron job exists and the refresh inserts one row.
   assert exists (select 1 from cron.job where jobname = 'refresh-stats-snapshot' and schedule = '5 * * * *'),
     'refresh-stats-snapshot should run at five past every hour';

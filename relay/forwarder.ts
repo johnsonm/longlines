@@ -1,7 +1,8 @@
-// Buffers watched lines and pushes them in batches. A push also goes out when
+// Buffers spot lines and pushes them in batches. A push also goes out when
 // nothing has been sent for heartbeatMs, even an empty one, so ingest_state
 // shows the relay alive. Failed pushes keep their lines and retry with backoff;
-// the buffer is bounded so a long Supabase outage cannot exhaust memory.
+// the buffer is bounded (50,000 lines, about 50 minutes of RBN) so a long
+// Supabase outage cannot exhaust memory.
 
 import type { RelayLine } from "./functions.ts";
 
@@ -33,10 +34,10 @@ export class Forwarder {
   constructor(options: ForwarderOptions) {
     this.#opts = {
       now: Date.now,
-      maxBatch: 200,
+      maxBatch: 1_000,
       flushMs: 10_000,
       heartbeatMs: 60_000,
-      maxBuffer: 5_000,
+      maxBuffer: 50_000,
       retryMinMs: 5_000,
       retryMaxMs: 5 * 60_000,
       log: (message) => console.log(message),

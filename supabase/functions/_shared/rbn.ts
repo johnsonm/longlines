@@ -1,8 +1,8 @@
 // Reverse Beacon Network source adapter. RBN spots are pushed, not pulled: the
-// relay (relay/main.ts) holds the telnet stream at telnet.reversebeacon.net:7000,
-// keeps the lines whose station is on the watchlist, and POSTs them to
-// ingest-rbn. rbnAdapter() wraps one such request body so runIngest can treat
-// it like a fetched feed.
+// relay (relay/main.ts) holds the telnet stream at telnet.reversebeacon.net:7000
+// and POSTs every spot line to ingest-rbn. rbnSpotRow() turns each line into an
+// rbn_spots row; rbnAdapter() wraps the watched lines of a request so runIngest
+// can treat them like a fetched feed (see rbn_push.ts).
 //
 // Request body:
 //   { "lines": [{ "line": "<telnet line>", "received_at": "<ISO 8601 UTC>" }, ...] }
@@ -21,10 +21,13 @@ import { bandForFrequency } from "./bands.ts";
 import { contentHash } from "./hash.ts";
 import { cleanCallsign, isTooOld, parseKhz, parseUtc } from "./normalize.ts";
 import { modeFamily, resolveMode } from "./modes.ts";
-import type { JsonObject, NormalizeResult, SourceAdapter } from "./types.ts";
+import type { JsonObject, NormalizeResult, RbnSpotRow, SourceAdapter } from "./types.ts";
 
 const MAX_AGE_MS = 5 * 60 * 1000;
 const MAX_LINES = 1000;
+// rbn_spots.snr and speed are smallint; a larger value would fail the whole
+// batch in Postgres instead of just this line.
+const SMALLINT_MAX = 32767;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 const SPOT_LINE =
@@ -88,6 +91,63 @@ export function spotTimeFromHhmm(hhmm: string, receivedAt: Date): Date {
   return new Date(candidates.reduce((best, t) => distance(t) < distance(best) ? t : best));
 }
 
+/** Validates a relay request body and returns its items in order. Throws on a bad shape. */
+export function parseRelayBody(body: unknown): JsonObject[] {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    throw new Error("expected a JSON object from the relay");
+  }
+  const lines = (body as JsonObject)["lines"];
+  if (!Array.isArray(lines)) throw new Error('expected a "lines" array from the relay');
+  if (lines.length > MAX_LINES) {
+    throw new Error(`relay batch has ${lines.length} lines; the limit is ${MAX_LINES}`);
+  }
+  return lines.map((item: unknown, i) => {
+    if (typeof item !== "object" || item === null || Array.isArray(item)) {
+      throw new Error(`relay line ${i} is not an object`);
+    }
+    return item as JsonObject;
+  });
+}
+
+/** The comment stored in raw_spots: "<snr> dB <speed> <unit> <type>". */
+function rbnComment(parsed: RbnLine): string {
+  return `${parsed.snr} dB ${parsed.speed} ${parsed.speedUnit} ${parsed.type}`;
+}
+
+/**
+ * The rbn_spots row for one relay item. No age cutoff: storage keeps late lines.
+ * Throws when the line is not a spot or received_at is unusable.
+ */
+export function rbnSpotRow(raw: JsonObject): RbnSpotRow {
+  const line = requireString(raw, "line");
+  // jsonb rejects U+0000, so a NUL would fail the whole batch in Postgres.
+  if (line.includes("\u0000")) throw new Error("line contains a NUL character");
+  const receivedAt = parseUtc(requireString(raw, "received_at"));
+  const parsed = parseRbnLine(line);
+  if (!parsed) throw new Error("not an RBN spot line");
+  const snr = Number(parsed.snr);
+  const speed = Number(parsed.speed);
+  if (Math.abs(snr) > SMALLINT_MAX) throw new Error(`snr out of range: ${parsed.snr}`);
+  if (speed > SMALLINT_MAX) throw new Error(`speed out of range: ${parsed.speed}`);
+  const frequencyKhz = parseKhz(parsed.frequency, "khz");
+  const mode = resolveMode(parsed.mode, rbnComment(parsed));
+  return {
+    spot_time: spotTimeFromHhmm(parsed.hhmm, receivedAt).toISOString(),
+    received_at: receivedAt.toISOString(),
+    spotter: parsed.spotter,
+    callsign: parsed.callsign,
+    frequency_khz: frequencyKhz,
+    band: bandForFrequency(frequencyKhz),
+    mode,
+    mode_family: modeFamily(mode),
+    snr,
+    speed,
+    speed_unit: parsed.speedUnit,
+    spot_type: parsed.type,
+    line,
+  };
+}
+
 function requireString(raw: JsonObject, field: string): string {
   const value = raw[field];
   if (typeof value !== "string" || value.trim() === "") {
@@ -106,20 +166,7 @@ export function rbnAdapter(body: unknown): SourceAdapter {
     },
 
     parseFeed(feed: unknown): JsonObject[] {
-      if (typeof feed !== "object" || feed === null || Array.isArray(feed)) {
-        throw new Error("expected a JSON object from the relay");
-      }
-      const lines = (feed as JsonObject)["lines"];
-      if (!Array.isArray(lines)) throw new Error('expected a "lines" array from the relay');
-      if (lines.length > MAX_LINES) {
-        throw new Error(`relay batch has ${lines.length} lines; the limit is ${MAX_LINES}`);
-      }
-      return lines.map((item: unknown, i) => {
-        if (typeof item !== "object" || item === null || Array.isArray(item)) {
-          throw new Error(`relay line ${i} is not an object`);
-        }
-        return item as JsonObject;
-      });
+      return parseRelayBody(feed);
     },
 
     async normalize(raw: JsonObject, now: Date): Promise<NormalizeResult> {
@@ -145,7 +192,7 @@ export function rbnAdapter(body: unknown): SourceAdapter {
       ]);
 
       const frequencyKhz = parseKhz(parsed.frequency, "khz");
-      const comment = `${parsed.snr} dB ${parsed.speed} ${parsed.speedUnit} ${parsed.type}`;
+      const comment = rbnComment(parsed);
       const mode = resolveMode(parsed.mode, comment);
 
       return {

@@ -308,10 +308,10 @@ The payload's TypeScript shape is `StatsPayload` in `web/src/stats/types.ts`; th
 ```mermaid
 flowchart LR
   RBN[telnet.reversebeacon.net:7000] -- "one telnet session" --> R[relay on Fly.io]
-  R -- "GET every 5 min: watched callsigns" --> F[ingest-rbn]
-  R -- "POST batches every 10 s, heartbeat every 60 s" --> F
+  R -- "POST every line, batches every 10 s, heartbeat every 60 s" --> F[ingest-rbn]
+  F -- "rpc ingest_rbn_spots" --> RS[(rbn_spots)]
   F -- "rpc watched_callsigns" --> W[(subscriptions)]
-  F -- "runIngest(rbnAdapter(body))" --> RPC[(ingest_spots)]
+  F -- "runIngest(watched lines)" --> RPC[(ingest_spots)]
 ```
 
 The Reverse Beacon Network only offers a persistent telnet stream. Edge Functions cannot hold one,
@@ -319,18 +319,29 @@ and reconnecting every couple of minutes is not acceptable to RBN, so one small 
 Supabase holds it: `relay/`, a Deno program on a single Fly.io machine (shared-cpu-1x, 256 MB; it
 uses about 20 MB). Issue #13 records the options that were weighed first.
 
-- **Push instead of pull.** `ingest-rbn` uses the same orchestrator as the pulled sources.
-  `rbnAdapter(body)` in `_shared/rbn.ts` wraps the request body so `fetchSpots()` returns it;
-  `runIngest` is unchanged. The relay never sees a Supabase key: it sends a shared secret in
-  `x-relay-secret`, and the function (with `verify_jwt = false`) compares it with
-  `LONGLINES_RELAY_SECRET` in constant time. `GET` returns the watchlist, `POST` ingests a batch.
-- **Watched callsigns only.** RBN carries tens of thousands of spots an hour. The relay forwards a
-  line only when its station is in `watched_callsigns('rbn')`: callsigns named by enabled
-  subscriptions whose sources are empty or include `rbn`. The relay re-reads the list every five
-  minutes and keeps the last good list if a read fails.
-- **One parser.** The relay filters with `parseRbnLine` from `_shared/rbn.ts`, the same function
-  the adapter uses, so the filter and the stored spot cannot disagree about which station a line
-  reports.
+- **Push instead of pull.** `ingest-rbn` runs `runRbnPush` (`_shared/rbn_push.ts`) on each
+  batch: it stores every line, then passes the watched ones to the same orchestrator as the pulled
+  sources, with `rbnAdapter(body)` wrapping them so `fetchSpots()` returns them; `runIngest` is
+  unchanged. The relay never sees a Supabase key: it sends a shared secret in `x-relay-secret`,
+  and the function (with `verify_jwt = false`) compares it with `LONGLINES_RELAY_SECRET` in
+  constant time. `POST` ingests a batch; `GET` still returns the watchlist for relays deployed
+  before the firehose and can be removed once none remain.
+- **Everything is stored; watched callsigns are alerted.** The relay forwards every spot line.
+  `ingest-rbn` writes each batch to `rbn_spots` (one RPC, `ingest_rbn_spots`), a table
+  partitioned by UTC day. The design keeps seven days in the database and archives older days to
+  Storage (spec `docs/superpowers/specs/2026-10-11-rbn-firehose-archive-design.md`); until that
+  archive and retention work lands, nothing is dropped. Only lines whose station is
+  in `watched_callsigns('rbn')` (callsigns named by enabled subscriptions whose sources are empty or
+  include `rbn`) continue through `runIngest` into `raw_spots` and the matcher, so alerting sees a
+  few hundred RBN rows a day.
+- **Partitions.** `maintain_rbn_spots()` runs daily at 03:30 UTC and keeps partitions for today and
+  three days ahead. Partitions live in the `partitions` schema, which PostgREST does not expose and
+  the generated web types do not include. Rows for a day without a partition land in
+  `partitions.rbn_spots_default`; `create_rbn_spots_partition` moves them in when it creates that
+  day.
+- **One parser.** The relay drops non-spot lines with `parseRbnLine` from `_shared/rbn.ts`, the
+  same function `ingest-rbn` uses, so the relay and the stored spot cannot disagree about what a
+  line is.
 - **Dates and ids.** A telnet line has only `HHMMZ`. The adapter takes the instant with that time
   of day closest to the relay's `received_at`. `source_spot_id` is
   `spot_time|spotter|callsign|frequency`; the hash field order is `spot_time, spotter, callsign,

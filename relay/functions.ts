@@ -1,4 +1,4 @@
-// The relay's two calls to its Edge Function: read the watchlist, push a batch.
+// The relay's call to its Edge Function: push a batch of lines.
 
 import { userAgent } from "../supabase/functions/_shared/http.ts";
 
@@ -9,7 +9,6 @@ export interface RelayLine {
 }
 
 export interface FunctionClient {
-  watchlist(): Promise<string[]>;
   push(lines: RelayLine[]): Promise<unknown>;
 }
 
@@ -32,15 +31,6 @@ export function functionClient(
   }
 
   return {
-    async watchlist(): Promise<string[]> {
-      const body = await call({ method: "GET", headers });
-      const callsigns = (body as { callsigns?: unknown }).callsigns;
-      if (!Array.isArray(callsigns) || !callsigns.every((c) => typeof c === "string")) {
-        throw new Error(`GET ${functionName}: expected {callsigns: string[]}`);
-      }
-      return callsigns;
-    },
-
     push(lines: RelayLine[]): Promise<unknown> {
       return call({
         method: "POST",

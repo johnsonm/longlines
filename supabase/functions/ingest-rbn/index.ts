@@ -1,4 +1,4 @@
-import { rbnAdapter } from "../_shared/rbn.ts";
+import { runRbnPush } from "../_shared/rbn_push.ts";
 import { servePush } from "../_shared/serve.ts";
 
-servePush("rbn", rbnAdapter);
+servePush("rbn", runRbnPush);

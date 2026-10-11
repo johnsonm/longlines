@@ -2,6 +2,7 @@
 
 Long Lines is a routing fabric for amateur radio spots. It watches the public spot feeds for
 [Parks on the Air](https://pota.app) and [Summits on the Air](https://sotawatch.sota.org.uk),
+plus the [Reverse Beacon Network](https://reversebeacon.net) for the callsigns you follow,
 normalizes every spot into one shape, and delivers the ones you care about to a Discord channel
 or a signed webhook within about a minute of them being posted.
 
@@ -19,9 +20,10 @@ quirks, and the only way to follow them is to keep a browser tab open and refres
 Long Lines exists so that you can describe what you want once ("CW on 20m and 40m from any
 SOTA summit", "this list of callsigns on any band") and have matching spots pushed to you, from
 every supported source, in a single format. It also exists as a small, honest example of
-running a real-time pipeline entirely on Supabase: Postgres does the scheduling, queuing and
-matching, and two kinds of Edge Function do the only parts that need to talk to the outside
-world.
+running a real-time pipeline almost entirely on Supabase: Postgres does the scheduling, queuing
+and matching, and two kinds of Edge Function do the parts that need to talk to the outside world.
+The one exception is a small relay on Fly.io for the feed that only exists as a persistent
+connection.
 
 ## How it works
 
@@ -48,9 +50,16 @@ a content hash, so re-fetching an unchanged feed inserts nothing and an edited s
 new row. Spots that cannot be normalized go to `ingest_failures` instead of aborting the run.
 
 **Streaming sources.** RBN only offers a persistent telnet stream, which an Edge Function cannot
-hold, so `relay/` (a small Deno process on Fly.io) keeps one connection open, forwards only spots
-of callsigns named in a subscription, and pushes them to `ingest-rbn`, which runs the same
-orchestrator. See `docs/ARCHITECTURE.md` ("Streaming sources: the relay").
+hold, so `relay/` (a small Deno process on one Fly.io machine) keeps a single connection open.
+It forwards every spot in batches every 10 seconds, and pushes an empty batch at least once a
+minute so source health shows the relay is alive. `ingest-rbn` stores every spot in `rbn_spots`
+(partitioned by day; a rolling seven days with older days archived to Storage once the archive
+work lands, nothing is dropped until then) and sends only spots of callsigns named in a
+subscription on to matching, through the same orchestrator as the pulled sources. The relay
+authenticates with a shared secret and never holds
+a Supabase key. An RBN spot only matches subscriptions that name callsigns, so a broad "any
+source, 20m CW" subscription is not flooded with other people's watchlist hits. See
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) ("Streaming sources: the relay").
 
 **Match.** `match_pending_spots()` is a Postgres function on a one-minute cron, also poked after
 every successful ingest. It joins a batch of `spot_events` against every enabled subscription
@@ -81,8 +90,10 @@ verification example in [docs/WEBHOOKS.md](docs/WEBHOOKS.md).
 | --- | --- |
 | `supabase/migrations/` | Schema, RPCs, queues, cron jobs. Applied migrations are never edited; add a new one. |
 | `supabase/functions/_shared/` | All Edge Function logic: ingest orchestrator, source adapters, mode canonicalization, delivery formatting and sending. |
-| `supabase/functions/ingest-*`, `deliver`, `send-test`, `sign-in`, `delete-account` | Thin entrypoints around `_shared`. |
-| `supabase/functions/_shared/__tests__/` | Deno unit tests and the fixture JSON captured from the real feeds. Nothing in the suite calls an upstream. |
+| `supabase/functions/ingest-*`, `deliver`, `send-test`, `sign-in`, `delete-account` | Thin entrypoints around `_shared`. `ingest-rbn` is the push endpoint the relay calls. |
+| `supabase/functions/_shared/__tests__/` | Deno unit tests and the fixtures captured from the real feeds (POTA and SOTAwatch JSON, an RBN telnet capture). Nothing in the suite calls an upstream. |
+| `relay/` | The stream relay that runs on Fly.io: telnet session, batching forwarder, `/healthz`, and its Dockerfile. It imports the RBN parser from `_shared`. Tests use a local TCP server, never RBN. |
+| `fly.toml` | The relay's Fly.io config. It sits at the root because Fly's GitHub integration deploys from there and the image needs `supabase/functions/_shared`. |
 | `supabase/tests/` | pgTAP suites that assert grants, RLS and RPC behavior against a fresh database. |
 | `scripts/` | `smoke-test.sql` (also run by CI) and the one-time `setup-db-settings.sql` for Vault. |
 | `web/` | The user-facing app. `src/lib/api.ts` is the only module that touches supabase-js. |
@@ -146,6 +157,22 @@ npm run db:match
 npm run invoke:deliver
 ```
 
+RBN spots arrive through the relay rather than an invoke. To run it against the local stack,
+serve the functions with a relay secret and start the relay with the same value:
+
+```sh
+echo 'LONGLINES_RELAY_SECRET=local-secret' > /tmp/relay.env
+supabase functions serve --env-file /tmp/relay.env
+
+LONGLINES_FUNCTIONS_URL=http://127.0.0.1:54321/functions/v1 \
+LONGLINES_RELAY_SECRET=local-secret RELAY_LOGIN_CALL=<your callsign> \
+deno run --allow-net --allow-env relay/main.ts
+```
+
+This opens a real connection to `telnet.reversebeacon.net`, so stop it when you are done. Every
+spot lands in `rbn_spots` (tens of thousands an hour); only callsigns named in a subscription that
+includes RBN go on to `raw_spots` and matching.
+
 The worker refuses plain-http and private addresses, so a receiver on your own machine is
 rejected by default. For local testing only, create `supabase/functions/.env` containing
 `LONGLINES_ALLOW_INSECURE_DESTINATIONS=1` and insert the destination row directly in SQL, as
@@ -157,7 +184,7 @@ project.
 ```sh
 npm run test:all             # every CI check, then a pass/fail summary
 npm run test:all:fresh       # the same after `supabase db reset`
-npm run test:deno            # one group: fmt, lint, check and unit tests for the Edge Functions
+npm run test:deno            # one group: fmt, lint, check and unit tests for the Edge Functions and relay
 npm run test:db              # one group: db lint, pgTAP and scripts/smoke-test.sql (stack must be running)
 ```
 
@@ -236,7 +263,8 @@ supabase link --project-ref <PROJECT_REF>
 supabase db push
 
 supabase secrets set LONGLINES_USER_AGENT_URL=https://github.com/<you>/longlines
-for fn in ingest-pota ingest-sotawatch deliver send-test sign-in delete-account; do
+supabase secrets set LONGLINES_RELAY_SECRET=<openssl rand -hex 32>   # shared with the relay
+for fn in ingest-pota ingest-sotawatch ingest-rbn deliver send-test sign-in delete-account; do
   supabase functions deploy "$fn"
 done
 
@@ -245,5 +273,30 @@ done
 psql "$DATABASE_URL" -f scripts/setup-db-settings.sql
 ```
 
-After a minute or two, `select * from ingest_health;` should show both sources with a recent
-`last_success_at`. The web app deploys to Vercel from `web/` as a plain static site.
+After a minute or two, `select * from ingest_health;` should show POTA and SOTAwatch with a
+recent `last_success_at`. The web app deploys to Vercel from `web/` as a plain static site.
+
+### The relay on Fly.io
+
+The relay is one `shared-cpu-1x` machine with 256 MB (it uses about 20 MB). Set it up once, from
+the repository root:
+
+```sh
+fly apps create longlines-relay
+fly secrets set \
+  LONGLINES_FUNCTIONS_URL=https://<PROJECT_REF>.supabase.co/functions/v1 \
+  LONGLINES_RELAY_SECRET=<same value as above> \
+  RELAY_LOGIN_CALL=<your callsign>
+fly deploy --ha=false        # --ha=false: one machine, so one session to RBN
+```
+
+After that, Fly's GitHub integration (connected in the Fly dashboard) deploys every merge to
+`main` from the root `fly.toml`. When the integration is first connected, Fly's launcher opens a
+PR with its own generic `fly.toml`, `Dockerfile` and `example.ts`. Close it rather than merging:
+that config runs the wrong entrypoint, exposes a public HTTP service that stops the idle machine,
+and asks for two machines.
+
+Once deployed, `fly logs` should show `connected to telnet.reversebeacon.net:7000` and
+`ingest_health` should show `rbn` with a `last_success_at` under a minute old. The deploy order,
+secret rotation and troubleshooting are in [docs/OPERATIONS.md](docs/OPERATIONS.md) ("Relay
+(RBN)").

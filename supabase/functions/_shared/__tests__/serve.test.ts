@@ -1,4 +1,5 @@
 import { assertEquals } from "@std/assert";
+import { runIngest } from "../ingest.ts";
 import { ingestHandler, pushIngestHandler } from "../serve.ts";
 import type { IngestDb, Source, SourceAdapter, WatchlistDb } from "../types.ts";
 
@@ -62,9 +63,9 @@ function pushHandler(
       return overrides.watchlist?.() ?? Promise.resolve(["K1ABC", "W1AW"]);
     },
   };
-  const handler = pushIngestHandler("rbn", (body) => {
+  const handler = pushIngestHandler("rbn", (body, d) => {
     bodies.push(body);
-    return { ...adapter([]), source: "rbn" };
+    return runIngest({ ...adapter([]), source: "rbn" }, d);
   }, {
     db: () => pushDb,
     secret: () => "secret" in overrides ? overrides.secret : SECRET,
@@ -128,4 +129,14 @@ Deno.test("pushIngestHandler POST rejects a body that is not JSON", async () => 
 Deno.test("pushIngestHandler refuses other methods", async () => {
   const { handler } = pushHandler();
   assertEquals((await handler(relayRequest("DELETE", SECRET))).status, 405);
+});
+
+Deno.test("pushIngestHandler POST turns a run error into a 500 naming the source", async () => {
+  const handler = pushIngestHandler("rbn", () => Promise.reject(new Error("disk full")), {
+    db: () => ({ ...db, watchedCallsigns: () => Promise.resolve([]) }),
+    secret: () => SECRET,
+  });
+  const res = await handler(relayRequest("POST", SECRET, JSON.stringify({ lines: [] })));
+  assertEquals(res.status, 500);
+  assertEquals(await res.json(), { source: "rbn", error: "disk full" });
 });

@@ -28,6 +28,26 @@ export interface NormalizedSpot {
   raw_payload: JsonObject;
 }
 
+/**
+ * One row for rbn_spots, every RBN spot the relay forwards. Keys match the
+ * columns so the batch can be passed straight to the ingest_rbn_spots RPC.
+ */
+export interface RbnSpotRow {
+  spot_time: string; // ISO 8601 UTC
+  received_at: string; // ISO 8601 UTC
+  spotter: string;
+  callsign: string;
+  frequency_khz: number;
+  band: string | null;
+  mode: string | null;
+  mode_family: ModeFamily | null;
+  snr: number;
+  speed: number;
+  speed_unit: "WPM" | "BPS";
+  spot_type: string;
+  line: string;
+}
+
 /** Why a well-formed upstream spot was intentionally not stored. */
 export type SkipReason = "too_old" | "test_comment" | "not_normal";
 
@@ -58,6 +78,8 @@ export interface IngestSummary {
   inserted: number;
   skipped: Record<SkipReason, number>;
   failed: number;
+  /** Rows written to rbn_spots by a push (RBN only). */
+  stored?: number;
   /** Deliveries created by the matcher, or null when it did not run. */
   matched: number | null;
   match_error?: string;
@@ -92,4 +114,10 @@ export interface IngestDb {
 /** The relay's view of the subscriptions: which stations to forward for a pushed source. */
 export interface WatchlistDb {
   watchedCallsigns(source: Source): Promise<string[]>;
+}
+
+/** Bulk storage of every RBN spot. Implemented by db.ts over ingest_rbn_spots. */
+export interface RbnDb {
+  /** Inserts the batch, skipping spots already stored; returns rows inserted. */
+  ingestRbnSpots(rows: RbnSpotRow[]): Promise<number>;
 }
