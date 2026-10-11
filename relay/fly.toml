@@ -1,0 +1,29 @@
+# Fly.io app for the stream relay. Deploy from the repository root so the
+# build context includes supabase/functions/_shared:
+#   fly deploy . --config relay/fly.toml --dockerfile relay/Dockerfile --ha=false
+# Secrets (fly secrets set ...): LONGLINES_FUNCTIONS_URL, LONGLINES_RELAY_SECRET,
+# RELAY_LOGIN_CALL. See docs/OPERATIONS.md.
+
+app = "longlines-relay"
+primary_region = "iad"
+
+# Fly's default kill signal; main.ts flushes buffered lines on it.
+kill_signal = "SIGINT"
+kill_timeout = "10s"
+
+# One machine, smallest size. Exactly one copy may run: a second would open a
+# second telnet session to each upstream.
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
+
+# No [http_service]: the relay accepts no public traffic. The check reaches the
+# health port over Fly's private network and shows in `fly checks list`.
+[checks]
+  [checks.healthz]
+    type = "http"
+    port = 8080
+    path = "/healthz"
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "60s"

@@ -14,7 +14,7 @@ jobs:
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
-      - run: deno fmt --check supabase/functions scripts deno.json
+      - run: deno fmt --check supabase/functions scripts relay deno.json
       - run: deno task lint
       - run: deno task check
       # Runs the tests and fails below 80% line coverage or when a module is never loaded.

@@ -1,5 +1,5 @@
 import { assertEquals, assertRejects, assertThrows } from "@std/assert";
-import { createIngestDb, createServiceClient } from "../db.ts";
+import { createIngestDb, createServiceClient, createWatchlistDb } from "../db.ts";
 import type { NormalizedSpot } from "../types.ts";
 import { fakeSupabase } from "./fake_supabase.ts";
 
@@ -78,4 +78,23 @@ Deno.test("every IngestDb method surfaces database errors with context", async (
   await assertRejects(() => db.recordSuccess("pota", 0, null), Error, "record_ingest_success");
   await assertRejects(() => db.recordFailure("pota", "x"), Error, "record_ingest_failure");
   await assertRejects(() => db.matchPendingSpots(), Error, "match_pending_spots failed");
+});
+
+Deno.test("watchedCallsigns calls the RPC for the source and keeps only strings", async () => {
+  const { client, calls } = fakeSupabase({
+    rpc: { watched_callsigns: { data: ["K1ABC", null, "W1AW"] } },
+  });
+  assertEquals(await createWatchlistDb(client).watchedCallsigns("rbn"), ["K1ABC", "W1AW"]);
+  assertEquals(calls.rpc, [{ fn: "watched_callsigns", args: { p_source: "rbn" } }]);
+});
+
+Deno.test("watchedCallsigns treats a null result as an empty list and throws on error", async () => {
+  const a = fakeSupabase({ rpc: { watched_callsigns: { data: null } } });
+  assertEquals(await createWatchlistDb(a.client).watchedCallsigns("rbn"), []);
+  const b = fakeSupabase({ rpc: { watched_callsigns: boom } });
+  await assertRejects(
+    () => createWatchlistDb(b.client).watchedCallsigns("rbn"),
+    Error,
+    "watched_callsigns failed: boom",
+  );
 });

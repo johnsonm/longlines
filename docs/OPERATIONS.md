@@ -267,3 +267,94 @@ supabase gen types typescript --local > web/src/lib/database.types.ts
 ```
 
 The generated file is committed; CI type-checks the app against it.
+
+# Relay (RBN)
+
+The relay in `relay/` runs on Fly.io as app `longlines-relay`. Design notes are in
+`docs/ARCHITECTURE.md` ("Streaming sources: the relay").
+
+## First deploy
+
+```sh
+# 1. Database and function (Supabase side)
+supabase db push                                   # adds the rbn source, watchlist RPC, matcher guard
+openssl rand -hex 32                               # the relay secret; use it in both places below
+supabase secrets set LONGLINES_RELAY_SECRET=<secret>
+supabase functions deploy ingest-rbn
+
+# 2. Relay (Fly side), from the repository root
+fly apps create longlines-relay                    # name must match app in relay/fly.toml
+fly secrets set --config relay/fly.toml \
+  LONGLINES_FUNCTIONS_URL=https://<project-ref>.supabase.co/functions/v1 \
+  LONGLINES_RELAY_SECRET=<secret> \
+  RELAY_LOGIN_CALL=<callsign>
+fly deploy . --config relay/fly.toml --dockerfile relay/Dockerfile --ha=false
+fly scale count 1 --config relay/fly.toml          # exactly one machine: one telnet session
+```
+
+## Automatic deploys
+
+Deploys on merge to `main` come from Fly's GitHub integration, set up in the Fly dashboard rather
+than in this repo. It must build from the repository root (the image needs
+`supabase/functions/_shared`) with `relay/fly.toml` and `relay/Dockerfile`, the same as the
+`fly deploy` line above.
+
+Two things to know about it:
+
+- It is not gated on CI. A merge to `main` deploys whether or not the PR's checks passed, so keep
+  `main` protected by the CI checks.
+- Every deploy restarts the machine and opens a new session to RBN. If the integration deploys on
+  every push rather than only when `relay/` or `supabase/functions/_shared/*.ts` change, that is
+  one reconnect per merge.
+
+It deploys only the relay. Migrations (`supabase db push`) and the `ingest-rbn` function
+(`supabase functions deploy ingest-rbn`) are still applied by hand; do those first when a change
+needs both sides. After the first deploy, check `fly scale show --config relay/fly.toml` reports
+one machine.
+
+A deploy restarts the machine; the relay pushes what it has buffered before exiting.
+
+## Is it running?
+
+```sh
+fly logs --config relay/fly.toml          # "connected to ...", "watchlist: N callsigns", stats every 10 min
+fly checks list --config relay/fly.toml   # /healthz: per-feed connected, last_data_at, watching, pushed
+```
+
+```sql
+select * from ingest_health where source = 'rbn';
+```
+
+`last_success_at` should never be more than about a minute old: the relay pushes a heartbeat
+every 60 seconds even when no watched station was heard. `spots_last_hour` is zero unless a
+watched station was on the air.
+
+## Why is a watched station not showing up?
+
+1. `select * from watched_callsigns('rbn');` must list it. Only enabled subscriptions whose sources
+   are empty or include RBN contribute. The relay picks up changes within five minutes.
+2. The callsign must match exactly, as RBN reports it (`W1AW/4` is not `W1AW`).
+3. RBN hears CW and RTTY on port 7000 only. FT8/FT4 is not connected.
+4. Check `ingest_failures where source = 'rbn'` and the relay logs for `push failed`.
+
+## Rotating the relay secret
+
+Set the new value on both sides; spots buffered in between are retried and kept.
+
+```sh
+supabase secrets set LONGLINES_RELAY_SECRET=<new>
+fly secrets set LONGLINES_RELAY_SECRET=<new> --config relay/fly.toml
+```
+
+## Local run
+
+With `supabase start` and `supabase functions serve --env-file <file with LONGLINES_RELAY_SECRET>`:
+
+```sh
+LONGLINES_FUNCTIONS_URL=http://127.0.0.1:54321/functions/v1 \
+LONGLINES_RELAY_SECRET=<same value> RELAY_LOGIN_CALL=<callsign> \
+deno run --allow-net --allow-env relay/main.ts
+```
+
+This opens a real connection to RBN; stop it when done. In Docker, use
+`http://host.docker.internal:54321/functions/v1`.
