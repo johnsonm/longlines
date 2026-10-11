@@ -21,7 +21,7 @@ import { bandForFrequency } from "./bands.ts";
 import { contentHash } from "./hash.ts";
 import { cleanCallsign, isTooOld, parseKhz, parseUtc } from "./normalize.ts";
 import { modeFamily, resolveMode } from "./modes.ts";
-import type { JsonObject, NormalizeResult, SourceAdapter } from "./types.ts";
+import type { JsonObject, NormalizeResult, RbnSpotRow, SourceAdapter } from "./types.ts";
 
 const MAX_AGE_MS = 5 * 60 * 1000;
 const MAX_LINES = 1000;
@@ -88,6 +88,57 @@ export function spotTimeFromHhmm(hhmm: string, receivedAt: Date): Date {
   return new Date(candidates.reduce((best, t) => distance(t) < distance(best) ? t : best));
 }
 
+/** Validates a relay request body and returns its items in order. Throws on a bad shape. */
+export function parseRelayBody(body: unknown): JsonObject[] {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    throw new Error("expected a JSON object from the relay");
+  }
+  const lines = (body as JsonObject)["lines"];
+  if (!Array.isArray(lines)) throw new Error('expected a "lines" array from the relay');
+  if (lines.length > MAX_LINES) {
+    throw new Error(`relay batch has ${lines.length} lines; the limit is ${MAX_LINES}`);
+  }
+  return lines.map((item: unknown, i) => {
+    if (typeof item !== "object" || item === null || Array.isArray(item)) {
+      throw new Error(`relay line ${i} is not an object`);
+    }
+    return item as JsonObject;
+  });
+}
+
+/** The comment stored in raw_spots: "<snr> dB <speed> <unit> <type>". */
+function rbnComment(parsed: RbnLine): string {
+  return `${parsed.snr} dB ${parsed.speed} ${parsed.speedUnit} ${parsed.type}`;
+}
+
+/**
+ * The rbn_spots row for one relay item. No age cutoff: storage keeps late lines.
+ * Throws when the line is not a spot or received_at is unusable.
+ */
+export function rbnSpotRow(raw: JsonObject): RbnSpotRow {
+  const line = requireString(raw, "line");
+  const receivedAt = parseUtc(requireString(raw, "received_at"));
+  const parsed = parseRbnLine(line);
+  if (!parsed) throw new Error("not an RBN spot line");
+  const frequencyKhz = parseKhz(parsed.frequency, "khz");
+  const mode = resolveMode(parsed.mode, rbnComment(parsed));
+  return {
+    spot_time: spotTimeFromHhmm(parsed.hhmm, receivedAt).toISOString(),
+    received_at: receivedAt.toISOString(),
+    spotter: parsed.spotter,
+    callsign: parsed.callsign,
+    frequency_khz: frequencyKhz,
+    band: bandForFrequency(frequencyKhz),
+    mode,
+    mode_family: modeFamily(mode),
+    snr: Number(parsed.snr),
+    speed: Number(parsed.speed),
+    speed_unit: parsed.speedUnit,
+    spot_type: parsed.type,
+    line,
+  };
+}
+
 function requireString(raw: JsonObject, field: string): string {
   const value = raw[field];
   if (typeof value !== "string" || value.trim() === "") {
@@ -106,20 +157,7 @@ export function rbnAdapter(body: unknown): SourceAdapter {
     },
 
     parseFeed(feed: unknown): JsonObject[] {
-      if (typeof feed !== "object" || feed === null || Array.isArray(feed)) {
-        throw new Error("expected a JSON object from the relay");
-      }
-      const lines = (feed as JsonObject)["lines"];
-      if (!Array.isArray(lines)) throw new Error('expected a "lines" array from the relay');
-      if (lines.length > MAX_LINES) {
-        throw new Error(`relay batch has ${lines.length} lines; the limit is ${MAX_LINES}`);
-      }
-      return lines.map((item: unknown, i) => {
-        if (typeof item !== "object" || item === null || Array.isArray(item)) {
-          throw new Error(`relay line ${i} is not an object`);
-        }
-        return item as JsonObject;
-      });
+      return parseRelayBody(feed);
     },
 
     async normalize(raw: JsonObject, now: Date): Promise<NormalizeResult> {
@@ -145,7 +183,7 @@ export function rbnAdapter(body: unknown): SourceAdapter {
       ]);
 
       const frequencyKhz = parseKhz(parsed.frequency, "khz");
-      const comment = `${parsed.snr} dB ${parsed.speed} ${parsed.speedUnit} ${parsed.type}`;
+      const comment = rbnComment(parsed);
       const mode = resolveMode(parsed.mode, comment);
 
       return {
