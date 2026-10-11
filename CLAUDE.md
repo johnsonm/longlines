@@ -153,8 +153,9 @@ relay on pushes to main; nothing else deploys automatically.
 
 ## Testing
 
-- Both suites gate at 80% in CI. The Deno gate (`scripts/check-coverage.ts`) also lists any
-  `supabase/functions` module no test imports, since `deno coverage` silently omits those.
+- Both suites gate at 80% in CI. The Deno gate (`scripts/check-coverage.ts`) checks
+  `supabase/functions` and `relay/` separately and also lists any module no test imports, since
+  `deno coverage` silently omits those.
 - Deno excludes modules whose names end in `test.ts` from coverage, so never name a source file
   `*_test.ts` (hence `handlers/test_delivery.ts` for the send-test function).
 - Web component tests render through `web/src/test/render.tsx` (theme, MemoryRouter, stub App and
@@ -164,6 +165,8 @@ relay on pushes to main; nothing else deploys automatically.
 
 ## Relay rules
 
+- `relay/main.ts` is only the process shell (env, signals, exit code); behavior goes in
+  `relay/relay.ts`, which tests run against a local telnet server and a local functions server.
 - `relay/` holds one telnet session per feed in `relay/feeds.ts` and pushes to an
   `ingest-<source>` function built with `servePush` in `_shared/serve.ts`. Parsing lives in the
   source adapter under `_shared` (the relay imports `parseRbnLine`); never parse spots in `relay/`.
