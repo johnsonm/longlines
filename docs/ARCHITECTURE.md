@@ -333,7 +333,7 @@ uses about 20 MB). Issue #13 records the options that were weighed first.
   in `watched_callsigns('rbn')` (callsigns named by enabled subscriptions whose sources are empty or
   include `rbn`) continue through `runIngest` into `raw_spots` and the matcher, so alerting sees a
   few hundred RBN rows a day.
-- **Partitions.** `maintain_rbn_spots()` runs daily at 03:30 UTC and keeps partitions for today and
+- **Partitions.** `maintain_rbn_spots()` runs daily at 03:35 UTC and keeps partitions for today and
   three days ahead. Partitions live in the `partitions` schema, which PostgREST does not expose and
   the generated web types do not include. Rows for a day without a partition land in
   `partitions.rbn_spots_default`; `create_rbn_spots_partition` moves them in when it creates that
@@ -365,7 +365,7 @@ flowchart LR
   A -- "rpc archive_ndjson" --> N[(rbn_spots / raw_spots)]
   A -- "gzip, upload" --> S[[Storage bucket: archive]]
   A -- "rpc log_archive" --> L[(archive_log)]
-  M[maintain_rbn_spots daily] -- "retire_rbn_day" --> N
+  M[maintain_rbn_spots daily] -- "rbn_day_archived, retire_rbn_day" --> N
 ```
 
 Every spot of every source is kept for analytics as gzipped NDJSON in a private Storage bucket,
@@ -376,7 +376,7 @@ measurement amendment).
   in `archive_slice_minutes(source)`; slices are aligned with `date_bin` and half-open
   (`[start, end)`). Objects are `<source>/YYYY/MM/DD/HHMM.ndjson.gz`.
 - **Postgres does the heavy lifting.** `archive_pending_slices` returns the slices that ended two
-  hours ago and are not logged; `archive_ndjson` builds a slice's NDJSON with `to_json` and
+  hours ago and are not logged, starting at midnight UTC of the first spot's day; `archive_ndjson` builds a slice's NDJSON with `to_json` and
   `string_agg`. The function only gzips and uploads, which measured at about 0.3 s of CPU for a full
   RBN hour against the 2 s limit.
 - **Runs.** pg_cron calls `archive` every 10 minutes with the service-role key (Vault), like the
@@ -390,8 +390,10 @@ measurement amendment).
   mode_family, snr, speed, speed_unit, spot_type, line`. POTA and SOTAwatch: every `raw_spots`
   column except `id`, including the upstream `raw_payload`. Watched RBN rows in `raw_spots` are not
   archived from there.
-- **Retention.** `maintain_rbn_spots()` (03:30 UTC) retires RBN days older than seven with
-  `retire_rbn_day`: the day's partition and any default-partition rows are dropped only when all
+- **Retention.** `maintain_rbn_spots()` (03:35 UTC, off the archive's 10-minute grid) retires RBN
+  days older than seven: `rbn_day_archived` checks every eligible day first, then `retire_rbn_day`
+  drops the archived ones last, so the exclusive lock a partition drop takes is held only briefly
+  and gives up after 5 s. The day's partition and any default-partition rows go only when all
   144 slices are logged with the database's count (`rbn_day_slices`). A mismatched slice loses its
   log row, so the next run re-archives it and the day is retried the next night. `raw_spots` is
   never pruned.

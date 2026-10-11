@@ -32,14 +32,14 @@ select ingest_rbn_spots(jsonb_build_array(
   pg_temp.rbn(pg_temp.y('10:10:00'), 'K1CCC'),
   pg_temp.rbn(pg_temp.y('10:27'), 'K1DDD')));
 
-select is((select count(*) from archive_pending_slices('rbn', pg_temp.y('11:00'), 100))::int, 6,
-  'every 10-minute slice from the first spot up to the cutoff is pending, empty ones included');
-select is((select slice_start from archive_pending_slices('rbn', pg_temp.y('11:00'), 100) limit 1), pg_temp.y('10:00'),
-  'slices are aligned to the clock, oldest first');
-select is((select slice_end from archive_pending_slices('rbn', pg_temp.y('11:00'), 100) limit 1), pg_temp.y('10:10'),
-  'a slice ends 10 minutes after it starts');
+select is((select count(*) from archive_pending_slices('rbn', pg_temp.y('11:00'), 1000))::int, 66,
+  'every 10-minute slice from midnight UTC of the first spot''s day up to the cutoff is pending, empty ones included');
+select is((select slice_start from archive_pending_slices('rbn', pg_temp.y('11:00'), 1000) limit 1), pg_temp.y('00:00'),
+  'pending slices start at midnight UTC so retention can see the whole first day archived');
+select is((select slice_end from archive_pending_slices('rbn', pg_temp.y('11:00'), 1000) where slice_start = pg_temp.y('10:00')),
+  pg_temp.y('10:10'), 'a slice ends 10 minutes after it starts');
 select is((select count(*) from archive_pending_slices('rbn', pg_temp.y('11:00'), 2))::int, 2, 'the limit caps the slices returned');
-select is((select count(*) from archive_pending_slices('rbn', pg_temp.y('10:15'), 100))::int, 1,
+select is((select max(slice_start) from archive_pending_slices('rbn', pg_temp.y('10:15'), 1000)), pg_temp.y('10:00'),
   'a slice is pending only once it has ended before the cutoff');
 
 -- NDJSON: half-open boundaries, shape, order.
@@ -69,7 +69,7 @@ select throws_ok($$ select * from archive_ndjson('dxcluster', now(), now()) $$, 
 -- The log.
 select lives_ok(format('select log_archive(%L, %L, %L, 2, 120, %L)', 'rbn', pg_temp.y('10:00'), pg_temp.y('10:10'), 'rbn/x/1000.ndjson.gz'),
   'log_archive records a slice');
-select is((select slice_start from archive_pending_slices('rbn', pg_temp.y('11:00'), 100) limit 1), pg_temp.y('10:10'),
+select ok(not exists (select 1 from archive_pending_slices('rbn', pg_temp.y('11:00'), 1000) where slice_start = pg_temp.y('10:00')),
   'a logged slice is no longer pending');
 select lives_ok(format('select log_archive(%L, %L, %L, 3, 150, %L)', 'rbn', pg_temp.y('10:00'), pg_temp.y('10:10'), 'rbn/x/1000.ndjson.gz'),
   'log_archive overwrites on re-archive');

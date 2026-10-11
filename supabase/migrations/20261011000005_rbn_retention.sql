@@ -33,37 +33,54 @@ as $$
   order by g.s;
 $$;
 
--- Drops one day if it is fully archived; otherwise clears the log rows of its
--- mismatched slices. Returns true when the day was dropped.
-create function public.retire_rbn_day(p_day date)
+-- Whether every slice of the day is logged with the database's count. Clears the
+-- log rows of mismatched slices so the next archive run writes them again. One
+-- scan of the day: the reset and the check read the same slice counts.
+create function public.rbn_day_archived(p_day date)
 returns boolean
 language plpgsql
 security definer
 set search_path = public
 as $$
 declare
-  v_from timestamptz := p_day::timestamp at time zone 'utc';
-  v_to   timestamptz := (p_day + 1)::timestamp at time zone 'utc';
-  v_bad  int;
+  v_bad   int;
+  v_reset int;
 begin
-  delete from archive_log l
-  using public.rbn_day_slices(p_day) s
-  where l.source = 'rbn' and l.slice_start = s.slice_start and l.row_count <> s.db_rows;
-
-  select count(*) into v_bad
-  from public.rbn_day_slices(p_day) s
-  where s.archived_rows is distinct from s.db_rows;
-  if v_bad > 0 then
-    return false;
-  end if;
-
-  execute format('drop table if exists partitions.%I', 'rbn_spots_' || to_char(p_day, 'YYYYMMDD'));
-  delete from partitions.rbn_spots_default where spot_time >= v_from and spot_time < v_to;
-  return true;
+  with s as (select * from public.rbn_day_slices(p_day)),
+  reset as (
+    delete from archive_log l
+    using s
+    where l.source = 'rbn' and l.slice_start = s.slice_start and l.row_count <> s.db_rows
+    returning 1
+  )
+  select (select count(*) from s where s.archived_rows is distinct from s.db_rows),
+         (select count(*) from reset)
+    into v_bad, v_reset;
+  return v_bad = 0;
 end;
 $$;
 
--- Daily at 03:30 UTC (cron from 20261011000003): partitions ahead, then retention.
+-- Removes one day: its partition, and any of its rows in the default partition.
+-- Callers check rbn_day_archived first.
+create function public.retire_rbn_day(p_day date)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  execute format('drop table if exists partitions.%I', 'rbn_spots_' || to_char(p_day, 'YYYYMMDD'));
+  delete from partitions.rbn_spots_default
+  where spot_time >= p_day::timestamp at time zone 'utc'
+    and spot_time < (p_day + 1)::timestamp at time zone 'utc';
+end;
+$$;
+
+-- Daily at 03:35 UTC: partitions ahead, then retention. Every eligible day is
+-- checked first and the drops come last: dropping a partition takes an ACCESS
+-- EXCLUSIVE lock on rbn_spots until commit, which would otherwise block ingest
+-- while later days are counted. lock_timeout makes a drop give up (and retry
+-- the next night) instead of queueing inserts behind a long-running query.
 create or replace function public.maintain_rbn_spots()
 returns void
 language plpgsql
@@ -73,6 +90,7 @@ as $$
 declare
   v_today date := (now() at time zone 'utc')::date;
   v_day   date;
+  v_drop  date[] := '{}';
 begin
   for v_day in select (v_today + i) from generate_series(0, 3) as i loop
     perform public.create_rbn_spots_partition(v_day);
@@ -88,12 +106,27 @@ begin
     order by 1
   loop
     continue when v_day >= v_today - 7;
-    perform public.retire_rbn_day(v_day);
+    if public.rbn_day_archived(v_day) then
+      v_drop := v_drop || v_day;
+    end if;
+  end loop;
+
+  perform set_config('lock_timeout', '5s', true);
+  foreach v_day in array v_drop loop
+    begin
+      perform public.retire_rbn_day(v_day);
+    exception when lock_not_available then
+      raise warning 'rbn retention: % not dropped (lock timeout); retrying tomorrow', v_day;
+    end;
   end loop;
 end;
 $$;
 
 revoke all on function public.rbn_day_slices(date) from public, anon, authenticated;
+revoke all on function public.rbn_day_archived(date) from public, anon, authenticated;
 revoke all on function public.retire_rbn_day(date) from public, anon, authenticated;
 revoke all on function public.maintain_rbn_spots() from public, anon, authenticated;
 grant execute on function public.maintain_rbn_spots() to service_role;
+
+-- Off the archive job's */10 grid, so the two never start in the same second.
+select cron.schedule('maintain-rbn-spots', '35 3 * * *', $$ select public.maintain_rbn_spots(); $$);

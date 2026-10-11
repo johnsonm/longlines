@@ -397,7 +397,9 @@ The next run rewrites the object at the same path.
 
 ## Retention
 
-`maintain_rbn_spots()` runs at 03:30 UTC. To see why a day is still in the database:
+`maintain_rbn_spots()` runs at 03:35 UTC. It checks every eligible day first and drops the archived
+ones last, giving up on a drop after a 5 s lock wait (it retries the next night). To see why a day
+is still in the database:
 
 ```sql
 select * from rbn_day_slices('2026-10-01') where archived_rows is distinct from db_rows;

@@ -44,8 +44,10 @@ as $$
 $$;
 
 -- Slices of one source that have ended before p_before and are not logged yet,
--- oldest first, from the slice holding the source's earliest spot. Empty slices
--- are included so that a gap in archive_log always means "not archived".
+-- oldest first, from midnight UTC of the day holding the source's earliest spot.
+-- Empty slices are included so that a gap in archive_log always means "not
+-- archived", and starting at midnight lets retention (which needs all 144 RBN
+-- slices of a day logged) retire the first day too.
 create function public.archive_pending_slices(p_source text, p_before timestamptz, p_limit int)
 returns table (slice_start timestamptz, slice_end timestamptz)
 language sql
@@ -64,7 +66,7 @@ as $$
   )
   select g.s, g.s + cfg.step
   from cfg, first_spot,
-       generate_series(date_bin(cfg.step, first_spot.t, timestamptz '2000-01-01 00:00+00'),
+       generate_series(date_trunc('day', first_spot.t at time zone 'utc') at time zone 'utc',
                        p_before - cfg.step, cfg.step) as g(s)
   where first_spot.t is not null
     and not exists (select 1 from archive_log l where l.source = p_source and l.slice_start = g.s)

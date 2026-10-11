@@ -2,7 +2,7 @@
 -- dropped only when every 10-minute slice is archived with the database's count.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(12);
+select plan(13);
 
 create or replace function pg_temp.d(p_offset int) returns date language sql as $$
   select (now() at time zone 'utc')::date + p_offset;
@@ -68,8 +68,22 @@ select ok(pg_temp.partition(-11) is not null, 'a day never archived is kept');
 select is((select count(*) from rbn_spots where callsign = 'D1')::int, 0, 'default-partition rows of an archived day are deleted');
 select ok(pg_temp.partition(-3) is not null, 'a recent day is kept even when archived');
 select ok(not has_function_privilege('authenticated', 'public.retire_rbn_day(date)', 'execute')
+          and not has_function_privilege('authenticated', 'public.rbn_day_archived(date)', 'execute')
           and not has_function_privilege('authenticated', 'public.rbn_day_slices(date)', 'execute'),
   'retention functions are not callable by clients');
+
+-- The real archiver logs only what archive_pending_slices offers. A first day whose first spot is
+-- mid-morning must still be retired: its leading empty slices have to be offered and logged too.
+delete from rbn_spots;
+delete from archive_log;
+select create_rbn_spots_partition(pg_temp.d(-9));
+select ingest_rbn_spots(jsonb_build_array(pg_temp.spot(pg_temp.at(-9, '10:03'), 'F1')));
+select log_archive('rbn', p.slice_start, p.slice_end, n.row_count,
+                   case when n.row_count > 0 then 100 end, case when n.row_count > 0 then 'rbn/test' end)
+from archive_pending_slices('rbn', now() - interval '2 hours', 100000) p,
+     lateral archive_ndjson('rbn', p.slice_start, p.slice_end) n;
+select maintain_rbn_spots();
+select ok(pg_temp.partition(-9) is null, 'a first day archived only through archive_pending_slices is retired');
 
 select * from finish();
 rollback;
