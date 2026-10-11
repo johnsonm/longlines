@@ -8,6 +8,14 @@
 -- The unique key includes spot_time because Postgres requires the partition key
 -- in every unique constraint; it is also what identifies an RBN spot, so a batch
 -- the relay retries inserts nothing new.
+--
+-- Partitions live in their own schema, `partitions`, which PostgREST does not
+-- expose and `supabase gen types` does not read. In public, every day would add
+-- a table to the API and to web/src/lib/database.types.ts. Inserts and queries go
+-- through the parent, public.rbn_spots.
+
+create schema partitions;
+revoke all on schema partitions from public, anon, authenticated;
 
 create table rbn_spots (
   spot_time      timestamptz   not null,
@@ -31,12 +39,12 @@ create index rbn_spots_callsign_time_idx on rbn_spots (callsign, spot_time);
 
 -- Catches rows for a day without a partition (the daily job did not run), so an
 -- insert never fails for lack of one. create_rbn_spots_partition moves them out.
-create table rbn_spots_default partition of rbn_spots default;
+create table partitions.rbn_spots_default partition of rbn_spots default;
 
 alter table rbn_spots enable row level security;
-alter table rbn_spots_default enable row level security;
+alter table partitions.rbn_spots_default enable row level security;
 revoke all on rbn_spots from anon, authenticated;
-revoke all on rbn_spots_default from anon, authenticated;
+revoke all on partitions.rbn_spots_default from anon, authenticated;
 
 -- Creates the partition for one UTC day. A plain CREATE ... PARTITION OF fails
 -- when the default partition already holds rows for that day, so the table is
@@ -53,17 +61,17 @@ declare
   v_from timestamptz := p_day::timestamp at time zone 'utc';
   v_to   timestamptz := (p_day + 1)::timestamp at time zone 'utc';
 begin
-  if to_regclass('public.' || v_name) is not null then
+  if to_regclass('partitions.' || v_name) is not null then
     return;
   end if;
-  execute format('create table %I (like rbn_spots including defaults including constraints)', v_name);
+  execute format('create table partitions.%I (like rbn_spots including defaults including constraints)', v_name);
   execute format(
-    'with moved as (delete from rbn_spots_default where spot_time >= %L and spot_time < %L returning *)
-     insert into %I select * from moved',
+    'with moved as (delete from partitions.rbn_spots_default where spot_time >= %L and spot_time < %L returning *)
+     insert into partitions.%I select * from moved',
     v_from, v_to, v_name);
-  execute format('alter table rbn_spots attach partition %I for values from (%L) to (%L)', v_name, v_from, v_to);
-  execute format('alter table %I enable row level security', v_name);
-  execute format('revoke all on %I from anon, authenticated', v_name);
+  execute format('alter table rbn_spots attach partition partitions.%I for values from (%L) to (%L)', v_name, v_from, v_to);
+  execute format('alter table partitions.%I enable row level security', v_name);
+  execute format('revoke all on partitions.%I from anon, authenticated', v_name);
 end;
 $$;
 

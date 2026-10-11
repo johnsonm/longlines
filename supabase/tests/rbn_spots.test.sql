@@ -2,10 +2,10 @@
 -- partition hand-off, dedup, the bulk-insert RPC, grants and the cron job.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(22);
+select plan(23);
 
 create or replace function pg_temp.day_name(p_offset int) returns text language sql as $$
-  select 'rbn_spots_' || to_char((now() at time zone 'utc')::date + p_offset, 'YYYYMMDD');
+  select 'partitions.rbn_spots_' || to_char((now() at time zone 'utc')::date + p_offset, 'YYYYMMDD');
 $$;
 create or replace function pg_temp.day_start(p_offset int) returns timestamptz language sql as $$
   select ((now() at time zone 'utc')::date + p_offset)::timestamp at time zone 'utc';
@@ -21,10 +21,13 @@ $$;
 -- Partitions: the job is idempotent and keeps today through three days ahead.
 select lives_ok('select maintain_rbn_spots()', 'maintain_rbn_spots runs');
 select lives_ok('select maintain_rbn_spots()', 'maintain_rbn_spots is idempotent');
-select ok(to_regclass('public.' || pg_temp.day_name(0)) is not null, 'today has a partition');
-select ok(to_regclass('public.' || pg_temp.day_name(3)) is not null, 'three days ahead has a partition');
-select ok(to_regclass('public.' || pg_temp.day_name(4)) is null, 'four days ahead is not created yet');
-select ok(to_regclass('public.rbn_spots_default') is not null, 'the default partition exists');
+select ok(to_regclass(pg_temp.day_name(0)) is not null, 'today has a partition');
+select ok(to_regclass(pg_temp.day_name(3)) is not null, 'three days ahead has a partition');
+select ok(to_regclass(pg_temp.day_name(4)) is null, 'four days ahead is not created yet');
+select ok(to_regclass('partitions.rbn_spots_default') is not null, 'the default partition exists');
+-- Partitions live outside public so PostgREST and the generated web types never see one table per day.
+select is((select count(*) from pg_tables where schemaname = 'public' and tablename like 'rbn_spots_%')::int, 0,
+  'no rbn_spots partition is in the public schema');
 
 -- Bulk insert and dedup.
 select is(ingest_rbn_spots(jsonb_build_array(
@@ -43,17 +46,17 @@ select is((select tableoid::regclass::text from rbn_spots where callsign = 'K1TO
 -- day's partition later moves the rows instead of failing.
 select is(ingest_rbn_spots(jsonb_build_array(pg_temp.spot(pg_temp.day_start(-10) + interval '23 hours 59 minutes', 'K4LATE'))), 1,
   'a row for a day without a partition is accepted');
-select is((select tableoid::regclass::text from rbn_spots where callsign = 'K4LATE'), 'rbn_spots_default',
+select is((select tableoid::regclass::text from rbn_spots where callsign = 'K4LATE'), 'partitions.rbn_spots_default',
   'it is held in the default partition');
 select lives_ok(format('select create_rbn_spots_partition(%L::date)', (now() at time zone 'utc')::date - 10),
   'creating that day''s partition succeeds with rows waiting in the default partition');
 select is((select tableoid::regclass::text from rbn_spots where callsign = 'K4LATE'), pg_temp.day_name(-10),
   'rows waiting in the default partition move into the new partition');
-select is((select count(*) from rbn_spots_default)::int, 0, 'the default partition is empty afterwards');
+select is((select count(*) from partitions.rbn_spots_default)::int, 0, 'the default partition is empty afterwards');
 
 -- Access: service role only, including partitions created later.
-select ok((select relrowsecurity from pg_class where relname = pg_temp.day_name(-10)), 'a created partition has RLS on');
-select ok(not has_table_privilege('anon', 'public.' || pg_temp.day_name(-10), 'select'), 'anon cannot read a created partition');
+select ok((select relrowsecurity from pg_class where oid = to_regclass(pg_temp.day_name(-10))), 'a created partition has RLS on');
+select ok(not has_table_privilege('anon', pg_temp.day_name(-10), 'select'), 'anon cannot read a created partition');
 select ok(not has_table_privilege('authenticated', 'public.rbn_spots', 'select'), 'authenticated cannot read rbn_spots');
 select ok(not has_function_privilege('authenticated', 'public.ingest_rbn_spots(jsonb)', 'execute'), 'clients cannot call ingest_rbn_spots');
 select ok(has_function_privilege('service_role', 'public.ingest_rbn_spots(jsonb)', 'execute'), 'service_role can call ingest_rbn_spots');
