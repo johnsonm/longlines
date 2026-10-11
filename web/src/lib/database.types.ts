@@ -125,6 +125,19 @@ isOneToOne: false
                   Relationships: [
                     
                   ]
+                },"rbn_spots": {
+                  Row: {
+                    "band": string | null,"callsign": string,"frequency_khz": number,"ingested_at": string,"line": string,"mode": string | null,"mode_family": string | null,"received_at": string,"snr": number,"speed": number,"speed_unit": string,"spot_time": string,"spot_type": string,"spotter": string
+                  }
+                  Insert: {
+                    "band"?: string | null,"callsign": string,"frequency_khz": number,"ingested_at"?: string,"line": string,"mode"?: string | null,"mode_family"?: string | null,"received_at": string,"snr": number,"speed": number,"speed_unit": string,"spot_time": string,"spot_type": string,"spotter": string
+                  }
+                  Update: {
+                    "band"?: string | null,"callsign"?: string,"frequency_khz"?: number,"ingested_at"?: string,"line"?: string,"mode"?: string | null,"mode_family"?: string | null,"received_at"?: string,"snr"?: number,"speed"?: number,"speed_unit"?: string,"spot_time"?: string,"spot_type"?: string,"spotter"?: string
+                  }
+                  Relationships: [
+                    
+                  ]
                 },"sign_in_attempts": {
                   Row: {
                     "attempted_at": string,"id": number,"identifier": string
@@ -253,6 +266,9 @@ isOneToOne: false
               "created_at": string,"health": string,"id": string,"name": string,"signing_secret": string,"type": string,"url_display": string
             }[]
                            },
+"create_rbn_spots_partition":
+{ Args: { "p_day": string }; Returns: undefined
+                           },
 "delay_deliveries":
 { Args: { "p_delay_seconds": number,"p_msg_ids": (number)[] }; Returns: undefined
                            },
@@ -264,6 +280,9 @@ isOneToOne: false
                            },
 "email_for_identifier":
 { Args: { "p_identifier": string }; Returns: string
+                           },
+"ingest_rbn_spots":
+{ Args: { "p_rows": Json }; Returns: number
                            },
 "ingest_spots":
 { Args: { "p_spots": Json }; Returns: {
@@ -317,6 +336,9 @@ isOneToOne: false
         isOneToOne: false
         isSetofReturn: true
       } },
+"maintain_rbn_spots":
+{ Args: Record<PropertyKey, never>; Returns: undefined
+                           },
 "mark_deliveries_dropped":
 { Args: { "p_delivery_ids": (number)[],"p_msg_ids": (number)[] }; Returns: undefined
                            },

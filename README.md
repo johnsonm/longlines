@@ -51,10 +51,11 @@ new row. Spots that cannot be normalized go to `ingest_failures` instead of abor
 
 **Streaming sources.** RBN only offers a persistent telnet stream, which an Edge Function cannot
 hold, so `relay/` (a small Deno process on one Fly.io machine) keeps a single connection open.
-Every five minutes it asks `ingest-rbn` for the callsigns named in enabled subscriptions; it
-forwards only those stations' spots, in batches every 10 seconds, and pushes an empty batch at
-least once a minute so source health shows the relay is alive. `ingest-rbn` runs the same
-orchestrator as the pulled sources. The relay authenticates with a shared secret and never holds
+It forwards every spot in batches every 10 seconds, and pushes an empty batch at least once a
+minute so source health shows the relay is alive. `ingest-rbn` stores every spot in `rbn_spots`
+(seven days in the database, archived to Storage) and sends only spots of callsigns named in a
+subscription on to matching, through the same orchestrator as the pulled sources. The relay
+authenticates with a shared secret and never holds
 a Supabase key. An RBN spot only matches subscriptions that name callsigns, so a broad "any
 source, 20m CW" subscription is not flooded with other people's watchlist hits. See
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) ("Streaming sources: the relay").

@@ -164,8 +164,10 @@ relay on pushes to main; nothing else deploys automatically.
   source adapter under `_shared` (the relay imports `parseRbnLine`); never parse spots in `relay/`.
 - The relay holds only `LONGLINES_RELAY_SECRET`, never a Supabase key. Push functions have
   `verify_jwt = false` and check `x-relay-secret` themselves.
-- It forwards only callsigns from `watched_callsigns(source)`. `spot_matches` lets an RBN spot match
-  only subscriptions that name callsigns; keep that guard if the predicate changes.
+- The relay forwards every spot line. `ingest-rbn` stores all of them in `rbn_spots` (partitioned by
+  UTC day; partitions live in the `partitions` schema and come from `create_rbn_spots_partition`,
+  never `create table ... partition of`) and runs `runIngest` only over watched callsigns. `spot_matches` lets an RBN spot match only
+  subscriptions that name callsigns; keep that guard if the predicate changes.
 - Be polite: exactly one machine (`fly scale count 1`), reconnect backoff never below 30 s, no
   tests that connect to RBN. Tests use the captured fixture or a local TCP server.
 - Merges to main deploy the relay through Fly's GitHub integration (set up in the Fly dashboard,
