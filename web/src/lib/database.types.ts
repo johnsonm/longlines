@@ -363,6 +363,9 @@ isOneToOne: false
                            },
 "validate_destination_url":
 { Args: { "p_type": string,"p_url": string }; Returns: undefined
+                           },
+"watched_callsigns":
+{ Args: { "p_source": string }; Returns: string[]
                            }
           }
           Enums: {

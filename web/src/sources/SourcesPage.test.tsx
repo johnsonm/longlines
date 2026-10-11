@@ -21,7 +21,7 @@ const health = (source: string, age: number | null, lastHour = 12) =>
   ({ source, seconds_since_last_success: age, spots_last_hour: lastHour }) as IngestHealth;
 
 beforeEach(() => {
-  vi.mocked(loadIngestHealth).mockReset().mockResolvedValue([health("pota", 20), health("sotawatch", 600)]);
+  vi.mocked(loadIngestHealth).mockReset().mockResolvedValue([health("pota", 20), health("sotawatch", 600), health("rbn", 30, 3)]);
   vi.mocked(loadRecentSpots).mockReset().mockResolvedValue([
     spot(1),
     spot(2, { source: "sotawatch", pota_reference: null, sota_summit_ref: "W4C/CM-001", mode: null }),
@@ -35,9 +35,9 @@ afterEach(() => {
 describe("SourcesPage", () => {
   it("shows live source health and planned sources", async () => {
     renderPage(<SourcesPage prefs={UTC} />);
-    expect(await screen.findByText("Connected")).toBeInTheDocument();
+    expect(await screen.findAllByText("Connected")).toHaveLength(2);
     expect(screen.getByText("Delayed")).toBeInTheDocument();
-    expect(screen.getAllByText("Not yet available")).toHaveLength(4);
+    expect(screen.getAllByText("Not yet available")).toHaveLength(3);
     expect(screen.getByText("20s ago")).toBeInTheDocument();
     expect(screen.getAllByText("12")).toHaveLength(2);
   });
@@ -45,7 +45,7 @@ describe("SourcesPage", () => {
   it("marks a live source with no health row as delayed", async () => {
     vi.mocked(loadIngestHealth).mockResolvedValue([]);
     renderPage(<SourcesPage prefs={UTC} />);
-    expect(await screen.findAllByText("Delayed")).toHaveLength(2);
+    expect(await screen.findAllByText("Delayed")).toHaveLength(3);
     expect(screen.getAllByText("–").length).toBeGreaterThan(0);
   });
 

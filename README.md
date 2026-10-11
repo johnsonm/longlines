@@ -25,10 +25,12 @@ world.
 
 ## How it works
 
-Everything runs inside one Supabase project plus a static web app.
+Everything runs inside one Supabase project plus a static web app, except for one small relay
+on Fly.io that holds the telnet stream from the Reverse Beacon Network.
 
 ```
 POTA / SOTAwatch ──► ingest functions ──► raw_spots + spot_events queue
+RBN telnet ──► relay (Fly.io) ──► ingest-rbn ──┘
                                                    │
                                    match_pending_spots (SQL, every minute)
                                                    │
@@ -44,6 +46,11 @@ hands the whole batch to one `ingest_spots` RPC. That RPC inserts into `raw_spot
 a `spot_events` message per new row in a single transaction. Dedup is a unique constraint over
 a content hash, so re-fetching an unchanged feed inserts nothing and an edited spot lands as a
 new row. Spots that cannot be normalized go to `ingest_failures` instead of aborting the run.
+
+**Streaming sources.** RBN only offers a persistent telnet stream, which an Edge Function cannot
+hold, so `relay/` (a small Deno process on Fly.io) keeps one connection open, forwards only spots
+of callsigns named in a subscription, and pushes them to `ingest-rbn`, which runs the same
+orchestrator. See `docs/ARCHITECTURE.md` ("Streaming sources: the relay").
 
 **Match.** `match_pending_spots()` is a Postgres function on a one-minute cron, also poked after
 every successful ingest. It joins a batch of `spot_events` against every enabled subscription

@@ -4,13 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Long Lines ingests ham radio spots from POTA and SOTAwatch into Supabase. Phase 1 (current) is
-ingest-to-storage only; the scope exclusions in `docs/ARCHITECTURE.md` and the original spec are
-deliberate. Do not add auth, RLS, UI, consumers, notifications, cross-source dedup, or new sources
-without being asked.
+Long Lines ingests ham radio spots from POTA, SOTAwatch and the Reverse Beacon Network into
+Supabase. Phase 1 was ingest-to-storage only; the scope exclusions in `docs/ARCHITECTURE.md` and the
+original spec are deliberate. Do not add auth, RLS, UI, consumers, notifications, cross-source
+dedup, or new sources without being asked.
 
-Everything runs on Supabase: Postgres (pg_cron, pg_net, pgmq) plus two Deno Edge Functions in
-strict TypeScript. No JavaScript files, no `any` without a justifying comment, no new runtime
+Everything runs on Supabase: Postgres (pg_cron, pg_net, pgmq) plus Deno Edge Functions in
+strict TypeScript. The one exception is `relay/`, a Deno process on Fly.io that holds telnet streams
+(see "Relay rules"). No JavaScript files, no `any` without a justifying comment, no new runtime
 dependencies without a comment saying why.
 
 ## Commands
@@ -42,6 +43,9 @@ supabase gen types typescript --local > web/src/lib/database.types.ts   # after 
 
 supabase db push                       # hosted: apply migrations
 supabase functions deploy ingest-pota  # hosted: deploy one function
+
+docker build -f relay/Dockerfile .     # relay image; build context is the repo root
+fly deploy . --config relay/fly.toml --dockerfile relay/Dockerfile --ha=false   # hosted relay; normally Fly's GitHub integration
 ```
 
 Local invocation: `curl -X POST http://127.0.0.1:54321/functions/v1/ingest-pota -H "Authorization: Bearer <service_role key printed by supabase start>"`.
@@ -74,7 +78,8 @@ Local invocation: `curl -X POST http://127.0.0.1:54321/functions/v1/ingest-pota 
 `.github/workflows/ci.yml` runs on every PR and push to main: Deno fmt/lint/check/test, then
 `supabase db start` + `supabase db lint` + `scripts/smoke-test.sql` on a fresh Postgres.
 Migrations already applied to the hosted project must not be edited; add a new migration instead
-(see `20261005000009_*`).
+(see `20261005000009_*`). Fly's GitHub integration (configured in the Fly dashboard) deploys the
+relay on pushes to main; nothing else deploys automatically.
 
 ## Phase 2 schema rules
 
@@ -152,11 +157,26 @@ Migrations already applied to the hosted project must not be edited; add a new m
   `test/media.ts` switches `useMediaQuery` to the phone layout. Pure `*.test.ts` files stay in node:
   jsdom applies Vite's browser file guard, which blocks `states.test.ts` reading the migrations.
 
+## Relay rules
+
+- `relay/` holds one telnet session per feed in `relay/feeds.ts` and pushes to an
+  `ingest-<source>` function built with `servePush` in `_shared/serve.ts`. Parsing lives in the
+  source adapter under `_shared` (the relay imports `parseRbnLine`); never parse spots in `relay/`.
+- The relay holds only `LONGLINES_RELAY_SECRET`, never a Supabase key. Push functions have
+  `verify_jwt = false` and check `x-relay-secret` themselves.
+- It forwards only callsigns from `watched_callsigns(source)`. `spot_matches` lets an RBN spot match
+  only subscriptions that name callsigns; keep that guard if the predicate changes.
+- Be polite: exactly one machine (`fly scale count 1`), reconnect backoff never below 30 s, no
+  tests that connect to RBN. Tests use the captured fixture or a local TCP server.
+- Merges to main deploy the relay through Fly's GitHub integration (set up in the Fly dashboard,
+  not in this repo); a merge that changes `relay/` or `_shared/*.ts` ships to production. Never run
+  `fly deploy` or `fly secrets set` yourself unless asked.
+
 ## Conventions
 
-- Time-dependent functions take `now: Date` so tests pin the clock. Fixtures were captured
-  2026-10-05 ~13:45Z; tests set `NOW` inside the five-minute window of the spots they expect to
-  keep.
+- Time-dependent functions take `now: Date` so tests pin the clock. The POTA and SOTAwatch
+  fixtures were captured 2026-10-05 ~13:45Z, the RBN telnet fixture 2026-10-11 14:54-14:56Z; tests
+  set `NOW` inside the five-minute window of the spots they expect to keep.
 - Mode canonicalization, the comment hint and `mode_family` live in `_shared/modes.ts`. SQL only
   compares strings against `mode` and `mode_family`; never re-derive the family in SQL or the web.
 - POTA `spotTime` has no timezone; `parseUtc` appends `Z`. SOTAwatch `type` may be null and is

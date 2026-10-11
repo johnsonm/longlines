@@ -11,7 +11,7 @@ export interface SourceInfo {
 export const SOURCES: SourceInfo[] = [
   { id: "pota", name: "POTA", full: "Parks on the Air", status: "live", interval: "every 60s", pollSeconds: 60, desc: "Activator spots from api.pota.app" },
   { id: "sotawatch", name: "SOTAwatch", full: "Summits on the Air", status: "live", interval: "every 30s", pollSeconds: 30, desc: "Summit activation spots from SOTAwatch" },
-  { id: "rbn", name: "RBN", full: "Reverse Beacon Network", status: "planned", interval: "streaming", pollSeconds: null, desc: "CW and digital skimmer spots" },
+  { id: "rbn", name: "RBN", full: "Reverse Beacon Network", status: "live", interval: "streaming", pollSeconds: 60, desc: "CW and digital skimmer spots" },
   { id: "dxcluster", name: "DX Cluster", full: "DXSpider network", status: "planned", interval: "streaming", pollSeconds: null, desc: "Human-entered DX spots" },
   { id: "pskreporter", name: "PSK Reporter", full: "PSK Reporter", status: "planned", interval: "streaming", pollSeconds: null, desc: "FT8, FT4 and other digital mode reports" },
   { id: "wwff", name: "WWFF", full: "World Wide Flora & Fauna", status: "planned", interval: "streaming", pollSeconds: null, desc: "WWFF reference activations" },

@@ -1,0 +1,96 @@
+Please enter your call: Hello, KK4PWJ! Connected.
+Local users: 586
+Spot rate: 14/s (49,862/h)
+KK4PWJ de RELAY 11-Oct-2026 14:54Z >
+
+DX de SM1HEV-#: 14038.30  CT1JGA/P       CW     8 dB  24 WPM  CQ      1454Z
+DX de DM5GG-#:  18089.00  N2GM           CW    10 dB  25 WPM  CQ      1454Z
+DX de LZ7AA-#:   7043.73  ON6A           RTTY  13 dB  45 BPS  CQ      1454Z
+DX de LZ7AA-#:   7042.26  YU3A           RTTY  24 dB  45 BPS  CQ      1454Z
+DX de KW7MM-#:   7029.40  K6XV           CW    22 dB  22 WPM  CQ      1454Z
+DX de RN4WA-#:  14023.90  HB9DTA         CW     8 dB  19 WPM  CQ      1454Z
+DX de AA4PA-#:  14102.40  W5AP           RTTY  36 dB  45 BPS  CQ      1454Z
+DX de AA4PA-#:  21094.00  RC5Z           RTTY  22 dB  45 BPS  CQ      1454Z
+DX de WC2L-#:   14026.50  W4MQC          CW    13 dB  22 WPM  CQ      1454Z
+DX de WC2L-#:   14102.37  W5AP           RTTY  30 dB  45 BPS  CQ      1454Z
+DX de DR4W-#:   10110.30  OZ1LGC         CW    14 dB  18 WPM  CQ      1454Z
+DX de DR4W-#:   14038.20  CT1JGA/P       CW    10 dB  24 WPM  CQ      1454Z
+DX de TI7W-#:   28208.00  WD5GLO/B       CW     8 dB  14 WPM  BEACON  1454Z
+DX de K3PA-1-#:  7037.50  K3WU           CW    15 dB  26 WPM  CQ      1454Z
+DX de OE9GHV-#: 10110.30  OZ1LGC         CW    10 dB  18 WPM  CQ      1454Z
+DX de OE9GHV-#: 21093.91  RC5Z           RTTY  34 dB  45 BPS  CQ      1454Z
+DX de S58W-#:   10114.00  OV1CDX         CW    25 dB  25 WPM  CQ      1454Z
+DX de PI4CC-#:  21093.91  RC5Z           RTTY  40 dB  45 BPS  CQ      1454Z
+DX de AC0C-1-#: 21108.98  9A7R           RTTY  27 dB  45 BPS  CQ      1454Z
+DX de DK0TE-#:  14038.30  CT1JGA/P       CW    12 dB  24 WPM  CQ      1454Z
+DX de DK0TE-#:  21048.00  EA7WA          CW    28 dB  16 WPM  CQ      1454Z
+DX de IK7YTT-#: 10118.60  SM5DAJ         CW    10 dB  23 WPM  CQ      1454Z
+DX de IK7YTT-#: 14038.30  CT1JGA/P       CW    12 dB  24 WPM  CQ      1454Z
+DX de W6YX-#:   14096.20  YL2KF          RTTY   9 dB  45 BPS  CQ      1454Z
+DX de W6YX-#:   14102.40  W5AP           RTTY  32 dB  45 BPS  CQ      1454Z
+DX de W6YX-#:   21114.80  VE3NZ          RTTY  19 dB  45 BPS  CQ      1454Z
+DX de SM7IUN-#: 18084.00  EI1IEA         CW    20 dB  25 WPM  CQ      1454Z
+DX de F4GOU-#:  10114.00  OV1CDX         CW     8 dB  19 WPM  CQ      1454Z
+DX de IK3STG-#: 14038.30  CT1JGA/P       CW     4 dB  24 WPM  CQ      1454Z
+DX de IK3STG-#: 10111.00  AO5CV          CW    11 dB  24 WPM  CQ      1454Z
+DX de EA1DAV-#: 10111.00  AO5CV          CW     2 dB  23 WPM  CQ      1454Z
+DX de K1RA-4-#: 21110.00  PA3GDG         RTTY  19 dB  45 BPS  CQ      1454Z
+DX de K1RA-4-#: 21098.40  K7OM/4         RTTY  21 dB  45 BPS  CQ      1454Z
+DX de LB9KJ-#:   7028.50  G4RHR          CW    11 dB  18 WPM  CQ      1454Z
+DX de LB9KJ-#:   7027.00  M5ABN          CW     9 dB  19 WPM  CQ      1454Z
+DX de HS0ZGZ-#: 21093.98  RC5Z           RTTY  15 dB  45 BPS  CQ      1454Z
+DX de W8WWV-#:   7032.50  N3SD           CW    24 dB  30 WPM  CQ      1454Z
+DX de MM0ZBH-#: 14022.00  UX0DA          CW    15 dB  25 WPM  CQ      1454Z
+DX de MM0ZBH-#: 21085.00  IK8OLM         RTTY  18 dB  45 BPS  CQ      1454Z
+DX de MM0ZBH-#:  7028.50  G4A            CW    14 dB  19 WPM  CQ      1454Z
+DX de DL9GTB-#: 21149.00  IT9ATQ/B       CW     7 dB  10 WPM  BEACON  1455Z
+DX de ES5PC-#:  21149.00  IT9ATQ/B       CW     3 dB  11 WPM  BEACON  1455Z
+DX de WZ7I-#:   28224.70  IT9EJW/B       CW    17 dB  11 WPM  BEACON  1455Z
+DX de IT9GSF-#: 28259.60  K1LSU/B        CW     7 dB  14 WPM  BEACON  1455Z
+DX de HA1VHF-#:144433.60  9A0BVH         CW    15 dB  15 WPM  DX      1455Z
+DX de KM3T-3-#: 28224.60  K5GJR/B        CW     6 dB  10 WPM  BEACON  1455Z
+DX de DM5GG-#:  21149.10  IT9ATQ/B       CW     7 dB  11 WPM  BEACON  1455Z
+DX de DL1HWS-3-#: 21149.00  IT9ATQ/B       CW    16 dB  10 WPM  BEACON  1455Z
+DX de K3FEF-#:  28268.80  SV6DBG         RTTY  13 dB  45 BPS  BEACON  1455Z
+DX de TI7W-#:   28250.80  C5SQD/B        CW     9 dB  16 WPM  BEACON  1455Z
+DX de F4BPO-#:  10129.50  IZ3DVW/B       CW     8 dB  16 WPM  BEACON  1455Z
+DX de DC8YZ-#:  10129.50  IZ3DVW/B       CW     5 dB  15 WPM  BEACON  1455Z
+DX de S53A-#:   18110.00  5Z4B           CW     4 dB  22 WPM  NCDXF B 1456Z
+DX de TI7W-#:   28289.20  WB5DXZ/B       CW     5 dB  12 WPM  BEACON  1456Z
+DX de K3FEF-#:  28170.30  ZB2TEN/B       CW     3 dB  15 WPM  BEACON  1456Z
+DX de K3FEF-#:  24930.00  ZS6DN          CW    25 dB  22 WPM  NCDXF B 1456Z
+DX de EI4HQ-#:  24930.00  ZS6DN          CW     2 dB  23 WPM  NCDXF B 1456Z
+DX de TI7W-#:   28234.20  K4DP/B         CW     5 dB  16 WPM  BEACON  1456Z
+DX de PD2RPS-#: 14100.00  OH2B           CW    12 dB  24 WPM  NCDXF B 1456Z
+DX de DL9GTB-#: 18110.00  4X6TU          CW    16 dB  21 WPM  NCDXF B 1456Z
+DX de MM9PSY-#: 18110.00  4X6TU          CW    24 dB  19 WPM  NCDXF B 1456Z
+DX de HA8TKS-#: 18110.00  4X6TU          CW    13 dB  22 WPM  NCDXF B 1456Z
+DX de HB9DCO-#: 14100.00  OH2B           CW    22 dB  23 WPM  NCDXF B 1456Z
+DX de HB9DCO-#: 18110.00  OH2B           CW    12 dB  21 WPM  NCDXF B 1456Z
+DX de DM5GG-#:  18110.00  4X6TU          CW    15 dB  21 WPM  NCDXF B 1456Z
+DX de K3FEF-#:  18110.00  4X6TU          CW    15 dB  21 WPM  NCDXF B 1456Z
+DX de K3FEF-#:  28199.90  ZS6DN          CW     3 dB  23 WPM  NCDXF B 1456Z
+DX de WZ7I-#:   14100.00  CS3B           CW    15 dB  20 WPM  NCDXF B 1456Z
+DX de G0KTN-#:  14100.00  CS3B           CW     6 dB  22 WPM  NCDXF B 1456Z
+DX de ES5PC-#:  21150.00  4X6TU          CW    19 dB  22 WPM  NCDXF B 1456Z
+DX de TI7W-#:   28271.00  G4ERE/B        CW    29 dB  13 WPM  BEACON  1456Z
+DX de TI7W-#:   28204.20  M0WF/B         CW    13 dB  14 WPM  BEACON  1456Z
+DX de OE8TED-#: 18110.00  4X6TU          CW    13 dB  19 WPM  NCDXF B 1456Z
+DX de IT9GSF-#: 18110.00  OH2B           CW     9 dB  22 WPM  NCDXF B 1456Z
+DX de DL9GTB-#: 21150.00  4X6TU          CW    15 dB  23 WPM  NCDXF B 1456Z
+DX de MM9PSY-#: 21150.00  4X6TU          CW    15 dB  20 WPM  NCDXF B 1456Z
+DX de K3GMQ-#:  21150.00  4X6TU          CW     9 dB  22 WPM  NCDXF B 1456Z
+DX de G0KTN-#:  18110.00  CS3B           CW     6 dB  21 WPM  NCDXF B 1456Z
+DX de EI4HQ-#:  18110.00  CS3B           CW     8 dB  22 WPM  NCDXF B 1456Z
+DX de K1RA-4-#: 24929.90  4X6TU          CW    13 dB  19 WPM  NCDXF B 1456Z
+DX de K3GMQ-#:  18110.00  CS3B           CW    14 dB  23 WPM  NCDXF B 1456Z
+DX de K3GMQ-#:  24930.00  4X6TU          CW    12 dB  22 WPM  NCDXF B 1456Z
+DX de MM0ZBH-#: 18110.00  CS3B           CW    21 dB  23 WPM  NCDXF B 1456Z
+DX de CT1EYQ-#: 28268.80  SV6DBG         CW     6 dB  12 WPM  BEACON  1456Z
+DX de KC2DAC-#: 21150.00  CS3B           CW     5 dB  19 WPM  NCDXF B 1456Z
+DX de EI4HQ-#:  21150.00  CS3B           CW    11 dB  22 WPM  NCDXF B 1456Z
+DX de OE9GHV-#: 21150.00  CS3B           CW     7 dB  19 WPM  NCDXF B 1456Z
+DX de K1RA-4-#: 28199.90  4X6TU          CW     8 dB  19 WPM  NCDXF B 1456Z
+DX de K1RA-4-#: 21150.00  CS3B           CW    11 dB  17 WPM  NCDXF B 1456Z
+DX de IT9GSF-#: 28204.80  KE4TWI/B       CW     5 dB  18 WPM  BEACON  1456Z
+DX de ES2RR-#:  28200.00  4X6TU          CW    28 dB  21 WPM  NCDXF B 1456Z
