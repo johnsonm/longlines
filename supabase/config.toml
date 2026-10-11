@@ -418,3 +418,8 @@ enabled = true
 # cannot require a user JWT. It verifies the credentials itself.
 [functions.sign-in]
 verify_jwt = false
+
+# ingest-rbn is called by the relay on Fly.io, which holds the relay secret but
+# no Supabase key. It checks x-relay-secret itself (_shared/serve.ts).
+[functions.ingest-rbn]
+verify_jwt = false

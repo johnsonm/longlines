@@ -1,1 +1,8 @@
 fly.toml
+# Only relay/Dockerfile builds from this context; it needs relay/ and
+# supabase/functions/_shared/. Keep everything else (web/node_modules above all) out.
+*
+!relay/
+!supabase/functions/_shared/
+relay/__tests__/
+supabase/functions/_shared/__tests__/

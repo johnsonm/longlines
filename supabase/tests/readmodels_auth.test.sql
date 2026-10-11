@@ -19,7 +19,7 @@ select hasnt_column('public', 'recent_spots', 'raw_payload', 'recent_spots has n
 select throws_ok('select * from recent_spots', '42501', null, 'recent_spots view is not readable by clients directly');
 select throws_ok('delete from recent_spots', '42501', null, 'recent_spots is read-only for clients');
 select throws_ok('select raw_payload from raw_spots', '42501', null, 'raw_spots is not readable by clients');
-select is((select count(*) from list_ingest_health()), 2::bigint, 'list_ingest_health is callable by signed-in users');
+select is((select count(*) from list_ingest_health()), 3::bigint, 'list_ingest_health is callable by signed-in users (one row per source)');
 select throws_ok('select * from ingest_health', '42501', null, 'ingest_health view is not readable by clients directly');
 select throws_ok('select * from ingest_state', '42501', null, 'ingest_state stays hidden');
 

@@ -21,14 +21,15 @@ begin
 
   -- ingest_state is seeded.
   select count(*) into n from ingest_state;
-  assert n = 2, format('expected 2 ingest_state rows, found %s', n);
+  assert n = 3, format('expected 3 ingest_state rows, found %s', n);
 
   -- ingest_spots inserts, dedups and enqueues.
   select count(*) into first_pass from public.ingest_spots('[
     {"source":"pota","source_spot_id":"smoke-1","content_hash":"a","spot_time":"2026-10-05T13:37:03Z","callsign":"W1AW","spotter":null,"frequency_khz":14074,"band":"20m","mode":"ft8","mode_family":"digital","comment":"","raw_payload":{}},
-    {"source":"sotawatch","source_spot_id":"smoke-2","content_hash":"b","spot_time":"2026-10-05T13:37:03Z","callsign":"SQ1GPR/P","spotter":"SQ1GPR","frequency_khz":7097,"band":"40m","mode":"ssb","comment":"","sota_summit_ref":"SP/SS-004","raw_payload":{}}
+    {"source":"sotawatch","source_spot_id":"smoke-2","content_hash":"b","spot_time":"2026-10-05T13:37:03Z","callsign":"SQ1GPR/P","spotter":"SQ1GPR","frequency_khz":7097,"band":"40m","mode":"ssb","comment":"","sota_summit_ref":"SP/SS-004","raw_payload":{}},
+    {"source":"rbn","source_spot_id":"2026-10-11T14:54:00.000Z|SM1HEV|CT1JGA/P|14038.30","content_hash":"c","spot_time":"2026-10-11T14:54:00Z","callsign":"CT1JGA/P","spotter":"SM1HEV","frequency_khz":14038.3,"band":"20m","mode":"cw","mode_family":"cw","comment":"8 dB 24 WPM CQ","raw_payload":{}}
   ]'::jsonb);
-  assert first_pass = 2, format('expected 2 inserted rows, got %s', first_pass);
+  assert first_pass = 3, format('expected 3 inserted rows, got %s', first_pass);
   assert (select mode_family from raw_spots where source = 'pota' and source_spot_id = 'smoke-1') = 'digital',
     'expected smoke-1 to store mode_family digital';
 
@@ -39,20 +40,23 @@ begin
   assert second_pass = 1, format('expected 1 inserted row on re-run with one edit, got %s', second_pass);
 
   select count(*) - spots_before into n from raw_spots;
-  assert n = 3, format('expected 3 new raw_spots rows, found %s', n);
+  assert n = 4, format('expected 4 new raw_spots rows, found %s', n);
 
   select count(*) - queue_before into n from pgmq.q_spot_events;
-  assert n = 3, format('expected 3 new queued messages, found %s', n);
+  assert n = 4, format('expected 4 new queued messages, found %s', n);
 
   -- State RPCs.
   perform public.record_ingest_success('sotawatch', 1, 'epoch-1');
   perform public.record_ingest_failure('pota', 'boom');
+  perform public.record_ingest_success('rbn', 0, null);
+  assert (select last_success_at from ingest_state where source = 'rbn') is not null,
+    'record_ingest_success should update the rbn row';
   assert (select last_epoch from ingest_state where source = 'sotawatch') = 'epoch-1';
   assert (select consecutive_failures from ingest_state where source = 'pota') = 1;
 
   -- Health view reads.
   select count(*) into n from ingest_health;
-  assert n = 2, 'ingest_health should have one row per source';
+  assert n = 3, 'ingest_health should have one row per source';
 
   -- Stats snapshot: cron job exists and the refresh inserts one row.
   assert exists (select 1 from cron.job where jobname = 'refresh-stats-snapshot' and schedule = '5 * * * *'),

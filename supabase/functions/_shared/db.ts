@@ -3,7 +3,14 @@
 // except the dead-letter insert, which is a plain table insert.
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import type { IngestDb, InsertedSpot, NormalizedSpot, Source, SpotFailure } from "./types.ts";
+import type {
+  IngestDb,
+  InsertedSpot,
+  NormalizedSpot,
+  Source,
+  SpotFailure,
+  WatchlistDb,
+} from "./types.ts";
 
 function requireEnv(name: string): string {
   const value = Deno.env.get(name);
@@ -62,6 +69,16 @@ export function createIngestDb(client: SupabaseClient): IngestDb {
       const { data, error } = await client.rpc("match_pending_spots");
       if (error) throw new Error(`match_pending_spots failed: ${error.message}`);
       return typeof data === "number" ? data : 0;
+    },
+  };
+}
+
+export function createWatchlistDb(client: SupabaseClient): WatchlistDb {
+  return {
+    async watchedCallsigns(source: Source): Promise<string[]> {
+      const { data, error } = await client.rpc("watched_callsigns", { p_source: source });
+      if (error) throw new Error(`watched_callsigns failed: ${error.message}`);
+      return Array.isArray(data) ? data.filter((c): c is string => typeof c === "string") : [];
     },
   };
 }

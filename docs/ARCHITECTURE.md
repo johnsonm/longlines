@@ -302,3 +302,46 @@ refresh prunes older ones.
 
 The payload's TypeScript shape is `StatsPayload` in `web/src/stats/types.ts`; the pgTAP suite
 `supabase/tests/stats_snapshot.test.sql` pins both the shape and the numbers.
+
+# Streaming sources: the relay
+
+```mermaid
+flowchart LR
+  RBN[telnet.reversebeacon.net:7000] -- "one telnet session" --> R[relay on Fly.io]
+  R -- "GET every 5 min: watched callsigns" --> F[ingest-rbn]
+  R -- "POST batches every 10 s, heartbeat every 60 s" --> F
+  F -- "rpc watched_callsigns" --> W[(subscriptions)]
+  F -- "runIngest(rbnAdapter(body))" --> RPC[(ingest_spots)]
+```
+
+The Reverse Beacon Network only offers a persistent telnet stream. Edge Functions cannot hold one,
+and reconnecting every couple of minutes is not acceptable to RBN, so one small process outside
+Supabase holds it: `relay/`, a Deno program on a single Fly.io machine (shared-cpu-1x, 256 MB; it
+uses about 20 MB). Issue #13 records the options that were weighed first.
+
+- **Push instead of pull.** `ingest-rbn` uses the same orchestrator as the pulled sources.
+  `rbnAdapter(body)` in `_shared/rbn.ts` wraps the request body so `fetchSpots()` returns it;
+  `runIngest` is unchanged. The relay never sees a Supabase key: it sends a shared secret in
+  `x-relay-secret`, and the function (with `verify_jwt = false`) compares it with
+  `LONGLINES_RELAY_SECRET` in constant time. `GET` returns the watchlist, `POST` ingests a batch.
+- **Watched callsigns only.** RBN carries tens of thousands of spots an hour. The relay forwards a
+  line only when its station is in `watched_callsigns('rbn')`: callsigns named by enabled
+  subscriptions whose sources are empty or include `rbn`. The relay re-reads the list every five
+  minutes and keeps the last good list if a read fails.
+- **One parser.** The relay filters with `parseRbnLine` from `_shared/rbn.ts`, the same function
+  the adapter uses, so the filter and the stored spot cannot disagree about which station a line
+  reports.
+- **Dates and ids.** A telnet line has only `HHMMZ`. The adapter takes the instant with that time
+  of day closest to the relay's `received_at`. `source_spot_id` is
+  `spot_time|spotter|callsign|frequency`; the hash field order is `spot_time, spotter, callsign,
+  frequency, mode, snr, speed, type` and must not change.
+- **Matching guard.** `spot_matches` lets an RBN spot match only subscriptions that name
+  callsigns, so "any source, 20m CW" does not receive other people's watchlist hits. A trigger
+  rejects a subscription limited to RBN with no callsigns, since it could never match.
+- **Politeness and health.** One connection per feed, reconnect backoff from 30 s (the floor) to
+  15 minutes with jitter, reset after a session that lasted five minutes. No data for five minutes
+  counts as a dead connection. The relay pushes at least once a minute, even an empty batch, so
+  `ingest_state.last_success_at` shows whether it is alive; the Sources page treats RBN as delayed
+  after three minutes without one. `:8080/healthz` reports per-feed status for `fly checks list`.
+- **More feeds.** `relay/feeds.ts` is a list. A new telnet stream (DX Cluster, RBN FT8 on 7001) is
+  a new entry plus a source adapter and an `ingest-<source>` function built with `servePush`.

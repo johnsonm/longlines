@@ -1,6 +1,6 @@
 import type { ModeFamily } from "./modes.ts";
 
-export type Source = "pota" | "sotawatch";
+export type Source = "pota" | "sotawatch" | "rbn";
 
 /** A JSON object as received from an upstream feed. Fields are validated at use. */
 export type JsonObject = Record<string, unknown>;
@@ -87,4 +87,9 @@ export interface IngestDb {
   recordFailure(source: Source, error: string): Promise<void>;
   /** Run the matcher over queued spot_events; returns deliveries created. */
   matchPendingSpots(): Promise<number>;
+}
+
+/** The relay's view of the subscriptions: which stations to forward for a pushed source. */
+export interface WatchlistDb {
+  watchedCallsigns(source: Source): Promise<string[]>;
 }
