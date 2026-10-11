@@ -5,9 +5,10 @@
 // key. Pushed sources (RBN) are invoked by the relay, which holds only the
 // relay secret: GET returns the watchlist, POST ingests a batch of lines.
 
-import { createIngestDb, createServiceClient, createWatchlistDb } from "./db.ts";
+import { createIngestDb, createRbnDb, createServiceClient, createWatchlistDb } from "./db.ts";
 import { runIngest } from "./ingest.ts";
-import type { IngestDb, Source, SourceAdapter, WatchlistDb } from "./types.ts";
+import type { RbnPushDb } from "./rbn_push.ts";
+import type { IngestDb, IngestSummary, Source, SourceAdapter, WatchlistDb } from "./types.ts";
 
 const RELAY_SECRET_ENV = "LONGLINES_RELAY_SECRET";
 
@@ -15,15 +16,15 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-async function runAndRespond(adapter: SourceAdapter, makeDb: () => IngestDb): Promise<Response> {
+async function respond(source: Source, run: () => Promise<IngestSummary>): Promise<Response> {
   try {
-    const summary = await runIngest(adapter, makeDb());
+    const summary = await run();
     console.log(JSON.stringify(summary));
     return Response.json(summary);
   } catch (error) {
     const message = errorMessage(error);
-    console.error(`ingest-${adapter.source} failed: ${message}`);
-    return Response.json({ source: adapter.source, error: message }, { status: 500 });
+    console.error(`ingest-${source} failed: ${message}`);
+    return Response.json({ source, error: message }, { status: 500 });
   }
 }
 
@@ -31,7 +32,7 @@ export function ingestHandler(
   adapter: SourceAdapter,
   makeDb: () => IngestDb,
 ): (req: Request) => Promise<Response> {
-  return (_req: Request) => runAndRespond(adapter, makeDb);
+  return (_req: Request) => respond(adapter.source, () => runIngest(adapter, makeDb()));
 }
 
 export function serveIngest(adapter: SourceAdapter): void {
@@ -48,16 +49,16 @@ async function secretsMatch(provided: string, expected: string): Promise<boolean
   return diff === 0;
 }
 
-export interface PushDeps {
-  db: () => IngestDb & WatchlistDb;
+export interface PushDeps<D extends WatchlistDb> {
+  db: () => D;
   /** The shared secret the relay sends in x-relay-secret; undefined when unset. */
   secret: () => string | undefined;
 }
 
-export function pushIngestHandler(
+export function pushIngestHandler<D extends WatchlistDb>(
   source: Source,
-  makeAdapter: (body: unknown) => SourceAdapter,
-  deps: PushDeps,
+  run: (body: unknown, db: D) => Promise<IngestSummary>,
+  deps: PushDeps<D>,
 ): (req: Request) => Promise<Response> {
   return async (req: Request): Promise<Response> => {
     const expected = deps.secret();
@@ -88,18 +89,21 @@ export function pushIngestHandler(
       } catch {
         return Response.json({ source, error: "request body is not JSON" }, { status: 400 });
       }
-      return runAndRespond(makeAdapter(body), deps.db);
+      return respond(source, () => run(body, deps.db()));
     }
 
     return Response.json({ source, error: "method not allowed" }, { status: 405 });
   };
 }
 
-export function servePush(source: Source, makeAdapter: (body: unknown) => SourceAdapter): void {
-  Deno.serve(pushIngestHandler(source, makeAdapter, {
+export function servePush(
+  source: Source,
+  run: (body: unknown, db: RbnPushDb) => Promise<IngestSummary>,
+): void {
+  Deno.serve(pushIngestHandler(source, run, {
     db: () => {
       const client = createServiceClient();
-      return { ...createIngestDb(client), ...createWatchlistDb(client) };
+      return { ...createIngestDb(client), ...createWatchlistDb(client), ...createRbnDb(client) };
     },
     secret: () => Deno.env.get(RELAY_SECRET_ENV),
   }));
