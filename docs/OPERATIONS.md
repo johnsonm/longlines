@@ -347,8 +347,7 @@ watched station was on the air.
 
 ## rbn_spots size
 
-About 1.5 million rows and 350 MB a day. Until archiving and retention land (PR 2) nothing is
-dropped. `select pg_size_pretty(pg_total_relation_size('rbn_spots'));` shows the total;
+About 1.5 million rows and 350 MB a day; seven days (2.5-3 GB) stay in the database. `select pg_size_pretty(pg_total_relation_size('rbn_spots'));` shows the total;
 `select tableoid::regclass, count(*) from rbn_spots group by 1 order by 1;` shows rows per day.
 
 ## Rotating the relay secret
@@ -372,3 +371,48 @@ deno run --allow-net --allow-env relay/main.ts
 
 This opens a real connection to RBN; stop it when done. In Docker, use
 `http://host.docker.internal:54321/functions/v1`.
+
+# Spot archive
+
+How it works is in `docs/ARCHITECTURE.md` ("The spot archive").
+
+## Is it keeping up?
+
+```sql
+select * from archive_status;   -- pending_slices should stay at 0-2 per source
+select status_code, content::text from net._http_response order by created desc limit 5;
+```
+
+A growing `pending_slices` means runs are failing; the `archive` function's responses (500 with an
+`errors` list) say why. Nothing is lost meanwhile: retention drops no RBN day until its slices are
+archived.
+
+## Re-archive a slice
+
+```sql
+delete from archive_log where source = 'rbn' and slice_start = '2026-10-11 14:10+00';
+```
+
+The next run rewrites the object at the same path.
+
+## Retention
+
+`maintain_rbn_spots()` runs at 03:30 UTC. To see why a day is still in the database:
+
+```sql
+select * from rbn_day_slices('2026-10-01') where archived_rows is distinct from db_rows;
+```
+
+## Reading the archive
+
+DuckDB reads the files straight from Storage's S3 endpoint:
+
+```sql
+install httpfs; load httpfs;
+create secret (type s3, key_id '<S3 access key>', secret '<S3 secret>',
+               endpoint '<project-ref>.supabase.co/storage/v1/s3', region '<region>', url_style 'path');
+select spot_type, count(*) from read_json_auto('s3://archive/rbn/2026/10/11/*.ndjson.gz') group by 1;
+```
+
+S3 access keys are created under Storage settings and can read every bucket, so they belong on an
+operator's machine, never in the web app or the relay.

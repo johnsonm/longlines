@@ -53,8 +53,7 @@ new row. Spots that cannot be normalized go to `ingest_failures` instead of abor
 hold, so `relay/` (a small Deno process on one Fly.io machine) keeps a single connection open.
 It forwards every spot in batches every 10 seconds, and pushes an empty batch at least once a
 minute so source health shows the relay is alive. `ingest-rbn` stores every spot in `rbn_spots`
-(partitioned by day; a rolling seven days with older days archived to Storage once the archive
-work lands, nothing is dropped until then) and sends only spots of callsigns named in a
+(partitioned by day; seven days stay in the database) and sends only spots of callsigns named in a
 subscription on to matching, through the same orchestrator as the pulled sources. The relay
 authenticates with a shared secret and never holds
 a Supabase key. An RBN spot only matches subscriptions that name callsigns, so a broad "any
@@ -73,6 +72,11 @@ goes back through an RPC so delivery rows, queue messages and destination health
 atomically. Failures back off for 24 hours and then drop; five in a row mark the destination
 failing. Rate limits delay rather than fail. Outbound URLs are checked in SQL at creation and
 again in the worker, with DNS resolved, so private addresses are never reached.
+
+**Archive.** Every spot from every source is also written to a private Storage bucket as gzipped
+NDJSON, ten-minute files for RBN and hourly for POTA and SOTAwatch, by the `archive` function
+every 10 minutes. DuckDB, pandas or Spark read the files directly. RBN days leave the database
+only after their archive matches.
 
 **Web app.** `web/` is a Vite, React and MUI single-page app that talks to Supabase with the anon
 key and the user's session. Users sign in with a callsign or email, see source health, create
@@ -264,7 +268,7 @@ supabase db push
 
 supabase secrets set LONGLINES_USER_AGENT_URL=https://github.com/<you>/longlines
 supabase secrets set LONGLINES_RELAY_SECRET=<openssl rand -hex 32>   # shared with the relay
-for fn in ingest-pota ingest-sotawatch ingest-rbn deliver send-test sign-in delete-account; do
+for fn in ingest-pota ingest-sotawatch ingest-rbn deliver send-test sign-in delete-account archive; do
   supabase functions deploy "$fn"
 done
 

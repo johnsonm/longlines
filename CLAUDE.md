@@ -174,6 +174,16 @@ relay on pushes to main; nothing else deploys automatically.
   not in this repo); a merge that changes `relay/` or `_shared/*.ts` ships to production. Never run
   `fly deploy` or `fly secrets set` yourself unless asked.
 
+## Archive rules
+
+- Slice length lives only in `archive_slice_minutes(source)` (RBN 10 minutes, others 60). NDJSON is
+  built in SQL (`archive_ndjson`), never in TypeScript; the `archive` function only gzips, uploads
+  and logs.
+- A slice is logged in `archive_log` only after its upload succeeds. Nothing leaves `rbn_spots`
+  unless `retire_rbn_day` finds every slice of the day logged with a matching count; `raw_spots` is
+  never pruned by the archive.
+- Storage S3 access keys never go in the web app, the relay or an Edge Function.
+
 ## Conventions
 
 - Time-dependent functions take `now: Date` so tests pin the clock. The POTA and SOTAwatch

@@ -324,13 +324,12 @@ uses about 20 MB). Issue #13 records the options that were weighed first.
   sources, with `rbnAdapter(body)` wrapping them so `fetchSpots()` returns them; `runIngest` is
   unchanged. The relay never sees a Supabase key: it sends a shared secret in `x-relay-secret`,
   and the function (with `verify_jwt = false`) compares it with `LONGLINES_RELAY_SECRET` in
-  constant time. `POST` ingests a batch; `GET` still returns the watchlist for relays deployed
-  before the firehose and can be removed once none remain.
+  constant time. Only `POST` is accepted.
 - **Everything is stored; watched callsigns are alerted.** The relay forwards every spot line.
   `ingest-rbn` writes each batch to `rbn_spots` (one RPC, `ingest_rbn_spots`), a table
-  partitioned by UTC day. The design keeps seven days in the database and archives older days to
-  Storage (spec `docs/superpowers/specs/2026-10-11-rbn-firehose-archive-design.md`); until that
-  archive and retention work lands, nothing is dropped. Only lines whose station is
+  partitioned by UTC day that keeps seven days in the database; `maintain_rbn_spots()` drops a day
+  once every 10-minute slice is archived with a matching count (see "The spot archive"). Only
+  lines whose station is
   in `watched_callsigns('rbn')` (callsigns named by enabled subscriptions whose sources are empty or
   include `rbn`) continue through `runIngest` into `raw_spots` and the matcher, so alerting sees a
   few hundred RBN rows a day.
@@ -356,3 +355,43 @@ uses about 20 MB). Issue #13 records the options that were weighed first.
   after three minutes without one. `:8080/healthz` reports per-feed status for `fly checks list`.
 - **More feeds.** `relay/feeds.ts` is a list. A new telnet stream (DX Cluster, RBN FT8 on 7001) is
   a new entry plus a source adapter and an `ingest-<source>` function built with `servePush`.
+
+# The spot archive
+
+```mermaid
+flowchart LR
+  CRON[pg_cron every 10 min] -- "service-role key" --> A[archive function]
+  A -- "rpc archive_pending_slices" --> P[(due slices)]
+  A -- "rpc archive_ndjson" --> N[(rbn_spots / raw_spots)]
+  A -- "gzip, upload" --> S[[Storage bucket: archive]]
+  A -- "rpc log_archive" --> L[(archive_log)]
+  M[maintain_rbn_spots daily] -- "retire_rbn_day" --> N
+```
+
+Every spot of every source is kept for analytics as gzipped NDJSON in a private Storage bucket,
+`archive` (spec `docs/superpowers/specs/2026-10-11-rbn-firehose-archive-design.md` and its
+measurement amendment).
+
+- **Slices.** RBN is archived in 10-minute slices, POTA and SOTAwatch hourly. The length lives only
+  in `archive_slice_minutes(source)`; slices are aligned with `date_bin` and half-open
+  (`[start, end)`). Objects are `<source>/YYYY/MM/DD/HHMM.ndjson.gz`.
+- **Postgres does the heavy lifting.** `archive_pending_slices` returns the slices that ended two
+  hours ago and are not logged; `archive_ndjson` builds a slice's NDJSON with `to_json` and
+  `string_agg`. The function only gzips and uploads, which measured at about 0.3 s of CPU for a full
+  RBN hour against the 2 s limit.
+- **Runs.** pg_cron calls `archive` every 10 minutes with the service-role key (Vault), like the
+  ingest jobs. A run takes POTA, then SOTAwatch, then RBN, oldest first, and starts no new slice
+  once it has archived 60,000 rows, so a backlog clears about six times faster than real time
+  without risking the CPU limit.
+- **Logged only when stored.** A slice gets its `archive_log` row (count, bytes, path) only after
+  the upload succeeds; a failure leaves it pending for the next run. Empty slices are logged with
+  `row_count = 0` and no object, so a gap in `archive_log` always means "not archived".
+- **Lines.** RBN: `spot_time, received_at, spotter, callsign, frequency_khz, band, mode,
+  mode_family, snr, speed, speed_unit, spot_type, line`. POTA and SOTAwatch: every `raw_spots`
+  column except `id`, including the upstream `raw_payload`. Watched RBN rows in `raw_spots` are not
+  archived from there.
+- **Retention.** `maintain_rbn_spots()` (03:30 UTC) retires RBN days older than seven with
+  `retire_rbn_day`: the day's partition and any default-partition rows are dropped only when all
+  144 slices are logged with the database's count (`rbn_day_slices`). A mismatched slice loses its
+  log row, so the next run re-archives it and the day is retried the next night. `raw_spots` is
+  never pruned.
