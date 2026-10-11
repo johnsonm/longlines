@@ -1,29 +1,35 @@
-# fly.toml app configuration file generated for longlines-relay on 2026-10-11T16:11:11Z
-#
-# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
-#
+# Fly.io app for the stream relay (relay/). It lives at the repository root
+# because Fly's GitHub integration deploys from the root fly.toml on every push
+# to main, and the build context must be the root so the image gets
+# supabase/functions/_shared. To deploy by hand from the root:
+#   fly deploy --ha=false
+# Secrets (fly secrets set ...): LONGLINES_FUNCTIONS_URL, LONGLINES_RELAY_SECRET,
+# RELAY_LOGIN_CALL. See docs/OPERATIONS.md.
 
-app = 'longlines-relay'
-primary_region = 'iad'
+app = "longlines-relay"
+primary_region = "iad"
 
 [build]
+  dockerfile = "relay/Dockerfile"
 
-[env]
-  PORT = '8080'
+# Fly's default kill signal; main.ts flushes buffered lines on it.
+kill_signal = "SIGINT"
+kill_timeout = "10s"
 
-[processes]
-  app = 'run -A ./main.ts'
-
-[http_service]
-  internal_port = 8080
-  force_https = true
-  auto_stop_machines = 'stop'
-  auto_start_machines = true
-  min_machines_running = 0
-  processes = ['app']
-
+# One machine, smallest size. Exactly one copy may run: a second would open a
+# second telnet session to each upstream.
 [[vm]]
-  memory = '1gb'
-  cpu_kind = 'shared'
-  cpus = 1
-  memory_mb = 256
+  size = "shared-cpu-1x"
+  memory = "256mb"
+
+# No [http_service]: the relay accepts no public traffic, and an http_service
+# with auto_stop_machines would stop the machine for lack of requests. The check
+# reaches the health port over Fly's private network and shows in `fly checks list`.
+[checks]
+  [checks.healthz]
+    type = "http"
+    port = 8080
+    path = "/healthz"
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "60s"

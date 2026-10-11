@@ -45,7 +45,7 @@ supabase db push                       # hosted: apply migrations
 supabase functions deploy ingest-pota  # hosted: deploy one function
 
 docker build -f relay/Dockerfile .     # relay image; build context is the repo root
-fly deploy . --config relay/fly.toml --dockerfile relay/Dockerfile --ha=false   # hosted relay; normally Fly's GitHub integration
+fly deploy --ha=false                  # hosted relay from the root fly.toml; normally Fly's GitHub integration
 ```
 
 Local invocation: `curl -X POST http://127.0.0.1:54321/functions/v1/ingest-pota -H "Authorization: Bearer <service_role key printed by supabase start>"`.

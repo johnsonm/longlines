@@ -1,7 +1,7 @@
 # Long Lines stream relay. Build from the repository root so the shared source
 # adapters are in the context:
 #   docker build -f relay/Dockerfile .
-#   fly deploy . --config relay/fly.toml --dockerfile relay/Dockerfile --ha=false
+#   fly deploy --ha=false   (the root fly.toml points here)
 FROM denoland/deno:alpine-2.9.7
 
 WORKDIR /app
