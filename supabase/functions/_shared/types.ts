@@ -121,3 +121,32 @@ export interface RbnDb {
   /** Inserts the batch, skipping spots already stored; returns rows inserted. */
   ingestRbnSpots(rows: RbnSpotRow[]): Promise<number>;
 }
+
+/** One archive slice, [slice_start, slice_end), as ISO 8601 strings from Postgres. */
+export interface ArchiveSlice {
+  slice_start: string;
+  slice_end: string;
+}
+
+/** An archived slice for archive_log. bytes and object_path are null for an empty slice. */
+export interface ArchiveLogEntry extends ArchiveSlice {
+  source: Source;
+  row_count: number;
+  bytes: number | null;
+  object_path: string | null;
+}
+
+/** Database operations the archive job needs. Implemented by db.ts over the archive RPCs. */
+export interface ArchiveDb {
+  /** Slices of a source that ended before `before` and are not logged, oldest first. */
+  pendingSlices(source: Source, before: Date, limit: number): Promise<ArchiveSlice[]>;
+  /** One slice as NDJSON (no trailing newline) and its row count. */
+  sliceNdjson(source: Source, slice: ArchiveSlice): Promise<{ row_count: number; ndjson: string }>;
+  logArchive(entry: ArchiveLogEntry): Promise<void>;
+}
+
+/** Where archive objects go. Implemented by db.ts over the private `archive` bucket. */
+export interface ArchiveStore {
+  /** Writes the object, replacing one already at that path. */
+  upload(path: string, bytes: Uint8Array): Promise<void>;
+}
