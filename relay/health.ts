@@ -7,7 +7,7 @@ import type { SessionStatus } from "./telnet.ts";
 export interface FeedHealth {
   id: string;
   status: SessionStatus;
-  watching: () => number;
+  dropped: () => number;
   buffered: () => number;
   pushed: () => number;
 }
@@ -29,7 +29,7 @@ export function healthHandler(
         connected: f.status.connected,
         connects: f.status.connects,
         last_data_at: f.status.lastDataAt?.toISOString() ?? null,
-        watching: f.watching(),
+        dropped: f.dropped(),
         buffered: f.buffered(),
         pushed: f.pushed(),
       };

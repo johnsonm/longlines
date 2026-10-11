@@ -105,3 +105,20 @@ Deno.test("Forwarder does not lose unsent lines when the buffer overflows during
   await s.f.flush();
   assertEquals(s.pushes[1], [line(4), line(5), line(6)]);
 });
+
+Deno.test("Forwarder defaults: batches of 1,000 and a 50,000-line buffer", async () => {
+  const pushes: RelayLine[][] = [];
+  const f = new Forwarder({
+    now: () => 0,
+    log: () => {},
+    push: (lines) => {
+      pushes.push(lines);
+      return Promise.resolve();
+    },
+  });
+  for (let i = 0; i < 50_001; i++) f.add(line(i));
+  assertEquals([f.buffered, f.dropped], [50_000, 1]);
+  await f.tick();
+  assertEquals(pushes[0]!.length, 1_000);
+  assertEquals(pushes[0]![0], line(1)); // line 0 was the one dropped
+});
