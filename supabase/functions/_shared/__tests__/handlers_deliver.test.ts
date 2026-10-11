@@ -198,3 +198,13 @@ Deno.test("handleDeliver collects bookkeeping RPC errors instead of aborting", a
   assertEquals(summary.sent, 1);
   assertEquals(summary.errors, ["mark_deliveries_sent: db down"]);
 });
+
+Deno.test("handleDeliver accepts the gateway-verified service-role JWT pg_cron sends", async () => {
+  // The runtime's SUPABASE_SERVICE_ROLE_KEY is now the sb_secret_ key; cron sends the legacy JWT.
+  const b64url = (o: unknown) =>
+    btoa(JSON.stringify(o)).replace(/=+$/, "").replace(/\+/g, "-").replace(/\//g, "_");
+  const cronJwt = `${b64url({ alg: "HS256" })}.${b64url({ role: "service_role" })}.sig`;
+  const { client } = fakeSupabase({ rpc: { claim_deliveries: { data: [] } } });
+  const deps = { serviceRoleKey: "sb_secret_runtime", db: () => client, send: allSent };
+  assertEquals((await handleDeliver(authed(cronJwt), deps, NOW)).status, 200);
+});

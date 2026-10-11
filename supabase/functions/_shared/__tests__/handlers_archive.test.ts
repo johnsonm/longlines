@@ -55,3 +55,15 @@ Deno.test("handleArchive answers 500 when any slice failed", async () => {
   assertEquals(res.status, 500);
   assertEquals((await res.json()).errors.length, 1);
 });
+
+Deno.test("handleArchive accepts the gateway-verified service-role JWT pg_cron sends", async () => {
+  const b64url = (o: unknown) =>
+    btoa(JSON.stringify(o)).replace(/=+$/, "").replace(/\+/g, "-").replace(/\//g, "_");
+  const cronJwt = `${b64url({ alg: "HS256" })}.${b64url({ role: "service_role" })}.sig`;
+  const { client } = fakeSupabase();
+  const res = await handleArchive(req(cronJwt), {
+    serviceRoleKey: "sb_secret_runtime",
+    db: () => client,
+  }, NOW);
+  assertEquals(res.status, 200);
+});

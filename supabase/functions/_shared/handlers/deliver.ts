@@ -3,7 +3,7 @@
 // the matcher as soon as it creates deliveries.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { bearerToken } from "../auth.ts";
+import { isServiceRole } from "../auth.ts";
 import { backoffSeconds } from "../delivery/format.ts";
 import type { SendResult } from "../delivery/send.ts";
 import type { DeliveryDestination, PendingDelivery } from "../delivery/types.ts";
@@ -37,7 +37,7 @@ export async function handleDeliver(
   now: Date = new Date(),
 ): Promise<Response> {
   // Only the service role (cron, the matcher) may run the worker.
-  if (!deps.serviceRoleKey || bearerToken(req) !== deps.serviceRoleKey) {
+  if (!isServiceRole(req, deps.serviceRoleKey)) {
     return Response.json({ error: "Forbidden" }, { status: 403 });
   }
 
