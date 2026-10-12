@@ -98,6 +98,17 @@ Deno.test("parseCty throws on malformed records instead of loading part of a fil
   assertThrows(() => parseCty(header.replace("10.00", "") + " XX;"), Error, "bad latitude");
   assertThrows(() => parseCty(header.replace("-20.00", "W") + " XX;"), Error, "bad longitude");
   assertThrows(() => parseCty(`${header} XX{ZZ};`), Error, 'bad continent "ZZ"');
+  assertThrows(() => parseCty(header.replace("01", "  ") + " XX;"), Error, "bad CQ zone");
+  assertThrows(() => parseCty(header.replace("02", "0") + " XX;"), Error, "bad ITU zone");
+  assertThrows(() => parseCty(header.replace("01", "-1") + " XX;"), Error, "bad CQ zone");
+});
+
+Deno.test("parseCty refuses a file cut off mid-download", () => {
+  // Cut inside the last record's alias list: every complete record before it
+  // would parse, and so would the cut one.
+  const cut = fixture.slice(0, fixture.lastIndexOf(";", fixture.length - 10) - 3);
+  assertThrows(() => parseCty(cut), Error, "truncated download");
+  assertThrows(() => parseCty(""), Error, "truncated download");
 });
 
 Deno.test("fetchCty sends the User-Agent and returns the body", async () => {

@@ -3,16 +3,18 @@
 -- watched_callsigns is gone.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(24);
+select plan(29);
 
--- A tiny cty.dat: the US with an exact call that has its own zones, England,
--- Canada, Anguilla and Sweden.
+-- A tiny cty.dat: the US with an exact call that has its own zones, Hawaii,
+-- England (G and M), Germany, Canada, Anguilla and Sweden.
 select lives_ok($$select load_cty('20260915',
   '[{"prefix":"K","name":"United States","continent":"NA","cq_zone":5,"itu_zone":8,"lat":37.6,"lon":-91.87},
     {"prefix":"G","name":"England","continent":"EU","cq_zone":14,"itu_zone":27,"lat":52.77,"lon":-1.47},
     {"prefix":"VE","name":"Canada","continent":"NA","cq_zone":5,"itu_zone":9,"lat":44.35,"lon":-78.75},
     {"prefix":"VP2E","name":"Anguilla","continent":"NA","cq_zone":8,"itu_zone":11,"lat":18.23,"lon":-63.0},
-    {"prefix":"SM","name":"Sweden","continent":"EU","cq_zone":14,"itu_zone":18,"lat":61.2,"lon":14.57}]',
+    {"prefix":"SM","name":"Sweden","continent":"EU","cq_zone":14,"itu_zone":18,"lat":61.2,"lon":14.57},
+    {"prefix":"KH6","name":"Hawaii","continent":"OC","cq_zone":31,"itu_zone":61,"lat":21.12,"lon":-157.48},
+    {"prefix":"DL","name":"Fed. Rep. of Germany","continent":"EU","cq_zone":14,"itu_zone":28,"lat":51.0,"lon":10.0}]',
   '[{"pattern":"K","exact":false,"entity":"K","continent":"NA","cq_zone":5,"itu_zone":8},
     {"pattern":"W","exact":false,"entity":"K","continent":"NA","cq_zone":5,"itu_zone":8},
     {"pattern":"KL7","exact":false,"entity":"K","continent":"NA","cq_zone":1,"itu_zone":1},
@@ -21,9 +23,12 @@ select lives_ok($$select load_cty('20260915',
     {"pattern":"GB3LER/B","exact":true,"entity":"G","continent":"EU","cq_zone":14,"itu_zone":27},
     {"pattern":"VE","exact":false,"entity":"VE","continent":"NA","cq_zone":5,"itu_zone":9},
     {"pattern":"VP2E","exact":false,"entity":"VP2E","continent":"NA","cq_zone":8,"itu_zone":11},
-    {"pattern":"SM","exact":false,"entity":"SM","continent":"EU","cq_zone":14,"itu_zone":18}]')$$,
+    {"pattern":"SM","exact":false,"entity":"SM","continent":"EU","cq_zone":14,"itu_zone":18},
+    {"pattern":"KH6","exact":false,"entity":"KH6","continent":"OC","cq_zone":31,"itu_zone":61},
+    {"pattern":"M","exact":false,"entity":"G","continent":"EU","cq_zone":14,"itu_zone":27},
+    {"pattern":"DL","exact":false,"entity":"DL","continent":"EU","cq_zone":14,"itu_zone":28}]')$$,
   'load_cty loads entities and prefixes');
-select is((select (version, entities, prefixes)::text from cty_load), '(20260915,5,9)',
+select is((select (version, entities, prefixes)::text from cty_load), '(20260915,7,12)',
   'cty_load records the version and counts');
 
 -- Lookups.
@@ -35,6 +40,11 @@ select is((select name from cty_lookup('sm1hev-#')), 'Sweden', 'a skimmer marker
 select is((select name from cty_lookup('W4/G4OBK')), 'United States', 'a location prefix before the call');
 select is((select name from cty_lookup('KK4PWJ/VE3')), 'Canada', 'a location prefix after the call');
 select is((select name from cty_lookup('VP2E/KA1A')), 'Anguilla', 'a callsign-shaped location prefix');
+select is((select name from cty_lookup('KA1A/VP2E')), 'Anguilla', 'a known prefix wins a length tie after the call');
+select is((select name from cty_lookup('K1A/KH6')), 'Hawaii', 'a known prefix wins a length tie with a short call');
+select is((select name from cty_lookup('M/DL1ABC')), 'England', 'a one-letter prefix written first is a location');
+select is((select name from cty_lookup('DL1ABC/M')), 'Fed. Rep. of Germany', '/M after the call is mobile, not England');
+select is((select name from cty_lookup('DL1ABC/P/M')), 'Fed. Rep. of Germany', 'several designators after the call');
 select is((select name from cty_lookup('G4OBK/P')), 'England', '/P does not move a station');
 select is((select name from cty_lookup('G4ABC/LH')), 'England', '/LH is not a prefix');
 select is((select name from cty_lookup('KK4PWJ/4')), 'United States', 'a call-area digit is ignored');

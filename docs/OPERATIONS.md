@@ -478,10 +478,19 @@ select * from cty_lookup('SM1HEV-#');           -- Sweden, EU
 
 ## A load failed
 
+`cty_load.loaded_at` moves forward on every successful run, so a stale one means the weekly import
+is failing:
+
 ```sql
-select status_code, content::text from net._http_response
-where content::text like '%cty%' order by created desc limit 5;
+select version, loaded_at, now() - loaded_at as age from cty_load;   -- age should stay under 7 days
 ```
 
-A 500 names the reason (download, parse, or `load_cty`). The previous set stays loaded, so lookups
-keep working. Countries change rarely, so the next weekly run is usually soon enough.
+pg_net keeps responses for only a few hours, so read the reason by running the import by hand
+(the `curl` under "First load"). Its response says what went wrong:
+
+- 401 is the gateway rejecting the Vault JWT.
+- 403 means the token is not the service role.
+- 500 names the download, parse or `load_cty` error.
+
+The function's logs in the dashboard have the same messages. The previous set stays loaded
+throughout, so lookups keep working.

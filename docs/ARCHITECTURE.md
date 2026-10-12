@@ -500,9 +500,12 @@ call. The table behind that is AD1C's cty.dat, the country file loggers use
   Shetland, ...) are DARC WAE entities. They are not loaded, so their calls fall through to the
   DXCC country (`IT9` to Italy).
 - **Lookup.** `cty_lookup(call)` is the only place a call becomes an entity, continent and zones.
-  It drops an SSID or skimmer marker (`K3PA-1`, `DK9IP-#`). It takes the location from a prefix
-  written with the call (`W4/G4OBK`, `KK4PWJ/VE3`), else the base call. It ignores `/P`, `/M`,
-  `/QRP`, `/QRPP`, `/R`, `/A`, `/B`, `/LH` and call-area digits. An exact `=` entry for the call or
-  the location wins over the longest matching prefix. `/MM` and `/AM` have no country.
+  It drops an SSID or skimmer marker (`K3PA-1`, `DK9IP-#`). The location is one of the call's
+  `/` parts. Call-area digits are ignored, and so are `/P`, `/M`, `/QRP`, `/QRPP`, `/R`, `/A`, `/B`
+  and `/LH` after the first part; written first they are prefixes (`M/DL1ABC` is England). Of the
+  rest, a part that is itself a cty.dat prefix wins (`KA1A/VP2E`, `K1A/KH6`), then a part ending
+  in a digit (`W4/G4OBK`, `KK4PWJ/VE3`), then the shorter one. It does not use
+  `base_callsign()`, which breaks length ties by position. An exact `=` entry for the call or the
+  location wins over the longest matching prefix. `/MM` and `/AM` have no country.
 - **Access.** The tables are service-role only, like the other internal tables. Profiles read
   them through definer RPCs.

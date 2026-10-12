@@ -98,10 +98,14 @@ grant execute on function public.load_cty(text, jsonb, jsonb) to service_role;
 -- /MM, /AM, or nothing loaded yet).
 --
 -- 1. Uppercase and drop an SSID or skimmer marker (K3PA-1, DK9IP-#).
--- 2. The location is a prefix written with the call (W4/G4OBK, VP2E/KA1A,
---    G4ABC/F): the shortest part that is not base_callsign(), ignoring /P, /M,
---    /QRP, /QRPP, /R, /A, /B, /LH and call-area digits. Otherwise the base
---    call. A call-area digit does not move a station (EA6SA/7 stays Balearic).
+-- 2. The location is one of the call's "/" parts. Call-area digits are
+--    ignored (EA6SA/7 stays Balearic), and so are /P, /M, /QRP, /QRPP, /R, /A,
+--    /B and /LH after the first part; written first they are prefixes
+--    (M/DL1ABC is England). Of what is left, a part that is itself a cty.dat
+--    prefix wins (KA1A/VP2E, K1A/KH6), then a part ending in a digit
+--    (W4/G4OBK, KK4PWJ/VE3), then the shorter part (G4ABC/F), then the first.
+--    The rule does not use base_callsign(): a location can be as long as the
+--    call, and base_callsign() breaks that tie by position.
 -- 3. An exact cty.dat entry for the whole call or the location wins, then the
 --    longest prefix of the location.
 create function public.cty_lookup(p_call text)
@@ -115,16 +119,16 @@ as $$
   ),
   k as (
     select c.call,
-           coalesce(
-             (select t.part
-              from unnest(string_to_array(c.call, '/')) with ordinality as t(part, i)
-              where t.part <> ''
-                and t.part not in ('P', 'M', 'QRP', 'QRPP', 'R', 'A', 'B', 'LH')
-                and t.part !~ '^[0-9]$'
-                and t.part <> public.base_callsign(c.call)
-              order by length(t.part), t.i
-              limit 1),
-             public.base_callsign(c.call)) as loc
+           (select t.part
+            from unnest(string_to_array(c.call, '/')) with ordinality as t(part, i)
+            where t.part <> ''
+              and t.part !~ '^[0-9]$'
+              and (t.i = 1 or t.part not in ('P', 'M', 'QRP', 'QRPP', 'R', 'A', 'B', 'LH'))
+            order by exists (select 1 from cty_prefixes x where x.pattern = t.part and not x.exact) desc,
+                     t.part ~ '[0-9]$' desc,
+                     length(t.part),
+                     t.i
+            limit 1) as loc
     from c
     where c.call !~ '/(MM|AM)(/|$)'
   )

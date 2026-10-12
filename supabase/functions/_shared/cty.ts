@@ -52,9 +52,10 @@ export interface CtyData {
   prefixes: CtyPrefix[];
 }
 
-function int(text: string, what: string): number {
+/** A zone number: a positive integer (Number("") would be 0). */
+function zone(text: string, what: string): number {
   const n = Number(text);
-  if (!Number.isInteger(n)) throw new Error(`cty.dat: bad ${what} "${text}"`);
+  if (!/^\d+$/.test(text) || n < 1) throw new Error(`cty.dat: bad ${what} "${text}"`);
   return n;
 }
 
@@ -75,6 +76,10 @@ export function parseCty(text: string): CtyData {
   const entities: CtyEntity[] = [];
   const prefixes: CtyPrefix[] = [];
   const seen = new Set<string>();
+  // Every record ends with ";", so a body cut off mid-download does not.
+  if (!text.trimEnd().endsWith(";")) {
+    throw new Error('cty.dat: does not end with ";" (truncated download?)');
+  }
 
   for (const raw of text.split(";")) {
     const record = raw.trim();
@@ -100,8 +105,8 @@ export function parseCty(text: string): CtyData {
       prefix: primary,
       name,
       continent: continent(cont, name),
-      cq_zone: int(cq, `CQ zone for ${name}`),
-      itu_zone: int(itu, `ITU zone for ${name}`),
+      cq_zone: zone(cq, `CQ zone for ${name}`),
+      itu_zone: zone(itu, `ITU zone for ${name}`),
       lat: num(lat, `latitude for ${name}`),
       lon: -num(lon, `longitude for ${name}`),
     };
