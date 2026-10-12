@@ -15,10 +15,17 @@
 -- weekend bumps and a daily cycle, and about 55,000 RBN spots a day (the real
 -- feed is ~1.5M; this keeps a preview branch small). The pgTAP suites clear
 -- the tables they count, so they pass with or without this data.
+--
+-- One DO block on purpose: Supabase branching sends the seed file as a single
+-- prepared batch, so a temp table created by one statement does not exist yet
+-- when the next is prepared. PL/pgSQL plans each statement when it runs.
 
-select setseed(0.4242);
+do $seed$
+begin
 
--- Helpers (temporary; gone when the seed session ends) -----------------------
+perform setseed(0.4242);
+
+-- Helpers (temporary; dropped at the end) ------------------------------------
 
 -- A made-up callsign for member i of a pool, stable across runs: the same i
 -- always gets the same prefix, digit and suffix.
@@ -213,4 +220,13 @@ on conflict do nothing;
 -- migrations' own refresh already ran on empty tables and marked every window
 -- day as rolled up, so the RBN rollups are cleared first.
 delete from rbn_rollup_days;
-select public.refresh_stats_snapshot();
+perform public.refresh_stats_snapshot();
+
+-- The branch may reuse this connection, so leave nothing temporary behind.
+drop table seed_days, seed_states, seed_parks, seed_pota_activations, seed_pota_spots,
+           seed_associations, seed_sota_activations;
+drop function pg_temp.seed_call(int, text[]), pg_temp.gauss(int), pg_temp.skewed(int, double precision, int),
+              pg_temp.family(text), pg_temp.freq(text, text, int);
+
+end
+$seed$;
