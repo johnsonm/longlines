@@ -198,6 +198,17 @@ relay on pushes to main; nothing else deploys automatically.
   never pruned by the archive.
 - Storage S3 access keys never go in the web app, the relay or an Edge Function.
 
+## Callsign rollup rules
+
+- Profiles and rollups read `spot_stream`, never a source table by name. A source writing
+  `raw_spots` needs nothing; a new firehose table needs one `union all` arm in the view.
+- `rollup_callsign_day` runs exactly once per completed UTC day (its marker goes in first):
+  references, seen and variants are running totals. Never delete a marker to re-roll a day.
+- Group a day by `callsign`/`spotter` before calling `base_callsign()` or `cty_lookup()`; the
+  RBN arm computes base calls per row. `mode_bucket(mode, mode_family)` is the one mode grouping.
+- `base_callsign()` output is now permanent in the rollups: changing it splits history. If it
+  must change, rewrite `raw_spots.base_callsign` in the same migration.
+
 ## Conventions
 
 - Time-dependent functions take `now: Date` so tests pin the clock. The POTA and SOTAwatch

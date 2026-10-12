@@ -222,6 +222,9 @@ on conflict do nothing;
 delete from rbn_rollup_days;
 perform public.refresh_stats_snapshot();
 
+-- Callsign rollups for the seeded days, as the nightly job would have made.
+perform public.backfill_callsign_rollups();
+
 -- The branch may reuse this connection, so leave nothing temporary behind.
 drop table seed_days, seed_states, seed_parks, seed_pota_activations, seed_pota_spots,
            seed_associations, seed_sota_activations;

@@ -36,6 +36,45 @@ export type Database = {
                   Relationships: [
                     
                   ]
+                },"callsign_activity": {
+                  Row: {
+                    "band": string | null,"base": string,"grain": string,"hours": (number)[],"mode_bucket": string,"period": string,"role": string,"source": string,"spots": number
+                  }
+                  Insert: {
+                    "band"?: string | null,"base": string,"grain": string,"hours": (number)[],"mode_bucket": string,"period": string,"role": string,"source": string,"spots": number
+                  }
+                  Update: {
+                    "band"?: string | null,"base"?: string,"grain"?: string,"hours"?: (number)[],"mode_bucket"?: string,"period"?: string,"role"?: string,"source"?: string,"spots"?: number
+                  }
+                  Relationships: [
+                    
+                  ]
+                },"callsign_reach": {
+                  Row: {
+                    "base": string,"continent": string,"country": string,"grain": string,"period": string,"source": string,"spots": number
+                  }
+                  Insert: {
+                    "base": string,"continent": string,"country": string,"grain": string,"period": string,"source": string,"spots": number
+                  }
+                  Update: {
+                    "base"?: string,"continent"?: string,"country"?: string,"grain"?: string,"period"?: string,"source"?: string,"spots"?: number
+                  }
+                  Relationships: [
+                    
+                  ]
+                },"callsign_references": {
+                  Row: {
+                    "base": string,"days": number,"first_day": string,"last_day": string,"location": string | null,"name": string | null,"program": string,"reference": string,"spots": number
+                  }
+                  Insert: {
+                    "base": string,"days": number,"first_day": string,"last_day": string,"location"?: string | null,"name"?: string | null,"program": string,"reference": string,"spots": number
+                  }
+                  Update: {
+                    "base"?: string,"days"?: number,"first_day"?: string,"last_day"?: string,"location"?: string | null,"name"?: string | null,"program"?: string,"reference"?: string,"spots"?: number
+                  }
+                  Relationships: [
+                    
+                  ]
                 },"callsign_rollup_days": {
                   Row: {
                     "day": string,"rolled_at": string
@@ -45,6 +84,32 @@ export type Database = {
                   }
                   Update: {
                     "day"?: string,"rolled_at"?: string
+                  }
+                  Relationships: [
+                    
+                  ]
+                },"callsign_seen": {
+                  Row: {
+                    "base": string,"days_on_air": number,"first_spot": string,"last_frequency_khz": number,"last_mode": string | null,"last_spot": string
+                  }
+                  Insert: {
+                    "base": string,"days_on_air": number,"first_spot": string,"last_frequency_khz": number,"last_mode"?: string | null,"last_spot": string
+                  }
+                  Update: {
+                    "base"?: string,"days_on_air"?: number,"first_spot"?: string,"last_frequency_khz"?: number,"last_mode"?: string | null,"last_spot"?: string
+                  }
+                  Relationships: [
+                    
+                  ]
+                },"callsign_variants": {
+                  Row: {
+                    "base": string,"callsign": string,"last_day": string,"spots": number
+                  }
+                  Insert: {
+                    "base": string,"callsign": string,"last_day": string,"spots": number
+                  }
+                  Update: {
+                    "base"?: string,"callsign"?: string,"last_day"?: string,"spots"?: number
                   }
                   Relationships: [
                     
@@ -393,6 +458,13 @@ isOneToOne: false
                         Relationships: [
                     
                   ]
+                },"spot_stream": {
+                  Row: {
+                    "band": string | null,"base_callsign": string | null,"callsign": string | null,"frequency_khz": number | null,"mode": string | null,"mode_bucket": string | null,"program": string | null,"reference": string | null,"reference_location": string | null,"reference_name": string | null,"snr": number | null,"source": string | null,"spot_time": string | null,"spotter": string | null,"spotter_base": string | null
+                  }
+                  Relationships: [
+                    
+                  ]
                 }
           }
           Functions: {
@@ -409,6 +481,11 @@ isOneToOne: false
 "archive_slice_minutes":
 { Args: { "p_source": string }; Returns: number
                            },
+"backfill_callsign_rollups":
+{ Args: { "p_max_days"?: number }; Returns: {
+              "error": string,"rollup_day": string,"spots": number
+            }[]
+                           },
 "base_callsign":
 { Args: { "p_call": string }; Returns: string
                            },
@@ -422,6 +499,9 @@ isOneToOne: false
 { Args: { "p_limit"?: number,"p_vt"?: number }; Returns: {
               "attempts": number,"created_at": string,"delivery_id": number,"destination": Json,"msg_id": number,"spot": Json,"subscription_id": string
             }[]
+                           },
+"compact_callsign_rollups":
+{ Args: Record<PropertyKey, never>; Returns: undefined
                            },
 "create_destination":
 { Args: { "p_name": string,"p_type": string,"p_url": string }; Returns: {
@@ -455,6 +535,9 @@ isOneToOne: false
 { Args: { "p_spots": Json }; Returns: {
               "id": number,"source": string,"source_spot_id": string
             }[]
+                           },
+"int_array_add":
+{ Args: { "p_a": (number)[],"p_b": (number)[] }; Returns: (number)[]
                            },
 "is_private_host":
 { Args: { "p_host": string }; Returns: boolean
@@ -527,6 +610,9 @@ isOneToOne: false
 "match_pending_spots":
 { Args: { "batch_size"?: number }; Returns: number
                            },
+"mode_bucket":
+{ Args: { "p_family": string,"p_mode": string }; Returns: string
+                           },
 "parse_https_url":
 { Args: { "p_url": string }; Returns: (string)[]
                            },
@@ -557,6 +643,9 @@ isOneToOne: false
                            },
 "retire_rbn_day":
 { Args: { "p_day": string }; Returns: undefined
+                           },
+"rollup_callsign_day":
+{ Args: { "p_day": string }; Returns: number
                            },
 "rollup_rbn_day":
 { Args: { "p_day": string }; Returns: undefined

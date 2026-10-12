@@ -507,5 +507,50 @@ call. The table behind that is AD1C's cty.dat, the country file loggers use
   in a digit (`W4/G4OBK`, `KK4PWJ/VE3`), then the shorter one. It does not use
   `base_callsign()`, which breaks length ties by position. An exact `=` entry for the call or the
   location wins over the longest matching prefix. `/MM` and `/AM` have no country.
-- **Access.** The tables are service-role only, like the other internal tables. Profiles read
-  them through definer RPCs.
+- **Access.** The tables are service-role only, like the other internal tables. The rollups read
+  them through `cty_lookup`; profiles will read them through definer RPCs.
+
+# Callsign rollups
+
+```mermaid
+flowchart LR
+  R[(raw_spots, except RBN copies)] --> V[spot_stream view]
+  B[(rbn_spots)] --> V
+  M[maintain_rbn_spots 03:35 UTC] -- "backfill_callsign_rollups" --> D[rollup_callsign_day]
+  D -- "one pass per day" --> V
+  D --> T[(callsign_activity, callsign_reach, callsign_references, callsign_seen, callsign_variants)]
+  D -- marker --> K[(callsign_rollup_days)]
+  K -- "rolled up: may retire" --> M
+```
+
+Callsign profiles cover every day since Long Lines started, but `rbn_spots` keeps only seven. The
+rollups keep per-station counts and breakdowns forever, never per-spotter rows (spec
+`docs/superpowers/specs/2026-10-12-callsign-lookup-design.md`).
+
+- **`spot_stream`.** One row shape for every source: `source`, `spot_time`, `callsign`,
+  `base_callsign`, `spotter`, `spotter_base`, `frequency_khz`, `band`, `mode`, `mode_bucket`,
+  `snr`, `program`, `reference`, `reference_name`, `reference_location`. It is `raw_spots` without
+  its RBN rows (copies) plus `rbn_spots`. A source that writes `raw_spots` appears with no change;
+  a new firehose table needs one `union all` arm. The base columns are computed per row for
+  `rbn_spots`, so a query over many RBN rows groups by `callsign` first. Service-role only.
+- **`mode_bucket(mode, mode_family)`.** The Stats chart buckets (CW, SSB, FT8/FT4, FM, Other).
+  CW follows `mode_family`, so SQL still never derives a family.
+- **Tables.** `callsign_activity` (period, base, role, source, band, mode bucket: spots and
+  spots per UTC hour), `callsign_reach` (period, base, source, spotter country and continent),
+  `callsign_references` (base, program, reference: days, spots, first and last day, latest name),
+  `callsign_seen` (base: first and last spot, the last one's frequency and mode, days on the air)
+  and `callsign_variants` (base, spelling: spots, last day). Role `heard` is the station spotted;
+  role `spotter` is the station spotting others. Self-spots count as heard but not as spotter
+  or reach. Countries come from `cty_lookup`, once per distinct spotter.
+- **Exactly once.** `rollup_callsign_day(day)` inserts the day's `callsign_rollup_days` marker
+  first and does nothing when it is already there: references, seen and variants are running
+  totals and would double. Only completed UTC days are rolled up; a spot that arrives after its
+  day was rolled up is not counted.
+- **One pass.** A day is grouped once by call, spotter, band, mode, hour and reference; base calls
+  and countries are resolved per distinct call afterwards. A synthetic 1.5M-row RBN day takes about
+  13 s locally.
+- **Nightly.** `maintain_rbn_spots()` calls `backfill_callsign_rollups()` between creating
+  partitions and retention. It rolls up every completed day since the first spot that has no
+  marker, oldest first, each in its own subtransaction, then folds day rows older than 35 days
+  into month rows (`compact_callsign_rollups`). A failed day is a warning and is retried the next
+  night; retention still retires an RBN day 14 days old without its rollup.

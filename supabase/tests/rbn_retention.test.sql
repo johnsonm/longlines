@@ -1,4 +1,4 @@
--- pgTAP: rbn_spots retention (20261011000005, 20261012000010). A day older
+-- pgTAP: rbn_spots retention (20261011000005, 20261012000010, 20261012000040). A day older
 -- than seven is dropped only when every 10-minute slice is archived with the
 -- database's count and the callsign rollups have recorded it, or it is older
 -- than 14 days.
@@ -32,6 +32,14 @@ $$;
 delete from rbn_spots;
 delete from archive_log;
 delete from callsign_rollup_days;
+
+-- maintain_rbn_spots rolls up every unrolled day before retention
+-- (20261012000040). This suite tests retention alone, so the rollups are
+-- switched off and the days below are marked by hand.
+create or replace function public.backfill_callsign_rollups(p_max_days int default null)
+returns table (rollup_day date, spots bigint, error text)
+language sql
+as $$ select null::date, null::bigint, null::text where false $$;
 
 -- Day -9: archived with matching counts.          -> dropped
 -- Day -10: one slice logged with the wrong count.  -> kept, that log row deleted

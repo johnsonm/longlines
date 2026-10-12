@@ -97,6 +97,14 @@ begin
     '[{"pattern":"SM","exact":false,"entity":"SM","continent":"EU","cq_zone":14,"itu_zone":18}]');
   assert (select continent from public.cty_lookup('SM1HEV-#')) = 'EU',
     'cty_lookup should place SM1HEV in Europe';
+
+  -- Callsign rollups: the stream reads every source and a backfill marks the smoke spots' days
+  -- (a seeded database may have rolled them up already).
+  assert (select count(*) from spot_stream where callsign in ('W1AW', 'SM0KE')) >= 2,
+    'spot_stream should see raw_spots and rbn_spots rows';
+  perform * from public.backfill_callsign_rollups();
+  assert exists (select 1 from callsign_rollup_days where day = '2026-10-05'),
+    'backfill_callsign_rollups should roll up the smoke spots'' first day';
 end $$;
 
 -- anon must not be able to read the tables.
