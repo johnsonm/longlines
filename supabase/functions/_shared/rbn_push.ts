@@ -1,6 +1,6 @@
 // One relay batch for ingest-rbn. Every line goes to rbn_spots (the full
-// record, kept for seven days and archived); only lines whose station is on the
-// watchlist continue through runIngest into raw_spots, the spot_events queue and
+// record, kept for seven days and archived); only lines whose station a
+// subscription names (exactly or by base call, see watched_among) continue through runIngest into raw_spots, the spot_events queue and
 // the matcher, exactly as before the firehose.
 
 import { runIngest } from "./ingest.ts";
@@ -46,7 +46,8 @@ export async function runRbnPush(
     }
     if (rows.length > 0) stored = await db.ingestRbnSpots(rows);
     if (failures.length > 0) await db.recordSpotFailures(failures);
-    const watched = new Set(await db.watchedCallsigns("rbn"));
+    const stations = [...new Set(rows.map((row) => row.callsign))];
+    const watched = new Set(await db.watchedAmong("rbn", stations));
     watchedItems = kept.filter((_raw, i) => watched.has(rows[i]!.callsign));
   } catch (error) {
     await db.recordFailure("rbn", errorMessage(error));

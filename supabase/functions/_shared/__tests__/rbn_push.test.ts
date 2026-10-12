@@ -16,6 +16,7 @@ function fakeDb(options: { watched?: string[]; stored?: number; storeFails?: boo
     failures: [] as SpotFailure[][],
     success: [] as Array<[Source, number]>,
     failure: [] as Array<[Source, string]>,
+    asked: [] as string[][],
   };
   const db: RbnPushDb = {
     ingestRbnSpots(rows) {
@@ -23,7 +24,11 @@ function fakeDb(options: { watched?: string[]; stored?: number; storeFails?: boo
       if (options.storeFails) return Promise.reject(new Error("disk full"));
       return Promise.resolve(options.stored ?? rows.length);
     },
-    watchedCallsigns: () => Promise.resolve(options.watched ?? ["CT1JGA/P"]),
+    watchedAmong(_source, callsigns) {
+      calls.asked.push(callsigns);
+      const watched = options.watched ?? ["CT1JGA/P"];
+      return Promise.resolve(callsigns.filter((c) => watched.includes(c)));
+    },
     ingestSpots(spots) {
       calls.ingested.push(spots);
       return Promise.resolve(
@@ -67,6 +72,7 @@ Deno.test("runRbnPush stores every line and alerts only watched callsigns", asyn
   assertEquals(calls.stored[0]!.map((r) => r.callsign), ["CT1JGA/P", "N2GM"]);
   assertEquals(calls.ingested.length, 1);
   assertEquals(calls.ingested[0]!.map((s) => s.callsign), ["CT1JGA/P"]);
+  assertEquals(calls.asked, [["CT1JGA/P", "N2GM"]], "asks once about each parsed station");
   assertEquals(calls.failures.flat().map((f) => f.error), [
     "not an RBN spot line",
     'invalid timestamp: "not a time"',

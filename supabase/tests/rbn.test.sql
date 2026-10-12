@@ -1,5 +1,5 @@
 -- pgTAP: RBN as a source (0011 rbn_source): the source checks, the ingest_state
--- row, watched_callsigns(), the matcher guard and the RBN-needs-a-callsign rule.
+-- row, the watchlist (watched_among), the matcher guard and the RBN-needs-a-callsign rule.
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
@@ -26,20 +26,20 @@ select throws_ok(
 select lives_ok(
   format($$select save_subscription(jsonb_build_object('name','Mixed','sources',array['rbn','pota'],'destinations',array[%L]))$$, (select id from d)),
   'RBN alongside another source may leave callsigns empty');
-select throws_ok($$select watched_callsigns('rbn')$$, '42501', null,
-  'authenticated users cannot call watched_callsigns');
+select throws_ok($$select watched_among('rbn', array['KK4PWJ'])$$, '42501', null,
+  'authenticated users cannot call watched_among');
 reset role;
 
 select is(
-  array(select watched_callsigns('rbn')),
+  array(select watched_among('rbn', array['W1AW', 'KK4PWJ', 'N4DXX', 'K9OFF', 'KK4PWJ'])),
   array['KK4PWJ', 'W1AW'],
-  'watchlist: enabled subscriptions that accept rbn, distinct and sorted');
-select is(array(select watched_callsigns('pota')), array['N4DXX', 'W1AW'],
+  'watchlist: stations named by enabled subscriptions that accept rbn, distinct and sorted');
+select is(array(select watched_among('pota', array['KK4PWJ', 'W1AW', 'N4DXX'])), array['N4DXX', 'W1AW'],
   'the watchlist follows each subscription''s sources');
 
-select ok(has_function_privilege('service_role', 'public.watched_callsigns(text)', 'execute'), 'service_role may call watched_callsigns');
-select ok(not has_function_privilege('anon', 'public.watched_callsigns(text)', 'execute'), 'anon may not call watched_callsigns');
-select ok(not has_function_privilege('authenticated', 'public.watched_callsigns(text)', 'execute'), 'authenticated may not call watched_callsigns');
+select ok(has_function_privilege('service_role', 'public.watched_among(text, text[])', 'execute'), 'service_role may call watched_among');
+select ok(not has_function_privilege('anon', 'public.watched_among(text, text[])', 'execute'), 'anon may not call watched_among');
+select ok(not has_function_privilege('authenticated', 'public.watched_among(text, text[])', 'execute'), 'authenticated may not call watched_among');
 
 -- Matcher: an RBN spot reaches only subscriptions that name callsigns.
 select is((select count(*) from ingest_spots(jsonb_build_array(
@@ -59,7 +59,7 @@ select ok(not spot_matches(
   (select r from raw_spots r where r.source_spot_id = 'r1')), 'spot_matches: rbn spot vs subscription without callsigns');
 select ok(spot_matches(
   (select s from subscriptions s where s.id = (select any_source from subs)),
-  (0, 'pota', 'x', 'x', now(), now(), 'N4DXX', null, 14062, '20m', 'cw', '', null, null, null, null, '{}'::jsonb, 'cw')::raw_spots),
+  (0, 'pota', 'x', 'x', now(), now(), 'N4DXX', null, 14062, '20m', 'cw', '', null, null, null, null, '{}'::jsonb, 'cw', 'N4DXX')::raw_spots),
   'spot_matches: other sources still match without callsigns');
 
 select throws_ok(
