@@ -8,7 +8,8 @@
 //
 // Telnet spot line (DXSpider; columns are space-padded, the comment is cut at
 // 30 characters, the line ends in two BEL characters, and nodes with
-// set/dxgrid append the spotter's locator after the time):
+// set/dxgrid append the spotter's locator after the time; other nodes append a
+// state or zones there instead):
 //   DX de HA7UL:      7146.0  HA7UL/P      CROTA HU-BCS-003               1316Z
 //   DX de YB1LVL:    28074.0  F4HKP        FT8 -19dB from JN18 1524Hz     1316Z
 //   DX de KB8OTK:    14075.2  VP2MAW                                      1318Z
@@ -23,7 +24,7 @@ import { contentHash } from "./hash.ts";
 import { runIngest } from "./ingest.ts";
 import { modeFamily, resolveDxMode } from "./modes.ts";
 import { cleanCallsign, isTooOld, parseKhz, parseUtc } from "./normalize.ts";
-import { parseRelayBody, requireString, spotTimeFromHhmm } from "./relay_lines.ts";
+import { relayAdapter, requireString, spotTimeFromHhmm } from "./relay_lines.ts";
 import type {
   IngestDb,
   IngestSummary,
@@ -34,9 +35,12 @@ import type {
 
 const MAX_AGE_MS = 5 * 60 * 1000;
 
-const SPOT_LINE =
-  /^DX de (\S+?):\s*(\d+(?:\.\d+)?)\s+(\S+)\s*(.*?)\s*(\d{4})Z(?:\s+([A-R]{2}\d{2}(?:[A-X]{2})?))?$/;
-const SKIMMER_COMMENT = /^-?\d+ dB\s+\d+ (?:WPM|BPS)\b/;
+// The comment is greedy so the time is the last "HHMMZ" on the line; nodes may
+// append a locator, a state or zones after it, which are ignored.
+const SPOT_LINE = /^DX de (\S+?):\s*(\d+(?:\.\d+)?)\s+(\S+)\s*(.*)\s(\d{4})Z(?:\s+(.*))?$/;
+const LOCATOR = /^[A-R]{2}\d{2}(?:[A-X]{2})?$/i;
+// Skimmer comments as RBN writes them, with or without the mode in front: "CW 15 dB 22 WPM CQ".
+const SKIMMER_COMMENT = /^(?:\S+\s+)?-?\d+ dB\s+\d+ (?:WPM|BPS)\b/;
 // BEL and other C0 controls; DXSpider rings the bell after every spot.
 // deno-lint-ignore no-control-regex
 const CONTROL = /[\u0000-\u001f\u007f]/g;
@@ -49,7 +53,7 @@ export interface DxLine {
   /** Free text, trimmed; may be empty. */
   comment: string;
   hhmm: string;
-  /** The spotter's Maidenhead locator when the node appends it. */
+  /** The spotter's Maidenhead locator, uppercased, when the node appends one after the time. */
   locator: string | null;
 }
 
@@ -61,6 +65,7 @@ export function parseDxLine(line: string): DxLine | null {
   const group = (i: number): string => m[i] ?? "";
   const spotter = group(1).toUpperCase();
   const comment = group(4).trim();
+  const tail = group(6).trim();
   if (spotter.endsWith("-#") || SKIMMER_COMMENT.test(comment)) return null;
   return {
     spotter,
@@ -68,27 +73,17 @@ export function parseDxLine(line: string): DxLine | null {
     callsign: cleanCallsign(group(3)),
     comment,
     hhmm: group(5),
-    locator: m[6] ?? null,
+    locator: LOCATOR.test(tail) ? tail.toUpperCase() : null,
   };
 }
 
 /** An adapter whose feed is one relay request body. */
 export function dxclusterAdapter(body: unknown): SourceAdapter {
-  return {
-    source: "dxcluster",
-
-    fetchSpots(): Promise<unknown> {
-      return Promise.resolve(body);
-    },
-
-    parseFeed(feed: unknown): JsonObject[] {
-      return parseRelayBody(feed);
-    },
-
-    async normalize(raw: JsonObject, now: Date): Promise<NormalizeResult> {
+  return relayAdapter(
+    "dxcluster",
+    body,
+    async (raw: JsonObject, now: Date): Promise<NormalizeResult> => {
       const line = requireString(raw, "line");
-      // jsonb rejects U+0000, so a NUL would fail the whole batch in Postgres.
-      if (line.includes("\u0000")) throw new Error("line contains a NUL character");
       const receivedAt = parseUtc(requireString(raw, "received_at"));
       const parsed = parseDxLine(line);
       if (!parsed) throw new Error("not a DX Cluster spot line");
@@ -131,7 +126,7 @@ export function dxclusterAdapter(body: unknown): SourceAdapter {
         },
       };
     },
-  };
+  );
 }
 
 /** One relay batch for ingest-dxcluster. An empty batch still records the heartbeat. */

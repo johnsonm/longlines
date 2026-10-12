@@ -1,10 +1,11 @@
-// Shared by the pushed sources (RBN, DX Cluster): the relay request body and
-// the "HHMMZ" time stamp that telnet spot lines carry instead of a date.
+// Shared by the pushed sources (RBN, DX Cluster): the relay request body, the
+// adapter shell around it, and the "HHMMZ" time stamp that telnet spot lines
+// carry instead of a date.
 //
 // Request body:
 //   { "lines": [{ "line": "<telnet line>", "received_at": "<ISO 8601 UTC>" }, ...] }
 
-import type { JsonObject } from "./types.ts";
+import type { JsonObject, NormalizeResult, Source, SourceAdapter } from "./types.ts";
 
 const MAX_LINES = 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -25,6 +26,29 @@ export function parseRelayBody(body: unknown): JsonObject[] {
     }
     return item as JsonObject;
   });
+}
+
+/** The item with every U+0000 removed: jsonb rejects it, so a NUL would fail the whole batch. */
+export function withoutNul(raw: JsonObject): JsonObject {
+  return JSON.parse(JSON.stringify(raw).replaceAll("\\u0000", "")) as JsonObject;
+}
+
+/**
+ * An adapter whose feed is one relay request body, so runIngest can treat a
+ * push like a fetched feed. Items lose any NUL before normalize sees them, which
+ * keeps raw_payload and ingest_failures rows storable.
+ */
+export function relayAdapter(
+  source: Source,
+  body: unknown,
+  normalize: (raw: JsonObject, now: Date) => Promise<NormalizeResult>,
+): SourceAdapter {
+  return {
+    source,
+    fetchSpots: () => Promise.resolve(body),
+    parseFeed: (feed) => parseRelayBody(feed).map(withoutNul),
+    normalize,
+  };
 }
 
 /**

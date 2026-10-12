@@ -21,7 +21,7 @@ import { bandForFrequency } from "./bands.ts";
 import { contentHash } from "./hash.ts";
 import { cleanCallsign, isTooOld, parseKhz, parseUtc } from "./normalize.ts";
 import { modeFamily, resolveMode } from "./modes.ts";
-import { parseRelayBody, requireString, spotTimeFromHhmm } from "./relay_lines.ts";
+import { relayAdapter, requireString, spotTimeFromHhmm } from "./relay_lines.ts";
 import type { JsonObject, NormalizeResult, RbnSpotRow, SourceAdapter } from "./types.ts";
 
 const MAX_AGE_MS = 5 * 60 * 1000;
@@ -107,64 +107,52 @@ export function rbnSpotRow(raw: JsonObject): RbnSpotRow {
 
 /** An adapter whose feed is one relay request body. */
 export function rbnAdapter(body: unknown): SourceAdapter {
-  return {
-    source: "rbn",
+  return relayAdapter("rbn", body, async (raw: JsonObject, now: Date): Promise<NormalizeResult> => {
+    const line = requireString(raw, "line");
+    const receivedAt = parseUtc(requireString(raw, "received_at"));
+    const parsed = parseRbnLine(line);
+    if (!parsed) throw new Error("not an RBN spot line");
 
-    fetchSpots(): Promise<unknown> {
-      return Promise.resolve(body);
-    },
+    const spotTime = spotTimeFromHhmm(parsed.hhmm, receivedAt);
+    if (isTooOld(spotTime, now, MAX_AGE_MS)) return { kind: "skip", reason: "too_old" };
 
-    parseFeed(feed: unknown): JsonObject[] {
-      return parseRelayBody(feed);
-    },
+    const spotTimeIso = spotTime.toISOString();
+    // Field order is fixed; changing it would make every stored spot look new.
+    const hash = await contentHash([
+      spotTimeIso,
+      parsed.spotter,
+      parsed.callsign,
+      parsed.frequency,
+      parsed.mode,
+      parsed.snr,
+      `${parsed.speed} ${parsed.speedUnit}`,
+      parsed.type,
+    ]);
 
-    async normalize(raw: JsonObject, now: Date): Promise<NormalizeResult> {
-      const line = requireString(raw, "line");
-      const receivedAt = parseUtc(requireString(raw, "received_at"));
-      const parsed = parseRbnLine(line);
-      if (!parsed) throw new Error("not an RBN spot line");
+    const frequencyKhz = parseKhz(parsed.frequency, "khz");
+    const comment = rbnComment(parsed);
+    const mode = resolveMode(parsed.mode, comment);
 
-      const spotTime = spotTimeFromHhmm(parsed.hhmm, receivedAt);
-      if (isTooOld(spotTime, now, MAX_AGE_MS)) return { kind: "skip", reason: "too_old" };
-
-      const spotTimeIso = spotTime.toISOString();
-      // Field order is fixed; changing it would make every stored spot look new.
-      const hash = await contentHash([
-        spotTimeIso,
-        parsed.spotter,
-        parsed.callsign,
-        parsed.frequency,
-        parsed.mode,
-        parsed.snr,
-        `${parsed.speed} ${parsed.speedUnit}`,
-        parsed.type,
-      ]);
-
-      const frequencyKhz = parseKhz(parsed.frequency, "khz");
-      const comment = rbnComment(parsed);
-      const mode = resolveMode(parsed.mode, comment);
-
-      return {
-        kind: "spot",
-        spot: {
-          source: "rbn",
-          source_spot_id: `${spotTimeIso}|${parsed.spotter}|${parsed.callsign}|${parsed.frequency}`,
-          content_hash: hash,
-          spot_time: spotTimeIso,
-          callsign: parsed.callsign,
-          spotter: parsed.spotter,
-          frequency_khz: frequencyKhz,
-          band: bandForFrequency(frequencyKhz),
-          mode,
-          mode_family: modeFamily(mode),
-          comment,
-          pota_reference: null,
-          pota_park_name: null,
-          pota_location: null,
-          sota_summit_ref: null,
-          raw_payload: raw,
-        },
-      };
-    },
-  };
+    return {
+      kind: "spot",
+      spot: {
+        source: "rbn",
+        source_spot_id: `${spotTimeIso}|${parsed.spotter}|${parsed.callsign}|${parsed.frequency}`,
+        content_hash: hash,
+        spot_time: spotTimeIso,
+        callsign: parsed.callsign,
+        spotter: parsed.spotter,
+        frequency_khz: frequencyKhz,
+        band: bandForFrequency(frequencyKhz),
+        mode,
+        mode_family: modeFamily(mode),
+        comment,
+        pota_reference: null,
+        pota_park_name: null,
+        pota_location: null,
+        sota_summit_ref: null,
+        raw_payload: raw,
+      },
+    };
+  });
 }

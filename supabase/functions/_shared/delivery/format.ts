@@ -13,7 +13,12 @@ import type {
 export const DISCORD_EMBEDS_PER_MESSAGE = 10; // Discord's per-message limit
 export const WEBHOOK_SPOTS_PER_REQUEST = 50;
 
-const SOURCE_LABELS: Record<string, string> = { pota: "POTA", sotawatch: "SOTAwatch" };
+const SOURCE_LABELS: Record<string, string> = {
+  pota: "POTA",
+  sotawatch: "SOTAwatch",
+  rbn: "RBN",
+  dxcluster: "DX Cluster",
+};
 
 export function sourceLabel(source: string): string {
   return SOURCE_LABELS[source] ?? source;

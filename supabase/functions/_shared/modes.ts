@@ -152,8 +152,9 @@ const SEGMENTS: ReadonlyArray<{ from: number; to: number; mode: string }> = [
 /** The mode the band plan expects at a frequency. Null where the plan does not say. */
 export function modeFromFrequency(khz: number): string | null {
   const near = (dials: number[]) => dials.some((d) => khz >= d && khz < d + DIAL_WIDTH_KHZ);
-  if (near(FT8_DIALS)) return "ft8";
+  // FT4 first: the 80m windows overlap (3575-3576) and FT4's dial is the exact one there.
   if (near(FT4_DIALS)) return "ft4";
+  if (near(FT8_DIALS)) return "ft8";
   return SEGMENTS.find((s) => khz >= s.from && khz < s.to)?.mode ?? null;
 }
 

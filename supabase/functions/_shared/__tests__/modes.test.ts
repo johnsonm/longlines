@@ -98,6 +98,8 @@ Deno.test("modeFromFrequency puts FT8 and FT4 dial windows ahead of the segments
   assertEquals(modeFromFrequency(14077), null);
   assertEquals(modeFromFrequency(24915.8), "ft8");
   assertEquals(modeFromFrequency(7047.5), "ft4");
+  assertEquals(modeFromFrequency(3575.5), "ft4");
+  assertEquals(modeFromFrequency(3573.5), "ft8");
   assertEquals(modeFromFrequency(50313), "ft8");
 });
 

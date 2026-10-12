@@ -1,6 +1,7 @@
 import { assertEquals } from "@std/assert";
 import { runIngest } from "../ingest.ts";
-import { ingestHandler, pushIngestHandler } from "../serve.ts";
+import { createRbnPushDb, ingestHandler, pushIngestHandler } from "../serve.ts";
+import { fakeSupabase } from "./fake_supabase.ts";
 import type { IngestDb, SourceAdapter } from "../types.ts";
 
 function adapter(feed: unknown): SourceAdapter {
@@ -121,4 +122,11 @@ Deno.test("pushIngestHandler POST turns a run error into a 500 naming the source
 Deno.test("pushIngestHandler refuses GET now that the relay no longer reads a watchlist", async () => {
   const { handler } = pushHandler();
   assertEquals((await handler(relayRequest("GET", SECRET))).status, 405);
+});
+
+Deno.test("createRbnPushDb combines the ingest, watchlist and rbn_spots surfaces", () => {
+  const db = createRbnPushDb(fakeSupabase().client);
+  for (const method of ["ingestSpots", "recordSuccess", "watchedCallsigns", "ingestRbnSpots"]) {
+    assertEquals(typeof (db as unknown as Record<string, unknown>)[method], "function", method);
+  }
 });

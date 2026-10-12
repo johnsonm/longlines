@@ -37,6 +37,19 @@ Deno.test("loadConfig rejects missing values, plain http off localhost and bad p
   );
 });
 
+Deno.test("the Docker image allows every environment variable the relay reads", () => {
+  const read = new Set<string>(["LONGLINES_USER_AGENT_URL"]); // read by userAgent() in _shared/http.ts
+  const recorder = (name: string) => {
+    read.add(name);
+    return (BASE as Record<string, string>)[name];
+  };
+  loadConfig(recorder);
+  dxclusterFeed(recorder);
+  const dockerfile = Deno.readTextFileSync(new URL("../Dockerfile", import.meta.url));
+  const allowed = /--allow-env=([^"]+)"/.exec(dockerfile)?.[1]?.split(",") ?? [];
+  assertEquals([...read].filter((name) => !allowed.includes(name)), []);
+});
+
 Deno.test("RBN_FEED.isSpot accepts every fixture spot line and nothing else", () => {
   const fixture = Deno.readTextFileSync(
     new URL("../../supabase/functions/_shared/__tests__/fixtures/rbn-telnet.txt", import.meta.url),

@@ -66,10 +66,21 @@ Deno.test("parseDxLine accepts an empty comment and an appended locator", () => 
   });
 });
 
+Deno.test("parseDxLine ignores whatever a node appends after the time", () => {
+  const at = (tail: string) =>
+    parseDxLine(`DX de W3LPL:  14025.0  JA1ABC  up 2 QSX 1400Z   1234Z${tail}`);
+  assertEquals([at(" FN20xr")?.hhmm, at(" FN20xr")?.locator], ["1234", "FN20XR"]);
+  assertEquals([at(" MD")?.comment, at(" MD")?.locator], ["up 2 QSX 1400Z", null]);
+  assertEquals(at(" 8 5")?.locator, null);
+  assertEquals(at("")?.comment, "up 2 QSX 1400Z");
+});
+
 Deno.test("parseDxLine rejects skimmer spots and non-spot broadcasts", () => {
   const rejected = [
     "DX de SM1HEV-#: 14038.30  CT1JGA/P       CW     8 dB  24 WPM  CQ      1454Z",
     "DX de W3LPL:    14038.3  CT1JGA/P     12 dB  24 WPM  CQ                1454Z",
+    "DX de W3LPL:    14038.3  CT1JGA/P     CW 15 dB 22 WPM CQ               1454Z",
+    "DX de W3LPL:     7043.7  ON6A         RTTY -3 dB 45 BPS CQ             1454Z",
     "WWV de VE7CC <18>:   SFI=128, A=8, K=2, No Storms -> No Storms",
     "WCY de DK0WCY-1 <13> : K=2 expK=2 A=7 R=88 SFI=145 SA=qui GMF=qui Au=no",
     "To ALL de G4ABC: anyone hearing VK on 40?",
@@ -132,19 +143,24 @@ Deno.test("dxclusterAdapter.normalize skips spots older than five minutes", asyn
   assertEquals(result, { kind: "skip", reason: "too_old" });
 });
 
-Deno.test("dxclusterAdapter.normalize throws on a non-spot, a NUL or a missing time", async () => {
+Deno.test("dxclusterAdapter.normalize throws on a non-spot or a missing time", async () => {
   const adapter = dxclusterAdapter(null);
   await assertRejects(() => adapter.normalize(item("Local users: 5"), NOW), Error, "not a DX");
-  await assertRejects(
-    () => adapter.normalize(item("DX de W3LPL:  14025.0  K1\u0000ABC   up 2   1318Z"), NOW),
-    Error,
-    "NUL",
-  );
   await assertRejects(
     () => adapter.normalize({ line: line("DX de HA7UL") }, NOW),
     Error,
     "received_at",
   );
+});
+
+Deno.test("dxclusterAdapter.parseFeed strips NULs so stored and failed items fit in jsonb", () => {
+  const items = dxclusterAdapter(null).parseFeed({
+    lines: [item("DX de W3LPL:  14025.0  K1\u0000ABC   up 2   1318Z"), item("Local\u0000 users")],
+  });
+  assertEquals(items.map((i) => i["line"]), [
+    "DX de W3LPL:  14025.0  K1ABC   up 2   1318Z",
+    "Local users",
+  ]);
 });
 
 function fakeDb() {

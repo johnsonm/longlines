@@ -413,9 +413,12 @@ in with `RELAY_LOGIN_CALL` and forwards every line `parseDxLine` (`_shared/dxclu
   means "from"), else the band plan: FT8/FT4 dial windows, then the IARU CW and phone segments.
   Elsewhere, such as 60m, the digital sub-bands and VHF, the mode stays null. USB and LSB are stored
   as `ssb`.
-- **Not spots.** Skimmer lines (a `-#` spotter, or an RBN-style `NN dB NN WPM` comment) that a
-  node relays are dropped; RBN covers them. So are `WWV`, `WCY` and `To ALL` broadcasts. DXSpider
-  ends each spot line with two BEL characters, which the parser strips.
+- **Not spots.** Skimmer lines (a `-#` spotter, or an RBN-style `[mode] NN dB NN WPM` comment)
+  that a node relays are dropped; RBN covers them. So are `WWV`, `WCY` and `To ALL` broadcasts.
+  DXSpider ends each spot line with two BEL characters, which the parser strips. The time is the
+  last `HHMMZ` on the line; a locator, state or zones a node appends after it are ignored.
+- **Relay image.** The Dockerfile's `--allow-env` names every variable the relay reads, including
+  `DXCLUSTER_HOST`/`DXCLUSTER_PORT`; a test fails when the relay reads one the image does not allow.
 - **Ids.** As with RBN, the line has only `HHMMZ`; `source_spot_id` is
   `spot_time|spotter|callsign|frequency`, and the hash covers the comment too, so a re-spot with a
   new comment in the same minute is stored.
