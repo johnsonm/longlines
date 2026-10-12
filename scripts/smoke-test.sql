@@ -88,6 +88,15 @@ begin
   perform public.refresh_stats_snapshot();
   assert (select count(*) from stats_snapshots) = least(n + 1, 48),
     format('refresh_stats_snapshot should insert one row (had %s)', n);
+
+  -- Countries: the weekly import is scheduled and a load resolves a spotter.
+  assert exists (select 1 from cron.job where jobname = 'import-cty' and schedule = '20 4 * * 1'),
+    'import-cty should run weekly';
+  perform public.load_cty('smoke',
+    '[{"prefix":"SM","name":"Sweden","continent":"EU","cq_zone":14,"itu_zone":18,"lat":61.2,"lon":14.57}]',
+    '[{"pattern":"SM","exact":false,"entity":"SM","continent":"EU","cq_zone":14,"itu_zone":18}]');
+  assert (select continent from public.cty_lookup('SM1HEV-#')) = 'EU',
+    'cty_lookup should place SM1HEV in Europe';
 end $$;
 
 -- anon must not be able to read the tables.

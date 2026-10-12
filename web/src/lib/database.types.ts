@@ -49,6 +49,51 @@ export type Database = {
                   Relationships: [
                     
                   ]
+                },"cty_entities": {
+                  Row: {
+                    "continent": string,"cq_zone": number,"itu_zone": number,"lat": number,"lon": number,"name": string,"prefix": string
+                  }
+                  Insert: {
+                    "continent": string,"cq_zone": number,"itu_zone": number,"lat": number,"lon": number,"name": string,"prefix": string
+                  }
+                  Update: {
+                    "continent"?: string,"cq_zone"?: number,"itu_zone"?: number,"lat"?: number,"lon"?: number,"name"?: string,"prefix"?: string
+                  }
+                  Relationships: [
+                    
+                  ]
+                },"cty_load": {
+                  Row: {
+                    "entities": number,"id": boolean,"loaded_at": string,"prefixes": number,"version": string | null
+                  }
+                  Insert: {
+                    "entities": number,"id"?: boolean,"loaded_at": string,"prefixes": number,"version"?: string | null
+                  }
+                  Update: {
+                    "entities"?: number,"id"?: boolean,"loaded_at"?: string,"prefixes"?: number,"version"?: string | null
+                  }
+                  Relationships: [
+                    
+                  ]
+                },"cty_prefixes": {
+                  Row: {
+                    "continent": string,"cq_zone": number,"entity": string,"exact": boolean,"itu_zone": number,"pattern": string
+                  }
+                  Insert: {
+                    "continent": string,"cq_zone": number,"entity": string,"exact": boolean,"itu_zone": number,"pattern": string
+                  }
+                  Update: {
+                    "continent"?: string,"cq_zone"?: number,"entity"?: string,"exact"?: boolean,"itu_zone"?: number,"pattern"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "cty_prefixes_entity_fkey"
+      columns: ["entity"]
+isOneToOne: false
+      referencedRelation: "cty_entities"
+      referencedColumns: ["prefix"]
+    }
+                  ]
                 },"deliveries": {
                   Row: {
                     "attempts": number,"created_at": string,"destination_id": string,"id": number,"last_error": string | null,"sent_at": string | null,"spot_id": number,"status": string,"subscription_id": string
@@ -386,6 +431,11 @@ isOneToOne: false
 "create_rbn_spots_partition":
 { Args: { "p_day": string }; Returns: undefined
                            },
+"cty_lookup":
+{ Args: { "p_call": string }; Returns: {
+              "continent": string,"cq_zone": number,"entity": string,"itu_zone": number,"name": string
+            }[]
+                           },
 "delay_deliveries":
 { Args: { "p_delay_seconds": number,"p_msg_ids": (number)[] }; Returns: undefined
                            },
@@ -456,6 +506,9 @@ isOneToOne: false
         isOneToOne: false
         isSetofReturn: true
       } },
+"load_cty":
+{ Args: { "p_entities": Json,"p_prefixes": Json,"p_version": string }; Returns: undefined
+                           },
 "log_archive":
 { Args: { "p_bytes": number,"p_object_path": string,"p_row_count": number,"p_slice_end": string,"p_slice_start": string,"p_source": string }; Returns: undefined
                            },
@@ -528,9 +581,6 @@ isOneToOne: false
                            },
 "watched_among":
 { Args: { "p_callsigns": (string)[],"p_source": string }; Returns: string[]
-                           },
-"watched_callsigns":
-{ Args: { "p_source": string }; Returns: string[]
                            }
           }
           Enums: {

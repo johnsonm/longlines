@@ -215,3 +215,5 @@ relay on pushes to main; nothing else deploys automatically.
   delete from those tables first, inside their rolled-back transaction, so they pass seeded or not.
 - Be polite to upstreams: User-Agent on every fetch, no polling faster than the cron schedule,
   no tests that hit live APIs.
+- Spotter countries come from `cty_lookup(call)` in SQL over the weekly cty.dat import
+  (`import-cty`); TypeScript only parses the file (`_shared/cty.ts`) and never resolves a call.

@@ -456,3 +456,41 @@ select spot_type, count(*) from read_json_auto('s3://archive/rbn/2026/10/11/*.nd
 
 S3 access keys are created under Storage settings and can read every bucket, so they belong on an
 operator's machine, never in the web app or the relay.
+
+# Countries (cty.dat)
+
+How it works is in `docs/ARCHITECTURE.md` ("Countries (cty.dat)").
+
+## First load
+
+`import-cty` is a new function, so it needs one manual deploy after the merge (the Supabase GitHub
+integration skips new functions). Then run it once instead of waiting for Monday:
+
+```sh
+supabase functions deploy import-cty
+curl -X POST "$SUPABASE_URL/functions/v1/import-cty" -H "Authorization: Bearer <service-role JWT>"
+```
+
+```sql
+select * from cty_load;                         -- version, about 340 entities, 7,000+ prefixes
+select * from cty_lookup('SM1HEV-#');           -- Sweden, EU
+```
+
+## A load failed
+
+`cty_load.loaded_at` moves forward on every successful run, so a stale one means the weekly import
+is failing:
+
+```sql
+select version, loaded_at, now() - loaded_at as age from cty_load;   -- age should stay under 7 days
+```
+
+pg_net keeps responses for only a few hours, so read the reason by running the import by hand
+(the `curl` under "First load"). Its response says what went wrong:
+
+- 401 is the gateway rejecting the Vault JWT.
+- 403 means the token is not the service role.
+- 500 names the download, parse or `load_cty` error.
+
+The function's logs in the dashboard have the same messages. The previous set stays loaded
+throughout, so lookups keep working.
