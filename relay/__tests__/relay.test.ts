@@ -1,6 +1,6 @@
 import { assertEquals } from "@std/assert";
 import type { RelayConfig } from "../config.ts";
-import { type Feed, RBN_FEED } from "../feeds.ts";
+import { dxclusterFeed, type Feed, RBN_FEED } from "../feeds.ts";
 import type { RelayLine } from "../functions.ts";
 import { startRelay } from "../relay.ts";
 
@@ -132,4 +132,39 @@ Deno.test("startRelay shutdown with nothing buffered skips the final push", asyn
   await telnet.close();
   await functions.server.shutdown();
   assertEquals(functions.pushes.map((p) => p.lines), [[]]);
+});
+
+Deno.test("startRelay runs the DX Cluster feed with its own idle timeout and forwards only human spots", async () => {
+  const human =
+    "DX de HA7UL:      7146.0  HA7UL/P      CROTA HU-BCS-003               1316Z\u0007\u0007";
+  const telnet = fakeTelnet(["Hello N0CALL, this is G1FEF-2", SPOT_1, human]);
+  const functions = fakeFunctions();
+  const feed: Feed = {
+    ...dxclusterFeed(() => undefined),
+    host: "127.0.0.1",
+    port: telnet.port,
+    idleMs: 300,
+  };
+  const relay = startRelay(
+    { functionsUrl: functions.url, relaySecret: "s", loginCall: "N0CALL", healthPort: 0 },
+    [feed],
+    { hostname: "127.0.0.1", log: () => {} },
+  );
+  const health = async () =>
+    (await (await fetch(`http://127.0.0.1:${relay.addr.port}/healthz`)).json()).feeds[0];
+
+  await waitFor("the human spot", async () => (await health()).buffered === 1);
+  // The server stays silent after its lines, so the 300 ms idle timeout drops the session.
+  await waitFor("the idle disconnect", async () => (await health()).connected === false);
+  await relay.shutdown();
+  await relay.done;
+  await telnet.close();
+  await functions.server.shutdown();
+
+  assertEquals(telnet.logins, ["N0CALL\r\n"]);
+  assertEquals(functions.pushes.map((p) => p.path), [
+    "/functions/v1/ingest-dxcluster",
+    "/functions/v1/ingest-dxcluster",
+  ]);
+  assertEquals(functions.pushes[1]!.lines.map((l) => l.line), [human]);
 });

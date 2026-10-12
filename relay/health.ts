@@ -10,6 +10,8 @@ export interface FeedHealth {
   dropped: () => number;
   buffered: () => number;
   pushed: () => number;
+  /** Overrides the handler's staleMs for this feed. */
+  staleMs?: number;
 }
 
 export function healthHandler(
@@ -25,7 +27,7 @@ export function healthHandler(
       const last = f.status.lastDataAt ?? startedAt;
       return {
         id: f.id,
-        healthy: t - last.getTime() < staleMs,
+        healthy: t - last.getTime() < (f.staleMs ?? staleMs),
         connected: f.status.connected,
         connects: f.status.connects,
         last_data_at: f.status.lastDataAt?.toISOString() ?? null,

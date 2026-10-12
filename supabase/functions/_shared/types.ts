@@ -1,6 +1,6 @@
 import type { ModeFamily } from "./modes.ts";
 
-export type Source = "pota" | "sotawatch" | "rbn";
+export type Source = "pota" | "sotawatch" | "rbn" | "dxcluster";
 
 /** A JSON object as received from an upstream feed. Fields are validated at use. */
 export type JsonObject = Record<string, unknown>;

@@ -64,7 +64,7 @@ select ok(spot_matches(
 
 select throws_ok(
   $$insert into raw_spots (source, source_spot_id, content_hash, spot_time, callsign, frequency_khz, comment, raw_payload)
-    values ('dxcluster', 'x', 'x', now(), 'W1AW', 14000, '', '{}')$$,
+    values ('pskreporter', 'x', 'x', now(), 'W1AW', 14000, '', '{}')$$,
   '23514', null, 'raw_spots still rejects unknown sources');
 
 select * from finish();

@@ -4,7 +4,8 @@
 # supabase/functions/_shared. To deploy by hand from the root:
 #   fly deploy --ha=false
 # Secrets (fly secrets set ...): LONGLINES_FUNCTIONS_URL, LONGLINES_RELAY_SECRET,
-# RELAY_LOGIN_CALL. See docs/OPERATIONS.md.
+# RELAY_LOGIN_CALL, and optionally DXCLUSTER_HOST / DXCLUSTER_PORT to pick a DX
+# Cluster node other than the default. See docs/OPERATIONS.md.
 
 app = "longlines-relay"
 primary_region = "iad"

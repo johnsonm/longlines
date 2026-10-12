@@ -119,6 +119,8 @@ relay on pushes to main; nothing else deploys automatically.
 
 - Matching lives in SQL (`spot_matches`, `match_pending_spots`); never re-implement the predicate in
   TypeScript. The preview RPC and the matcher must stay on the same function.
+- A DX Cluster spot matches only subscriptions whose `sources` lists `dxcluster`; an empty sources
+  list ("any source") does not include it. The rule lives in `source_matches`. RBN spots match only subscriptions that name callsigns.
 - The worker (`supabase/functions/deliver`) only talks to the database through the
   `claim_deliveries` / `mark_deliveries_*` / `delay_deliveries` RPCs so delivery rows, queue
   messages and destination health change atomically.
@@ -201,6 +203,8 @@ relay on pushes to main; nothing else deploys automatically.
   set `NOW` inside the five-minute window of the spots they expect to keep.
 - Mode canonicalization, the comment hint and `mode_family` live in `_shared/modes.ts`. SQL only
   compares strings against `mode` and `mode_family`; never re-derive the family in SQL or the web.
+  `resolveDxMode` (comment, then band plan) is for DX Cluster only, whose lines have no mode
+  field; the other sources keep `resolveMode`.
 - POTA `spotTime` has no timezone; `parseUtc` appends `Z`. SOTAwatch `type` may be null and is
   treated as NORMAL. The QRT fixture spot has a null frequency, so the type check must stay ahead
   of frequency parsing.

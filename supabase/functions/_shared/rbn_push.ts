@@ -4,7 +4,8 @@
 // the matcher, exactly as before the firehose.
 
 import { runIngest } from "./ingest.ts";
-import { parseRelayBody, rbnAdapter, rbnSpotRow } from "./rbn.ts";
+import { rbnAdapter, rbnSpotRow } from "./rbn.ts";
+import { parseRelayBody, withoutNul } from "./relay_lines.ts";
 import type {
   IngestDb,
   IngestSummary,
@@ -19,11 +20,6 @@ export type RbnPushDb = IngestDb & WatchlistDb & RbnDb;
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-/** The item with every U+0000 removed: ingest_failures.raw_payload is jsonb, which rejects it. */
-function withoutNul(raw: JsonObject): JsonObject {
-  return JSON.parse(JSON.stringify(raw).replaceAll("\\u0000", "")) as JsonObject;
 }
 
 export async function runRbnPush(

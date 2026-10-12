@@ -10,7 +10,7 @@ import { type FeedHealth, healthHandler } from "./health.ts";
 import { abortableSleep, runTelnet, type SessionStatus } from "./telnet.ts";
 
 const STATS_LOG_MS = 10 * 60_000;
-/** /healthz turns 503 when a feed has been silent this long. */
+/** /healthz turns 503 when a feed has been silent this long, unless the feed sets its own. */
 const STALE_MS = 10 * 60_000;
 
 function startFeed(
@@ -48,6 +48,7 @@ function startFeed(
       port: feed.port,
       loginCall: config.loginCall,
       loginPrompt: feed.loginPrompt,
+      ...(feed.idleMs === undefined ? {} : { idleMs: feed.idleMs }),
       status,
       signal,
       log,
@@ -66,6 +67,7 @@ function startFeed(
     health: {
       id: feed.id,
       status,
+      ...(feed.staleMs === undefined ? {} : { staleMs: feed.staleMs }),
       dropped: () => forwarder.dropped,
       buffered: () => forwarder.buffered,
       pushed: () => forwarder.pushed,

@@ -8,8 +8,8 @@
 
 import type { ArchiveDb, ArchiveSlice, ArchiveStore, Source } from "./types.ts";
 
-/** POTA and SOTAwatch first: they are tiny, so an RBN backlog never starves them. */
-export const ARCHIVE_ORDER: readonly Source[] = ["pota", "sotawatch", "rbn"];
+/** The small sources first, so an RBN backlog never starves them. */
+export const ARCHIVE_ORDER: readonly Source[] = ["pota", "sotawatch", "dxcluster", "rbn"];
 /** Only slices that ended this long ago are archived, so late relay batches land first. */
 export const LAG_MS = 2 * 60 * 60 * 1000;
 /** A run starts no new slice once it has archived this many rows. */

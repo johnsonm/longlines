@@ -1,5 +1,5 @@
 import { assertEquals, assertRejects, assertThrows } from "@std/assert";
-import { parseRbnLine, parseRelayBody, rbnAdapter, rbnSpotRow, spotTimeFromHhmm } from "../rbn.ts";
+import { parseRbnLine, rbnAdapter, rbnSpotRow } from "../rbn.ts";
 import { contentHash } from "../hash.ts";
 import type { JsonObject } from "../types.ts";
 
@@ -54,24 +54,6 @@ Deno.test("parseRbnLine handles BPS, hyphenated skimmers, two-word types and no 
   assertEquals(parseRbnLine(line("DX de K3GMQ-#:  21150.00"))?.type, "NCDXF B");
   const vhf = parseRbnLine(line("DX de HA1VHF-#"));
   assertEquals([vhf?.frequency, vhf?.callsign, vhf?.type], ["144433.60", "9A0BVH", "DX"]);
-});
-
-Deno.test("spotTimeFromHhmm uses the receive day and picks the nearest day across midnight", () => {
-  assertEquals(
-    spotTimeFromHhmm("1454", new Date("2026-10-11T14:55:30Z")).toISOString(),
-    "2026-10-11T14:54:00.000Z",
-  );
-  assertEquals(
-    spotTimeFromHhmm("2359", new Date("2026-10-12T00:00:10Z")).toISOString(),
-    "2026-10-11T23:59:00.000Z",
-  );
-  // A relay clock a little behind RBN rolls forward instead.
-  assertEquals(
-    spotTimeFromHhmm("0001", new Date("2026-10-11T23:59:50Z")).toISOString(),
-    "2026-10-12T00:01:00.000Z",
-  );
-  assertThrows(() => spotTimeFromHhmm("2460", new Date()));
-  assertThrows(() => spotTimeFromHhmm("12a4", new Date()));
 });
 
 Deno.test("rbnAdapter.parseFeed returns the relay's lines and rejects bad shapes", () => {
@@ -191,14 +173,6 @@ Deno.test("rbnSpotRow throws on a banner, a missing received_at or a bad one", (
   assertThrows(() => rbnSpotRow(item("Local users: 586")), Error, "not an RBN spot line");
   assertThrows(() => rbnSpotRow({ line: line("DX de SM1HEV-#") }), Error, "received_at");
   assertThrows(() => rbnSpotRow(item(line("DX de SM1HEV-#"), "yesterday")));
-});
-
-Deno.test("parseRelayBody returns the items and rejects bad shapes and oversize batches", () => {
-  const items = [item(line("DX de SM1HEV-#"))];
-  assertEquals(parseRelayBody({ lines: items }), items);
-  assertThrows(() => parseRelayBody([]));
-  assertThrows(() => parseRelayBody({ lines: [null] }));
-  assertThrows(() => parseRelayBody({ lines: Array(1001).fill(items[0]) }), Error, "limit is 1000");
 });
 
 Deno.test("rbnSpotRow rejects values Postgres would refuse, so one line cannot fail a batch", () => {

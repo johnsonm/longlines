@@ -3,6 +3,7 @@ import {
   backoffSeconds,
   discordMessages,
   embedForSpot,
+  sourceLabel,
   webhookPayloads,
 } from "../delivery/format.ts";
 import type { DeliverySpot, PendingDelivery } from "../delivery/types.ts";
@@ -106,4 +107,11 @@ Deno.test("backoffSeconds follows 30s, 1m, 2m, 5m, 15m, then every 30m", () => {
     1800,
     1800,
   ]);
+});
+
+Deno.test("sourceLabel names every source and passes an unknown one through", () => {
+  assertEquals(
+    ["pota", "sotawatch", "rbn", "dxcluster", "other"].map(sourceLabel),
+    ["POTA", "SOTAwatch", "RBN", "DX Cluster", "other"],
+  );
 });

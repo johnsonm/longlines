@@ -14,7 +14,9 @@ RUN rm -rf relay/__tests__ supabase/functions/_shared/__tests__ \
 USER deno
 EXPOSE 8080
 # 160 MB of V8 heap leaves room for the runtime inside a 256 MB machine.
+# --allow-env must name every variable the relay reads; reading any other one
+# throws and the relay exits (relay/__tests__/modules.test.ts checks the list).
 CMD ["run", "--no-config", "--v8-flags=--max-old-space-size=160", \
   "--allow-net", \
-  "--allow-env=LONGLINES_FUNCTIONS_URL,LONGLINES_RELAY_SECRET,RELAY_LOGIN_CALL,RELAY_HEALTH_PORT,LONGLINES_USER_AGENT_URL", \
+  "--allow-env=LONGLINES_FUNCTIONS_URL,LONGLINES_RELAY_SECRET,RELAY_LOGIN_CALL,RELAY_HEALTH_PORT,LONGLINES_USER_AGENT_URL,DXCLUSTER_HOST,DXCLUSTER_PORT", \
   "relay/main.ts"]

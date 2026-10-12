@@ -2,9 +2,10 @@
 // summary as JSON, or a 500 whose body and log line carry the error.
 //
 // Pulled sources (POTA, SOTAwatch) are invoked by pg_cron with the service-role
-// key. Pushed sources (RBN) are invoked by the relay, which holds only the
-// relay secret, with POST batches of lines.
+// key. Pushed sources (RBN, DX Cluster) are invoked by the relay, which holds
+// only the relay secret, with POST batches of lines.
 
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createIngestDb, createRbnDb, createServiceClient, createWatchlistDb } from "./db.ts";
 import { runIngest } from "./ingest.ts";
 import type { RbnPushDb } from "./rbn_push.ts";
@@ -85,15 +86,19 @@ export function pushIngestHandler<D>(
   };
 }
 
-export function servePush(
+/** The database ingest-rbn needs: raw_spots, the watchlist and rbn_spots. */
+export function createRbnPushDb(client: SupabaseClient): RbnPushDb {
+  return { ...createIngestDb(client), ...createWatchlistDb(client), ...createRbnDb(client) };
+}
+
+/** Serve a pushed source; makeDb builds only the database surface its run needs. */
+export function servePush<D>(
   source: Source,
-  run: (body: unknown, db: RbnPushDb) => Promise<IngestSummary>,
+  run: (body: unknown, db: D) => Promise<IngestSummary>,
+  makeDb: (client: SupabaseClient) => D,
 ): void {
   Deno.serve(pushIngestHandler(source, run, {
-    db: () => {
-      const client = createServiceClient();
-      return { ...createIngestDb(client), ...createWatchlistDb(client), ...createRbnDb(client) };
-    },
+    db: () => makeDb(createServiceClient()),
     secret: () => Deno.env.get(RELAY_SECRET_ENV),
   }));
 }

@@ -70,10 +70,12 @@ Deno.test("runArchive asks every source for slices that ended two hours ago, POT
   const { db, store, calls } = fakes();
   await runArchive(db, store, NOW);
   const cutoff = new Date(NOW.getTime() - LAG_MS).toISOString();
-  assertEquals(calls.pending.map(([s, b]) => [s, b]), [["pota", cutoff], ["sotawatch", cutoff], [
-    "rbn",
-    cutoff,
-  ]]);
+  assertEquals(calls.pending.map(([s, b]) => [s, b]), [
+    ["pota", cutoff],
+    ["sotawatch", cutoff],
+    ["dxcluster", cutoff],
+    ["rbn", cutoff],
+  ]);
 });
 
 Deno.test("runArchive uploads a gzipped slice, then logs it with its count and size", async () => {
