@@ -401,6 +401,8 @@ uses about 20 MB). Issue #13 records the options that were weighed first.
   entry plus a source adapter and an `ingest-<source>` function built with `servePush`.
   `_shared/relay_lines.ts` holds what the pushed sources share: the request body and the `HHMMZ`
   dating.
+- **Not only telnet.** The relay also runs the weekly FCC license load, because the file is too
+  big for an Edge Function (see "Licenses (FCC)").
 
 ## DX Cluster
 
@@ -561,3 +563,49 @@ rollups keep per-station counts and breakdowns forever, never per-spotter rows (
   `maintain_rbn_spots()` on purpose: a slow or cancelled rollup never holds that job's partition
   locks or undoes its retention, and retention still retires an RBN day 14 days old without its
   rollup.
+
+# Licenses (FCC)
+
+```mermaid
+flowchart LR
+  R[relay, every 6 h] -- "HEAD, then Range GETs" --> Z[[data.fcc.gov l_amat.zip]]
+  R -- "status, begin, rows x ~1,000, finish" --> F[load-licenses function]
+  F -- "fcc_license_load_* RPCs" --> S[(fcc_uls_hd, fcc_uls_en, fcc_uls_am, license_loads)]
+  C[pg_cron :50 hourly] -- "apply_license_loads()" --> S
+  C -- "one transaction" --> L[(callsign_licenses)]
+```
+
+Profiles show a station's license (spec `docs/superpowers/specs/2026-10-12-callsign-lookup-design.md`).
+`callsign_licenses` holds one row per callsign with an `authority` column, so other countries'
+registries can load into it later; FCC is the only loader for now.
+
+- **Where it runs.** The FCC publishes the full amateur file, `l_amat.zip`, every Sunday: about
+  200 MB, of which the three files used are 160 MB compressed and 525 MB inflated, about 1.7M
+  records each. An Edge Function cannot stream that within its limits, so the relay does
+  (`relay/licenses.ts`). Every six hours it HEADs the file. When the `Last-Modified` is not already
+  ready or applied (`fcc_license_load_status`), it loads it; a load that did not finish is retried
+  after twelve hours, so a load that keeps failing downloads the file twice a day at most.
+- **Streaming.** `relay/zip.ts` reads the zip's central directory from its tail, then fetches only
+  `HD.dat`, `EN.dat` and `AM.dat` with Range requests and inflates them with
+  `DecompressionStream`. Memory stays flat (a full run against the real file parsed all three in
+  13 s before network time and stayed under the relay's 160 MB heap); an inflated size that differs from the directory's is
+  an error, which catches a truncated download.
+- **Parsing.** `_shared/uls.ts` turns records into rows: HD gives call, status and dates, EN the
+  licensee's name and state, AM the operator class. Codes become labels (`Amateur Extra`,
+  `Active`). A field with a line break in it is joined back onto its record. Nothing else leaves
+  the parser: no street address, city, ZIP, PO box, phone, email or FRN. The staging tables have no
+  columns for them either, and `jsonb_to_recordset` drops any such key.
+- **Staging.** The files are not sorted by system identifier, so the relay cannot join them in
+  memory. It pushes 5,000 rows per request to `load-licenses` (relay secret, `verify_jwt =
+  false`), which stages them in unlogged tables keyed by system identifier. A retried batch is
+  skipped by `on conflict do nothing`. `finish` compares the staged counts with what the relay
+  sent and marks the load `ready`. Fewer than 500,000 records in any file is refused first.
+- **The swap.** Replacing about 1.5M rows takes longer than the API's 8 s statement timeout, so the
+  swap is not an RPC. `apply_license_loads()` runs from pg_cron at :50 every hour. It is a no-op
+  unless a load is ready. It deletes the FCC rows and inserts the joined staging set in one
+  transaction, so a reader sees the old set or the new one. When a call has several records (a
+  call reissued after it lapsed), the active one wins, then the latest grant. If staging no longer
+  matches the recorded counts (unlogged tables are emptied by a crash) or the insert fails, the
+  load is marked `failed` and the old set stays.
+- **Access.** `callsign_licenses` is public FCC data: `anon` and `authenticated` may select it.
+  `license_loads` and the staging tables are service-role only; so are the RPCs.

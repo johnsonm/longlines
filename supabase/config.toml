@@ -428,6 +428,11 @@ verify_jwt = false
 [functions.ingest-dxcluster]
 verify_jwt = false
 
+# load-licenses is called by the same relay with the same secret for the weekly
+# FCC license load (_shared/handlers/load_licenses.ts).
+[functions.load-licenses]
+verify_jwt = false
+
 # deliver, archive and import-cty are called by pg_cron with the legacy service-role JWT.
 # Their handlers accept it by its role claim (isServiceRole in _shared/auth.ts)
 # without checking the signature, so the gateway's check must stay on.

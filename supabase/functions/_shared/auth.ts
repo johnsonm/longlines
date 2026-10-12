@@ -46,3 +46,13 @@ export async function userFromRequest(req: Request, admin: SupabaseClient): Prom
   const { data, error } = await admin.auth.getUser(token);
   return error ? null : data.user;
 }
+
+/** Compare two secrets in time independent of where they differ. */
+export async function secretsMatch(provided: string, expected: string): Promise<boolean> {
+  const digest = async (s: string) =>
+    new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)));
+  const [a, b] = await Promise.all([digest(provided), digest(expected)]);
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= (a[i] ?? 0) ^ (b[i] ?? 0);
+  return diff === 0;
+}

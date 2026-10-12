@@ -1,4 +1,5 @@
 import type { ModeFamily } from "./modes.ts";
+import type { LicenseLoad, UlsCounts, UlsKind, UlsRow } from "./uls.ts";
 
 export type Source = "pota" | "sotawatch" | "rbn" | "dxcluster";
 
@@ -150,4 +151,16 @@ export interface ArchiveDb {
 export interface ArchiveStore {
   /** Writes the object, replacing one already at that path. */
   upload(path: string, bytes: Uint8Array): Promise<void>;
+}
+
+/** The FCC license load's staging RPCs (20261012000050). Implemented by db.ts. */
+export interface LicenseDb {
+  /** The newest FCC load, or null before the first. */
+  loadStatus(): Promise<LicenseLoad | null>;
+  /** Starts a load, failing any unfinished one; returns its id. */
+  beginLoad(version: string): Promise<number>;
+  /** Stages one batch; returns rows inserted (a record already staged is skipped). */
+  stageRows(load: number, kind: UlsKind, rows: UlsRow[]): Promise<number>;
+  /** Marks the load ready for apply_license_loads; throws when the staged counts differ. */
+  finishLoad(load: number, counts: UlsCounts): Promise<void>;
 }

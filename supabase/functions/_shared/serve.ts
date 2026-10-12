@@ -6,6 +6,7 @@
 // only the relay secret, with POST batches of lines.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { secretsMatch } from "./auth.ts";
 import { createIngestDb, createRbnDb, createServiceClient, createWatchlistDb } from "./db.ts";
 import { runIngest } from "./ingest.ts";
 import type { RbnPushDb } from "./rbn_push.ts";
@@ -38,16 +39,6 @@ export function ingestHandler(
 
 export function serveIngest(adapter: SourceAdapter): void {
   Deno.serve(ingestHandler(adapter, () => createIngestDb(createServiceClient())));
-}
-
-/** Compare two secrets in time independent of where they differ. */
-async function secretsMatch(provided: string, expected: string): Promise<boolean> {
-  const digest = async (s: string) =>
-    new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)));
-  const [a, b] = await Promise.all([digest(provided), digest(expected)]);
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= (a[i] ?? 0) ^ (b[i] ?? 0);
-  return diff === 0;
 }
 
 export interface PushDeps<D> {

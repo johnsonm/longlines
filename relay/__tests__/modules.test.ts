@@ -3,6 +3,7 @@ import { loadConfig } from "../config.ts";
 import { DXCLUSTER_DEFAULT_HOST, dxclusterFeed, RBN_FEED } from "../feeds.ts";
 import { functionClient } from "../functions.ts";
 import { healthHandler } from "../health.ts";
+import { FCC_AMATEUR_ZIP } from "../licenses.ts";
 
 const env = (values: Record<string, string>) => (name: string) => values[name];
 const BASE = {
@@ -17,6 +18,7 @@ Deno.test("loadConfig reads the environment and normalises values", () => {
     relaySecret: "s3cret",
     loginCall: "KK4PWJ",
     healthPort: 8080,
+    licenseZipUrl: FCC_AMATEUR_ZIP,
   });
 });
 
@@ -35,6 +37,15 @@ Deno.test("loadConfig rejects missing values, plain http off localhost and bad p
       .functionsUrl,
     "http://127.0.0.1:54321/functions/v1",
   );
+});
+
+Deno.test("loadConfig turns the license load off or points it at another file", () => {
+  assertEquals(loadConfig(env({ ...BASE, RELAY_LICENSES: " OFF " })).licenseZipUrl, null);
+  assertEquals(
+    loadConfig(env({ ...BASE, RELAY_LICENSES: "http://127.0.0.1:8000/l_amat.zip" })).licenseZipUrl,
+    "http://127.0.0.1:8000/l_amat.zip",
+  );
+  assertThrows(() => loadConfig(env({ ...BASE, RELAY_LICENSES: "no" })), Error, "RELAY_LICENSES");
 });
 
 Deno.test("the Docker image allows every environment variable the relay reads", () => {

@@ -1,12 +1,13 @@
-// The relay itself: one telnet session and forwarder per feed, plus the
-// /healthz server. main.ts is the process shell around it (environment,
+// The relay itself: one telnet session and forwarder per feed, the weekly
+// license load (licenses.ts), and the /healthz server. main.ts is the process shell around it (environment,
 // signals, exit code); everything here runs in tests against local servers.
 
 import type { RelayConfig } from "./config.ts";
 import type { Feed } from "./feeds.ts";
 import { Forwarder } from "./forwarder.ts";
-import { functionClient } from "./functions.ts";
+import { functionClient, functionPoster } from "./functions.ts";
 import { type FeedHealth, healthHandler } from "./health.ts";
+import { licenseClient, type LicenseImportLoop, runLicenseImports } from "./licenses.ts";
 import { abortableSleep, runTelnet, type SessionStatus } from "./telnet.ts";
 
 const STATS_LOG_MS = 10 * 60_000;
@@ -79,6 +80,8 @@ export interface RelayOptions {
   /** Health server bind address; 0.0.0.0 so Fly's health check can reach it. */
   hostname?: string;
   log?: (message: string) => void;
+  /** Overrides for the license load's timing and limits (tests). */
+  licenses?: Partial<Omit<LicenseImportLoop, "zipUrl" | "client" | "signal" | "log">>;
 }
 
 export interface Relay {
@@ -98,6 +101,15 @@ export function startRelay(
   const log = options.log ?? ((message: string) => console.log(message));
   const controller = new AbortController();
   const feeds = feedList.map((feed) => startFeed(feed, config, controller.signal, log));
+  const licenses = config.licenseZipUrl === null ? null : runLicenseImports({
+    ...options.licenses,
+    zipUrl: config.licenseZipUrl,
+    client: licenseClient(
+      functionPoster(config.functionsUrl, "load-licenses", config.relaySecret),
+    ),
+    signal: controller.signal,
+    log: (message) => log(`[licenses] ${message}`),
+  });
 
   const server = Deno.serve(
     { hostname: options.hostname ?? "0.0.0.0", port: config.healthPort, onListen: () => {} },
@@ -108,7 +120,7 @@ export function startRelay(
   let stopping: Promise<void> | null = null;
   return {
     addr: server.addr,
-    done: Promise.all(feeds.map((f) => f.done)).then(() => {}),
+    done: Promise.all([...feeds.map((f) => f.done), licenses]).then(() => {}),
     shutdown() {
       stopping ??= (async () => {
         log("shutting down");

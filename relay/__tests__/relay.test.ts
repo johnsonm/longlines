@@ -72,6 +72,7 @@ Deno.test("startRelay forwards spot lines, serves /healthz and flushes on shutdo
     relaySecret: "s3cret",
     loginCall: "N0CALL",
     healthPort: 0,
+    licenseZipUrl: null,
   };
   const logs: string[] = [];
   const relay = startRelay(config, [feed], { hostname: "127.0.0.1", log: (m) => logs.push(m) });
@@ -121,6 +122,7 @@ Deno.test("startRelay shutdown with nothing buffered skips the final push", asyn
       relaySecret: "s",
       loginCall: "N0CALL",
       healthPort: 0,
+      licenseZipUrl: null,
     },
     [{ ...RBN_FEED, host: "127.0.0.1", port: telnet.port }],
     { hostname: "127.0.0.1", log: () => {} },
@@ -146,7 +148,13 @@ Deno.test("startRelay runs the DX Cluster feed with its own idle timeout and for
     idleMs: 300,
   };
   const relay = startRelay(
-    { functionsUrl: functions.url, relaySecret: "s", loginCall: "N0CALL", healthPort: 0 },
+    {
+      functionsUrl: functions.url,
+      relaySecret: "s",
+      loginCall: "N0CALL",
+      healthPort: 0,
+      licenseZipUrl: null,
+    },
     [feed],
     { hostname: "127.0.0.1", log: () => {} },
   );

@@ -140,7 +140,10 @@ Loading works like this:
 
 - A weekly job in the Fly relay app streams `l_amat.zip` and reads `HD`, `EN` and `AM`.
 - It loads in batches through a service-role RPC, then swaps the loaded set in within one
-  transaction.
+  transaction. (Amended in PR 4: the relay holds no Supabase key, so the batches go through the
+  `load-licenses` Edge Function with the relay secret. The swap runs from an hourly pg_cron job,
+  `apply_license_loads`, because replacing about 1.5M rows outlasts the API's 8 s statement
+  timeout.)
 - Nothing else from ULS is stored: no address, city, ZIP, FRN, phone, email or PO box.
 
 ## Copy
