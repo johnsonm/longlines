@@ -1,5 +1,6 @@
 -- pgTAP: DX Cluster as a source (20261012000020): the source checks, the
--- ingest_state row, opt-in matching and hourly archiving from raw_spots.
+-- ingest_state row, opt-in matching (source_matches) and hourly archiving from
+-- raw_spots.
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql

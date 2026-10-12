@@ -20,29 +20,19 @@ alter table archive_log drop constraint archive_log_source_check;
 alter table archive_log add constraint archive_log_source_check
   check (source in ('pota', 'sotawatch', 'rbn', 'dxcluster'));
 
--- spot_matches: as in 20261011000001, plus a DX Cluster spot only matches a
--- subscription that lists dxcluster in its sources. An empty sources list has
--- always meant "POTA, SOTAwatch and watched RBN stations"; it must not start
--- receiving every DX spot on its bands.
-create or replace function public.spot_matches(sub subscriptions, spot raw_spots)
+-- Matching: a DX Cluster spot matches only a subscription that lists dxcluster
+-- in its sources. An empty sources list has always meant "POTA, SOTAwatch and
+-- watched RBN stations"; it must not start receiving every DX spot on its bands.
+-- The rule goes in source_matches (20261012000010), which spot_matches and
+-- watched_among share, so spot_matches itself is unchanged.
+create or replace function public.source_matches(p_sources text[], p_source text)
 returns boolean
 language sql
 immutable
 as $$
-  select coalesce(
-        (cardinality(sub.sources)   = 0 or spot.source   = any (sub.sources))
-    and (spot.source <> 'rbn' or cardinality(sub.callsigns) > 0)
-    and (spot.source <> 'dxcluster' or 'dxcluster' = any (sub.sources))
-    and (cardinality(sub.bands)     = 0 or spot.band     = any (sub.bands))
-    and (cardinality(sub.modes)     = 0 or spot.mode     = any (sub.modes)
-                                        or spot.mode_family = any (sub.modes))
-    and (cardinality(sub.callsigns) = 0 or spot.callsign = any (sub.callsigns))
-    and (sub.reference = '' or position(lower(sub.reference) in
-           lower(concat_ws(',', spot.pota_reference, spot.pota_location, spot.sota_summit_ref))) > 0),
-    false);
+  select case when cardinality(p_sources) = 0 then p_source <> 'dxcluster'
+              else p_source = any (p_sources) end;
 $$;
-
-revoke all on function public.spot_matches(subscriptions, raw_spots) from public;
 
 -- Archive: DX Cluster lives in raw_spots, so it takes the raw_spots branch and
 -- hourly slices like POTA and SOTAwatch.

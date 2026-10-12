@@ -126,7 +126,7 @@ Deno.test("pushIngestHandler refuses GET now that the relay no longer reads a wa
 
 Deno.test("createRbnPushDb combines the ingest, watchlist and rbn_spots surfaces", () => {
   const db = createRbnPushDb(fakeSupabase().client);
-  for (const method of ["ingestSpots", "recordSuccess", "watchedCallsigns", "ingestRbnSpots"]) {
+  for (const method of ["ingestSpots", "recordSuccess", "watchedAmong", "ingestRbnSpots"]) {
     assertEquals(typeof (db as unknown as Record<string, unknown>)[method], "function", method);
   }
 });

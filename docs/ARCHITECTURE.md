@@ -412,9 +412,10 @@ in with `RELAY_LOGIN_CALL` and forwards every line `parseDxLine` (`_shared/dxclu
   about seven a minute), so there is no firehose table: `ingest-dxcluster` runs `runIngest` over
   the whole batch, like a pulled source, and the archive takes `dxcluster` from `raw_spots` in
   hourly slices.
-- **Opt-in matching.** `spot_matches` lets a DX Cluster spot match only subscriptions whose
-  `sources` lists `dxcluster`. An empty sources list keeps meaning what it meant before the source
-  existed, so existing "any source, 20m" subscriptions are not flooded with DX spots.
+- **Opt-in matching.** `source_matches`, the sources rule `spot_matches` uses, lets a DX Cluster
+  spot match only subscriptions whose `sources` lists `dxcluster`. An empty sources list keeps
+  meaning what it meant before the source existed, so existing "any source, 20m" subscriptions
+  are not flooded with DX spots.
 - **Mode.** A cluster line has no mode field. `resolveDxMode` (`_shared/modes.ts`) takes a mode
   named in the comment (CW, SSB, FT8, ...; FM and AM are not read from comments, where "fm" usually
   means "from"), else the band plan: FT8/FT4 dial windows, then the IARU CW and phone segments.

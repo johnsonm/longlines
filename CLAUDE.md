@@ -120,7 +120,7 @@ relay on pushes to main; nothing else deploys automatically.
 - Matching lives in SQL (`spot_matches`, `match_pending_spots`); never re-implement the predicate in
   TypeScript. The preview RPC and the matcher must stay on the same function.
 - A DX Cluster spot matches only subscriptions whose `sources` lists `dxcluster`; an empty sources
-  list ("any source") does not include it. RBN spots match only subscriptions that name callsigns.
+  list ("any source") does not include it. The rule lives in `source_matches`. RBN spots match only subscriptions that name callsigns.
 - The worker (`supabase/functions/deliver`) only talks to the database through the
   `claim_deliveries` / `mark_deliveries_*` / `delay_deliveries` RPCs so delivery rows, queue
   messages and destination health change atomically.
