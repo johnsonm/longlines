@@ -14,7 +14,7 @@ $$, 'a spot with a mode family inserts');
 select is((select r.mode_family from raw_spots r where r.source_spot_id = 'fam-1'), 'digital', 'mode_family stored');
 
 select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
-select is((select v.mode_family from list_recent_spots('pota', 200) v where v.callsign = 'K0NY'), 'digital', 'list_recent_spots shows mode_family');
+select is((select v.mode_family from list_recent_spots(200) v where v.callsign = 'K0NY'), 'digital', 'list_recent_spots shows mode_family');
 select is((select count from preview_subscription('{"modes":["digital"],"callsigns":["K0NY"]}')), 1::bigint, 'preview matches the family filter');
 
 select * from finish();

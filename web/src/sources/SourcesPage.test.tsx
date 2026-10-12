@@ -22,11 +22,10 @@ const health = (source: string, age: number | null, lastHour = 12) =>
 
 beforeEach(() => {
   vi.mocked(loadIngestHealth).mockReset().mockResolvedValue([health("pota", 20), health("sotawatch", 600), health("rbn", 30, 3)]);
-  vi.mocked(loadRecentSpots).mockReset().mockImplementation(async (source) => ({
-    pota: [spot(1)],
-    sotawatch: [spot(2, { source: "sotawatch", pota_reference: null, sota_summit_ref: "W4C/CM-001", mode: null })],
-    rbn: [spot(3, { id: null, source: "rbn", pota_reference: null, comment: "12 dB 22 WPM CQ" })],
-  })[source] ?? []);
+  vi.mocked(loadRecentSpots).mockReset().mockResolvedValue([
+    spot(1),
+    spot(2, { source: "sotawatch", pota_reference: null, sota_summit_ref: "W4C/CM-001", mode: null }),
+  ]);
 });
 
 afterEach(() => {
@@ -50,33 +49,11 @@ describe("SourcesPage", () => {
     expect(screen.getAllByText("–").length).toBeGreaterThan(0);
   });
 
-  it("opens on POTA's newest spots, with one tab per live source", async () => {
-    renderPage(<SourcesPage prefs={UTC} />);
+  it("filters recent spots by source tab", async () => {
+    const { user } = renderPage(<SourcesPage prefs={UTC} />);
     expect(await screen.findByText("W1AW")).toBeInTheDocument();
-    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["POTA", "SOTAwatch", "RBN"]);
-    expect(screen.getByRole("tab", { name: "POTA" })).toHaveAttribute("aria-selected", "true");
-    expect(loadRecentSpots).toHaveBeenCalledWith("pota");
-    expect(screen.queryByText("W2AW")).not.toBeInTheDocument();
-  });
-
-  it("loads a source's spots when its tab is chosen", async () => {
-    const { user } = renderPage(<SourcesPage prefs={UTC} />);
-    await screen.findByText("W1AW");
+    expect(screen.getByText("W2AW")).toBeInTheDocument();
     await user.click(screen.getByRole("tab", { name: "SOTAwatch" }));
-    expect(await screen.findByText("W4C/CM-001")).toBeInTheDocument();
-    expect(screen.queryByText("W1AW")).not.toBeInTheDocument();
-    await user.click(screen.getByRole("tab", { name: "RBN" }));
-    expect(await screen.findByText("W3AW")).toBeInTheDocument();
-    expect(loadRecentSpots).toHaveBeenLastCalledWith("rbn");
-  });
-
-  it("ignores a slow response for a tab that is no longer shown", async () => {
-    let resolvePota: (spots: RecentSpot[]) => void = () => {};
-    vi.mocked(loadRecentSpots).mockImplementationOnce(() => new Promise((resolve) => { resolvePota = resolve; }));
-    const { user } = renderPage(<SourcesPage prefs={UTC} />);
-    await user.click(screen.getByRole("tab", { name: "SOTAwatch" }));
-    expect(await screen.findByText("W4C/CM-001")).toBeInTheDocument();
-    await act(async () => resolvePota([spot(1)]));
     expect(screen.queryByText("W1AW")).not.toBeInTheDocument();
     expect(screen.getByText("W4C/CM-001")).toBeInTheDocument();
   });

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Alert, Box, Card, CardContent, Chip, Divider, Grid, LinearProgress, Paper, Stack, Tab, Tabs, Typography } from "@mui/material";
 import { PageTitle } from "../layout/PageTitle";
 import { loadIngestHealth, loadRecentSpots, type IngestHealth, type RecentSpot } from "../lib/api";
@@ -10,29 +10,27 @@ import { SpotsTable } from "./SpotsTable";
 const REFRESH_MS = 30_000;
 
 export function SourcesPage({ prefs }: { prefs: TimePrefs }) {
-  const [tab, setTab] = useState("pota");
+  const [tab, setTab] = useState("all");
   const [health, setHealth] = useState<IngestHealth[]>([]);
   const [spots, setSpots] = useState<RecentSpot[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Load the chosen source's spots, then refresh every 30 seconds while the
-  // browser tab is visible. A response for a source no longer shown is dropped.
+  const refresh = useCallback(async () => {
+    try {
+      const [h, s] = await Promise.all([loadIngestHealth(), loadRecentSpots()]);
+      setHealth(h);
+      setSpots(s);
+      setError(null);
+    } catch (err) {
+      setError(errorText(err, "Couldn't load sources."));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // Refresh every 30 seconds while the tab is visible.
   useEffect(() => {
-    let current = true;
-    const refresh = async () => {
-      try {
-        const [h, s] = await Promise.all([loadIngestHealth(), loadRecentSpots(tab)]);
-        if (!current) return;
-        setHealth(h);
-        setSpots(s);
-        setError(null);
-      } catch (err) {
-        if (current) setError(errorText(err, "Couldn't load sources."));
-      } finally {
-        if (current) setLoading(false);
-      }
-    };
     void refresh();
     const tick = () => {
       if (document.visibilityState === "visible") void refresh();
@@ -40,16 +38,12 @@ export function SourcesPage({ prefs }: { prefs: TimePrefs }) {
     const timer = setInterval(tick, REFRESH_MS);
     document.addEventListener("visibilitychange", tick);
     return () => {
-      current = false;
       clearInterval(timer);
       document.removeEventListener("visibilitychange", tick);
     };
-  }, [tab]);
+  }, [refresh]);
 
-  const chooseTab = (source: string) => {
-    setTab(source);
-    setLoading(true);
-  };
+  const shown = tab === "all" ? spots : spots.filter((s) => s.source === tab);
 
   return (
     <Stack spacing={3}>
@@ -103,11 +97,12 @@ export function SourcesPage({ prefs }: { prefs: TimePrefs }) {
           <Typography variant="h6">Recent spots</Typography>
           <Typography variant="body2" color="text.secondary">Everything ingested, before any subscription filters.</Typography>
         </Box>
-        <Tabs value={tab} onChange={(_e, v: string) => chooseTab(v)} variant="scrollable" sx={{ px: 1 }}>
+        <Tabs value={tab} onChange={(_e, v: string) => setTab(v)} variant="scrollable" sx={{ px: 1 }}>
+          <Tab value="all" label="All" />
           {LIVE_SOURCES.map((s) => <Tab key={s.id} value={s.id} label={s.name} />)}
         </Tabs>
         <Divider />
-        {loading ? <LinearProgress /> : <SpotsTable spots={spots} dense prefs={prefs} />}
+        {loading ? <LinearProgress /> : <SpotsTable spots={shown} dense prefs={prefs} />}
       </Paper>
     </Stack>
   );

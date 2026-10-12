@@ -141,9 +141,8 @@ export async function loadIngestHealth(): Promise<IngestHealth[]> {
   return data;
 }
 
-/** The newest spots of one source from the last 24 hours; RBN's come from its whole feed. */
-export async function loadRecentSpots(source: string, limit = 100): Promise<RecentSpot[]> {
-  const { data, error } = await supabase.rpc("list_recent_spots", { p_source: source, max_rows: limit });
+export async function loadRecentSpots(limit = 200): Promise<RecentSpot[]> {
+  const { data, error } = await supabase.rpc("list_recent_spots", { max_rows: limit });
   if (error) fail(error, "Couldn't load recent spots.");
   return data;
 }
