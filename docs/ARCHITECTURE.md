@@ -184,8 +184,9 @@ not block the cascade.
 
 ## What clients can read
 
-- `recent_spots`: the last 24 hours of `raw_spots` without `raw_payload`, read through the
-  `list_recent_spots(max_rows)` RPC (the table itself stays unreadable).
+- `recent_spots`: the last 24 hours of `raw_spots` without `raw_payload`, read one source at a
+  time through the `list_recent_spots(p_source, max_rows)` RPC (the table itself stays
+  unreadable). For `rbn` the RPC reads `rbn_spots` instead, the whole feed in the same shape.
 - `ingest_health`: read through the `list_ingest_health()` RPC so the Sources page can show it.
   RBN's spot counts come from `rbn_spots`.
 - Both views are invoker views that clients cannot select directly; the security definer RPCs
