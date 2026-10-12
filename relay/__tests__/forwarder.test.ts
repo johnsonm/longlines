@@ -122,3 +122,26 @@ Deno.test("Forwarder defaults: batches of 1,000 and a 50,000-line buffer", async
   assertEquals(pushes[0]!.length, 1_000);
   assertEquals(pushes[0]![0], line(1)); // line 0 was the one dropped
 });
+
+Deno.test("Forwarder.flush is a no-op while a push is in flight", async () => {
+  const s = setup();
+  s.f.add(line(1));
+  s.hold();
+  const first = s.f.flush();
+  await Promise.resolve();
+  await s.f.flush(); // returns at once; L1 is already on its way
+  s.release();
+  await first;
+  assertEquals(s.pushes, [[line(1)]]);
+});
+
+Deno.test("Forwarder logs a non-Error rejection as text", async () => {
+  const logs: string[] = [];
+  const f = new Forwarder({
+    now: () => 0,
+    log: (m) => logs.push(m),
+    push: () => Promise.reject("socket hang up"),
+  });
+  await f.flush();
+  assertEquals(logs, ["push failed (0 lines, retry in 5 s): socket hang up"]);
+});

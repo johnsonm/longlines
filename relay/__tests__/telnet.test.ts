@@ -1,5 +1,6 @@
 import { assertEquals } from "@std/assert";
 import {
+  abortableSleep,
   DEFAULT_BACKOFF,
   nextDelay,
   runTelnet,
@@ -173,4 +174,56 @@ Deno.test("runTelnet backs off after a refused connection", async () => {
 Deno.test("TelnetDecoder drops NUL bytes (telnet CR NUL padding)", () => {
   const d = new TelnetDecoder();
   assertEquals(d.push(new Uint8Array([...enc("ab\r"), 0, ...enc("cd\n")])), ["abcd"]);
+});
+
+Deno.test("TelnetDecoder skips two-byte commands and IAC bytes inside a subnegotiation", () => {
+  const d = new TelnetDecoder();
+  const bytes = new Uint8Array([
+    ...enc("a"),
+    255,
+    241, // IAC NOP: no option byte follows
+    ...enc("b"),
+    255,
+    250,
+    24,
+    255,
+    255,
+    7,
+    255,
+    240, // IAC SB TTYPE <escaped 0xFF> 7 IAC SE
+    ...enc("c\n"),
+  ]);
+  assertEquals(d.push(bytes), ["abc"]);
+});
+
+Deno.test("abortableSleep resolves at once on an aborted signal and early on abort", async () => {
+  const aborted = new AbortController();
+  aborted.abort();
+  await abortableSleep(60_000, aborted.signal);
+
+  const later = new AbortController();
+  const sleeping = abortableSleep(60_000, later.signal);
+  later.abort();
+  await sleeping;
+});
+
+Deno.test("runTelnet stops without logging when the signal aborts during a failed connect", async () => {
+  const controller = new AbortController();
+  const logs: string[] = [];
+  await runTelnet({
+    host: "127.0.0.1",
+    port: 1,
+    loginCall: "N0CALL",
+    loginPrompt: /x/,
+    onLine: () => {},
+    status: { connected: false, lastDataAt: null, connects: 0 },
+    signal: controller.signal,
+    log: (m) => logs.push(m),
+    connect: () => {
+      controller.abort();
+      return Promise.reject(new Error("refused"));
+    },
+    sleep: () => Promise.reject(new Error("must not sleep after abort")),
+  });
+  assertEquals(logs, []);
 });
