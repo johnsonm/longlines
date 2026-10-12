@@ -49,6 +49,19 @@ export type Database = {
                   Relationships: [
                     
                   ]
+                },"callsign_licenses": {
+                  Row: {
+                    "authority": string,"callsign": string,"country": string | null,"expires_on": string | null,"granted_on": string | null,"grid": string | null,"loaded_at": string,"name": string | null,"operator_class": string | null,"state": string | null,"status": string | null
+                  }
+                  Insert: {
+                    "authority": string,"callsign": string,"country"?: string | null,"expires_on"?: string | null,"granted_on"?: string | null,"grid"?: string | null,"loaded_at": string,"name"?: string | null,"operator_class"?: string | null,"state"?: string | null,"status"?: string | null
+                  }
+                  Update: {
+                    "authority"?: string,"callsign"?: string,"country"?: string | null,"expires_on"?: string | null,"granted_on"?: string | null,"grid"?: string | null,"loaded_at"?: string,"name"?: string | null,"operator_class"?: string | null,"state"?: string | null,"status"?: string | null
+                  }
+                  Relationships: [
+                    
+                  ]
                 },"callsign_reach": {
                   Row: {
                     "base": string,"continent": string,"country": string,"grain": string,"period": string,"source": string,"spots": number
@@ -209,6 +222,45 @@ isOneToOne: false
                   Relationships: [
                     
                   ]
+                },"fcc_uls_am": {
+                  Row: {
+                    "operator_class": string | null,"usi": number
+                  }
+                  Insert: {
+                    "operator_class"?: string | null,"usi": number
+                  }
+                  Update: {
+                    "operator_class"?: string | null,"usi"?: number
+                  }
+                  Relationships: [
+                    
+                  ]
+                },"fcc_uls_en": {
+                  Row: {
+                    "name": string | null,"state": string | null,"usi": number
+                  }
+                  Insert: {
+                    "name"?: string | null,"state"?: string | null,"usi": number
+                  }
+                  Update: {
+                    "name"?: string | null,"state"?: string | null,"usi"?: number
+                  }
+                  Relationships: [
+                    
+                  ]
+                },"fcc_uls_hd": {
+                  Row: {
+                    "callsign": string,"expires_on": string | null,"granted_on": string | null,"status": string | null,"usi": number
+                  }
+                  Insert: {
+                    "callsign": string,"expires_on"?: string | null,"granted_on"?: string | null,"status"?: string | null,"usi": number
+                  }
+                  Update: {
+                    "callsign"?: string,"expires_on"?: string | null,"granted_on"?: string | null,"status"?: string | null,"usi"?: number
+                  }
+                  Relationships: [
+                    
+                  ]
                 },"ingest_failures": {
                   Row: {
                     "error": string,"id": number,"occurred_at": string,"raw_payload": NonNullable<Json>,"source": string
@@ -231,6 +283,19 @@ isOneToOne: false
                   }
                   Update: {
                     "consecutive_failures"?: number,"last_epoch"?: string | null,"last_error"?: string | null,"last_error_at"?: string | null,"last_run_at"?: string | null,"last_success_at"?: string | null,"source"?: string,"total_runs"?: number,"total_spots_ingested"?: number
+                  }
+                  Relationships: [
+                    
+                  ]
+                },"license_loads": {
+                  Row: {
+                    "applied_at": string | null,"authority": string,"counts": Json | null,"error": string | null,"id": number,"licenses": number | null,"ready_at": string | null,"started_at": string,"status": string,"version": string
+                  }
+                  Insert: {
+                    "applied_at"?: string | null,"authority": string,"counts"?: Json | null,"error"?: string | null,"id"?: never,"licenses"?: number | null,"ready_at"?: string | null,"started_at"?: string,"status"?: string,"version": string
+                  }
+                  Update: {
+                    "applied_at"?: string | null,"authority"?: string,"counts"?: Json | null,"error"?: string | null,"id"?: never,"licenses"?: number | null,"ready_at"?: string | null,"started_at"?: string,"status"?: string,"version"?: string
                   }
                   Relationships: [
                     
@@ -473,6 +538,9 @@ isOneToOne: false
               "ndjson": string,"row_count": number
             }[]
                            },
+"apply_license_loads":
+{ Args: Record<PropertyKey, never>; Returns: undefined
+                           },
 "archive_pending_slices":
 { Args: { "p_before": string,"p_limit": number,"p_source": string }; Returns: {
               "slice_end": string,"slice_start": string
@@ -527,6 +595,24 @@ isOneToOne: false
                            },
 "email_for_identifier":
 { Args: { "p_identifier": string }; Returns: string
+                           },
+"fcc_license_load_abandon":
+{ Args: { "p_error": string,"p_load": number }; Returns: undefined
+                           },
+"fcc_license_load_begin":
+{ Args: { "p_version": string }; Returns: number
+                           },
+"fcc_license_load_finish":
+{ Args: { "p_counts": Json,"p_load": number }; Returns: undefined
+                           },
+"fcc_license_load_rows":
+{ Args: { "p_kind": string,"p_load": number,"p_rows": Json }; Returns: number
+                           },
+"fcc_license_load_status":
+{ Args: Record<PropertyKey, never>; Returns: Json
+                           },
+"fcc_license_staged_counts":
+{ Args: Record<PropertyKey, never>; Returns: Json
                            },
 "ingest_rbn_spots":
 { Args: { "p_rows": Json }; Returns: number

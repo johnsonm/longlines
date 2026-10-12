@@ -103,7 +103,7 @@ relay on pushes to main; nothing else deploys automatically.
 ## Phase 3 stats rules
 
 - `stats_snapshots` is written only by `refresh_stats_snapshot()` from pg_cron; clients have
-  `select` only. It is the one table `anon` may read: the Stats page (`/stats`) is public and
+  `select` only. It and `callsign_licenses` (public FCC data) are the only tables `anon` may read: the Stats page (`/stats`) is public and
   renders in `PublicShell` when signed out, `AppShell` when signed in. RBN figures come from the
   `rollup_rbn_day` tables, never from `rbn_spots` directly: the refresh runs hourly and the
   firehose is ~1.5M rows a day. The payload shape is `StatsPayload` in `web/src/stats/types.ts` and is pinned by
@@ -187,6 +187,12 @@ relay on pushes to main; nothing else deploys automatically.
 - Merges to main deploy the relay through Fly's GitHub integration (set up in the Fly dashboard,
   not in this repo); a merge that changes `relay/` or `_shared/*.ts` ships to production. Never run
   `fly deploy` or `fly secrets set` yourself unless asked.
+- The relay also runs the weekly FCC license load (`relay/licenses.ts`, `relay/zip.ts`): it reads
+  `l_amat.zip` by HTTP Range and stages HD/EN/AM rows through `load-licenses`. Record parsing is
+  `_shared/uls.ts`; the join and the swap into `callsign_licenses` are SQL
+  (`apply_license_loads`, pg_cron), because the swap outlasts the API's 8 s statement timeout.
+  Never stage or store ULS address, city, ZIP, PO box, phone, email or FRN fields. No test
+  downloads from the FCC; tests build a zip and serve it locally (`relay/__tests__/zip_server.ts`).
 
 ## Archive rules
 
@@ -227,7 +233,8 @@ relay on pushes to main; nothing else deploys automatically.
   treated as NORMAL. The QRT fixture spot has a null frequency, so the type check must stay ahead
   of frequency parsing.
 - Tables, the view and the RPCs have `anon`/`authenticated` grants revoked; keep that on any new
-  object.
+  object. The exceptions are `select` on `stats_snapshots` (anon) and `callsign_licenses`
+  (anon and authenticated, public FCC data).
 - `supabase/seed.sql` is a synthetic week relative to `now()` (made-up calls ending in `S`) for
   preview branches and local resets; it ends with a stats refresh. pgTAP suites that count rows
   delete from those tables first, inside their rolled-back transaction, so they pass seeded or not.

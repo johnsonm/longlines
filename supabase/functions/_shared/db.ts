@@ -4,6 +4,7 @@
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { CtyData } from "./cty.ts";
+import type { LicenseLoad } from "./uls.ts";
 import type {
   ArchiveDb,
   ArchiveLogEntry,
@@ -11,6 +12,7 @@ import type {
   ArchiveStore,
   IngestDb,
   InsertedSpot,
+  LicenseDb,
   NormalizedSpot,
   RbnDb,
   RbnSpotRow,
@@ -102,6 +104,27 @@ export async function loadCty(client: SupabaseClient, data: CtyData): Promise<vo
     p_prefixes: data.prefixes,
   });
   if (error) throw new Error(`load_cty failed: ${error.message}`);
+}
+
+/** LicenseDb over the fcc_license_load_* RPCs. */
+export function createLicenseDb(client: SupabaseClient): LicenseDb {
+  async function call<T>(fn: string, args?: Record<string, unknown>): Promise<T> {
+    const { data, error } = await client.rpc(fn, args);
+    if (error) throw new Error(`${fn} failed: ${error.message}`);
+    return data as T;
+  }
+  return {
+    loadStatus: () => call<LicenseLoad | null>("fcc_license_load_status"),
+    beginLoad: (version) => call<number>("fcc_license_load_begin", { p_version: version }),
+    stageRows: (load, kind, rows) =>
+      call<number>("fcc_license_load_rows", { p_load: load, p_kind: kind, p_rows: rows }),
+    async finishLoad(load, counts) {
+      await call<null>("fcc_license_load_finish", { p_load: load, p_counts: counts });
+    },
+    async abandonLoad(load, error) {
+      await call<null>("fcc_license_load_abandon", { p_load: load, p_error: error });
+    },
+  };
 }
 
 export function createRbnDb(client: SupabaseClient): RbnDb {

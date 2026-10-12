@@ -1,4 +1,5 @@
-// The relay's call to its Edge Function: push a batch of lines.
+// The relay's calls to its Edge Functions: push a batch of lines, or POST any
+// JSON body (the license load).
 
 import { userAgent } from "../supabase/functions/_shared/http.ts";
 
@@ -14,29 +15,37 @@ export interface FunctionClient {
 
 const TIMEOUT_MS = 15_000;
 
+/** POST `body` as JSON with the relay secret; the parsed reply, or an error for non-2xx. */
+export function functionPoster(
+  functionsUrl: string,
+  functionName: string,
+  secret: string,
+  fetchFn: typeof fetch = fetch,
+): (body: unknown) => Promise<unknown> {
+  const url = `${functionsUrl}/${functionName}`;
+  return async (body: unknown): Promise<unknown> => {
+    const res = await fetchFn(url, {
+      method: "POST",
+      headers: {
+        "User-Agent": userAgent(),
+        "x-relay-secret": secret,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+    const text = await res.text();
+    if (!res.ok) throw new Error(`POST ${functionName}: HTTP ${res.status} ${text}`);
+    return JSON.parse(text);
+  };
+}
+
 export function functionClient(
   functionsUrl: string,
   functionName: string,
   secret: string,
   fetchFn: typeof fetch = fetch,
 ): FunctionClient {
-  const url = `${functionsUrl}/${functionName}`;
-  const headers = { "User-Agent": userAgent(), "x-relay-secret": secret };
-
-  async function call(init: RequestInit): Promise<unknown> {
-    const res = await fetchFn(url, { ...init, signal: AbortSignal.timeout(TIMEOUT_MS) });
-    const text = await res.text();
-    if (!res.ok) throw new Error(`${init.method} ${functionName}: HTTP ${res.status} ${text}`);
-    return JSON.parse(text);
-  }
-
-  return {
-    push(lines: RelayLine[]): Promise<unknown> {
-      return call({
-        method: "POST",
-        headers: { ...headers, "Content-Type": "application/json" },
-        body: JSON.stringify({ lines }),
-      });
-    },
-  };
+  const post = functionPoster(functionsUrl, functionName, secret, fetchFn);
+  return { push: (lines: RelayLine[]) => post({ lines }) };
 }

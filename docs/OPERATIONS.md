@@ -557,3 +557,55 @@ source, band and mode bucket per day, folded into month rows after 35 days. Chec
 Not supported: references, days on the air and variants are running totals, so a second pass
 would count the day twice. A day's rollup can only be redone by rebuilding every table from the
 archive.
+
+# Licenses (FCC)
+
+How it works is in `docs/ARCHITECTURE.md` ("Licenses (FCC)").
+
+## First deploy
+
+The relay deploys itself on merge, so the database and function go first. If the relay checks
+before they exist, it logs `[licenses] load failed` and tries again six hours later. Nothing
+breaks in the meantime.
+
+```sh
+supabase db push                          # 20261012000050_callsign_licenses
+supabase functions deploy load-licenses   # new function: the GitHub integration skips it
+```
+
+The function uses the existing `LONGLINES_RELAY_SECRET`. The relay's first check runs five minutes
+after it starts; it downloads about 160 MB from the FCC and stages about 1.7M records per file in ~1,000
+requests, which takes several minutes. The unlogged staging tables hold a few hundred MB until
+the swap, or an abandoned load, empties them. The load
+is applied at the next :50.
+
+```sql
+select id, version, status, started_at, ready_at, applied_at, counts, licenses, error
+from license_loads order by id desc limit 5;
+select * from callsign_licenses where callsign = 'KK4PWJ';
+```
+
+## Is it current?
+
+The newest load should be `applied` with a `version` from the last Sunday, and `applied_at` under
+about eight days old. Relay logs show each step with `[licenses]` (`fly logs`):
+
+- `loading ... (<Last-Modified>)`, then one line per file with staged and skipped counts, then
+  `load finished`.
+- `load failed: ...` names the download, parse or function error; the load is `failed` with the
+  same text in `error`. It is retried twelve hours after it started. A load still `loading` long
+  after it started means the relay stopped mid-load (a deploy, a crash); the next `begin` clears it.
+
+A load stuck at `ready` past :50 means the cron job failed: `select * from cron.job_run_details
+where jobid = (select jobid from cron.job where jobname = 'apply-license-loads') order by start_time
+desc limit 3;`. A `failed` load has the reason in `error`; the previous set stays loaded throughout.
+
+## Turning it off
+
+`fly secrets set RELAY_LICENSES=off` (restarts the machine) stops the relay loading licenses;
+`fly secrets unset RELAY_LICENSES` turns it back on. `RELAY_LICENSES` can also name another URL
+serving the same zip with Range support.
+
+A local run (functions URL on localhost) does not load licenses by default. To exercise the real
+load locally, serve `load-licenses` and set `RELAY_LICENSES=https://data.fcc.gov/download/pub/uls/complete/l_amat.zip`;
+it downloads about 160 MB, so not routinely.
