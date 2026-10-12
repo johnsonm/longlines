@@ -6,7 +6,7 @@ export function corsHeaders(): Record<string, string> {
   return {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   };
 }
 
@@ -17,10 +17,10 @@ export function preflightResponse(req: Request): Response | null {
     : null;
 }
 
-/** JSON response carrying the CORS headers. */
-export function json(body: unknown, status = 200): Response {
+/** JSON response carrying the CORS headers, plus any extra headers. */
+export function json(body: unknown, status = 200, headers: Record<string, string> = {}): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...corsHeaders(), "Content-Type": "application/json" },
+    headers: { ...corsHeaders(), "Content-Type": "application/json", ...headers },
   });
 }

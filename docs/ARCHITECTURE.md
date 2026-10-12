@@ -616,3 +616,48 @@ registries can load into it later; FCC is the only loader for now.
   load is marked `failed` and the old set stays.
 - **Access.** `callsign_licenses` is public FCC data: `anon` and `authenticated` may select it.
   `license_loads` and the staging tables are service-role only; so are the RPCs.
+
+# Callsign profiles
+
+```mermaid
+flowchart LR
+  B[browser, signed in or not] -- "GET ?callsign=" --> F[callsign-profile function]
+  F -- "record_profile_lookup (30 a minute per IP)" --> L[(lookup_rate_limits)]
+  F -- "cached_callsign_profile" --> C[(callsign_profile_cache, 15 min)]
+  C -- miss --> P["callsign_profile(call)"]
+  P --> R[(rollups)]
+  P -- "unrolled days, last 7 days" --> V[spot_stream]
+  P --> X[(callsign_licenses, hidden_callsigns)]
+```
+
+A profile is everything Long Lines has heard from one station, for a public page (spec
+`docs/superpowers/specs/2026-10-12-callsign-lookup-design.md`).
+
+- **One RPC.** `callsign_profile(call)` returns the whole page as jsonb. Its shape is
+  `CallsignProfile` in `web/src/profile/types.ts`, pinned by
+  `supabase/tests/callsign_profile.test.sql`. It is security definer and not granted to clients.
+  SQL reduces the call to its base (`KK4PWJ/P` is `KK4PWJ`'s profile); TypeScript only checks
+  that the input looks like a callsign.
+- **Rollups plus the live edge.** All-time figures come from the rollups. Days of the last 14
+  without a `callsign_rollup_days` marker (today, yesterday until 02:25 UTC, a failed day) are
+  read from `spot_stream` and added in, with the same rules: self-spots count as heard but not in
+  reach. The test checks that a day reads the same live as rolled up. "Heard by" (top 10) and
+  "Recent spots" (newest 25) always read the last 7 days live. Hunting comes from the rollups
+  only, since reading it live would need a spotter index on every source.
+- **One read of a station.** The RPC reads `spot_stream` once, through `raw_spots`'
+  `(base_callsign, spot_time)` index and `rbn_spots`' `(base_callsign(callsign), spot_time)`
+  expression index, and groups spotters before resolving their base calls and countries. It reads
+  the unrolled days in full, the week grouped by spotter and the week's newest 25, never the whole
+  week's rows. Against 1.5M-row RBN days locally, a profile builds in about 70 ms for a station
+  with 5,000 RBN spots a day (about 220 ms right after a restart) and about 200 ms for one with
+  20,000.
+- **Not heard and hidden.** `heard` is null for a station never spotted that never spotted
+  anyone. A call in `hidden_callsigns` (operator-managed, base calls) gets that shape with no
+  license, and skips the cache, so hiding takes effect at once.
+- **The function.** `callsign-profile` (`_shared/profile.ts`) is public: `verify_jwt = false`,
+  no caller check, so it must never import `isServiceRole` (a test fails if any
+  `verify_jwt = false` function reaches it). It returns 400 for input that cannot be a callsign,
+  counts each lookup against a one-minute window per client (a SHA-256 of the IP, never the
+  address) and returns 429 with "Too many lookups. Try again in a minute." past 30. Profiles are
+  cached in the database for 15 minutes and sent with `Cache-Control: public, max-age=300`.
+  `prune_callsign_lookups()` clears finished windows and expired entries hourly at :15.

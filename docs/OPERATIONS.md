@@ -609,3 +609,74 @@ serving the same zip with Range support.
 A local run (functions URL on localhost) does not load licenses by default. To exercise the real
 load locally, serve `load-licenses` and set `RELAY_LICENSES=https://data.fcc.gov/download/pub/uls/complete/l_amat.zip`;
 it downloads about 160 MB, so not routinely.
+
+# Callsign profiles
+
+How they work is in `docs/ARCHITECTURE.md` ("Callsign profiles").
+
+## First deploy (hosted)
+
+`20261012000060_callsign_profile` builds the `rbn_spots` base-callsign index with a plain
+`create index` on the partitioned table. **While it builds, RBN inserts wait**: every partition is
+under a SHARE lock, so `ingest-rbn` pushes queue behind it, run into the API's 8 s statement
+timeout and fail. The relay keeps the lines and retries (it buffers about 50 minutes), so nothing is
+lost if the build finishes well inside that. It computes `base_callsign()` for every row, which took
+1 min 43 s locally for a week at hosted volume (10.8M rows); expect longer on a small hosted
+compute. Apply it when `rbn_spots` is
+smallest, just after retention at 03:35 UTC, and not while an archive or rollup run is going (:00,
+:10, ... and :25).
+
+The GitHub integration applies the migration on merge, so merge at that time, or push it first:
+
+```sh
+supabase migration list                    # 20261012000060 must be the only one pending
+supabase db push
+supabase functions deploy callsign-profile # new function: the GitHub integration skips it
+```
+
+Then check, in the SQL editor:
+
+```sql
+select indexrelid::regclass, indisvalid from pg_index where indrelid = 'rbn_spots'::regclass;
+select cached_callsign_profile('KK4PWJ') -> 'heard' -> 'spots';
+```
+
+The relay logs `push failed` lines during the build and stops once it ends. A gap in RBN rows that
+outlasts the relay's buffer shows in `select date_trunc('minute', spot_time), count(*) from rbn_spots
+where spot_time > now() - interval '2 hours' group by 1 order by 1;`.
+
+## Is it working?
+
+```sh
+curl -si "$SUPABASE_URL/functions/v1/callsign-profile?callsign=KK4PWJ" | head -20
+```
+
+200 with `Cache-Control: public, max-age=300` and the profile; 400 for input that is not a
+callsign; 429 past 30 lookups a minute from one IP; 500 means an RPC failed (the function logs
+`callsign-profile:` with the error). Clients being throttled now:
+
+```sql
+select client, lookups from lookup_rate_limits
+where window_start = date_trunc('minute', now()) and lookups > 30;
+```
+
+`client` is a SHA-256 of the IP, never the address. The `prune-callsign-lookups` job (:15 hourly)
+deletes finished windows and cache entries older than 15 minutes.
+
+## Hiding a profile
+
+On request (the page footer gives the contact address), by base call:
+
+```sql
+insert into hidden_callsigns (callsign, note) values ('KK4PWJ', 'email 2026-10-12');
+delete from hidden_callsigns where callsign = 'KK4PWJ';   -- show it again
+```
+
+A hidden call gets the not-heard page with no license from the next lookup on; the cache is
+skipped for it. Browsers and CDNs may still hold the old page for up to 5 minutes.
+
+## A profile looks stale
+
+Profiles are cached for 15 minutes. To rebuild one now:
+`delete from callsign_profile_cache where callsign = 'KK4PWJ';`. Days that are rolled up come from
+the rollups ("Callsign rollups" above); today and yesterday until 02:25 UTC are read live.

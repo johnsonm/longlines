@@ -220,6 +220,18 @@ relay on pushes to main; nothing else deploys automatically.
 - `base_callsign()` output is now permanent in the rollups: changing it splits history. If it
   must change, rewrite `raw_spots.base_callsign` in the same migration.
 
+## Profile rules
+
+- `callsign_profile(call)` builds the whole profile in SQL. Its shape is `CallsignProfile` in
+  `web/src/profile/types.ts`, pinned by `supabase/tests/callsign_profile.test.sql`; change the SQL,
+  the type and the test together. It is not granted to clients: the public `callsign-profile`
+  function reads it through `cached_callsign_profile` after `record_profile_lookup`.
+- Live reads of `spot_stream` filter on `base_callsign` and `spot_time`, so `raw_spots` and the
+  `rbn_spots` expression index both serve them. Group by spotter before calling `base_callsign()`
+  or `cty_lookup()` on spotters.
+- A `verify_jwt = false` function never imports `isServiceRole`, which trusts an unverified JWT
+  claim; `function_config.test.ts` walks every such function's imports and fails if one does.
+
 ## Conventions
 
 - Time-dependent functions take `now: Date` so tests pin the clock. The POTA and SOTAwatch

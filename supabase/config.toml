@@ -419,6 +419,11 @@ enabled = true
 [functions.sign-in]
 verify_jwt = false
 
+# callsign-profile serves public profiles to signed-out browsers. It checks no
+# caller identity, only a per-IP rate limit (_shared/profile.ts).
+[functions.callsign-profile]
+verify_jwt = false
+
 # ingest-rbn is called by the relay on Fly.io, which holds the relay secret but
 # no Supabase key. It checks x-relay-secret itself (_shared/serve.ts).
 [functions.ingest-rbn]
