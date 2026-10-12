@@ -1,9 +1,9 @@
--- pgTAP: base callsigns (20261012000010). The rule, the generated raw_spots
+-- pgTAP: base callsigns (20261012000010, 20261012000040). The rule, the generated raw_spots
 -- column, its index and the RBN watchlist that shares the matcher's rules.
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(24);
+select plan(27);
 
 -- The spec's examples.
 select is(base_callsign('KK4PWJ/P'), 'KK4PWJ', 'a /P suffix is dropped');
@@ -18,6 +18,9 @@ select is(base_callsign('KK4PWJ/AM'), 'KK4PWJ', '/AM is dropped');
 select is(base_callsign('KK4PWJ/R'), 'KK4PWJ', '/R is dropped');
 select is(base_callsign('KD9XYZ/4'), 'KD9XYZ', 'a single call-area digit is dropped');
 select is(base_callsign('EA8/G4OBK/QRP'), 'G4OBK', 'prefix and suffix together');
+select is(base_callsign('K1A/QRPP'), 'K1A', '/QRPP is dropped, though longer than the call');
+select is(base_callsign('EA1FIC-2'), 'EA1FIC', 'an SSID is dropped');
+select is(base_callsign('dk9ip-#'), 'DK9IP', 'a skimmer marker is dropped');
 
 -- Normalisation and ties.
 select is(base_callsign('  kk4pwj/p '), 'KK4PWJ', 'input is trimmed and uppercased');

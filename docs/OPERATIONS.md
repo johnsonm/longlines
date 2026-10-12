@@ -351,8 +351,8 @@ watched station was on the air.
 ## rbn_spots size
 
 About 1.5 million rows and 350 MB a day; seven days (2.5-3 GB) stay in the database. A day is
-retired once the callsign rollups have recorded it (`callsign_rollup_days`) or once it is 14 days
-old; before those rollups ship, 14 days (about 5 GB) stay. `select pg_size_pretty(pg_total_relation_size('rbn_spots'));` shows the total;
+retired once the callsign rollups have recorded it (`callsign_rollup_days`, normally at 02:25 UTC the next day)
+or once it is 14 days old. `select pg_size_pretty(pg_total_relation_size('rbn_spots'));` shows the total;
 `select tableoid::regclass, count(*) from rbn_spots group by 1 order by 1;` shows rows per day.
 
 ## Rotating the relay secret
@@ -494,3 +494,66 @@ pg_net keeps responses for only a few hours, so read the reason by running the i
 
 The function's logs in the dashboard have the same messages. The previous set stays loaded
 throughout, so lookups keep working.
+
+# Callsign rollups
+
+How they work is in `docs/ARCHITECTURE.md` ("Callsign rollups").
+
+## First backfill (hosted)
+
+The rollups ship as a migration only; there is no function to deploy. Retention retires an RBN day
+without its rollup once it is 14 days old, so every RBN day must be rolled up before the 03:35 UTC
+run on 2026-10-26, when the first RBN day (2026-10-11) turns 14 days old. The hourly
+`rollup-callsign-days` job does this on its own at two days an hour once the migration is live;
+running it by hand shows the result sooner. cty.dat must be loaded first (`select * from
+cty_load;`), or every day is refused.
+
+```sh
+supabase db push
+```
+
+Then, in the SQL editor, a few days at a time (an RBN day takes about a minute):
+
+```sql
+select * from backfill_callsign_rollups(3);   -- repeat until it returns no rows
+```
+
+Each row is a day with its spot count; an RBN day is about 1.5 million. A row with an `error` was
+undone and is retried on the next call. Then check:
+
+```sql
+select min(day), max(day), count(*) from callsign_rollup_days;  -- first spot's day through yesterday, no gaps
+select tableoid::regclass, count(*) from rbn_spots group by 1 order by 1;  -- partitions all still present
+select * from callsign_seen where base = 'KK4PWJ';
+select pg_size_pretty(pg_total_relation_size('callsign_activity'));
+```
+
+## Is it keeping up?
+
+```sql
+select max(day) from callsign_rollup_days;   -- yesterday, once 03:35 UTC has passed
+select d::date as missing
+from generate_series((select min(day) from callsign_rollup_days), (now() at time zone 'utc')::date - 1, interval '1 day') d
+where d::date not in (select day from callsign_rollup_days);
+```
+
+A missing day failed in the hourly job (Postgres logs: `callsign rollup of ... failed`).
+`select * from backfill_callsign_rollups(1);` retries it and shows the error. The two refusals:
+
+- `no cty.dat loaded`: run `import-cty` (see "Countries (cty.dat)").
+- `the RBN spots of ... were retired`: the day failed for 14 days and retention dropped its RBN
+  rows. They are only in the archive now. `select rollup_callsign_day('<day>', true);` rolls up the
+  other sources and marks the day, accepting that its RBN spots are missing from every profile.
+  Until then the day is retried, and warned about, every hour.
+
+## Size
+
+`callsign_activity` is the big one: about 270 bytes a row with its index, one row per station,
+source, band and mode bucket per day, folded into month rows after 35 days. Check it with
+`select grain, count(*), pg_size_pretty(pg_total_relation_size('callsign_activity')) from callsign_activity group by 1;`.
+
+## Rolling a day up again
+
+Not supported: references, days on the air and variants are running totals, so a second pass
+would count the day twice. A day's rollup can only be redone by rebuilding every table from the
+archive.

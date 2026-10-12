@@ -507,5 +507,57 @@ call. The table behind that is AD1C's cty.dat, the country file loggers use
   in a digit (`W4/G4OBK`, `KK4PWJ/VE3`), then the shorter one. It does not use
   `base_callsign()`, which breaks length ties by position. An exact `=` entry for the call or the
   location wins over the longest matching prefix. `/MM` and `/AM` have no country.
-- **Access.** The tables are service-role only, like the other internal tables. Profiles read
-  them through definer RPCs.
+- **Access.** The tables are service-role only, like the other internal tables. The rollups read
+  them through `cty_lookup`; profiles will read them through definer RPCs.
+
+# Callsign rollups
+
+```mermaid
+flowchart LR
+  R[(raw_spots, except RBN copies)] --> V[spot_stream view]
+  B[(rbn_spots)] --> V
+  C[pg_cron :25 hourly] -- "backfill_callsign_rollups(2)" --> D[rollup_callsign_day]
+  D -- "one pass per day" --> V
+  D --> T[(callsign_activity, callsign_reach, callsign_references, callsign_seen, callsign_variants)]
+  D -- marker --> K[(callsign_rollup_days)]
+  K -- "rolled up: may retire" --> M[maintain_rbn_spots 03:35 UTC]
+```
+
+Callsign profiles cover every day since Long Lines started, but `rbn_spots` keeps only seven. The
+rollups keep per-station counts and breakdowns forever, never per-spotter rows (spec
+`docs/superpowers/specs/2026-10-12-callsign-lookup-design.md`).
+
+- **`spot_stream`.** One row shape for every source: `source`, `spot_time`, `callsign`,
+  `base_callsign`, `spotter`, `spotter_base`, `frequency_khz`, `band`, `mode`, `mode_bucket`,
+  `snr`, `program`, `reference`, `reference_name`, `reference_location`. It is `raw_spots` without
+  its RBN rows (copies) plus `rbn_spots`. A source that writes `raw_spots` appears with no change;
+  a new firehose table needs one `union all` arm. The base columns are computed per row for
+  `rbn_spots`, so a query over many RBN rows groups by `callsign` first. Service-role only.
+- **`mode_bucket(mode, mode_family)`.** The Stats chart buckets (CW, SSB, FT8/FT4, FM, Other).
+  CW follows `mode_family`, so SQL still never derives a family.
+- **Tables.** `callsign_activity` (period, base, role, source, band, mode bucket: spots and
+  spots per UTC hour), `callsign_reach` (period, base, source, spotter country and continent),
+  `callsign_references` (base, program, reference: days, spots, first and last day, latest name),
+  `callsign_seen` (base: first and last spot, the last one's frequency and mode, days on the air)
+  and `callsign_variants` (base, spelling: spots, last day). Role `heard` is the station spotted;
+  role `spotter` is the station spotting others. Self-spots count as heard but not as spotter
+  or reach. Countries come from `cty_lookup`, once per distinct spotter.
+- **Exactly once.** `rollup_callsign_day(day)` inserts the day's `callsign_rollup_days` marker
+  first and does nothing when it is already there: references, seen and variants are running
+  totals and would double. A day is rolled up from two hours after it ends
+  (`last_rollup_day()`); a spot that arrives after that is not counted.
+- **Whole days or none.** A day is refused, and retried on the next run, while no cty.dat is
+  loaded (its reach would stay empty) or once its RBN rows were archived and retired (retention
+  stops waiting at 14 days). `rollup_callsign_day(day, true)` rolls up such a day without RBN when
+  an operator accepts the gap.
+- **One pass.** A day is grouped once by call, spotter, band, mode, hour and reference; base calls
+  and countries are resolved per distinct call afterwards. A synthetic 1.5M-row RBN day takes about
+  13 s locally.
+- **Hourly.** The `rollup-callsign-days` cron job runs `backfill_callsign_rollups(2)` at 25 past
+  every hour: at most two days without a marker, oldest first, each in its own subtransaction,
+  then it folds day rows older than 35 days into month rows (`compact_callsign_rollups`). A
+  failed day is a warning, does not count toward the two, and is retried next hour. Yesterday is
+  rolled up at 02:25 UTC, ahead of RBN retention at 03:35. The job is separate from
+  `maintain_rbn_spots()` on purpose: a slow or cancelled rollup never holds that job's partition
+  locks or undoes its retention, and retention still retires an RBN day 14 days old without its
+  rollup.

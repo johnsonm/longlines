@@ -92,8 +92,11 @@ one function that both Stats and profiles use.
 | `callsign_variants` | base, callsign → spots, last day | "Also heard as" |
 | `callsign_rollup_days` | day → rolled_at | Marker |
 
-- **Nightly run.** `rollup_callsign_day(day)` runs nightly inside `maintain_rbn_spots()` (03:35 UTC)
-  for every completed day that has no marker.
+- **Hourly run.** `rollup_callsign_day(day)` runs for every completed day that has no marker, two
+  days at most per run, from its own hourly cron job (`rollup-callsign-days`, 25 past). Yesterday
+  is rolled up at 02:25 UTC, ahead of RBN retention at 03:35. (Amended in PR 3: running inside
+  `maintain_rbn_spots()` would hold its partition locks for the whole rollup, and a cancelled
+  rollup would undo retention.)
 - **Compaction.** Day rows older than 35 days are compacted into month rows.
 - **RBN retention.** An archived RBN day is retired when it has a marker, or once it is 14 days
   old regardless. The retention half ships first, in `20261012000010`, so no RBN day is lost
