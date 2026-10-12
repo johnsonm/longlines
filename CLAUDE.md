@@ -25,7 +25,7 @@ deno task lint
 deno task fmt
 
 supabase start                # local stack, applies all migrations
-supabase db reset             # re-apply migrations from scratch locally
+supabase db reset             # re-apply migrations from scratch locally, then load supabase/seed.sql
 supabase functions serve      # serve both functions against the local stack
 docker exec -i supabase_db_longlines psql -U postgres   # psql is not installed; use the container
 
@@ -206,5 +206,8 @@ relay on pushes to main; nothing else deploys automatically.
   of frequency parsing.
 - Tables, the view and the RPCs have `anon`/`authenticated` grants revoked; keep that on any new
   object.
+- `supabase/seed.sql` is a synthetic week relative to `now()` (made-up calls ending in `S`) for
+  preview branches and local resets; it ends with a stats refresh. pgTAP suites that count rows
+  delete from those tables first, inside their rolled-back transaction, so they pass seeded or not.
 - Be polite to upstreams: User-Agent on every fetch, no polling faster than the cron schedule,
   no tests that hit live APIs.

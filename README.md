@@ -228,7 +228,7 @@ project's containers, volumes and network (other projects' stacks are left alone
 | `supabase:start` / `stop` / `restart` / `status` | The matching `supabase` command for this repo. `start` also runs `supabase:setup-env`. |
 | `supabase:setup-env` | Writes `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` into `web/.env.local` from `supabase status`. Other lines in the file are kept. |
 | `supabase:functions` | `supabase functions serve` on its own. |
-| `supabase:reset` | `supabase db reset`. Wipes local data. |
+| `supabase:reset` | `supabase db reset`. Wipes local data, then loads `supabase/seed.sql`: a synthetic week of POTA, SOTA and RBN spots so the Stats page has something to show. |
 | `supabase:types` | Regenerates `web/src/lib/database.types.ts`. |
 | `supabase:studio` / `supabase:mail` | Opens Studio or the mail catcher (macOS `open`). |
 | `supabase:nuke` | Removes this project's Docker containers, volumes and network. Wipes local data. |

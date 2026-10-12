@@ -4,6 +4,10 @@ begin;
 create extension if not exists pgtap with schema extensions;
 select plan(23);
 
+-- Start from an empty table: supabase/seed.sql fills the default partition on a
+-- local reset and on preview branches. The test rolls back, so the seed survives.
+delete from rbn_spots;
+
 create or replace function pg_temp.day_name(p_offset int) returns text language sql as $$
   select 'partitions.rbn_spots_' || to_char((now() at time zone 'utc')::date + p_offset, 'YYYYMMDD');
 $$;

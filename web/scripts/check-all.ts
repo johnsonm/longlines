@@ -5,8 +5,9 @@
 //   node scripts/check-all.ts deno web     # only some groups: deno, db, web
 //   node scripts/check-all.ts --fresh      # `supabase db reset` first, like CI's fresh Postgres
 //
-// The local stack is shared by every worktree, and the pgTAP suites assume an empty raw_spots and
-// empty pgmq queues, so the db group can fail locally while CI is green. The runner warns when the
+// The local stack is shared by every worktree. The pgTAP suites clear the tables they count (so
+// supabase/seed.sql's data is fine) but expect this checkout's schema and quiet pgmq queues, so the
+// db group can fail locally while CI is green. The runner warns when the
 // database's migrations differ from this checkout's. --fresh resets the database to this checkout
 // first, which wipes local data for every worktree.
 import { spawnSync } from "node:child_process";
@@ -154,7 +155,7 @@ if (failed.some((o) => o.step.group === "db") && !fresh && stackProblem === unde
     drift !== undefined
       ? `\n\x1b[33m⚠ The local database has a different migration set (${drift}).\x1b[0m\n` +
         "The db failures may come from another worktree's branch, not this one."
-      : "\npgTAP assumes an empty raw_spots and empty queues; local ingest runs can break that.",
+      : "\npgTAP expects quiet pgmq queues; local ingest runs can break that.",
   );
   console.log(
     "Rerun with `npm run test:all:fresh` to reset the local database to this checkout first.\n" +
