@@ -262,6 +262,9 @@ sample spot.
 ```mermaid
 flowchart LR
   R[(raw_spots)] -->|pg_cron, 5 past every hour| F[refresh_stats_snapshot]
+  RB[(rbn_spots)] -->|once per complete day| U[rollup_rbn_day]
+  U --> RR[(rbn_hourly, rbn_daily_skimmers, rbn_daily_stations)]
+  RR --> F
   F --> S[(stats_snapshots)]
   S -->|newest row, one query| W[Stats page]
 ```
@@ -272,7 +275,7 @@ adjustable, so the whole page is one precomputed JSON document.
 
 ## Why a snapshot table
 
-The payload is a dozen aggregates over a week of spots (totals, per-day and per-band counts, a
+The payload is a dozen aggregates over a week of spots (totals, per-day, per-hour and per-band counts, a
 per-state choropleth, mode shares, top activators and references, plus activation and chaser
 counts beside every spot count). Computing it on every page view
 would scan `raw_spots`, which clients cannot read anyway. Instead `refresh_stats_snapshot()`, a
@@ -283,8 +286,8 @@ refresh prunes older ones.
 
 ## Counting rules
 
-- Only `pota` and `sotawatch` rows count; other sources (RBN) report watched stations, not
-  activity. Every such row is one spot. A station spotted by both sources counts twice; callsigns are
+- Only `pota` and `sotawatch` rows count toward the activity figures; RBN rows in `raw_spots`
+  are copies of watched stations' `rbn_spots` rows and count nowhere. Every such row is one spot. A station spotted by both sources counts twice; callsigns are
   counted exactly as stored (`/P` and the like are kept). A spot is one report, not a contact: a
   busy activation is re-spotted many times, so spot counts run far ahead of operating activity.
 - An activation is one distinct (callsign, reference, UTC day), per program. It is an estimate in
@@ -301,11 +304,33 @@ refresh prunes older ones.
   spanning two states counts once in each. Non-US entries and territories are ignored and all 51
   codes (50 states and DC) are always present, zero-filled.
 - SOTA associations are the part of `sota_summit_ref` before the `/`.
-- Bands use a fixed order (`80m` through `2m`); other bands are excluded from the band charts only.
+- Bands use a fixed order (`160m` through `2m`); other bands are excluded from the band charts only.
 - Modes collapse to CW, SSB (`ssb`, `usb`, `lsb`), FT8/FT4, FM and Other (including null) as
   integer percentages that sum to exactly 100; the rounding remainder goes to the largest bucket.
 - Window arithmetic is done on `now() at time zone 'utc'` so a session time zone with DST cannot
   shift the window by an hour.
+- `hourly` feeds "Spots processed per hour": 168 UTC hours, zero-filled, each with the POTA and
+  SOTAwatch `raw_spots` rows and the `rbn_spots` rows whose `spot_time` falls in that hour. The page
+  plots their sum; the "Average rate" and "Peak hour" tile figures come from the same series.
+  `daily[].rbn` is the RBN count per day.
+
+## RBN figures
+
+`rbn` holds the week's RBN spots, distinct skimmers, spots per band (the same fixed order as the
+POTA and SOTA bands, so the three charts share an axis; other bands count in spots only) and
+the eight most heard stations with how many distinct skimmers heard each. `rbn_spots` takes about 1.5 million rows a day, so the hourly
+refresh never aggregates it. `rollup_rbn_day(day)` scans one day once, with grouping sets, into
+three small tables: `rbn_hourly` (24 rows a day, zeros included), `rbn_daily_skimmers` (per
+skimmer and band) and `rbn_daily_stations` (per callsign). Weekly distinct counts come from the
+per-day rows, so they are exact. Skimmers per station cannot be summed from days, so they are
+counted from `rbn_spots` (through `rbn_spots_callsign_time_idx`) for the eight stations only and
+kept in `rbn_top_stations` until a rollup changes or the window moves. A full day's rollup takes
+about 2.5 s; the refresh itself stays well under a second.
+
+The refresh rolls up every window day missing from `rbn_rollup_days`, and once more any day rolled
+up within an hour of its end, since the relay can hold up to about 50 minutes of lines while
+`ingest-rbn` is unreachable. Rows arriving later than that are not counted. Rollups older than
+the window are deleted; the archive keeps every spot.
 
 The payload's TypeScript shape is `StatsPayload` in `web/src/stats/types.ts`; the pgTAP suite
 `supabase/tests/stats_snapshot.test.sql` pins both the shape and the numbers.

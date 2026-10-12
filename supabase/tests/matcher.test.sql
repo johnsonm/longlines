@@ -9,6 +9,12 @@ select plan(30);
 select pgmq.purge_queue('spot_events');
 select pgmq.purge_queue('deliveries_queue');
 
+-- Start from empty tables so the counts below are exact: supabase/seed.sql fills
+-- them on a local reset and on preview branches. The test rolls back, so the
+-- seed data survives. deliveries references raw_spots without cascade.
+delete from deliveries;
+delete from raw_spots;
+
 select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
 create temp table da as select * from create_destination('discord', 'A discord', 'https://discord.com/api/webhooks/1/a');
 create temp table db as select * from create_destination('webhook', 'A hook', 'https://hooks.example.com/a');

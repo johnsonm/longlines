@@ -5,6 +5,13 @@ create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
 select plan(29);
 
+-- Start from empty tables so the counts below are exact: supabase/seed.sql fills
+-- them on a local reset and on preview branches. The test rolls back, so the
+-- seed data survives. deliveries references raw_spots without cascade.
+delete from deliveries;
+delete from raw_spots;
+delete from rbn_spots;
+
 -- A fresh spot and an old one.
 insert into raw_spots (source, source_spot_id, content_hash, spot_time, callsign, spotter, frequency_khz, band, mode, comment, pota_reference, raw_payload)
 values ('pota', 't1', 'h1', now() - interval '5 minutes', 'KK4PWJ', 'W4ABC', 14062, '20m', 'cw', 'hi', 'US-2763', '{"secret":"yes"}'),

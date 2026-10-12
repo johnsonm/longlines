@@ -25,7 +25,7 @@ deno task lint
 deno task fmt
 
 supabase start                # local stack, applies all migrations
-supabase db reset             # re-apply migrations from scratch locally
+supabase db reset             # re-apply migrations from scratch locally, then load supabase/seed.sql
 supabase functions serve      # serve both functions against the local stack
 docker exec -i supabase_db_longlines psql -U postgres   # psql is not installed; use the container
 
@@ -102,7 +102,9 @@ relay on pushes to main; nothing else deploys automatically.
 
 - `stats_snapshots` is written only by `refresh_stats_snapshot()` from pg_cron; clients have
   `select` only. It is the one table `anon` may read: the Stats page (`/stats`) is public and
-  renders in `PublicShell` when signed out, `AppShell` when signed in. The payload shape is `StatsPayload` in `web/src/stats/types.ts` and is pinned by
+  renders in `PublicShell` when signed out, `AppShell` when signed in. RBN figures come from the
+  `rollup_rbn_day` tables, never from `rbn_spots` directly: the refresh runs hourly and the
+  firehose is ~1.5M rows a day. The payload shape is `StatsPayload` in `web/src/stats/types.ts` and is pinned by
   `supabase/tests/stats_snapshot.test.sql`; change the SQL, the type and the test together.
 - The Stats page is deliberately fixed: no controls beyond tooltips, one request per hour of use
   (`web/src/stats/cache.ts` keeps a snapshot until the next refresh is due; never poll).
@@ -204,5 +206,8 @@ relay on pushes to main; nothing else deploys automatically.
   of frequency parsing.
 - Tables, the view and the RPCs have `anon`/`authenticated` grants revoked; keep that on any new
   object.
+- `supabase/seed.sql` is a synthetic week relative to `now()` (made-up calls ending in `S`) for
+  preview branches and local resets; it ends with a stats refresh. pgTAP suites that count rows
+  delete from those tables first, inside their rolled-back transaction, so they pass seeded or not.
 - Be polite to upstreams: User-Agent on every fetch, no polling faster than the cron schedule,
   no tests that hit live APIs.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dayLabel, fillOpacity, fmt, hasData, hourLabel, topStates, updatedCaption, weekday } from "./format";
+import { compact, dayLabel, fillOpacity, fmt, hasData, hourLabel, slotLabel, topStates, updatedCaption, weekday } from "./format";
 import type { LatestStats, StatsPayload } from "./types";
 
 const payload = (spots: number): StatsPayload => ({
@@ -18,6 +18,8 @@ const payload = (spots: number): StatsPayload => ({
   modes: [],
   topActivators: [],
   topReferences: [],
+  hourly: [],
+  rbn: { spots: 0, skimmers: 0, bands: [], topStations: [] },
 });
 
 describe("fmt", () => {
@@ -97,5 +99,21 @@ describe("fillOpacity", () => {
     expect(fillOpacity(0, 100)).toBe(0);
     expect(fillOpacity(0, 0)).toBe(0);
     expect(fillOpacity(5, 0)).toBe(0);
+  });
+});
+
+describe("slotLabel", () => {
+  it("formats an hour of the hourly series in UTC", () => {
+    expect(slotLabel("2026-10-06T14:00:00Z")).toBe("Tue 10/6 14:00");
+    expect(slotLabel(new Date("2026-10-06T00:00:00Z"))).toBe("Tue 10/6 00:00");
+  });
+});
+
+describe("compact", () => {
+  it("abbreviates thousands and millions", () => {
+    expect(compact(950)).toBe("950");
+    expect(compact(12000)).toBe("12k");
+    expect(compact(1250)).toBe("1.3k");
+    expect(compact(1_500_000)).toBe("1.5M");
   });
 });
