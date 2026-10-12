@@ -298,7 +298,7 @@ Deno.test("runLicenseImports logs a failed check and stops on abort", async () =
   const controller = new AbortController();
   const logs: string[] = [];
   const done = runLicenseImports({
-    zipUrl: "http://127.0.0.1:9/l_amat.zip",
+    zipUrl: "http://127.0.0.1:9/l_amat",
     client: fakeClient().client,
     signal: controller.signal,
     log: (m) => {

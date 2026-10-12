@@ -48,8 +48,13 @@ Deno.test("loadConfig turns the license load off, off locally, or points it at a
     FCC_AMATEUR_ZIP,
   );
   assertEquals(
-    loadConfig(env({ ...BASE, RELAY_LICENSES: "http://127.0.0.1:8000/l_amat.zip" })).licenseZipUrl,
-    "http://127.0.0.1:8000/l_amat.zip",
+    loadConfig(env({ ...BASE, RELAY_LICENSES: "http://127.0.0.1:8000/l_amat" })).licenseZipUrl,
+    "http://127.0.0.1:8000/l_amat",
+  );
+  assertThrows(
+    () => loadConfig(env({ ...BASE, RELAY_LICENSES: "http://mirror.example.org/l_amat" })),
+    Error,
+    "https",
   );
   assertThrows(() => loadConfig(env({ ...BASE, RELAY_LICENSES: "no" })), Error, "RELAY_LICENSES");
 });

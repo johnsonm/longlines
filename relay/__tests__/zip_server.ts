@@ -120,7 +120,8 @@ export function serveZip(bytes: Uint8Array, options: ZipServerOptions = {}) {
     return new Response(slice as BodyInit, { status: 206 });
   });
   return {
-    url: `http://127.0.0.1:${server.addr.port}/l_amat.zip`,
+    // No ".zip" in a plain-http URL: CodeQL reads that as an insecure download.
+    url: `http://127.0.0.1:${server.addr.port}/l_amat`,
     requests,
     server,
     /** The FCC publishes a new file. */

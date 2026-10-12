@@ -93,6 +93,20 @@ Deno.test("openHttpZip reads ranges with the User-Agent and reports Last-Modifie
   }
 });
 
+Deno.test("openHttpZip refuses plain http except from a local server", async () => {
+  let fetched = 0;
+  await assertRejects(
+    () =>
+      openHttpZip("http://data.fcc.gov/l_amat", new AbortController().signal, () => {
+        fetched++;
+        return Promise.resolve(new Response(null));
+      }),
+    Error,
+    "https is required",
+  );
+  assertEquals(fetched, 0);
+});
+
 Deno.test("openHttpZip refuses ranges once the file has changed since HEAD", async () => {
   const zip = await buildZip(FILES);
   const { url, requests, server, republish } = serveZip(zip);

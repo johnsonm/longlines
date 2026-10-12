@@ -8,6 +8,7 @@
 // encryption. Anything else throws.
 
 import { userAgent } from "../supabase/functions/_shared/http.ts";
+import { isLocalHost } from "./config.ts";
 
 /** Random access to a file's bytes. */
 export interface RangeSource {
@@ -131,6 +132,12 @@ export async function openHttpZip(
   signal: AbortSignal,
   fetchFn: typeof fetch = fetch,
 ): Promise<HttpZip> {
+  // The file is loaded into a public table: never over plain http, except
+  // from a local server in tests and development.
+  const { protocol, hostname } = new URL(url);
+  if (protocol !== "https:" && !(protocol === "http:" && isLocalHost(hostname))) {
+    throw new Error(`${url}: https is required outside local development`);
+  }
   const headers = { "User-Agent": userAgent() };
   const head = await fetchFn(url, {
     method: "HEAD",

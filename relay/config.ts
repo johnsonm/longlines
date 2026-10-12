@@ -15,6 +15,11 @@ export interface RelayConfig {
   licenseZipUrl: string | null;
 }
 
+/** Hosts allowed over plain http: local development only. */
+export function isLocalHost(hostname: string): boolean {
+  return ["127.0.0.1", "localhost", "host.docker.internal"].includes(hostname);
+}
+
 function required(env: (name: string) => string | undefined, name: string): string {
   const value = env(name)?.trim();
   if (!value) throw new Error(`missing environment variable ${name}`);
@@ -39,14 +44,22 @@ function licenseZipUrl(value: string | undefined, localFunctions: boolean): stri
   const v = value?.trim();
   if (!v) return localFunctions ? null : FCC_AMATEUR_ZIP;
   if (v.toLowerCase() === "off") return null;
-  if (!/^https?:\/\//.test(v)) throw new Error("RELAY_LICENSES must be off or a URL");
+  let url: URL;
+  try {
+    url = new URL(v);
+  } catch {
+    throw new Error("RELAY_LICENSES must be off or a URL");
+  }
+  if (url.protocol !== "https:" && !(url.protocol === "http:" && isLocalHost(url.hostname))) {
+    throw new Error("RELAY_LICENSES must use https outside local development");
+  }
   return v;
 }
 
 export function loadConfig(env: (name: string) => string | undefined): RelayConfig {
   const functionsUrl = required(env, "LONGLINES_FUNCTIONS_URL").replace(/\/+$/, "");
   const url = new URL(functionsUrl);
-  const local = ["127.0.0.1", "localhost", "host.docker.internal"].includes(url.hostname);
+  const local = isLocalHost(url.hostname);
   if (url.protocol !== "https:" && !local) {
     throw new Error("LONGLINES_FUNCTIONS_URL must use https outside local development");
   }
