@@ -222,7 +222,29 @@ on conflict do nothing;
 delete from rbn_rollup_days;
 perform public.refresh_stats_snapshot();
 
--- Callsign rollups for the seeded days, as the nightly job would have made.
+-- Callsign rollups for the seeded days, as the hourly job would have made.
+-- They refuse to run without cty.dat, so load the few countries the seeded
+-- spotters come from (import-cty loads the real file; it never runs here).
+perform public.load_cty('seed',
+  '[{"prefix":"K","name":"United States","continent":"NA","cq_zone":5,"itu_zone":8,"lat":37.6,"lon":-91.87},
+    {"prefix":"VE","name":"Canada","continent":"NA","cq_zone":5,"itu_zone":9,"lat":44.35,"lon":-78.75},
+    {"prefix":"G","name":"England","continent":"EU","cq_zone":14,"itu_zone":27,"lat":52.77,"lon":-1.47},
+    {"prefix":"DL","name":"Fed. Rep. of Germany","continent":"EU","cq_zone":14,"itu_zone":28,"lat":51.0,"lon":10.0},
+    {"prefix":"EA","name":"Spain","continent":"EU","cq_zone":14,"itu_zone":37,"lat":40.37,"lon":-4.88},
+    {"prefix":"OH","name":"Finland","continent":"EU","cq_zone":15,"itu_zone":18,"lat":63.78,"lon":27.08},
+    {"prefix":"JA","name":"Japan","continent":"AS","cq_zone":25,"itu_zone":45,"lat":36.4,"lon":138.38}]',
+  '[{"pattern":"K","exact":false,"entity":"K","continent":"NA","cq_zone":5,"itu_zone":8},
+    {"pattern":"W","exact":false,"entity":"K","continent":"NA","cq_zone":5,"itu_zone":8},
+    {"pattern":"N","exact":false,"entity":"K","continent":"NA","cq_zone":5,"itu_zone":8},
+    {"pattern":"AC","exact":false,"entity":"K","continent":"NA","cq_zone":5,"itu_zone":8},
+    {"pattern":"VE","exact":false,"entity":"VE","continent":"NA","cq_zone":5,"itu_zone":9},
+    {"pattern":"VA","exact":false,"entity":"VE","continent":"NA","cq_zone":5,"itu_zone":9},
+    {"pattern":"G","exact":false,"entity":"G","continent":"EU","cq_zone":14,"itu_zone":27},
+    {"pattern":"M","exact":false,"entity":"G","continent":"EU","cq_zone":14,"itu_zone":27},
+    {"pattern":"DL","exact":false,"entity":"DL","continent":"EU","cq_zone":14,"itu_zone":28},
+    {"pattern":"EA","exact":false,"entity":"EA","continent":"EU","cq_zone":14,"itu_zone":37},
+    {"pattern":"OH","exact":false,"entity":"OH","continent":"EU","cq_zone":15,"itu_zone":18},
+    {"pattern":"JA","exact":false,"entity":"JA","continent":"AS","cq_zone":25,"itu_zone":45}]');
 perform public.backfill_callsign_rollups();
 
 -- The branch may reuse this connection, so leave nothing temporary behind.

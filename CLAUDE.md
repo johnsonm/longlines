@@ -203,9 +203,14 @@ relay on pushes to main; nothing else deploys automatically.
 - Profiles and rollups read `spot_stream`, never a source table by name. A source writing
   `raw_spots` needs nothing; a new firehose table needs one `union all` arm in the view.
 - `rollup_callsign_day` runs exactly once per completed UTC day (its marker goes in first):
-  references, seen and variants are running totals. Never delete a marker to re-roll a day.
+  references, seen and variants are running totals. Never delete a marker to re-roll a day. It
+  refuses a day it cannot roll up whole (no cty.dat, RBN rows already retired) rather than mark it.
+- The rollups run in their own hourly cron job (`rollup-callsign-days`), never inside
+  `maintain_rbn_spots`, so a slow rollup cannot hold partition locks or undo retention.
 - Group a day by `callsign`/`spotter` before calling `base_callsign()` or `cty_lookup()`; the
-  RBN arm computes base calls per row. `mode_bucket(mode, mode_family)` is the one mode grouping.
+  RBN arm computes base calls per row. Profiles use `mode_bucket(mode, mode_family)`;
+  `refresh_stats_snapshot` still has its own copy of the same CASE until callsign profiles PR 7
+  moves it over, so change both together until then.
 - `base_callsign()` output is now permanent in the rollups: changing it splits history. If it
   must change, rewrite `raw_spots.base_callsign` in the same migration.
 

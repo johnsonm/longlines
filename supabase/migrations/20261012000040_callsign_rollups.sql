@@ -25,17 +25,24 @@
 -- callsign_rollup_days (20261012000010) first and does nothing when it is
 -- already there. callsign_references, callsign_seen and callsign_variants are
 -- running totals (days on the air, days at a reference), so a day rolled up
--- twice would count twice. Only completed UTC days are rolled up; a spot that
--- arrives after its day is rolled up is not counted (the nightly run is 3.5
--- hours after midnight, the relay buffers about 50 minutes).
+-- twice would count twice. A day is rolled up from two hours after it ends,
+-- since the relay buffers about 50 minutes of lines; a spot that arrives
+-- after its day is rolled up is not counted.
 --
--- When. maintain_rbn_spots() (03:35 UTC) calls backfill_callsign_rollups()
--- before retention, which rolls up every completed day since the first spot
--- that has no marker, oldest first, each in its own subtransaction, then
--- compacts day rows older than 35 days into month rows. The same function is
--- the operator's backfill (docs/OPERATIONS.md). A failure is a warning: it
--- never stops partitions or retention, and retention still retires an
--- unrolled day once it is 14 days old.
+-- A day is refused, and left for the next run, when it cannot be rolled up
+-- whole: no cty.dat is loaded (its reach would be empty for good), or its RBN
+-- rows were archived and retired already (retention gives up waiting for a
+-- rollup at 14 days). rollup_callsign_day(day, true) rolls up such a day
+-- without RBN, for an operator who accepts the gap.
+--
+-- When. pg_cron runs backfill_callsign_rollups(2) at 25 past every hour, in
+-- its own job: it rolls up at most two completed days without a marker,
+-- oldest first, each in its own subtransaction, then compacts day rows older
+-- than 35 days into month rows. Yesterday is rolled up at 02:25 UTC, ahead of
+-- RBN retention at 03:35, and a backlog clears at two days an hour. Keeping it
+-- out of maintain_rbn_spots() means a slow or cancelled rollup never holds the
+-- partition locks that job takes, or undoes its partitions and retention. The
+-- same function is the operator's backfill (docs/OPERATIONS.md).
 --
 -- Cost. An RBN day is about 1.5 million rows. The rollup reads the day once
 -- and groups it by call, spotter, band, mode, hour and reference before
@@ -238,12 +245,14 @@ revoke all on callsign_activity, callsign_reach, callsign_references, callsign_s
   from anon, authenticated;
 
 -- Rolls up one completed UTC day from spot_stream. Returns the day's spot
--- count, or null when the day was already rolled up (nothing changes).
+-- count, or null when the day was already rolled up (nothing changes). With
+-- p_without_rbn, a day whose RBN rows were retired is rolled up from the other
+-- sources (see the header).
 --
 -- p groups the day's rows by everything the rollups split on, which is the
 -- one pass over the day. names and geo resolve each distinct call and spotter
 -- once. Every insert below reads b, p with base calls attached.
-create function public.rollup_callsign_day(p_day date)
+create function public.rollup_callsign_day(p_day date, p_without_rbn boolean default false)
 returns bigint
 language plpgsql
 security definer
@@ -254,8 +263,17 @@ declare
   v_to    timestamptz := (p_day + 1)::timestamp at time zone 'utc';
   v_spots bigint;
 begin
-  if p_day is null or p_day >= (now() at time zone 'utc')::date then
-    raise exception 'rollup_callsign_day: % is not a completed UTC day', p_day;
+  if p_day is null or p_day > public.last_rollup_day() then
+    raise exception 'rollup_callsign_day: % is not a completed UTC day (or ended under two hours ago)', p_day;
+  end if;
+  if not exists (select 1 from cty_load) then
+    raise exception 'rollup_callsign_day: no cty.dat loaded, so spotter countries would be lost';
+  end if;
+  if not p_without_rbn
+     and exists (select 1 from archive_log l
+                 where l.source = 'rbn' and l.slice_start >= v_from and l.slice_start < v_to and l.row_count > 0)
+     and not exists (select 1 from rbn_spots r where r.spot_time >= v_from and r.spot_time < v_to) then
+    raise exception 'rollup_callsign_day: the RBN spots of % were retired; rollup_callsign_day(day, true) rolls up the rest', p_day;
   end if;
 
   insert into callsign_rollup_days (day, rolled_at) values (p_day, now())
@@ -275,8 +293,12 @@ begin
            -- (which would sort the whole day): arrays compare element by
            -- element, so the max is the latest [epoch, kHz] pair.
            (max(array[extract(epoch from s.spot_time), s.frequency_khz]))[2] as last_khz,
-           max(s.reference_name)                                  as reference_name,
-           max(s.reference_location)                              as reference_location
+           -- The latest name and location, by the same trick on text: an
+           -- ISO timestamp sorts in time order.
+           max(array[to_char(s.spot_time at time zone 'utc', 'YYYY-MM-DD HH24:MI:SS.US'), s.reference_name])
+             filter (where s.reference_name is not null)                as name_at,
+           max(array[to_char(s.spot_time at time zone 'utc', 'YYYY-MM-DD HH24:MI:SS.US'), s.reference_location])
+             filter (where s.reference_location is not null)            as location_at
     from spot_stream s
     where s.spot_time >= v_from and s.spot_time < v_to
     group by s.source, s.callsign, s.spotter, s.band, s.mode, s.mode_bucket, 7, s.program, s.reference
@@ -331,7 +353,7 @@ begin
   ),
   refs as (
     insert into callsign_references (base, program, reference, name, location, days, spots, first_day, last_day)
-    select base, program, reference, max(reference_name), max(reference_location), 1, sum(n)::int, p_day, p_day
+    select base, program, reference, (max(name_at))[2], (max(location_at))[2], 1, sum(n)::int, p_day, p_day
     from b
     where reference is not null and program is not null
     group by base, program, reference
@@ -418,10 +440,22 @@ begin
 end;
 $$;
 
--- Rolls up every completed UTC day since the first spot that has no marker,
--- oldest first, at most p_max_days of them (all when null), then compacts.
--- One row per day attempted: its spot count, or the error that left it
--- unrolled (that day's changes are undone; the next run tries it again).
+-- The latest day a rollup may take: the UTC day that ended at least two hours
+-- ago.
+create function public.last_rollup_day()
+returns date
+language sql
+stable
+as $$
+  select ((now() at time zone 'utc') - interval '2 hours')::date - 1;
+$$;
+
+-- Rolls up completed UTC days since the first spot that have no marker,
+-- oldest first, until p_max_days of them are rolled up (all when null), then
+-- compacts. A failed day does not count toward p_max_days, so a day that
+-- keeps failing cannot hold the others back. One row per day attempted: its
+-- spot count, or the error that left it unrolled (that day's changes are
+-- undone; the next run tries it again).
 create function public.backfill_callsign_rollups(p_max_days int default null)
 returns table (rollup_day date, spots bigint, error text)
 language plpgsql
@@ -429,9 +463,9 @@ security definer
 set search_path = public
 as $$
 declare
-  v_today date := (now() at time zone 'utc')::date;
-  v_first date;
-  v_day   date;
+  v_first  date;
+  v_day    date;
+  v_rolled int := 0;
 begin
   select (min(s.spot_time) at time zone 'utc')::date into v_first from spot_stream s;
   if v_first is null then
@@ -440,15 +474,18 @@ begin
 
   for v_day in
     select g.d::date
-    from generate_series(v_first, v_today - 1, interval '1 day') as g(d)
+    from generate_series(v_first, public.last_rollup_day(), interval '1 day') as g(d)
     where not exists (select 1 from callsign_rollup_days r where r.day = g.d::date)
     order by 1
-    limit p_max_days
   loop
+    exit when v_rolled >= p_max_days;
     rollup_day := v_day;
     begin
       spots := public.rollup_callsign_day(v_day);
       error := null;
+      if spots is not null then
+        v_rolled := v_rolled + 1;
+      end if;
     exception when others then
       spots := null;
       error := sqlerrm;
@@ -457,66 +494,26 @@ begin
     return next;
   end loop;
 
-  perform public.compact_callsign_rollups();
-end;
-$$;
-
--- maintain_rbn_spots: as in 20261012000010, with the callsign rollups between
--- the partitions and retention, so retention sees the night's markers. A
--- rollup failure is a warning and never stops the rest.
-create or replace function public.maintain_rbn_spots()
-returns void
-language plpgsql
-security definer
-set search_path = public
-as $$
-declare
-  v_today date := (now() at time zone 'utc')::date;
-  v_day   date;
-  v_drop  date[] := '{}'::date[];
-begin
-  for v_day in select (v_today + i) from generate_series(0, 3) as i loop
-    perform public.create_rbn_spots_partition(v_day);
-  end loop;
-
+  -- A compaction error must not undo the days rolled up above.
   begin
-    perform public.backfill_callsign_rollups();
+    perform public.compact_callsign_rollups();
   exception when others then
-    raise warning 'callsign rollups failed: %', sqlerrm;
+    raise warning 'callsign rollup compaction failed: %', sqlerrm;
   end;
-
-  for v_day in
-    select to_date(substr(c.relname, 11), 'YYYYMMDD')
-    from pg_inherits i
-    join pg_class c on c.oid = i.inhrelid
-    where i.inhparent = 'public.rbn_spots'::regclass and c.relname ~ '^rbn_spots_[0-9]{8}$'
-    union
-    select distinct (d.spot_time at time zone 'utc')::date from partitions.rbn_spots_default d
-    order by 1
-  loop
-    continue when v_day >= v_today - 7;
-    continue when not public.rbn_day_archived(v_day);
-    if v_day < v_today - 14 or exists (select 1 from callsign_rollup_days r where r.day = v_day) then
-      v_drop := v_drop || v_day;
-    end if;
-  end loop;
-
-  perform set_config('lock_timeout', '5s', true);
-  foreach v_day in array v_drop loop
-    begin
-      perform public.retire_rbn_day(v_day);
-    exception when lock_not_available then
-      raise warning 'rbn retention: % not dropped (lock timeout); retrying tomorrow', v_day;
-    end;
-  end loop;
 end;
 $$;
 
 revoke all on function public.mode_bucket(text, text) from public, anon, authenticated;
 revoke all on function public.int_array_add(int[], int[]) from public, anon, authenticated;
 revoke all on function public.int_array_sum(int[]) from public, anon, authenticated;
-revoke all on function public.rollup_callsign_day(date) from public, anon, authenticated;
+revoke all on function public.last_rollup_day() from public, anon, authenticated;
+revoke all on function public.rollup_callsign_day(date, boolean) from public, anon, authenticated;
 revoke all on function public.compact_callsign_rollups() from public, anon, authenticated;
 revoke all on function public.backfill_callsign_rollups(int) from public, anon, authenticated;
-revoke all on function public.maintain_rbn_spots() from public, anon, authenticated;
-grant execute on function public.maintain_rbn_spots() to service_role;
+
+-- Hourly, off the archive's */10 grid and the stats refresh at :05.
+select cron.schedule(
+  'rollup-callsign-days',
+  '25 * * * *',
+  $$ select count(*) from public.backfill_callsign_rollups(2); $$
+);

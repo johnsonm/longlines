@@ -100,8 +100,11 @@ begin
 
   -- Callsign rollups: the stream reads every source and a backfill marks the smoke spots' days
   -- (a seeded database may have rolled them up already).
-  assert (select count(*) from spot_stream where callsign in ('W1AW', 'SM0KE')) >= 2,
+  assert exists (select 1 from spot_stream where source = 'rbn' and callsign = 'SM0KE')
+     and exists (select 1 from spot_stream where source = 'pota' and callsign = 'W1AW'),
     'spot_stream should see raw_spots and rbn_spots rows';
+  assert exists (select 1 from cron.job where jobname = 'rollup-callsign-days' and schedule = '25 * * * *'),
+    'rollup-callsign-days should run hourly';
   perform * from public.backfill_callsign_rollups();
   assert exists (select 1 from callsign_rollup_days where day = '2026-10-05'),
     'backfill_callsign_rollups should roll up the smoke spots'' first day';

@@ -351,7 +351,7 @@ watched station was on the air.
 ## rbn_spots size
 
 About 1.5 million rows and 350 MB a day; seven days (2.5-3 GB) stay in the database. A day is
-retired once the callsign rollups have recorded it (`callsign_rollup_days`, normally the night after)
+retired once the callsign rollups have recorded it (`callsign_rollup_days`, normally at 02:25 UTC the next day)
 or once it is 14 days old. `select pg_size_pretty(pg_total_relation_size('rbn_spots'));` shows the total;
 `select tableoid::regclass, count(*) from rbn_spots group by 1 order by 1;` shows rows per day.
 
@@ -502,9 +502,11 @@ How they work is in `docs/ARCHITECTURE.md` ("Callsign rollups").
 ## First backfill (hosted)
 
 The rollups ship as a migration only; there is no function to deploy. Retention retires an RBN day
-without its rollup once it is 14 days old, so the backfill must run before the first RBN day
-(2026-10-11) is 14 days old, at the 03:35 UTC run on 2026-10-26. The nightly job would also roll
-the days up on its own, but running it by hand shows the result.
+without its rollup once it is 14 days old, so every RBN day must be rolled up before the 03:35 UTC
+run on 2026-10-26, when the first RBN day (2026-10-11) turns 14 days old. The hourly
+`rollup-callsign-days` job does this on its own at two days an hour once the migration is live;
+running it by hand shows the result sooner. cty.dat must be loaded first (`select * from
+cty_load;`), or every day is refused.
 
 ```sh
 supabase db push
@@ -535,8 +537,14 @@ from generate_series((select min(day) from callsign_rollup_days), (now() at time
 where d::date not in (select day from callsign_rollup_days);
 ```
 
-A missing day failed during the nightly run (Postgres logs: `callsign rollup of ... failed`).
-`select * from backfill_callsign_rollups(1);` retries it and shows the error.
+A missing day failed in the hourly job (Postgres logs: `callsign rollup of ... failed`).
+`select * from backfill_callsign_rollups(1);` retries it and shows the error. The two refusals:
+
+- `no cty.dat loaded`: run `import-cty` (see "Countries (cty.dat)").
+- `the RBN spots of ... were retired`: the day failed for 14 days and retention dropped its RBN
+  rows. They are only in the archive now. `select rollup_callsign_day('<day>', true);` rolls up the
+  other sources and marks the day, accepting that its RBN spots are missing from every profile.
+  Until then the day is retried, and warned about, every hour.
 
 ## Size
 

@@ -548,6 +548,9 @@ isOneToOne: false
 "jsonb_text_array":
 { Args: { "p_case": string,"p_values": Json }; Returns: (string)[]
                            },
+"last_rollup_day":
+{ Args: Record<PropertyKey, never>; Returns: string
+                           },
 "list_ingest_health":
 { Args: Record<PropertyKey, never>; Returns: {
               "consecutive_failures": number | null,
@@ -645,7 +648,7 @@ isOneToOne: false
 { Args: { "p_day": string }; Returns: undefined
                            },
 "rollup_callsign_day":
-{ Args: { "p_day": string }; Returns: number
+{ Args: { "p_day": string,"p_without_rbn"?: boolean }; Returns: number
                            },
 "rollup_rbn_day":
 { Args: { "p_day": string }; Returns: undefined

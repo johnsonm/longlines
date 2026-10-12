@@ -516,11 +516,11 @@ call. The table behind that is AD1C's cty.dat, the country file loggers use
 flowchart LR
   R[(raw_spots, except RBN copies)] --> V[spot_stream view]
   B[(rbn_spots)] --> V
-  M[maintain_rbn_spots 03:35 UTC] -- "backfill_callsign_rollups" --> D[rollup_callsign_day]
+  C[pg_cron :25 hourly] -- "backfill_callsign_rollups(2)" --> D[rollup_callsign_day]
   D -- "one pass per day" --> V
   D --> T[(callsign_activity, callsign_reach, callsign_references, callsign_seen, callsign_variants)]
   D -- marker --> K[(callsign_rollup_days)]
-  K -- "rolled up: may retire" --> M
+  K -- "rolled up: may retire" --> M[maintain_rbn_spots 03:35 UTC]
 ```
 
 Callsign profiles cover every day since Long Lines started, but `rbn_spots` keeps only seven. The
@@ -544,13 +544,20 @@ rollups keep per-station counts and breakdowns forever, never per-spotter rows (
   or reach. Countries come from `cty_lookup`, once per distinct spotter.
 - **Exactly once.** `rollup_callsign_day(day)` inserts the day's `callsign_rollup_days` marker
   first and does nothing when it is already there: references, seen and variants are running
-  totals and would double. Only completed UTC days are rolled up; a spot that arrives after its
-  day was rolled up is not counted.
+  totals and would double. A day is rolled up from two hours after it ends
+  (`last_rollup_day()`); a spot that arrives after that is not counted.
+- **Whole days or none.** A day is refused, and retried on the next run, while no cty.dat is
+  loaded (its reach would stay empty) or once its RBN rows were archived and retired (retention
+  stops waiting at 14 days). `rollup_callsign_day(day, true)` rolls up such a day without RBN when
+  an operator accepts the gap.
 - **One pass.** A day is grouped once by call, spotter, band, mode, hour and reference; base calls
   and countries are resolved per distinct call afterwards. A synthetic 1.5M-row RBN day takes about
   13 s locally.
-- **Nightly.** `maintain_rbn_spots()` calls `backfill_callsign_rollups()` between creating
-  partitions and retention. It rolls up every completed day since the first spot that has no
-  marker, oldest first, each in its own subtransaction, then folds day rows older than 35 days
-  into month rows (`compact_callsign_rollups`). A failed day is a warning and is retried the next
-  night; retention still retires an RBN day 14 days old without its rollup.
+- **Hourly.** The `rollup-callsign-days` cron job runs `backfill_callsign_rollups(2)` at 25 past
+  every hour: at most two days without a marker, oldest first, each in its own subtransaction,
+  then it folds day rows older than 35 days into month rows (`compact_callsign_rollups`). A
+  failed day is a warning, does not count toward the two, and is retried next hour. Yesterday is
+  rolled up at 02:25 UTC, ahead of RBN retention at 03:35. The job is separate from
+  `maintain_rbn_spots()` on purpose: a slow or cancelled rollup never holds that job's partition
+  locks or undoes its retention, and retention still retires an RBN day 14 days old without its
+  rollup.
