@@ -81,9 +81,13 @@ export function createIngestDb(client: SupabaseClient): IngestDb {
 
 export function createWatchlistDb(client: SupabaseClient): WatchlistDb {
   return {
-    async watchedCallsigns(source: Source): Promise<string[]> {
-      const { data, error } = await client.rpc("watched_callsigns", { p_source: source });
-      if (error) throw new Error(`watched_callsigns failed: ${error.message}`);
+    async watchedAmong(source: Source, callsigns: string[]): Promise<string[]> {
+      if (callsigns.length === 0) return [];
+      const { data, error } = await client.rpc("watched_among", {
+        p_source: source,
+        p_callsigns: callsigns,
+      });
+      if (error) throw new Error(`watched_among failed: ${error.message}`);
       return Array.isArray(data) ? data.filter((c): c is string => typeof c === "string") : [];
     },
   };
