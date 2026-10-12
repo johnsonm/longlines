@@ -33,7 +33,8 @@
         "LONGLINES_USER_AGENT_URL"
       ],
       "read": [
-        "supabase/functions/_shared/__tests__/fixtures",
+        "supabase/functions",
+        "deno.json",
         "relay/Dockerfile"
       ]
     }
