@@ -477,3 +477,32 @@ measurement amendment).
   144 slices are logged with the database's count (`rbn_day_slices`). A mismatched slice loses its
   log row, so the next run re-archives it and the day is retried the next night. `raw_spots` is
   never pruned.
+
+# Countries (cty.dat)
+
+```mermaid
+flowchart LR
+  CRON[pg_cron Mondays 04:20 UTC] -- "service-role key" --> F[import-cty function]
+  F -- "GET cty.dat" --> C[[country-files.com]]
+  F -- "rpc load_cty" --> T[(cty_entities, cty_prefixes, cty_load)]
+  Q[profiles, rollups] -- "cty_lookup(call)" --> T
+```
+
+Callsign profiles say which countries and continents a station is heard from, by the spotter's
+call. The table behind that is AD1C's cty.dat, the country file loggers use
+(spec `docs/superpowers/specs/2026-10-12-callsign-lookup-design.md`).
+
+- **Import.** `import-cty` downloads the file weekly, `_shared/cty.ts` parses it, and `load_cty`
+  replaces all three tables in one transaction. A reader sees the old set or the new one. A file
+  that does not parse, or has fewer than 300 entities, is refused, and the loaded set stays.
+  `cty_load` records the file's version (`=VERyyyymmdd`) and the counts.
+- **DXCC, not WAE.** Entities whose primary prefix starts with `*` (Sicily, European Turkey,
+  Shetland, ...) are DARC WAE entities. They are not loaded, so their calls fall through to the
+  DXCC country (`IT9` to Italy).
+- **Lookup.** `cty_lookup(call)` is the only place a call becomes an entity, continent and zones.
+  It drops an SSID or skimmer marker (`K3PA-1`, `DK9IP-#`). It takes the location from a prefix
+  written with the call (`W4/G4OBK`, `KK4PWJ/VE3`), else the base call. It ignores `/P`, `/M`,
+  `/QRP`, `/QRPP`, `/R`, `/A`, `/B`, `/LH` and call-area digits. An exact `=` entry for the call or
+  the location wins over the longest matching prefix. `/MM` and `/AM` have no country.
+- **Access.** The tables are service-role only, like the other internal tables. Profiles read
+  them through definer RPCs.

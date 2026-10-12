@@ -456,3 +456,32 @@ select spot_type, count(*) from read_json_auto('s3://archive/rbn/2026/10/11/*.nd
 
 S3 access keys are created under Storage settings and can read every bucket, so they belong on an
 operator's machine, never in the web app or the relay.
+
+# Countries (cty.dat)
+
+How it works is in `docs/ARCHITECTURE.md` ("Countries (cty.dat)").
+
+## First load
+
+`import-cty` is a new function, so it needs one manual deploy after the merge (the Supabase GitHub
+integration skips new functions). Then run it once instead of waiting for Monday:
+
+```sh
+supabase functions deploy import-cty
+curl -X POST "$SUPABASE_URL/functions/v1/import-cty" -H "Authorization: Bearer <service-role JWT>"
+```
+
+```sql
+select * from cty_load;                         -- version, about 340 entities, 7,000+ prefixes
+select * from cty_lookup('SM1HEV-#');           -- Sweden, EU
+```
+
+## A load failed
+
+```sql
+select status_code, content::text from net._http_response
+where content::text like '%cty%' order by created desc limit 5;
+```
+
+A 500 names the reason (download, parse, or `load_cty`). The previous set stays loaded, so lookups
+keep working. Countries change rarely, so the next weekly run is usually soon enough.

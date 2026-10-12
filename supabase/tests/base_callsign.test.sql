@@ -3,7 +3,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(25);
+select plan(24);
 
 -- The spec's examples.
 select is(base_callsign('KK4PWJ/P'), 'KK4PWJ', 'a /P suffix is dropped');
@@ -52,8 +52,6 @@ select ok(not has_function_privilege('authenticated', 'public.watched_among(text
           and not has_function_privilege('authenticated', 'public.callsign_matches(text[], text, text)', 'execute')
           and not has_function_privilege('authenticated', 'public.source_matches(text[], text)', 'execute'),
   'clients cannot call watched_among or the shared match rules');
-select ok(has_function_privilege('service_role', 'public.watched_callsigns(text)', 'execute'),
-  'watched_callsigns stays for the ingest-rbn still deployed until its follow-up drop');
 
 select * from finish();
 rollback;

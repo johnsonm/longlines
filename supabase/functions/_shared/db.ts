@@ -3,6 +3,7 @@
 // except the dead-letter insert, which is a plain table insert.
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import type { CtyData } from "./cty.ts";
 import type {
   ArchiveDb,
   ArchiveLogEntry,
@@ -91,6 +92,16 @@ export function createWatchlistDb(client: SupabaseClient): WatchlistDb {
       return Array.isArray(data) ? data.filter((c): c is string => typeof c === "string") : [];
     },
   };
+}
+
+/** Replaces the country tables with a parsed cty.dat in one transaction (load_cty). */
+export async function loadCty(client: SupabaseClient, data: CtyData): Promise<void> {
+  const { error } = await client.rpc("load_cty", {
+    p_version: data.version,
+    p_entities: data.entities,
+    p_prefixes: data.prefixes,
+  });
+  if (error) throw new Error(`load_cty failed: ${error.message}`);
 }
 
 export function createRbnDb(client: SupabaseClient): RbnDb {
