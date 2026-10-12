@@ -57,6 +57,8 @@ Local invocation: `curl -X POST http://127.0.0.1:54321/functions/v1/ingest-pota 
   `Deno.serve` shells around `_shared/handlers/*.ts`, which take their clients and sender as
   arguments so tests can pass fakes (`__tests__/fake_supabase.ts`). Behavior changes go in
   `_shared`, never in the entrypoints.
+- Every function directory needs its own `deno.json`: `supabase functions deploy` bundles with it
+  as the import map, not the root one. `__tests__/function_config.test.ts` fails CI without it.
 - Source adapters (`pota.ts`, `sotawatch.ts`) implement `SourceAdapter` from `types.ts`:
   `parseFeed` and `normalize` are pure and tested against fixtures; only `fetchSpots`/`fetchEpoch`
   do I/O. `normalize` returns `{kind: "skip"}` for intentional drops and throws for unprocessable
