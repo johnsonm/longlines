@@ -193,10 +193,10 @@ describe("sources and destinations", () => {
     fake.rpcs.set("list_ingest_health", { data: [{ source: "pota" }] });
     fake.rpcs.set("list_recent_spots", { data: [{ id: 1 }] });
     expect(await api.loadIngestHealth()).toEqual([{ source: "pota" }]);
-    expect(await api.loadRecentSpots(5)).toEqual([{ id: 1 }]);
-    expect(fake.client.rpc).toHaveBeenCalledWith("list_recent_spots", { max_rows: 5 });
-    await api.loadRecentSpots();
-    expect(fake.client.rpc).toHaveBeenLastCalledWith("list_recent_spots", { max_rows: 200 });
+    expect(await api.loadRecentSpots("sotawatch", 5)).toEqual([{ id: 1 }]);
+    expect(fake.client.rpc).toHaveBeenCalledWith("list_recent_spots", { p_source: "sotawatch", max_rows: 5 });
+    await api.loadRecentSpots("rbn");
+    expect(fake.client.rpc).toHaveBeenLastCalledWith("list_recent_spots", { p_source: "rbn", max_rows: 100 });
   });
 
   it("load functions reject on error", async () => {
@@ -204,7 +204,7 @@ describe("sources and destinations", () => {
     fake.rpcs.set("list_recent_spots", { error: boom });
     fake.tables.set("destinations", { error: boom });
     await expect(api.loadIngestHealth()).rejects.toThrow("boom");
-    await expect(api.loadRecentSpots()).rejects.toThrow("boom");
+    await expect(api.loadRecentSpots("pota")).rejects.toThrow("boom");
     await expect(api.loadDestinations()).rejects.toThrow("boom");
   });
 
