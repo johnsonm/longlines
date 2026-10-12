@@ -22,8 +22,6 @@ import {
 import { abortableSleep } from "./telnet.ts";
 import { type HttpZip, openHttpZip, openZipEntry, readZipDirectory } from "./zip.ts";
 
-export const FCC_AMATEUR_ZIP = "https://data.fcc.gov/download/pub/uls/complete/l_amat.zip";
-
 /** Fewer records than this means a truncated or wrong file (the real one has ~1.5M of each). */
 export const MIN_RECORDS: UlsCounts = { HD: 500_000, EN: 500_000, AM: 500_000 };
 
@@ -33,8 +31,11 @@ const RETRY_AFTER_MS = 12 * 3_600_000;
 export interface LicenseClient {
   status(): Promise<LicenseLoad | null>;
   begin(version: string): Promise<number>;
+  /** Stages a batch; returns that file's rows staged so far (right even for a retried batch). */
   rows(load: number, kind: UlsKind, rows: UlsRow[]): Promise<number>;
   finish(load: number, counts: UlsCounts): Promise<void>;
+  /** Fails the load and empties staging. */
+  abandon(load: number, error: string): Promise<void>;
 }
 
 export function licenseClient(
@@ -46,9 +47,12 @@ export function licenseClient(
     status: async () => (await field({ action: "status" }, "load") ?? null) as LicenseLoad | null,
     begin: async (version) => Number(await field({ action: "begin", version }, "load")),
     rows: async (load, kind, rows) =>
-      Number(await field({ action: "rows", load, kind, rows }, "inserted")),
+      Number(await field({ action: "rows", load, kind, rows }, "staged")),
     async finish(load, counts) {
       await post({ action: "finish", load, counts });
+    },
+    async abandon(load, error) {
+      await post({ action: "abandon", load, error });
     },
   };
 }
@@ -73,6 +77,10 @@ export interface ImportOptions {
   readTimeoutMs?: number;
   /** Waits between attempts at one batch; its length is the number of retries. */
   retryDelaysMs?: number[];
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 /** Abortable read that fails when the server goes quiet. */
@@ -116,7 +124,8 @@ export async function importLicenses(
   async function push(kind: UlsKind, rows: UlsRow[]): Promise<void> {
     for (let attempt = 0;; attempt++) {
       try {
-        staged[kind] += await client.rows(load, kind, rows);
+        // The total, not this batch's inserts: a retry after a lost reply inserts nothing.
+        staged[kind] = await client.rows(load, kind, rows);
         return;
       } catch (error) {
         const delay = retryDelays[attempt];
@@ -126,7 +135,7 @@ export async function importLicenses(
     }
   }
 
-  for (const kind of ULS_KINDS) {
+  async function stageFile(kind: UlsKind): Promise<void> {
     const reader = (await openZipEntry(zip, entryFor(kind)))
       .pipeThrough(new TextDecoderStream())
       .getReader();
@@ -168,7 +177,15 @@ export async function importLicenses(
     }
   }
 
-  await client.finish(load, staged);
+  try {
+    for (const kind of ULS_KINDS) await stageFile(kind);
+    await client.finish(load, staged);
+  } catch (error) {
+    // Free the staged rows now rather than at the next begin, 12 hours on. Best
+    // effort: begin empties staging anyway.
+    await client.abandon(load, errorMessage(error)).catch(() => {});
+    throw error;
+  }
   return staged;
 }
 
@@ -202,7 +219,7 @@ export async function runLicenseImports(options: LicenseImportLoop): Promise<voi
       await checkLicenses(options);
     } catch (error) {
       if (!signal.aborted) {
-        log(`load failed: ${error instanceof Error ? error.message : String(error)}`);
+        log(`load failed: ${errorMessage(error)}`);
       }
     }
     await abortableSleep(options.checkMs ?? 6 * 3_600_000, signal);

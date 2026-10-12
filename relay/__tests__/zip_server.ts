@@ -81,18 +81,30 @@ export interface ZipServerOptions {
 }
 
 export function serveZip(bytes: Uint8Array, options: ZipServerOptions = {}) {
-  const requests: { method: string; range: string | null; userAgent: string | null }[] = [];
-  const lastModified = options.lastModified === undefined
+  const requests: {
+    method: string;
+    range: string | null;
+    ifRange: string | null;
+    userAgent: string | null;
+  }[] = [];
+  let lastModified = options.lastModified === undefined
     ? "Sun, 11 Oct 2026 13:18:48 GMT"
     : options.lastModified;
   const server = Deno.serve({ hostname: "127.0.0.1", port: 0, onListen: () => {} }, (req) => {
     const range = req.headers.get("range");
-    requests.push({ method: req.method, range, userAgent: req.headers.get("user-agent") });
+    requests.push({
+      method: req.method,
+      range,
+      ifRange: req.headers.get("if-range"),
+      userAgent: req.headers.get("user-agent"),
+    });
     const headers: Record<string, string> = { "content-length": String(bytes.length) };
     if (lastModified) headers["last-modified"] = lastModified;
     if (req.method === "HEAD") return new Response(null, { headers });
     const m = /^bytes=(\d+)-(\d+)$/.exec(range ?? "");
-    if (!m || options.ignoreRange) return new Response(bytes as BodyInit, { headers });
+    const ifRange = req.headers.get("if-range");
+    const changed = ifRange !== null && ifRange !== lastModified;
+    if (!m || options.ignoreRange || changed) return new Response(bytes as BodyInit, { headers });
     const slice = bytes.slice(Number(m[1]), Number(m[2]) + 1);
     // Entry data: not the directory tail (from 0 in a small file) or a 30-byte local header.
     const entryData = Number(m[1]) > 0 && slice.length > 30;
@@ -107,7 +119,15 @@ export function serveZip(bytes: Uint8Array, options: ZipServerOptions = {}) {
     }
     return new Response(slice as BodyInit, { status: 206 });
   });
-  return { url: `http://127.0.0.1:${server.addr.port}/l_amat.zip`, requests, server };
+  return {
+    url: `http://127.0.0.1:${server.addr.port}/l_amat.zip`,
+    requests,
+    server,
+    /** The FCC publishes a new file. */
+    republish(date: string) {
+      lastModified = date;
+    },
+  };
 }
 
 /** In-memory RangeSource over bytes. */

@@ -140,14 +140,18 @@ export async function openHttpZip(
   await head.body?.cancel();
   if (!head.ok) throw new Error(`HEAD ${url}: HTTP ${head.status}`);
   const size = Number(head.headers.get("content-length"));
-  const version = head.headers.get("last-modified") ?? head.headers.get("etag");
-  if (!Number.isSafeInteger(size) || size <= 0 || !version) {
+  const validator = head.headers.get("last-modified") ?? head.headers.get("etag");
+  if (!Number.isSafeInteger(size) || size <= 0 || !validator) {
     throw new Error(`HEAD ${url}: no Content-Length or Last-Modified`);
   }
+  const version: string = validator;
 
+  // If-Range ties every range to the version HEAD saw: if the FCC replaces the
+  // file mid-load, the server answers 200 with the new file, which is refused,
+  // rather than mixing two weeks' bytes.
   async function range(start: number, end: number, timeout?: AbortSignal): Promise<Response> {
     const res = await fetchFn(url, {
-      headers: { ...headers, Range: `bytes=${start}-${end - 1}` },
+      headers: { ...headers, Range: `bytes=${start}-${end - 1}`, "If-Range": version },
       signal: timeout ? AbortSignal.any([signal, timeout]) : signal,
     });
     if (res.status !== 206) {

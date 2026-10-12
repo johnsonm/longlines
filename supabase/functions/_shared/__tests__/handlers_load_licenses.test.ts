@@ -46,6 +46,7 @@ Deno.test("handleLoadLicenses maps each action to its RPC", async () => {
     fcc_license_load_begin: { data: 8 },
     fcc_license_load_rows: { data: 2 },
     fcc_license_load_finish: { data: null },
+    fcc_license_load_abandon: { data: null },
   });
   const rows = [{ usi: 1, operator_class: "General" }, { usi: 2, operator_class: null }];
   const counts = { HD: 1, EN: 1, AM: 2 };
@@ -56,18 +57,20 @@ Deno.test("handleLoadLicenses maps each action to its RPC", async () => {
       { action: "begin", version: "v" },
       { action: "rows", load: 8, kind: "AM", rows },
       { action: "finish", load: 8, counts },
+      { action: "abandon", load: 8, error: "x".repeat(1200) },
     ]
   ) {
     const res = await handleLoadLicenses(post(body), deps);
     assertEquals(res.status, 200);
     answers.push(await res.json());
   }
-  assertEquals(answers, [{ load }, { load: 8 }, { inserted: 2 }, { ok: true }]);
+  assertEquals(answers, [{ load }, { load: 8 }, { staged: 2 }, { ok: true }, { ok: true }]);
   assertEquals(calls.rpc, [
     { fn: "fcc_license_load_status", args: undefined },
     { fn: "fcc_license_load_begin", args: { p_version: "v" } },
     { fn: "fcc_license_load_rows", args: { p_load: 8, p_kind: "AM", p_rows: rows } },
     { fn: "fcc_license_load_finish", args: { p_load: 8, p_counts: counts } },
+    { fn: "fcc_license_load_abandon", args: { p_load: 8, p_error: "x".repeat(1000) } },
   ]);
 });
 
@@ -94,6 +97,7 @@ Deno.test("handleLoadLicenses reports a thrown non-Error as text", async () => {
       beginLoad: () => Promise.resolve(0),
       stageRows: () => Promise.resolve(0),
       finishLoad: () => Promise.resolve(),
+      abandonLoad: () => Promise.resolve(),
     }),
   });
   assertEquals([res.status, (await res.json()).error], [500, "socket closed"]);
@@ -116,6 +120,8 @@ Deno.test("parseLoadRequest rejects malformed requests", () => {
       { action: "finish", load: 1, counts: { HD: 1, EN: 1 } },
       { action: "finish", load: 1, counts: { HD: 1, EN: 1, AM: 1.5 } },
       { action: "finish", load: "1", counts: { HD: 1, EN: 1, AM: 1 } },
+      { action: "abandon", load: 1 },
+      { action: "abandon", load: -1, error: "x" },
     ]
   ) {
     assertEquals(typeof parseLoadRequest(body), "string", JSON.stringify(body)?.slice(0, 80));

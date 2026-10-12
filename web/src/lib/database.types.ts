@@ -596,6 +596,9 @@ isOneToOne: false
 "email_for_identifier":
 { Args: { "p_identifier": string }; Returns: string
                            },
+"fcc_license_load_abandon":
+{ Args: { "p_error": string,"p_load": number }; Returns: undefined
+                           },
 "fcc_license_load_begin":
 { Args: { "p_version": string }; Returns: number
                            },

@@ -93,6 +93,20 @@ Deno.test("openHttpZip reads ranges with the User-Agent and reports Last-Modifie
   }
 });
 
+Deno.test("openHttpZip refuses ranges once the file has changed since HEAD", async () => {
+  const zip = await buildZip(FILES);
+  const { url, requests, server, republish } = serveZip(zip);
+  try {
+    const remote = await openHttpZip(url, new AbortController().signal);
+    const entries = await readZipDirectory(remote);
+    republish("Sun, 18 Oct 2026 13:18:48 GMT");
+    await assertRejects(() => openZipEntry(remote, entries[1]!), Error, "expected 206");
+    assertEquals(requests.at(-1)?.ifRange, "Sun, 11 Oct 2026 13:18:48 GMT");
+  } finally {
+    await server.shutdown();
+  }
+});
+
 Deno.test("openHttpZip refuses a server without Range support or a version", async () => {
   const zip = await buildZip(FILES);
   const noRange = serveZip(zip, { ignoreRange: true });

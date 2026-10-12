@@ -1,9 +1,8 @@
 import { assertEquals, assertRejects, assertThrows } from "@std/assert";
-import { loadConfig } from "../config.ts";
+import { FCC_AMATEUR_ZIP, loadConfig } from "../config.ts";
 import { DXCLUSTER_DEFAULT_HOST, dxclusterFeed, RBN_FEED } from "../feeds.ts";
 import { functionClient } from "../functions.ts";
 import { healthHandler } from "../health.ts";
-import { FCC_AMATEUR_ZIP } from "../licenses.ts";
 
 const env = (values: Record<string, string>) => (name: string) => values[name];
 const BASE = {
@@ -39,8 +38,15 @@ Deno.test("loadConfig rejects missing values, plain http off localhost and bad p
   );
 });
 
-Deno.test("loadConfig turns the license load off or points it at another file", () => {
+Deno.test("loadConfig turns the license load off, off locally, or points it at another file", () => {
   assertEquals(loadConfig(env({ ...BASE, RELAY_LICENSES: " OFF " })).licenseZipUrl, null);
+  // Local functions: off unless RELAY_LICENSES asks for a file.
+  const local = { ...BASE, LONGLINES_FUNCTIONS_URL: "http://127.0.0.1:54321/functions/v1" };
+  assertEquals(loadConfig(env(local)).licenseZipUrl, null);
+  assertEquals(
+    loadConfig(env({ ...local, RELAY_LICENSES: FCC_AMATEUR_ZIP })).licenseZipUrl,
+    FCC_AMATEUR_ZIP,
+  );
   assertEquals(
     loadConfig(env({ ...BASE, RELAY_LICENSES: "http://127.0.0.1:8000/l_amat.zip" })).licenseZipUrl,
     "http://127.0.0.1:8000/l_amat.zip",

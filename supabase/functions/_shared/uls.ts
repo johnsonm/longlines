@@ -189,7 +189,8 @@ export type LoadLicensesRequest =
   | { action: "status" }
   | { action: "begin"; version: string }
   | { action: "rows"; load: number; kind: UlsKind; rows: UlsRow[] }
-  | { action: "finish"; load: number; counts: UlsCounts };
+  | { action: "finish"; load: number; counts: UlsCounts }
+  | { action: "abandon"; load: number; error: string };
 
 /** Most rows load-licenses takes in one request. */
 export const MAX_ROWS_PER_REQUEST = 10_000;

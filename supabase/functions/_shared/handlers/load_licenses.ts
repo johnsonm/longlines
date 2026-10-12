@@ -1,5 +1,6 @@
 // The FCC license load, called by the relay (relay/licenses.ts) with the relay
-// secret, one action per POST: status, begin, rows (repeated), finish. Each is
+// secret, one action per POST: status, begin, rows (repeated), then finish or
+// abandon. Each is
 // one fcc_license_load_* RPC; pg_cron's apply_license_loads swaps a finished
 // load into callsign_licenses. A database error answers 500 with its message.
 
@@ -57,8 +58,13 @@ export function parseLoadRequest(body: unknown): LoadLicensesRequest | string {
         counts: { HD: counts.HD as number, EN: counts.EN as number, AM: counts.AM as number },
       };
     }
+    case "abandon": {
+      const { load, error } = body;
+      if (!isCount(load) || typeof error !== "string") return "abandon needs a load and an error";
+      return { action: "abandon", load, error: error.slice(0, 1000) };
+    }
     default:
-      return "action must be status, begin, rows or finish";
+      return "action must be status, begin, rows, finish or abandon";
   }
 }
 
@@ -69,9 +75,12 @@ async function run(request: LoadLicensesRequest, db: LicenseDb): Promise<unknown
     case "begin":
       return { load: await db.beginLoad(request.version) };
     case "rows":
-      return { inserted: await db.stageRows(request.load, request.kind, request.rows) };
+      return { staged: await db.stageRows(request.load, request.kind, request.rows) };
     case "finish":
       await db.finishLoad(request.load, request.counts);
+      return { ok: true };
+    case "abandon":
+      await db.abandonLoad(request.load, request.error);
       return { ok: true };
   }
 }

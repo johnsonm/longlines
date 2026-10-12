@@ -121,6 +121,9 @@ export function createLicenseDb(client: SupabaseClient): LicenseDb {
     async finishLoad(load, counts) {
       await call<null>("fcc_license_load_finish", { p_load: load, p_counts: counts });
     },
+    async abandonLoad(load, error) {
+      await call<null>("fcc_license_load_abandon", { p_load: load, p_error: error });
+    },
   };
 }
 

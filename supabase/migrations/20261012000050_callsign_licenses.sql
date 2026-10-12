@@ -10,7 +10,8 @@
 --   2. load-licenses -> fcc_license_load_rows, in batches: HD, EN and AM records
 --      into the fcc_uls_* staging tables
 --   3. load-licenses -> fcc_license_load_finish: the staged counts must match
---      what the relay sent; the load becomes 'ready'
+--      what the relay was last told; the load becomes 'ready'
+--      (or fcc_license_load_abandon when the relay gives up: failed, staging emptied)
 --   4. pg_cron -> apply_license_loads, hourly: joins the staging tables and
 --      replaces the FCC rows of callsign_licenses in one transaction, so a
 --      reader sees the old set or the new one, never half of each.
@@ -123,14 +124,17 @@ begin
    where authority = 'FCC' and status in ('loading', 'ready');
   truncate fcc_uls_hd, fcc_uls_en, fcc_uls_am;
 
-  insert into license_loads (authority, version) values ('FCC', trim(p_version))
+  insert into license_loads (authority, version, counts)
+  values ('FCC', trim(p_version), '{"HD": 0, "EN": 0, "AM": 0}')
   returning id into v_id;
   return v_id;
 end;
 $$;
 
--- Stages one batch of HD, EN or AM rows for a loading load. Returns the rows
--- inserted; a record already staged (a retried batch) is skipped.
+-- Stages one batch of HD, EN or AM rows for a loading load. A record already
+-- staged (a retried batch) is skipped. Returns the rows of that file staged so
+-- far, kept in license_loads.counts in the same transaction, so a retry after
+-- a lost reply still reports the right total.
 create function public.fcc_license_load_rows(p_load bigint, p_kind text, p_rows jsonb)
 returns integer
 language plpgsql
@@ -139,8 +143,10 @@ set search_path = public
 as $$
 declare
   v_inserted integer;
+  v_staged integer;
 begin
-  perform 1 from license_loads where id = p_load and authority = 'FCC' and status = 'loading';
+  perform 1 from license_loads where id = p_load and authority = 'FCC' and status = 'loading'
+  for update;
   if not found then
     raise exception 'fcc_license_load_rows: load % is not loading', p_load;
   end if;
@@ -169,7 +175,12 @@ begin
       raise exception 'fcc_license_load_rows: unknown record type %', p_kind;
   end case;
   get diagnostics v_inserted = row_count;
-  return v_inserted;
+
+  update license_loads
+     set counts = jsonb_set(counts, array[p_kind], to_jsonb((counts ->> p_kind)::integer + v_inserted))
+   where id = p_load
+  returning (counts ->> p_kind)::integer into v_staged;
+  return v_staged;
 end;
 $$;
 
@@ -185,8 +196,8 @@ as $$
                             'AM', (select count(*) from fcc_uls_am));
 $$;
 
--- Ends staging. p_counts is the rows the relay staged per file (the sum of
--- fcc_license_load_rows results); a mismatch means a lost batch.
+-- Ends staging. p_counts is the rows staged per file as the relay last heard
+-- from fcc_license_load_rows; a mismatch with the tables means a lost batch.
 create function public.fcc_license_load_finish(p_load bigint, p_counts jsonb)
 returns void
 language plpgsql
@@ -206,6 +217,25 @@ begin
   end if;
   update license_loads set status = 'ready', ready_at = now(), counts = v_counts
    where id = p_load;
+end;
+$$;
+
+-- The relay gave up on a load (a short file, a failed batch, a shutdown): it
+-- fails with the relay's reason and its staging is emptied now rather than at
+-- the next begin. Does nothing unless that load is still loading.
+create function public.fcc_license_load_abandon(p_load bigint, p_error text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  update license_loads
+     set status = 'failed', error = left(coalesce(nullif(trim(p_error), ''), 'abandoned'), 1000)
+   where id = p_load and authority = 'FCC' and status = 'loading';
+  if found then
+    truncate fcc_uls_hd, fcc_uls_en, fcc_uls_am;
+  end if;
 end;
 $$;
 
@@ -243,7 +273,8 @@ begin
            h.granted_on, h.expires_on, 'US', e.state, null, now()
     from (select distinct on (callsign) *
           from fcc_uls_hd
-          order by callsign, status = 'Active' desc, granted_on desc nulls last, usi desc) h
+          order by callsign, (status = 'Active') desc nulls last, granted_on desc nulls last,
+                   usi desc) h
     left join fcc_uls_en e on e.usi = h.usi
     left join fcc_uls_am a on a.usi = h.usi;
     get diagnostics v_licenses = row_count;
@@ -263,11 +294,13 @@ revoke all on function public.fcc_license_load_begin(text) from public, anon, au
 revoke all on function public.fcc_license_load_rows(bigint, text, jsonb) from public, anon, authenticated;
 revoke all on function public.fcc_license_staged_counts() from public, anon, authenticated;
 revoke all on function public.fcc_license_load_finish(bigint, jsonb) from public, anon, authenticated;
+revoke all on function public.fcc_license_load_abandon(bigint, text) from public, anon, authenticated;
 revoke all on function public.apply_license_loads() from public, anon, authenticated;
 grant execute on function public.fcc_license_load_status() to service_role;
 grant execute on function public.fcc_license_load_begin(text) to service_role;
 grant execute on function public.fcc_license_load_rows(bigint, text, jsonb) to service_role;
 grant execute on function public.fcc_license_load_finish(bigint, jsonb) to service_role;
+grant execute on function public.fcc_license_load_abandon(bigint, text) to service_role;
 
 -- Hourly at :50, clear of the stats refresh at :05. Usually a no-op; the week's
 -- load is applied within an hour of the relay finishing it.

@@ -1,6 +1,7 @@
 // Relay configuration from the environment (Fly secrets in production).
 
-import { FCC_AMATEUR_ZIP } from "./licenses.ts";
+/** The FCC's weekly full amateur license file (relay/licenses.ts). */
+export const FCC_AMATEUR_ZIP = "https://data.fcc.gov/download/pub/uls/complete/l_amat.zip";
 
 export interface RelayConfig {
   /** Supabase functions base URL, e.g. https://<ref>.supabase.co/functions/v1 */
@@ -10,7 +11,7 @@ export interface RelayConfig {
   /** Callsign used to log in to the telnet servers. */
   loginCall: string;
   healthPort: number;
-  /** Zip the weekly license load reads (relay/licenses.ts); null when RELAY_LICENSES=off. */
+  /** Zip the weekly license load reads (relay/licenses.ts); null when it is off. */
   licenseZipUrl: string | null;
 }
 
@@ -29,10 +30,14 @@ export function portNumber(value: string, name: string): number {
   return port;
 }
 
-/** RELAY_LICENSES: unset for the FCC file, "off" for none, or another URL (local testing). */
-function licenseZipUrl(value: string | undefined): string | null {
+/**
+ * RELAY_LICENSES: "off", another URL (a local copy), or unset for the FCC file.
+ * Unset with local functions means off, so a local relay run does not
+ * download 160 MB from the FCC unless asked to (RELAY_LICENSES=<FCC URL>).
+ */
+function licenseZipUrl(value: string | undefined, localFunctions: boolean): string | null {
   const v = value?.trim();
-  if (!v) return FCC_AMATEUR_ZIP;
+  if (!v) return localFunctions ? null : FCC_AMATEUR_ZIP;
   if (v.toLowerCase() === "off") return null;
   if (!/^https?:\/\//.test(v)) throw new Error("RELAY_LICENSES must be off or a URL");
   return v;
@@ -51,6 +56,6 @@ export function loadConfig(env: (name: string) => string | undefined): RelayConf
     relaySecret: required(env, "LONGLINES_RELAY_SECRET"),
     loginCall: required(env, "RELAY_LOGIN_CALL").toUpperCase(),
     healthPort: port,
-    licenseZipUrl: licenseZipUrl(env("RELAY_LICENSES")),
+    licenseZipUrl: licenseZipUrl(env("RELAY_LICENSES"), local),
   };
 }

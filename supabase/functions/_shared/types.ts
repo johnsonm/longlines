@@ -159,8 +159,13 @@ export interface LicenseDb {
   loadStatus(): Promise<LicenseLoad | null>;
   /** Starts a load, failing any unfinished one; returns its id. */
   beginLoad(version: string): Promise<number>;
-  /** Stages one batch; returns rows inserted (a record already staged is skipped). */
+  /**
+   * Stages one batch (a record already staged is skipped); returns the rows of
+   * that file staged so far, so a retried batch reports the right total.
+   */
   stageRows(load: number, kind: UlsKind, rows: UlsRow[]): Promise<number>;
   /** Marks the load ready for apply_license_loads; throws when the staged counts differ. */
   finishLoad(load: number, counts: UlsCounts): Promise<void>;
+  /** Fails a load the relay gave up on and empties staging. */
+  abandonLoad(load: number, error: string): Promise<void>;
 }

@@ -43,24 +43,40 @@ const ZIP = buildZip([
   { name: "HD.dat", text: HD },
 ]);
 
-function fakeClient(options: { latest?: LicenseLoad | null; failRows?: number } = {}) {
+/**
+ * load-licenses in memory. Staging is keyed by usi, like the RPC, and rows
+ * answers the file's total. failRows rejects before staging; loseReplies
+ * stages the batch and then rejects, as when the reply times out.
+ */
+function fakeClient(
+  options: { latest?: LicenseLoad | null; failRows?: number; loseReplies?: number } = {},
+) {
   const batches: { load: number; kind: UlsKind; rows: UlsRow[] }[] = [];
   const finished: UlsCounts[] = [];
+  const abandoned: string[] = [];
+  const staged = { HD: new Set<number>(), EN: new Set<number>(), AM: new Set<number>() };
   let failures = options.failRows ?? 0;
+  let lost = options.loseReplies ?? 0;
   const client: LicenseClient = {
     status: () => Promise.resolve(options.latest ?? null),
     begin: () => Promise.resolve(41),
     rows(load, kind, rows) {
       if (failures-- > 0) return Promise.reject(new Error("HTTP 503"));
       batches.push({ load, kind, rows });
-      return Promise.resolve(rows.length);
+      for (const row of rows) staged[kind].add(row.usi);
+      if (lost-- > 0) return Promise.reject(new Error("signal timed out"));
+      return Promise.resolve(staged[kind].size);
     },
     finish(_load, counts) {
       finished.push(counts);
       return Promise.resolve();
     },
+    abandon(_load, error) {
+      abandoned.push(error);
+      return Promise.resolve();
+    },
   };
-  return { client, batches, finished };
+  return { client, batches, finished, abandoned };
 }
 
 const load = (status: LicenseLoad["status"], version = VERSION, hoursAgo = 1): LicenseLoad => ({
@@ -84,7 +100,9 @@ Deno.test("shouldImport loads a new file and retries an unfinished one after twe
 
 Deno.test("licenseClient sends one action per call and reads the reply", async () => {
   const sent: LoadLicensesRequest[] = [];
-  const replies: unknown[] = [{ load: null }, { load: 9 }, { inserted: 2 }, { ok: true }];
+  const replies: unknown[] = [{ load: null }, { load: 9 }, { staged: 2 }, { ok: true }, {
+    ok: true,
+  }];
   const client = licenseClient((body) => {
     sent.push(body);
     return Promise.resolve(replies.shift());
@@ -94,11 +112,13 @@ Deno.test("licenseClient sends one action per call and reads the reply", async (
   const rows = [{ usi: 1, operator_class: "General" }];
   assertEquals(await client.rows(9, "AM", rows), 2);
   await client.finish(9, { HD: 1, EN: 1, AM: 2 });
+  await client.abandon(9, "boom");
   assertEquals(sent, [
     { action: "status" },
     { action: "begin", version: "v" },
     { action: "rows", load: 9, kind: "AM", rows },
     { action: "finish", load: 9, counts: { HD: 1, EN: 1, AM: 2 } },
+    { action: "abandon", load: 9, error: "boom" },
   ]);
 });
 
@@ -149,9 +169,29 @@ Deno.test("importLicenses stages HD, EN and AM in batches and finishes with the 
   }
 });
 
-Deno.test("importLicenses gives up after the retries and leaves the load unfinished", async () => {
+Deno.test("importLicenses counts a batch retried after a lost reply once", async () => {
   const { url, server } = serveZip(await ZIP);
-  const { client, finished } = fakeClient({ failRows: 3 });
+  const { client, batches, finished } = fakeClient({ loseReplies: 1 });
+  try {
+    const signal = new AbortController().signal;
+    const staged = await importLicenses(await openHttpZip(url, signal), client, {
+      log: () => {},
+      signal,
+      batchSize: 5,
+      minRecords: MIN,
+      retryDelaysMs: [0],
+    });
+    assertEquals(batches.length, 10); // the first batch went twice
+    assertEquals(staged, { HD: 13, EN: 12, AM: 12 });
+    assertEquals(finished, [staged]);
+  } finally {
+    await server.shutdown();
+  }
+});
+
+Deno.test("importLicenses gives up after the retries and abandons the load", async () => {
+  const { url, server } = serveZip(await ZIP);
+  const { client, finished, abandoned } = fakeClient({ failRows: 3 });
   try {
     const signal = new AbortController().signal;
     await assertRejects(
@@ -166,6 +206,7 @@ Deno.test("importLicenses gives up after the retries and leaves the load unfinis
       "HTTP 503",
     );
     assertEquals(finished, []);
+    assertEquals(abandoned, ["HTTP 503"]);
   } finally {
     await server.shutdown();
   }
@@ -188,6 +229,7 @@ Deno.test("importLicenses refuses a short file or a zip without the three files"
       "HD.dat has 13 records, expected at least 14",
     );
     assertEquals(short.finished, []);
+    assertEquals(short.abandoned, ["HD.dat has 13 records, expected at least 14"]);
     await assertRejects(
       async () =>
         await importLicenses(await openHttpZip(partial.url, signal), fakeClient().client, {
@@ -274,6 +316,7 @@ Deno.test("runLicenseImports logs a failed check and stops on abort", async () =
 Deno.test("the relay loads licenses through load-licenses with its secret", async () => {
   const { url, server } = serveZip(await ZIP);
   const requests: { secret: string | null; body: LoadLicensesRequest }[] = [];
+  const totals = { HD: 0, EN: 0, AM: 0 };
   const functions = Deno.serve(
     { hostname: "127.0.0.1", port: 0, onListen: () => {} },
     async (req) => {
@@ -285,8 +328,9 @@ Deno.test("the relay loads licenses through load-licenses with its secret", asyn
         case "begin":
           return Response.json({ load: 3 });
         case "rows":
-          return Response.json({ inserted: body.rows.length });
+          return Response.json({ staged: totals[body.kind] += body.rows.length });
         case "finish":
+        case "abandon":
           return Response.json({ ok: true });
       }
     },

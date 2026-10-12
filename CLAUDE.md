@@ -233,7 +233,8 @@ relay on pushes to main; nothing else deploys automatically.
   treated as NORMAL. The QRT fixture spot has a null frequency, so the type check must stay ahead
   of frequency parsing.
 - Tables, the view and the RPCs have `anon`/`authenticated` grants revoked; keep that on any new
-  object.
+  object. The exceptions are `select` on `stats_snapshots` (anon) and `callsign_licenses`
+  (anon and authenticated, public FCC data).
 - `supabase/seed.sql` is a synthetic week relative to `now()` (made-up calls ending in `S`) for
   preview branches and local resets; it ends with a stats refresh. pgTAP suites that count rows
   delete from those tables first, inside their rolled-back transaction, so they pass seeded or not.

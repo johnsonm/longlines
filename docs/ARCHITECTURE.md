@@ -582,12 +582,15 @@ registries can load into it later; FCC is the only loader for now.
 - **Where it runs.** The FCC publishes the full amateur file, `l_amat.zip`, every Sunday: about
   200 MB, of which the three files used are 160 MB compressed and 525 MB inflated, about 1.7M
   records each. An Edge Function cannot stream that within its limits, so the relay does
-  (`relay/licenses.ts`). Every six hours it HEADs the file. When the `Last-Modified` is not already
+  (`relay/licenses.ts`). Every six hours it HEADs the file. A relay whose functions URL is local
+  does not load licenses unless `RELAY_LICENSES` names a file. When the `Last-Modified` is not already
   ready or applied (`fcc_license_load_status`), it loads it; a load that did not finish is retried
   after twelve hours, so a load that keeps failing downloads the file twice a day at most.
 - **Streaming.** `relay/zip.ts` reads the zip's central directory from its tail, then fetches only
   `HD.dat`, `EN.dat` and `AM.dat` with Range requests and inflates them with
-  `DecompressionStream`. Memory stays flat (a full run against the real file parsed all three in
+  `DecompressionStream`. Every range carries `If-Range` with the `Last-Modified` HEAD saw, so a
+  file the FCC replaces mid-load comes back as a 200, which is refused, rather than as a mix of
+  two weeks' bytes. Memory stays flat (a full run against the real file parsed all three in
   13 s before network time and stayed under the relay's 160 MB heap); an inflated size that differs from the directory's is
   an error, which catches a truncated download.
 - **Parsing.** `_shared/uls.ts` turns records into rows: HD gives call, status and dates, EN the
@@ -598,8 +601,12 @@ registries can load into it later; FCC is the only loader for now.
 - **Staging.** The files are not sorted by system identifier, so the relay cannot join them in
   memory. It pushes 5,000 rows per request to `load-licenses` (relay secret, `verify_jwt =
   false`), which stages them in unlogged tables keyed by system identifier. A retried batch is
-  skipped by `on conflict do nothing`. `finish` compares the staged counts with what the relay
-  sent and marks the load `ready`. Fewer than 500,000 records in any file is refused first.
+  skipped by `on conflict do nothing`. Each `rows` call answers the file's running total, kept in
+  `license_loads.counts` in the same transaction, so a batch retried after a lost reply is not
+  counted twice or lost. `finish` compares those totals with the tables and marks the load
+  `ready`. Fewer than 500,000 records in any file is refused first. When the relay gives up (a
+  short file, a batch that keeps failing, a shutdown) it calls `abandon`, which fails the load
+  with the reason and empties staging at once.
 - **The swap.** Replacing about 1.5M rows takes longer than the API's 8 s statement timeout, so the
   swap is not an RPC. `apply_license_loads()` runs from pg_cron at :50 every hour. It is a no-op
   unless a load is ready. It deletes the FCC rows and inserts the joined staging set in one
