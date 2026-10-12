@@ -111,9 +111,10 @@ export interface IngestDb {
   matchPendingSpots(): Promise<number>;
 }
 
-/** The relay's view of the subscriptions: which stations to forward for a pushed source. */
+/** Which pushed stations a subscription names, by the matcher's callsign rule (exact or base call). */
 export interface WatchlistDb {
-  watchedCallsigns(source: Source): Promise<string[]>;
+  /** The members of `callsigns` that an enabled subscription accepting `source` names. */
+  watchedAmong(source: Source, callsigns: string[]): Promise<string[]>;
 }
 
 /** Bulk storage of every RBN spot. Implemented by db.ts over ingest_rbn_spots. */

@@ -36,6 +36,19 @@ export type Database = {
                   Relationships: [
                     
                   ]
+                },"callsign_rollup_days": {
+                  Row: {
+                    "day": string,"rolled_at": string
+                  }
+                  Insert: {
+                    "day": string,"rolled_at": string
+                  }
+                  Update: {
+                    "day"?: string,"rolled_at"?: string
+                  }
+                  Relationships: [
+                    
+                  ]
                 },"deliveries": {
                   Row: {
                     "attempts": number,"created_at": string,"destination_id": string,"id": number,"last_error": string | null,"sent_at": string | null,"spot_id": number,"status": string,"subscription_id": string
@@ -127,13 +140,13 @@ isOneToOne: false
                   ]
                 },"raw_spots": {
                   Row: {
-                    "band": string | null,"callsign": string,"comment": string,"content_hash": string,"frequency_khz": number,"id": number,"ingested_at": string,"mode": string | null,"mode_family": string | null,"pota_location": string | null,"pota_park_name": string | null,"pota_reference": string | null,"raw_payload": NonNullable<Json>,"sota_summit_ref": string | null,"source": string,"source_spot_id": string,"spot_time": string,"spotter": string | null
+                    "band": string | null,"base_callsign": string | null,"callsign": string,"comment": string,"content_hash": string,"frequency_khz": number,"id": number,"ingested_at": string,"mode": string | null,"mode_family": string | null,"pota_location": string | null,"pota_park_name": string | null,"pota_reference": string | null,"raw_payload": NonNullable<Json>,"sota_summit_ref": string | null,"source": string,"source_spot_id": string,"spot_time": string,"spotter": string | null
                   }
                   Insert: {
-                    "band"?: string | null,"callsign": string,"comment"?: string,"content_hash": string,"frequency_khz": number,"id"?: number,"ingested_at"?: string,"mode"?: string | null,"mode_family"?: string | null,"pota_location"?: string | null,"pota_park_name"?: string | null,"pota_reference"?: string | null,"raw_payload": NonNullable<Json>,"sota_summit_ref"?: string | null,"source": string,"source_spot_id": string,"spot_time": string,"spotter"?: string | null
+                    "band"?: string | null,"base_callsign"?: never,"callsign": string,"comment"?: string,"content_hash": string,"frequency_khz": number,"id"?: number,"ingested_at"?: string,"mode"?: string | null,"mode_family"?: string | null,"pota_location"?: string | null,"pota_park_name"?: string | null,"pota_reference"?: string | null,"raw_payload": NonNullable<Json>,"sota_summit_ref"?: string | null,"source": string,"source_spot_id": string,"spot_time": string,"spotter"?: string | null
                   }
                   Update: {
-                    "band"?: string | null,"callsign"?: string,"comment"?: string,"content_hash"?: string,"frequency_khz"?: number,"id"?: number,"ingested_at"?: string,"mode"?: string | null,"mode_family"?: string | null,"pota_location"?: string | null,"pota_park_name"?: string | null,"pota_reference"?: string | null,"raw_payload"?: NonNullable<Json>,"sota_summit_ref"?: string | null,"source"?: string,"source_spot_id"?: string,"spot_time"?: string,"spotter"?: string | null
+                    "band"?: string | null,"base_callsign"?: never,"callsign"?: string,"comment"?: string,"content_hash"?: string,"frequency_khz"?: number,"id"?: number,"ingested_at"?: string,"mode"?: string | null,"mode_family"?: string | null,"pota_location"?: string | null,"pota_park_name"?: string | null,"pota_reference"?: string | null,"raw_payload"?: NonNullable<Json>,"sota_summit_ref"?: string | null,"source"?: string,"source_spot_id"?: string,"spot_time"?: string,"spotter"?: string | null
                   }
                   Relationships: [
                     
@@ -357,6 +370,9 @@ isOneToOne: false
 "callsign_available":
 { Args: { "p_callsign": string }; Returns: boolean
                            },
+"callsign_matches":
+{ Args: { "p_base": string,"p_call": string,"p_callsigns": (string)[] }; Returns: boolean
+                           },
 "claim_deliveries":
 { Args: { "p_limit"?: number,"p_vt"?: number }; Returns: {
               "attempts": number,"created_at": string,"delivery_id": number,"destination": Json,"msg_id": number,"spot": Json,"subscription_id": string
@@ -501,11 +517,17 @@ isOneToOne: false
 "save_subscription":
 { Args: { "payload": Json }; Returns: string
                            },
+"source_matches":
+{ Args: { "p_source": string,"p_sources": (string)[] }; Returns: boolean
+                           },
 "spot_matches":
 { Args: { "spot": Database["public"]['Tables']["raw_spots"]['Row'],"sub": Database["public"]['Tables']["subscriptions"]['Row'] }; Returns: boolean
                            },
 "validate_destination_url":
 { Args: { "p_type": string,"p_url": string }; Returns: undefined
+                           },
+"watched_among":
+{ Args: { "p_callsigns": (string)[],"p_source": string }; Returns: string[]
                            },
 "watched_callsigns":
 { Args: { "p_source": string }; Returns: string[]

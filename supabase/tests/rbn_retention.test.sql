@@ -1,8 +1,10 @@
--- pgTAP: rbn_spots retention (20261011000005). A day older than seven is
--- dropped only when every 10-minute slice is archived with the database's count.
+-- pgTAP: rbn_spots retention (20261011000005, 20261012000010). A day older
+-- than seven is dropped only when every 10-minute slice is archived with the
+-- database's count and the callsign rollups have recorded it, or it is older
+-- than 14 days.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(13);
+select plan(17);
 
 create or replace function pg_temp.d(p_offset int) returns date language sql as $$
   select (now() at time zone 'utc')::date + p_offset;
@@ -29,12 +31,20 @@ $$;
 
 delete from rbn_spots;
 delete from archive_log;
+delete from callsign_rollup_days;
 
 -- Day -9: archived with matching counts.          -> dropped
 -- Day -10: one slice logged with the wrong count.  -> kept, that log row deleted
 -- Day -11: never archived.                         -> kept
 -- Day -12: rows only in the default partition, archived -> rows deleted
 -- Day -3: archived but recent.                     -> kept
+-- Day -13: archived, not rolled up.                -> kept
+-- Day -14: not rolled up, one slice logged with the wrong count -> kept, that log row deleted
+-- Day -15: archived, not rolled up, past 14 days.  -> dropped
+-- Days -3 and -9 to -12 are marked as rolled up.
+select create_rbn_spots_partition(pg_temp.d(-15));
+select create_rbn_spots_partition(pg_temp.d(-14));
+select create_rbn_spots_partition(pg_temp.d(-13));
 select create_rbn_spots_partition(pg_temp.d(-9));
 select create_rbn_spots_partition(pg_temp.d(-10));
 select create_rbn_spots_partition(pg_temp.d(-11));
@@ -44,7 +54,15 @@ select ingest_rbn_spots(jsonb_build_array(
   pg_temp.spot(pg_temp.at(-10, '11:05'), 'B1'), pg_temp.spot(pg_temp.at(-10, '11:06'), 'B2'),
   pg_temp.spot(pg_temp.at(-11, '12:00'), 'C1'),
   pg_temp.spot(pg_temp.at(-12, '13:00'), 'D1'),
-  pg_temp.spot(pg_temp.at(-3, '14:00'), 'E1')));
+  pg_temp.spot(pg_temp.at(-3, '14:00'), 'E1'),
+  pg_temp.spot(pg_temp.at(-13, '15:00'), 'G1'),
+  pg_temp.spot(pg_temp.at(-14, '15:00'), 'H1'),
+  pg_temp.spot(pg_temp.at(-15, '15:00'), 'J1')));
+insert into callsign_rollup_days (day, rolled_at)
+select pg_temp.d(o), now() from unnest(array[-3, -9, -10, -11, -12]) as o;
+select pg_temp.archive_day(-13);
+select pg_temp.archive_day(-15);
+select log_archive('rbn', pg_temp.at(-14, '15:00'), pg_temp.at(-14, '15:10'), 2, 100, 'rbn/test');
 select pg_temp.archive_day(-9);
 select pg_temp.archive_day(-10);
 select log_archive('rbn', pg_temp.at(-10, '11:00'), pg_temp.at(-10, '11:10'), 1, 100, 'rbn/test');
@@ -67,6 +85,11 @@ select is((select count(*) from archive_log where source = 'rbn' and slice_start
 select ok(pg_temp.partition(-11) is not null, 'a day never archived is kept');
 select is((select count(*) from rbn_spots where callsign = 'D1')::int, 0, 'default-partition rows of an archived day are deleted');
 select ok(pg_temp.partition(-3) is not null, 'a recent day is kept even when archived');
+select ok(pg_temp.partition(-13) is not null, 'an archived day the callsign rollups have not recorded is kept');
+select ok(not exists (select 1 from archive_log where source = 'rbn' and slice_start = pg_temp.at(-14, '15:00')),
+  'a mismatched slice of a day not rolled up still loses its log row');
+select ok(pg_temp.partition(-15) is null, 'an archived day older than 14 days is dropped without a rollup');
+select is((select count(*) from rbn_spots where callsign = 'J1')::int, 0, 'its rows are gone');
 select ok(not has_function_privilege('authenticated', 'public.retire_rbn_day(date)', 'execute')
           and not has_function_privilege('authenticated', 'public.rbn_day_archived(date)', 'execute')
           and not has_function_privilege('authenticated', 'public.rbn_day_slices(date)', 'execute'),
@@ -78,6 +101,7 @@ delete from rbn_spots;
 delete from archive_log;
 select create_rbn_spots_partition(pg_temp.d(-9));
 select ingest_rbn_spots(jsonb_build_array(pg_temp.spot(pg_temp.at(-9, '10:03'), 'F1')));
+insert into callsign_rollup_days (day, rolled_at) values (pg_temp.d(-9), now()) on conflict do nothing;
 select log_archive('rbn', p.slice_start, p.slice_end, n.row_count,
                    case when n.row_count > 0 then 100 end, case when n.row_count > 0 then 'rbn/test' end)
 from archive_pending_slices('rbn', now() - interval '2 hours', 100000) p,

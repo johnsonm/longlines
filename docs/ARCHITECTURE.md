@@ -166,6 +166,12 @@ links in one transaction and refuses destinations the caller does not own.
 what makes a destination in use undeletable. Filters are arrays where empty
 means "any"; modes are stored lowercase and callsigns uppercase.
 
+A callsign filter value matches a spot whose callsign is that value or whose base callsign is
+(`base_callsign()`, below): `KK4PWJ` catches `KK4PWJ/P` and `W4/KK4PWJ`, while `KK4PWJ/P` catches
+only `/P`. `raw_spots.base_callsign` is a stored generated column with its own index. The rule is
+`callsign_matches()` (and `source_matches()` for sources), shared by `spot_matches` and the RBN
+watchlist `watched_among`, so the two cannot drift apart.
+
 A mode filter value matches either `raw_spots.mode` or `raw_spots.mode_family` (`cw`, `phone`,
 `digital`). The family is derived at ingest by `supabase/functions/_shared/modes.ts`, the only
 place that decides what a mode string means; SQL just compares strings. This exists because
@@ -296,8 +302,9 @@ refresh prunes older ones.
   that ends short of the QSO minimum, adds one. The totals and both top-8 tables carry it next to
   the spot count.
 - A chaser is a distinct spotter callsign, excluding null spotters and self-spots. A self-spot is
-  one where spotter and activator share a base callsign, the longest `/`-separated part
-  (`base_callsign()`; `is_self_spot()` is the one definition): `SQ1GPR` or `SQ1GPR/M` spotting
+  one where spotter and activator share a base callsign: the call with known suffixes (`P`, `M`,
+  `MM`, `AM`, `QRP`, `R`, a single digit) dropped, then the longest `/`-separated part, preferring
+  a callsign-shaped part on a tie (`base_callsign()`; `is_self_spot()` is the one definition): `SQ1GPR` or `SQ1GPR/M` spotting
   `SQ1GPR/P`, `EA2/G4OBK` spotting itself, `G4OBK/P` spotting `W4/G4OBK`. An RBNHole spot whose
   comment names no skimmer has a null spotter. Skimmers named by RBNHole count as chasers.
 - POTA state counts come from `pota_location`, a comma-separated list such as `US-NC,US-VA`; a park
@@ -342,7 +349,7 @@ flowchart LR
   RBN[telnet.reversebeacon.net:7000] -- "one telnet session" --> R[relay on Fly.io]
   R -- "POST every line, batches every 10 s, heartbeat every 60 s" --> F[ingest-rbn]
   F -- "rpc ingest_rbn_spots" --> RS[(rbn_spots)]
-  F -- "rpc watched_callsigns" --> W[(subscriptions)]
+  F -- "rpc watched_among" --> W[(subscriptions)]
   F -- "runIngest(watched lines)" --> RPC[(ingest_spots)]
 ```
 
@@ -360,11 +367,11 @@ uses about 20 MB). Issue #13 records the options that were weighed first.
 - **Everything is stored; watched callsigns are alerted.** The relay forwards every spot line.
   `ingest-rbn` writes each batch to `rbn_spots` (one RPC, `ingest_rbn_spots`), a table
   partitioned by UTC day that keeps seven days in the database; `maintain_rbn_spots()` drops a day
-  once every 10-minute slice is archived with a matching count (see "The spot archive"). Only
-  lines whose station is
-  in `watched_callsigns('rbn')` (callsigns named by enabled subscriptions whose sources are empty or
-  include `rbn`) continue through `runIngest` into `raw_spots` and the matcher, so alerting sees a
-  few hundred RBN rows a day.
+  once every 10-minute slice is archived with a matching count and the callsign rollups have
+  recorded it or it is older than 14 days (see "The spot archive"). Only lines whose station `watched_among('rbn', stations)`
+  returns (named by an enabled subscription whose sources are empty or include `rbn`, exactly or by
+  base call, the matcher's rule) continue through `runIngest` into `raw_spots` and the matcher, so
+  alerting sees a few hundred RBN rows a day.
 - **Partitions.** `maintain_rbn_spots()` runs daily at 03:35 UTC and keeps partitions for today and
   three days ahead. Partitions live in the `partitions` schema, which PostgREST does not expose and
   the generated web types do not include. Rows for a day without a partition land in
@@ -423,7 +430,10 @@ measurement amendment).
   column except `id`, including the upstream `raw_payload`. Watched RBN rows in `raw_spots` are not
   archived from there.
 - **Retention.** `maintain_rbn_spots()` (03:35 UTC, off the archive's 10-minute grid) retires RBN
-  days older than seven: `rbn_day_archived` checks every eligible day first, then `retire_rbn_day`
+  days older than seven that `callsign_rollup_days` records (callsign profiles keep per-station
+  totals from every day), and any archived day older than 14 so a missing rollup cannot stop
+  retention: `rbn_day_archived` checks every eligible day first (it also clears mismatched log
+  rows), then `retire_rbn_day`
   drops the archived ones last, so the exclusive lock a partition drop takes is held only briefly
   and gives up after 5 s. The day's partition and any default-partition rows go only when all
   144 slices are logged with the database's count (`rbn_day_slices`). A mismatched slice loses its

@@ -87,22 +87,31 @@ Deno.test("every IngestDb method surfaces database errors with context", async (
   await assertRejects(() => db.matchPendingSpots(), Error, "match_pending_spots failed");
 });
 
-Deno.test("watchedCallsigns calls the RPC for the source and keeps only strings", async () => {
+Deno.test("watchedAmong asks the RPC about the batch's stations and keeps only strings", async () => {
   const { client, calls } = fakeSupabase({
-    rpc: { watched_callsigns: { data: ["K1ABC", null, "W1AW"] } },
+    rpc: { watched_among: { data: ["K1ABC", null, "W1AW/P"] } },
   });
-  assertEquals(await createWatchlistDb(client).watchedCallsigns("rbn"), ["K1ABC", "W1AW"]);
-  assertEquals(calls.rpc, [{ fn: "watched_callsigns", args: { p_source: "rbn" } }]);
+  assertEquals(await createWatchlistDb(client).watchedAmong("rbn", ["K1ABC", "W1AW/P", "N0NE"]), [
+    "K1ABC",
+    "W1AW/P",
+  ]);
+  assertEquals(calls.rpc, [{
+    fn: "watched_among",
+    args: { p_source: "rbn", p_callsigns: ["K1ABC", "W1AW/P", "N0NE"] },
+  }]);
 });
 
-Deno.test("watchedCallsigns treats a null result as an empty list and throws on error", async () => {
-  const a = fakeSupabase({ rpc: { watched_callsigns: { data: null } } });
-  assertEquals(await createWatchlistDb(a.client).watchedCallsigns("rbn"), []);
-  const b = fakeSupabase({ rpc: { watched_callsigns: boom } });
+Deno.test("watchedAmong skips the RPC for no stations, treats null as empty and throws on error", async () => {
+  const none = fakeSupabase({ rpc: {} });
+  assertEquals(await createWatchlistDb(none.client).watchedAmong("rbn", []), []);
+  assertEquals(none.calls.rpc, []);
+  const a = fakeSupabase({ rpc: { watched_among: { data: null } } });
+  assertEquals(await createWatchlistDb(a.client).watchedAmong("rbn", ["K1ABC"]), []);
+  const b = fakeSupabase({ rpc: { watched_among: boom } });
   await assertRejects(
-    () => createWatchlistDb(b.client).watchedCallsigns("rbn"),
+    () => createWatchlistDb(b.client).watchedAmong("rbn", ["K1ABC"]),
     Error,
-    "watched_callsigns failed: boom",
+    "watched_among failed: boom",
   );
 });
 
