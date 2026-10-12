@@ -3,7 +3,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(30);
+select plan(33);
 
 -- Drain anything already queued so counts below are exact.
 select pgmq.purge_queue('spot_events');
@@ -27,7 +27,7 @@ returns subscriptions language sql as $$
 $$;
 create or replace function pg_temp.spot(p_source text, p_call text, p_band text, p_mode text, p_ref text, p_loc text, p_summit text, p_family text default null)
 returns raw_spots language sql as $$
-  select (0, p_source, 'x', 'x', now(), now(), p_call, null, 14062, p_band, p_mode, '', p_ref, null, p_loc, p_summit, '{}'::jsonb, p_family)::raw_spots;
+  select (0, p_source, 'x', 'x', now(), now(), p_call, null, 14062, p_band, p_mode, '', p_ref, null, p_loc, p_summit, '{}'::jsonb, p_family, public.base_callsign(p_call))::raw_spots;
 $$;
 
 -- spot_matches rules.
@@ -44,7 +44,10 @@ select ok(spot_matches(pg_temp.sub('{}','{}','{digital}','{}',''), pg_temp.spot(
 select ok(not spot_matches(pg_temp.sub('{}','{}','{ft8}','{}',''), pg_temp.spot('sotawatch','W7JZ','20m','data',null,null,null,'digital')), 'specific mode filter does not match generic DATA');
 select ok(not spot_matches(pg_temp.sub('{}','{}','{cw}','{}',''), pg_temp.spot('pota','KK4PWJ','20m',null,null,null,null)), 'null mode never matches a mode filter');
 select ok(spot_matches(pg_temp.sub('{}','{}','{}','{KK4PWJ}',''), pg_temp.spot('pota','KK4PWJ','20m','cw',null,null,null)), 'callsign exact match');
-select ok(not spot_matches(pg_temp.sub('{}','{}','{}','{KK4PWJ}',''), pg_temp.spot('pota','KK4PWJ/P','20m','cw',null,null,null)), 'callsign is exact, not prefix');
+select ok(spot_matches(pg_temp.sub('{}','{}','{}','{KK4PWJ}',''), pg_temp.spot('pota','KK4PWJ/P','20m','cw',null,null,null)), 'a base-call subscription matches a portable spot');
+select ok(spot_matches(pg_temp.sub('{}','{}','{}','{G4OBK}',''), pg_temp.spot('sotawatch','W4/G4OBK','20m','cw',null,null,null)), 'a base-call subscription matches a prefixed spot');
+select ok(not spot_matches(pg_temp.sub('{}','{}','{}','{KK4PWJ/P}',''), pg_temp.spot('pota','KK4PWJ','20m','cw',null,null,null)), 'a /P subscription does not match the home call');
+select ok(not spot_matches(pg_temp.sub('{}','{}','{}','{KK4PW}',''), pg_temp.spot('pota','KK4PWJ','20m','cw',null,null,null)), 'callsign is not a prefix match');
 select ok(spot_matches(pg_temp.sub('{}','{}','{}','{}','us-nc'), pg_temp.spot('pota','KK4PWJ','20m','cw','US-2763','US-NC,US-VA',null)), 'reference matches location, case-insensitive');
 select ok(spot_matches(pg_temp.sub('{}','{}','{}','{}','W4C/'), pg_temp.spot('sotawatch','W4/G4OBK','20m','ssb',null,null,'W4C/CM-001')), 'reference matches summit code');
 select ok(not spot_matches(pg_temp.sub('{}','{}','{}','{}','W4C/'), pg_temp.spot('pota','KK4PWJ','20m','cw','US-2763','US-NC',null)), 'reference mismatch');

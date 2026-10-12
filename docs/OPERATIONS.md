@@ -338,9 +338,11 @@ watched station was on the air.
 
 ## Why is a watched station not showing up?
 
-1. `select * from watched_callsigns('rbn');` must list it. Only enabled subscriptions whose sources
-   are empty or include RBN contribute. Changes apply to the next batch.
-2. The callsign must match exactly, as RBN reports it (`W1AW/4` is not `W1AW`).
+1. `select * from watched_among('rbn', array['W1AW/4']);` must return it, with the call as RBN
+   reports it. Only enabled subscriptions whose sources are empty or include RBN contribute.
+   Changes apply to the next batch.
+2. A subscription callsign matches the reported call exactly or by base call: `W1AW` catches
+   `W1AW/4`, but `W1AW/P` catches only `W1AW/P`.
 3. RBN hears CW and RTTY on port 7000 only. FT8/FT4 is not connected.
 4. Check `ingest_failures where source = 'rbn'` and the relay logs for `push failed`.
 5. Check `rbn_spots` for the call: if it is there but not in `raw_spots`, the subscription does not
@@ -348,7 +350,9 @@ watched station was on the air.
 
 ## rbn_spots size
 
-About 1.5 million rows and 350 MB a day; seven days (2.5-3 GB) stay in the database. `select pg_size_pretty(pg_total_relation_size('rbn_spots'));` shows the total;
+About 1.5 million rows and 350 MB a day; seven days (2.5-3 GB) stay in the database. A day is
+retired once the callsign rollups have recorded it (`callsign_rollup_days`) or once it is 14 days
+old; before those rollups ship, 14 days (about 5 GB) stay. `select pg_size_pretty(pg_total_relation_size('rbn_spots'));` shows the total;
 `select tableoid::regclass, count(*) from rbn_spots group by 1 order by 1;` shows rows per day.
 
 ## Rotating the relay secret
