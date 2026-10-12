@@ -418,7 +418,7 @@ isOneToOne: false
         isSetofReturn: true
       } },
 "list_recent_spots":
-{ Args: { "max_rows": number }; Returns: {
+{ Args: { "max_rows": number,"p_source": string }; Returns: {
               "band": string | null,
 "callsign": string | null,
 "comment": string | null,
