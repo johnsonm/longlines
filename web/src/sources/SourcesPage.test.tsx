@@ -21,11 +21,12 @@ const health = (source: string, age: number | null, lastHour = 12) =>
   ({ source, seconds_since_last_success: age, spots_last_hour: lastHour }) as IngestHealth;
 
 beforeEach(() => {
-  vi.mocked(loadIngestHealth).mockReset().mockResolvedValue([health("pota", 20), health("sotawatch", 600), health("rbn", 30, 3)]);
+  vi.mocked(loadIngestHealth).mockReset().mockResolvedValue([health("pota", 20), health("sotawatch", 600), health("rbn", 30, 3), health("dxcluster", 40, 5)]);
   vi.mocked(loadRecentSpots).mockReset().mockImplementation(async (source) => ({
     pota: [spot(1)],
     sotawatch: [spot(2, { source: "sotawatch", pota_reference: null, sota_summit_ref: "W4C/CM-001", mode: null })],
     rbn: [spot(3, { id: null, source: "rbn", pota_reference: null, comment: "12 dB 22 WPM CQ" })],
+    dxcluster: [spot(4, { source: "dxcluster", pota_reference: null, mode: "ssb", frequency_khz: 14305 })],
   })[source] ?? []);
 });
 
@@ -36,9 +37,9 @@ afterEach(() => {
 describe("SourcesPage", () => {
   it("shows live source health and planned sources", async () => {
     renderPage(<SourcesPage prefs={UTC} />);
-    expect(await screen.findAllByText("Connected")).toHaveLength(2);
+    expect(await screen.findAllByText("Connected")).toHaveLength(3);
     expect(screen.getByText("Delayed")).toBeInTheDocument();
-    expect(screen.getAllByText("Not yet available")).toHaveLength(3);
+    expect(screen.getAllByText("Not yet available")).toHaveLength(2);
     expect(screen.getByText("20s ago")).toBeInTheDocument();
     expect(screen.getAllByText("12")).toHaveLength(2);
   });
@@ -46,14 +47,14 @@ describe("SourcesPage", () => {
   it("marks a live source with no health row as delayed", async () => {
     vi.mocked(loadIngestHealth).mockResolvedValue([]);
     renderPage(<SourcesPage prefs={UTC} />);
-    expect(await screen.findAllByText("Delayed")).toHaveLength(3);
+    expect(await screen.findAllByText("Delayed")).toHaveLength(4);
     expect(screen.getAllByText("–").length).toBeGreaterThan(0);
   });
 
   it("opens on POTA's newest spots, with one tab per live source", async () => {
     renderPage(<SourcesPage prefs={UTC} />);
     expect(await screen.findByText("W1AW")).toBeInTheDocument();
-    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["POTA", "SOTAwatch", "RBN"]);
+    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["POTA", "SOTAwatch", "RBN", "DX Cluster"]);
     expect(screen.getByRole("tab", { name: "POTA" })).toHaveAttribute("aria-selected", "true");
     expect(loadRecentSpots).toHaveBeenCalledWith("pota");
     expect(screen.queryByText("W2AW")).not.toBeInTheDocument();
@@ -68,6 +69,9 @@ describe("SourcesPage", () => {
     await user.click(screen.getByRole("tab", { name: "RBN" }));
     expect(await screen.findByText("W3AW")).toBeInTheDocument();
     expect(loadRecentSpots).toHaveBeenLastCalledWith("rbn");
+    await user.click(screen.getByRole("tab", { name: "DX Cluster" }));
+    expect(await screen.findByText("W4AW")).toBeInTheDocument();
+    expect(loadRecentSpots).toHaveBeenLastCalledWith("dxcluster");
   });
 
   it("ignores a slow response for a tab that is no longer shown", async () => {

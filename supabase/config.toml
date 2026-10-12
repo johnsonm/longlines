@@ -424,6 +424,10 @@ verify_jwt = false
 [functions.ingest-rbn]
 verify_jwt = false
 
+# ingest-dxcluster is called by the same relay with the same secret.
+[functions.ingest-dxcluster]
+verify_jwt = false
+
 # deliver and archive are called by pg_cron with the legacy service-role JWT.
 # Their handlers accept it by its role claim (isServiceRole in _shared/auth.ts)
 # without checking the signature, so the gateway's check must stay on.

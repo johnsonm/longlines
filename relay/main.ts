@@ -5,14 +5,16 @@
 // file is only the process shell.
 
 import { loadConfig } from "./config.ts";
-import { type Feed, RBN_FEED } from "./feeds.ts";
+import { dxclusterFeed, type Feed, RBN_FEED } from "./feeds.ts";
 import { startRelay } from "./relay.ts";
 
-const FEEDS: readonly Feed[] = [RBN_FEED];
+const env = (name: string) => Deno.env.get(name);
 
 /** Run the relay until SIGINT/SIGTERM. `feedList` is overridable for local end-to-end runs. */
-export async function main(feedList: readonly Feed[] = FEEDS): Promise<void> {
-  const relay = startRelay(loadConfig((name) => Deno.env.get(name)), feedList);
+export async function main(
+  feedList: readonly Feed[] = [RBN_FEED, dxclusterFeed(env)],
+): Promise<void> {
+  const relay = startRelay(loadConfig(env), feedList);
 
   // Fly sends SIGINT (the default kill_signal) on deploy and restart. Push what
   // is buffered before exiting so a deploy does not lose spots.

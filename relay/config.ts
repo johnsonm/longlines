@@ -16,6 +16,15 @@ function required(env: (name: string) => string | undefined, name: string): stri
   return value;
 }
 
+/** A TCP port from an environment variable; throws naming the variable otherwise. */
+export function portNumber(value: string, name: string): number {
+  const port = Number(value);
+  if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+    throw new Error(`${name} must be a port number`);
+  }
+  return port;
+}
+
 export function loadConfig(env: (name: string) => string | undefined): RelayConfig {
   const functionsUrl = required(env, "LONGLINES_FUNCTIONS_URL").replace(/\/+$/, "");
   const url = new URL(functionsUrl);
@@ -23,10 +32,7 @@ export function loadConfig(env: (name: string) => string | undefined): RelayConf
   if (url.protocol !== "https:" && !local) {
     throw new Error("LONGLINES_FUNCTIONS_URL must use https outside local development");
   }
-  const port = Number(env("RELAY_HEALTH_PORT") ?? "8080");
-  if (!Number.isInteger(port) || port <= 0 || port > 65535) {
-    throw new Error("RELAY_HEALTH_PORT must be a port number");
-  }
+  const port = portNumber(env("RELAY_HEALTH_PORT") ?? "8080", "RELAY_HEALTH_PORT");
   return {
     functionsUrl,
     relaySecret: required(env, "LONGLINES_RELAY_SECRET"),

@@ -2,7 +2,7 @@
 // summary as JSON, or a 500 whose body and log line carry the error.
 //
 // Pulled sources (POTA, SOTAwatch) are invoked by pg_cron with the service-role
-// key. Pushed sources (RBN) are invoked by the relay, which holds only the
+// key. Pushed sources (RBN, DX Cluster) are invoked by the relay, which holds only the
 // relay secret, with POST batches of lines.
 
 import { createIngestDb, createRbnDb, createServiceClient, createWatchlistDb } from "./db.ts";

@@ -4,7 +4,8 @@
 // the matcher, exactly as before the firehose.
 
 import { runIngest } from "./ingest.ts";
-import { parseRelayBody, rbnAdapter, rbnSpotRow } from "./rbn.ts";
+import { rbnAdapter, rbnSpotRow } from "./rbn.ts";
+import { parseRelayBody } from "./relay_lines.ts";
 import type {
   IngestDb,
   IngestSummary,

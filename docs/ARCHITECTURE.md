@@ -65,6 +65,8 @@ fixed order:
 
 - POTA: `spotTime, activator, reference, frequency, mode, comments`
 - SOTAwatch: `timeStamp, activatorCallsign, summitCode, frequency, mode, comments`
+- RBN: `spot_time, spotter, callsign, frequency, mode, snr, speed, type`
+- DX Cluster: `spot_time, spotter, callsign, frequency, comment`
 
 The unique constraint `(source, source_spot_id, content_hash)` plus `INSERT ... ON CONFLICT DO
 NOTHING RETURNING` does the rest: re-fetching an unchanged spot inserts nothing, and an edited
@@ -340,10 +342,13 @@ The payload's TypeScript shape is `StatsPayload` in `web/src/stats/types.ts`; th
 ```mermaid
 flowchart LR
   RBN[telnet.reversebeacon.net:7000] -- "one telnet session" --> R[relay on Fly.io]
+  DXC[DXSpider node, dxc.hamserve.uk:7300] -- "one telnet session" --> R
   R -- "POST every line, batches every 10 s, heartbeat every 60 s" --> F[ingest-rbn]
   F -- "rpc ingest_rbn_spots" --> RS[(rbn_spots)]
   F -- "rpc watched_callsigns" --> W[(subscriptions)]
   F -- "runIngest(watched lines)" --> RPC[(ingest_spots)]
+  R -- "POST human spot lines" --> FD[ingest-dxcluster]
+  FD -- "runIngest(every line)" --> RPC
 ```
 
 The Reverse Beacon Network only offers a persistent telnet stream. Edge Functions cannot hold one,
@@ -385,8 +390,37 @@ uses about 20 MB). Issue #13 records the options that were weighed first.
   counts as a dead connection. The relay pushes at least once a minute, even an empty batch, so
   `ingest_state.last_success_at` shows whether it is alive; the Sources page treats RBN as delayed
   after three minutes without one. `:8080/healthz` reports per-feed status for `fly checks list`.
-- **More feeds.** `relay/feeds.ts` is a list. A new telnet stream (DX Cluster, RBN FT8 on 7001) is
-  a new entry plus a source adapter and an `ingest-<source>` function built with `servePush`.
+- **More feeds.** `relay/feeds.ts` is a list. A new telnet stream (RBN FT8 on 7001, say) is a new
+  entry plus a source adapter and an `ingest-<source>` function built with `servePush`.
+  `_shared/relay_lines.ts` holds what the pushed sources share: the request body and the `HHMMZ`
+  dating.
+
+## DX Cluster
+
+The second feed is a DXSpider node, by default G1FEF-2 (`dxc.hamserve.uk:7300`, overridable with
+`DXCLUSTER_HOST`/`DXCLUSTER_PORT`), which allows read access without registration. The relay logs
+in with `RELAY_LOGIN_CALL` and forwards every line `parseDxLine` (`_shared/dxcluster.ts`) accepts.
+
+- **Straight to raw_spots.** Human spots are a few hundred an hour (a capture on 2026-10-12 saw
+  about seven a minute), so there is no firehose table: `ingest-dxcluster` runs `runIngest` over
+  the whole batch, like a pulled source, and the archive takes `dxcluster` from `raw_spots` in
+  hourly slices.
+- **Opt-in matching.** `spot_matches` lets a DX Cluster spot match only subscriptions whose
+  `sources` lists `dxcluster`. An empty sources list keeps meaning what it meant before the source
+  existed, so existing "any source, 20m" subscriptions are not flooded with DX spots.
+- **Mode.** A cluster line has no mode field. `resolveDxMode` (`_shared/modes.ts`) takes a mode
+  named in the comment (CW, SSB, FT8, ...; FM and AM are not read from comments, where "fm" usually
+  means "from"), else the band plan: FT8/FT4 dial windows, then the IARU CW and phone segments.
+  Elsewhere, such as 60m, the digital sub-bands and VHF, the mode stays null. USB and LSB are stored
+  as `ssb`.
+- **Not spots.** Skimmer lines (a `-#` spotter, or an RBN-style `NN dB NN WPM` comment) that a
+  node relays are dropped; RBN covers them. So are `WWV`, `WCY` and `To ALL` broadcasts. DXSpider
+  ends each spot line with two BEL characters, which the parser strips.
+- **Ids.** As with RBN, the line has only `HHMMZ`; `source_spot_id` is
+  `spot_time|spotter|callsign|frequency`, and the hash covers the comment too, so a re-spot with a
+  new comment in the same minute is stored.
+- **Quiet hours.** Human spots can pause for minutes, so this feed reconnects after 15 minutes
+  without data (RBN: 5) and `/healthz` marks it unhealthy after 20 (RBN: 10).
 
 # The spot archive
 
@@ -404,7 +438,7 @@ Every spot of every source is kept for analytics as gzipped NDJSON in a private 
 `archive` (spec `docs/superpowers/specs/2026-10-11-rbn-firehose-archive-design.md` and its
 measurement amendment).
 
-- **Slices.** RBN is archived in 10-minute slices, POTA and SOTAwatch hourly. The length lives only
+- **Slices.** RBN is archived in 10-minute slices, POTA, SOTAwatch and DX Cluster hourly. The length lives only
   in `archive_slice_minutes(source)`; slices are aligned with `date_bin` and half-open
   (`[start, end)`). Objects are `<source>/YYYY/MM/DD/HHMM.ndjson.gz`.
 - **Postgres does the heavy lifting.** `archive_pending_slices` returns the slices that ended two
@@ -412,16 +446,16 @@ measurement amendment).
   `string_agg`. The function only gzips and uploads, which measured at about 0.3 s of CPU for a full
   RBN hour against the 2 s limit.
 - **Runs.** pg_cron calls `archive` every 10 minutes with the service-role key (Vault), like the
-  ingest jobs. A run takes POTA, then SOTAwatch, then RBN, oldest first, and starts no new slice
-  once it has archived 60,000 rows, so a backlog clears about six times faster than real time
-  without risking the CPU limit.
+  ingest jobs. A run takes POTA, then SOTAwatch, then DX Cluster, then RBN, oldest first, and
+  starts no new slice once it has archived 60,000 rows, so a backlog clears about six times faster
+  than real time without risking the CPU limit.
 - **Logged only when stored.** A slice gets its `archive_log` row (count, bytes, path) only after
   the upload succeeds; a failure leaves it pending for the next run. Empty slices are logged with
   `row_count = 0` and no object, so a gap in `archive_log` always means "not archived".
 - **Lines.** RBN: `spot_time, received_at, spotter, callsign, frequency_khz, band, mode,
-  mode_family, snr, speed, speed_unit, spot_type, line`. POTA and SOTAwatch: every `raw_spots`
-  column except `id`, including the upstream `raw_payload`. Watched RBN rows in `raw_spots` are not
-  archived from there.
+  mode_family, snr, speed, speed_unit, spot_type, line`. POTA, SOTAwatch and DX Cluster: every
+  `raw_spots` column except `id`, including the upstream `raw_payload`. Watched RBN rows in
+  `raw_spots` are not archived from there.
 - **Retention.** `maintain_rbn_spots()` (03:35 UTC, off the archive's 10-minute grid) retires RBN
   days older than seven: `rbn_day_archived` checks every eligible day first, then `retire_rbn_day`
   drops the archived ones last, so the exclusive lock a partition drop takes is held only briefly

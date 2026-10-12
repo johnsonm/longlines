@@ -14,21 +14,20 @@
 //   DX de HA1VHF-#:144433.60  9A0BVH         CW    15 dB  15 WPM  DX      1455Z
 //
 // A line carries no date and no id. The date comes from received_at (see
-// spotTimeFromHhmm) and source_spot_id is built from the time, skimmer,
+// spotTimeFromHhmm in relay_lines.ts) and source_spot_id is built from the time, skimmer,
 // station and frequency.
 
 import { bandForFrequency } from "./bands.ts";
 import { contentHash } from "./hash.ts";
 import { cleanCallsign, isTooOld, parseKhz, parseUtc } from "./normalize.ts";
 import { modeFamily, resolveMode } from "./modes.ts";
+import { parseRelayBody, requireString, spotTimeFromHhmm } from "./relay_lines.ts";
 import type { JsonObject, NormalizeResult, RbnSpotRow, SourceAdapter } from "./types.ts";
 
 const MAX_AGE_MS = 5 * 60 * 1000;
-const MAX_LINES = 1000;
 // rbn_spots.snr and speed are smallint; a larger value would fail the whole
 // batch in Postgres instead of just this line.
 const SMALLINT_MAX = 32767;
-const DAY_MS = 24 * 60 * 60 * 1000;
 
 const SPOT_LINE =
   /^DX de (\S+?)-#:\s*(\d+(?:\.\d+)?)\s+(\S+)\s+(\S+)\s+(-?\d+) dB\s+(\d+) (WPM|BPS)\s+(.*?)\s+(\d{4})Z\s*$/;
@@ -65,48 +64,6 @@ export function parseRbnLine(line: string): RbnLine | null {
     type: group(8),
     hhmm: group(9),
   };
-}
-
-/**
- * The spot time for an "HHMM" stamp: the instant with that UTC time of day
- * closest to receivedAt, so a 2359Z spot received at 0000Z lands on the previous
- * day and a 0001Z spot received a few seconds before midnight on the next.
- * Throws on an impossible stamp.
- */
-export function spotTimeFromHhmm(hhmm: string, receivedAt: Date): Date {
-  const hours = Number(hhmm.slice(0, 2));
-  const minutes = Number(hhmm.slice(2, 4));
-  if (!/^\d{4}$/.test(hhmm) || hours > 23 || minutes > 59) {
-    throw new Error(`invalid RBN time: ${JSON.stringify(hhmm)}`);
-  }
-  const sameDay = Date.UTC(
-    receivedAt.getUTCFullYear(),
-    receivedAt.getUTCMonth(),
-    receivedAt.getUTCDate(),
-    hours,
-    minutes,
-  );
-  const candidates = [sameDay - DAY_MS, sameDay, sameDay + DAY_MS];
-  const distance = (t: number) => Math.abs(t - receivedAt.getTime());
-  return new Date(candidates.reduce((best, t) => distance(t) < distance(best) ? t : best));
-}
-
-/** Validates a relay request body and returns its items in order. Throws on a bad shape. */
-export function parseRelayBody(body: unknown): JsonObject[] {
-  if (typeof body !== "object" || body === null || Array.isArray(body)) {
-    throw new Error("expected a JSON object from the relay");
-  }
-  const lines = (body as JsonObject)["lines"];
-  if (!Array.isArray(lines)) throw new Error('expected a "lines" array from the relay');
-  if (lines.length > MAX_LINES) {
-    throw new Error(`relay batch has ${lines.length} lines; the limit is ${MAX_LINES}`);
-  }
-  return lines.map((item: unknown, i) => {
-    if (typeof item !== "object" || item === null || Array.isArray(item)) {
-      throw new Error(`relay line ${i} is not an object`);
-    }
-    return item as JsonObject;
-  });
 }
 
 /** The comment stored in raw_spots: "<snr> dB <speed> <unit> <type>". */
@@ -146,14 +103,6 @@ export function rbnSpotRow(raw: JsonObject): RbnSpotRow {
     spot_type: parsed.type,
     line,
   };
-}
-
-function requireString(raw: JsonObject, field: string): string {
-  const value = raw[field];
-  if (typeof value !== "string" || value.trim() === "") {
-    throw new Error(`missing or empty field "${field}"`);
-  }
-  return value;
 }
 
 /** An adapter whose feed is one relay request body. */

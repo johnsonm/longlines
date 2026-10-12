@@ -8,7 +8,7 @@ All queries below run in the Supabase Studio SQL editor (or psql as `postgres`).
 select * from ingest_health;
 ```
 
-Healthy: both rows have a recent `last_success_at`, `consecutive_failures = 0`, and
+Healthy: every row has a recent `last_success_at`, `consecutive_failures = 0`, and
 `spots_last_hour > 0`. SOTAwatch can legitimately insert nothing for a while when the epoch has not
 changed; `last_success_at` still advances.
 
@@ -268,10 +268,11 @@ supabase gen types typescript --local > web/src/lib/database.types.ts
 
 The generated file is committed; CI type-checks the app against it.
 
-# Relay (RBN)
+# Relay (RBN, DX Cluster)
 
-The relay in `relay/` runs on Fly.io as app `longlines-relay`. Design notes are in
-`docs/ARCHITECTURE.md` ("Streaming sources: the relay").
+The relay in `relay/` runs on Fly.io as app `longlines-relay`. It holds one telnet session per feed:
+RBN (`ingest-rbn`) and DX Cluster (`ingest-dxcluster`). Design notes are in `docs/ARCHITECTURE.md`
+("Streaming sources: the relay").
 
 ## First deploy
 
@@ -369,8 +370,41 @@ LONGLINES_RELAY_SECRET=<same value> RELAY_LOGIN_CALL=<callsign> \
 deno run --allow-net --allow-env relay/main.ts
 ```
 
-This opens a real connection to RBN; stop it when done. In Docker, use
+This opens real connections to RBN and the DX Cluster node; stop it when done. In Docker, use
 `http://host.docker.internal:54321/functions/v1`.
+
+## DX Cluster
+
+The second feed. It logs in to a DXSpider node with `RELAY_LOGIN_CALL` and forwards every human
+spot line; skimmer lines a node relays are dropped. The default node is G1FEF-2,
+`dxc.hamserve.uk:7300`, which gives read access without registration. To use another node:
+
+```sh
+fly secrets set DXCLUSTER_HOST=dxc.nc7j.com DXCLUSTER_PORT=7373   # restarts the machine
+fly secrets unset DXCLUSTER_HOST DXCLUSTER_PORT                    # back to the default
+```
+
+First deploy, in this order: the migration (`supabase db push`, `20261012000020_dxcluster_source`),
+then `supabase functions deploy ingest-dxcluster` (the Supabase GitHub integration does not deploy
+a new function), then the relay. The relay uses the existing `LONGLINES_RELAY_SECRET`. If the
+relay goes first, its pushes fail with 404 until the function exists; the forwarder keeps the
+lines and retries, so nothing is lost unless that lasts for hours.
+
+Is it running?
+
+```sql
+select * from ingest_health where source = 'dxcluster';
+select spot_time, spotter, callsign, frequency_khz, mode, comment
+from raw_spots where source = 'dxcluster' order by spot_time desc limit 20;
+```
+
+`last_success_at` advances every minute (the heartbeat). `spots_last_hour` is usually in the
+hundreds. Human spots can pause overnight, so the relay waits 15 minutes without data before it
+reconnects, and `/healthz` marks the feed unhealthy after 20.
+
+A subscription receives DX Cluster spots only when its sources list DX Cluster; "any source" does
+not include it. If a DX spot is missing, check the subscription's sources first, then
+`ingest_failures where source = 'dxcluster'`, then the relay logs (`[dxcluster]`).
 
 # Spot archive
 
