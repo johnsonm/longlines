@@ -262,6 +262,38 @@ relay on pushes to main; nothing else deploys automatically.
 - Copy for the API tokens page (`web/src/tokens/`) follows Brad's API tokens mockup, which
   isn't in `docs/ui-mock.html` yet.
 
+## Push rules
+
+The design is `docs/superpowers/specs/2026-10-13-push-notifications-design.md`. Its Copy section,
+not `docs/ui-mock.html`, is the copy source for push and install screens and for notification
+text.
+
+- One `push` destination per account fans out to every row in `push_devices`. A push destination
+  has no URL (`check ((type = 'push') = (url is null))`).
+- Device endpoints must be https on an allowlisted push-service host: `fcm.googleapis.com`,
+  `updates.push.services.mozilla.com`, `*.push.apple.com`, `*.notify.windows.com`. The list lives
+  in SQL (`validate_push_endpoint`, checked by `register_push_device`) and in
+  `_shared/delivery/urlsafety.ts` (checked before every POST); change both together. It is the SSRF
+  guard: the worker POSTs to a URL a client chose.
+- `push_devices` is service-role only (RLS on, no policies). Endpoints, `p256dh` and `auth` are
+  capability secrets and never appear in a client read. `list_push_devices` returns labels and
+  status only, and only `claim_deliveries` hands keys to the worker.
+- `_shared/delivery/webpush.ts` (VAPID and RFC 8291 `aes128gcm`) uses WebCrypto only and has no
+  dependency. Its tests pin the RFC 8291 Appendix A vector byte for byte. If the vector fails, fix
+  the code, never the vector.
+- Notification text is built in `format.ts` (`pushNotifications`); the service worker only
+  displays it. Click URLs use `base_callsign` from the claimed spot, so the web never works one
+  out.
+- The service worker (`web/src/pwa/sw.ts`, emitted unhashed as `/sw.js`) handles `push`,
+  `notificationclick` and `pushsubscriptionchange` only. It has no `fetch` handler and caches
+  nothing, and `/sw.js` is served `Cache-Control: no-cache`, so a deploy can't strand a stale
+  bundle.
+- The VAPID private key and subject live only in Edge Function env (`LONGLINES_VAPID_*`). The
+  public key is the one new `define` entry in `web/vite.config.ts` (`VITE_VAPID_PUBLIC_KEY`); never
+  widen `envPrefix`.
+- A gone subscription (404/410) is pruned, not counted as a failure; a 429 delays like any other
+  rate limit. Zero devices is a failure, so a push destination nobody can receive goes `failing`.
+
 ## Conventions
 
 - Time-dependent functions take `now: Date` so tests pin the clock. The POTA and SOTAwatch
