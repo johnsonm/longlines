@@ -148,11 +148,13 @@ export async function handleProfile(req: Request, deps: ProfileDeps): Promise<Re
   const lookups = await db.rpc("record_profile_lookup", {
     p_client: await hmacSha256Hex(deps.key, subject),
   });
-  if (lookups.error) {
-    console.error(`callsign-profile: rate limit failed: ${lookups.error.message}`);
+  // Anything but a count fails closed: a limit that cannot be read is not a pass.
+  if (lookups.error || typeof lookups.data !== "number") {
+    const why = lookups.error?.message ?? `unexpected result ${JSON.stringify(lookups.data)}`;
+    console.error(`callsign-profile: rate limit failed: ${why}`);
     return json({ error: LOOKUP_UNAVAILABLE }, 500);
   }
-  if (typeof lookups.data === "number" && lookups.data > MAX_LOOKUPS_PER_MINUTE) {
+  if (lookups.data > MAX_LOOKUPS_PER_MINUTE) {
     return json({ error: TOO_MANY_LOOKUPS }, 429, { "Retry-After": "60" });
   }
 

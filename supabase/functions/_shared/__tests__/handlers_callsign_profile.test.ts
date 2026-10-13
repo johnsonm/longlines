@@ -188,6 +188,13 @@ Deno.test("handleProfile returns 500 when the rate limit or the profile fails", 
   assertEquals(limit.body, { error: LOOKUP_UNAVAILABLE });
   assertEquals(limit.calls.rpc.map((c) => c.fn), ["record_profile_lookup"]);
 
+  // A result that is not a count fails closed rather than skipping the limit.
+  for (const data of [null, "31", { lookups: 31 }]) {
+    const odd = await run(get("?callsign=KK4PWJ"), { rpc: { record_profile_lookup: { data } } });
+    assertEquals(odd.res.status, 500, JSON.stringify(data));
+    assertEquals(odd.calls.rpc.map((c) => c.fn), ["record_profile_lookup"]);
+  }
+
   const profile = await run(get("?callsign=KK4PWJ"), {
     rpc: { cached_callsign_profile: { error: { message: "timeout" } } },
   });
