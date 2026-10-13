@@ -35,6 +35,7 @@ vi.mock("./destinations/DestinationsPage", () => ({
 vi.mock("./subscriptions/SubscriptionsPage", () => ({
   SubscriptionsPage: ({ subs }: { subs: unknown[] }) => <p>subscriptions page {subs.length}</p>,
 }));
+vi.mock("./groups/GroupsPage", () => ({ GroupsPage: () => <p>groups page</p> }));
 vi.mock("./stats/StatsPage", () => ({ StatsPage: () => <p>stats page</p> }));
 vi.mock("./account/AccountPage", () => ({ AccountPage: () => <p>account page</p> }));
 vi.mock("./profile/LookupPage", () => ({ LookupPage: () => <p>lookup page</p> }));
@@ -161,6 +162,7 @@ describe("App routing", () => {
 
   it.each([
     ["/subscriptions", "subscriptions page 0"],
+    ["/groups", "groups page"],
     ["/account", "account page"],
   ])("renders %s", async (path, text) => {
     renderAt(path);

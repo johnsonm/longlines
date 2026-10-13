@@ -23,6 +23,16 @@ describe("AppShell", () => {
     expect(screen.queryByRole("button", { name: "Open navigation" })).not.toBeInTheDocument();
   });
 
+  it("puts Groups between Subscriptions and Destinations", async () => {
+    const { user } = renderPage(shell(), { route: "/groups" });
+    const labels = screen.getAllByRole("button").map((b) => b.textContent);
+    expect(labels.indexOf("Groups")).toBe(labels.indexOf("Subscriptions") + 1);
+    expect(labels.indexOf("Destinations")).toBe(labels.indexOf("Groups") + 1);
+    expect(screen.getByRole("button", { name: "Groups" })).toHaveClass("Mui-selected");
+    await user.click(screen.getByRole("button", { name: "Destinations" }));
+    expect(screen.getByTestId("location")).toHaveTextContent("/destinations");
+  });
+
   it("navigates from the drawer", async () => {
     const { user } = renderPage(shell(), { route: "/sources" });
     await user.click(screen.getByRole("button", { name: "Stats" }));

@@ -14,6 +14,7 @@ import { PublicShell } from "./layout/PublicShell";
 import { SourcesPage } from "./sources/SourcesPage";
 import { DestinationsPage } from "./destinations/DestinationsPage";
 import { SubscriptionsPage } from "./subscriptions/SubscriptionsPage";
+import { GroupsPage } from "./groups/GroupsPage";
 import { StatsPage } from "./stats/StatsPage";
 import { ApiTokensPage } from "./tokens/ApiTokensPage";
 import { AccountPage } from "./account/AccountPage";
@@ -58,6 +59,7 @@ function Router() {
       <Route path="/set-password" element={<SetPasswordPage />} />
       <Route path="/sources" element={<RequireAuth page="sources" />} />
       <Route path="/subscriptions" element={<RequireAuth page="subscriptions" />} />
+      <Route path="/groups" element={<RequireAuth page="groups" />} />
       <Route path="/destinations" element={<RequireAuth page="destinations" />} />
       <Route path="/stats" element={<PublicRoute page="stats" />} />
       <Route path="/lookup" element={<PublicRoute page="lookup" />} />
@@ -77,7 +79,7 @@ function PublicOnly({ children }: { children: ReactNode }) {
   return children;
 }
 
-type Page = "sources" | "subscriptions" | "destinations" | "stats" | "lookup" | "call" | "account" | "api-tokens";
+type Page = "sources" | "subscriptions" | "groups" | "destinations" | "stats" | "lookup" | "call" | "account" | "api-tokens";
 type PublicPage = "stats" | "lookup" | "call";
 
 // Signed-out visitors read profiles in UTC.
@@ -152,6 +154,7 @@ function SignedIn({ page }: { page: Page }) {
       {page === "subscriptions" && (
         <SubscriptionsPage subs={subs} dests={dests} loading={loading} reload={reload} prefs={prefs} fullScreen={mobile} />
       )}
+      {page === "groups" && <GroupsPage reload={reload} />}
       {page === "destinations" && <DestinationsPage dests={dests} subs={subs} loading={loading} reload={reload} />}
       {page === "stats" && <StatsPage />}
       {page === "lookup" && <LookupPage />}
