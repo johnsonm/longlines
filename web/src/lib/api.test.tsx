@@ -309,6 +309,7 @@ describe("subscriptions", () => {
 
   const input = {
     name: "NC", enabled: true, sources: [], bands: [], modes: [], callsigns: [], reference: "", quiet_minutes: 0, destinations: ["d1"],
+    group_ids: ["g1"],
   };
 
   it("save, delete and enable go through their RPCs and table", async () => {
@@ -331,10 +332,11 @@ describe("subscriptions", () => {
   });
 
   it("previewSubscription normalizes the RPC row", async () => {
-    fake.rpcs.set("preview_subscription", { data: [{ count: "7", spots: [{ id: 1 }] }] });
-    expect(await api.previewSubscription(input)).toEqual({ count: 7, spots: [{ id: 1 }] });
+    fake.rpcs.set("preview_subscription", { data: [{ count: "7", spots: [{ id: 1 }], station_count: "12" }] });
+    expect(await api.previewSubscription(input)).toEqual({ count: 7, spots: [{ id: 1 }], station_count: 12 });
+    expect(fake.client.rpc).toHaveBeenCalledWith("preview_subscription", { filter: input });
     fake.rpcs.set("preview_subscription", { data: [] });
-    expect(await api.previewSubscription(input)).toEqual({ count: 0, spots: [] });
+    expect(await api.previewSubscription(input)).toEqual({ count: 0, spots: [], station_count: 0 });
     fake.rpcs.set("preview_subscription", { error: boom });
     await expect(api.previewSubscription(input)).rejects.toThrow("boom");
   });
