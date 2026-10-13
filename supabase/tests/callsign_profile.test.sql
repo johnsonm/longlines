@@ -1,9 +1,9 @@
 -- pgTAP: callsign_profile() and its cache, rate limit and prune (20261012000060, recentSpots order
--- 20261012000100).
+-- 20261012000100, cache build lock 20261012000130).
 -- Pins the payload shape: CallsignProfile in web/src/profile/types.ts.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(73);
+select plan(74);
 
 create or replace function pg_temp.d(p_offset int) returns date language sql as $$
   select (now() at time zone 'utc')::date + p_offset;
@@ -239,6 +239,11 @@ select ok(cached_callsign_profile('P/1') is null
 -- Cache: a fresh entry is served as is, a stale one rebuilt, a hidden call never served from it.
 select is(cached_callsign_profile('kk4pwj') -> 'heard' ->> 'spots', '9', 'cached_callsign_profile builds a profile');
 select is((select count(*) from callsign_profile_cache where callsign = 'KK4PWJ')::int, 1, 'and caches it by base call');
+select ok(exists (select 1 from pg_locks l
+                  where l.locktype = 'advisory' and l.pid = pg_backend_pid() and l.objsubid = 2
+                    and l.classid = (hashtext('callsign_profile_cache')::bigint & 4294967295)::oid
+                    and l.objid = (hashtext('KK4PWJ')::bigint & 4294967295)::oid),
+  'a miss holds the per-call build lock until commit, so concurrent misses build once');
 select ingest_rbn_spots(jsonb_build_array(pg_temp.rbn(pg_temp.at(0, '00:00:02'), 'KK4PWJ', 'DL1ABC', 14036, '20m', 9)));
 select is(cached_callsign_profile('KK4PWJ/P') -> 'heard' ->> 'spots', '9', 'a fresh cache entry is served');
 update callsign_profile_cache set generated_at = now() - interval '16 minutes';
