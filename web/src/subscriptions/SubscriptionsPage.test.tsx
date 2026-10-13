@@ -3,7 +3,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import { renderPage } from "../test/render";
 import {
   deleteSubscription, previewSubscription, saveSubscription, setSubscriptionEnabled,
-  type Destination, type RecentSpot, type SubscriptionWithLinks,
+  type Destination, type Preview, type RecentSpot, type SubscriptionWithLinks,
 } from "../lib/api";
 import { SubscriptionsPage } from "./SubscriptionsPage";
 
@@ -154,9 +154,16 @@ describe("SubscriptionsPage", () => {
 describe("SubscriptionDialog preview", () => {
   it("shows the database preview for the current filter", async () => {
     const { user } = render([sub()]);
+    await waitFor(() => expect(previewSubscription).toHaveBeenCalled());
+    // Hold the dialog's preview until "Checking" has been seen: on a slow runner finding the dialog
+    // can outlast the 300 ms debounce, and an instant answer would replace the text first.
+    let answer: ((preview: Preview) => void) | undefined;
+    vi.mocked(previewSubscription).mockImplementation(() => new Promise((resolve) => { answer = resolve; }));
     await user.click(screen.getByRole("button", { name: "Edit" }));
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByText("Checking recent spots…")).toBeInTheDocument();
+    await waitFor(() => expect(answer).toBeDefined());
+    answer?.({ count: 3, spots: [SPOT] });
     expect(await within(dialog).findByText("3 of the last 200 spots would have matched.")).toBeInTheDocument();
     expect(within(dialog).getByText("W1AW on 14062.0 kHz CW")).toBeInTheDocument();
     expect(within(dialog).getByText(/US-0817 · POTA ·/)).toBeInTheDocument();

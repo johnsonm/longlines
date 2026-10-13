@@ -619,10 +619,13 @@ How they work is in `docs/ARCHITECTURE.md` ("Callsign profiles").
 
 ## First deploy (hosted)
 
-`20261012000060_callsign_profile` builds the `rbn_spots` base-callsign index one partition at a
-time, oldest first, then creates the parent index and attaches them. A partition is locked against
-inserts from its build until the migration commits, so only the partitions built last, today's and
-the empty future ones, ever hold up RBN inserts. Locally, at hosted volume, each full day took about
+`20261012000060_callsign_profile` (applied 2026-10-12) builds the `rbn_spots` base-callsign index
+one partition at a time, oldest first, then creates the parent index `ON ONLY` and attaches them.
+Each partition is locked against inserts from its build until the migration commits, so a late row
+for an older day (the relay buffers about 50 minutes, so just after 00:00 UTC it still sends
+yesterday's) waits until the end. The `ON ONLY` create takes a SHARE lock on the parent, which holds
+up every RBN insert from then until commit; the attach loop after it only changes catalogs, so that
+window is short. Today's partition, built last, is the long wait. Locally, at hosted volume, each full day took about
 16 s, and an insert probe into today's partition every second never waited more than 19 ms while the
 older days built. Today's partition takes about 16 s at the end of a UTC day and a few seconds in the
 early hours, under the API's 8 s timeout that `ingest-rbn` pushes run into; a push that does time out
@@ -643,6 +646,12 @@ Then check, in the SQL editor:
 select indisvalid from pg_index where indexrelid = 'rbn_spots_base_callsign_time_idx'::regclass;  -- t
 select cached_callsign_profile('KK4PWJ') -> 'heard' -> 'spots';
 ```
+
+The migration takes no lock on the parent during the per-partition builds, so `maintain_rbn_spots`
+creating or dropping a partition meanwhile would have made the attach loop fail (a partition with no
+index) or deadlock with it. Avoid 03:35 UTC. A later migration that builds an index this way should
+start with `lock table rbn_spots in share update exclusive mode`, which blocks partition creation,
+attachment and drops but not inserts.
 
 If a push timed out, the relay logs `push failed` and retries. A gap in RBN rows that outlasts the
 relay's buffer shows in `select date_trunc('minute', spot_time), count(*) from rbn_spots
@@ -668,10 +677,15 @@ where window_start = date_trunc('minute', now()) and lookups > 30;
 ## Which client IP the rate limit sees
 
 The function keys on the header named by the `LONGLINES_CLIENT_IP_HEADER` function secret
-(`cf-connecting-ip` when unset), which the edge proxy sets and a client cannot. Without it, it uses the
-last `x-forwarded-for` entry, which the nearest proxy appended; that is safe but may be a proxy's
-address shared by many clients. It never uses the first entry, which the client writes. After the
-first deploy, check that a client cannot reset its own limit:
+(`cf-connecting-ip` when unset), which the edge proxy sets and a client cannot. If that header holds a
+list, it takes the last entry. Without a usable address there, it uses the last `x-forwarded-for`
+entry, which the nearest proxy appended. A client cannot spoof that, but it may be the proxy's own
+address, so every visitor would share one limit of 30 lookups a minute. The first request that falls
+back in each isolate logs `callsign-profile: no client address in <header>`. It never uses the first
+`x-forwarded-for` entry, which the client writes. IPv6 clients count by their /64.
+
+After a deploy, check both ways it can go wrong. First, a client must not be able to reset its own
+limit:
 
 ```sh
 for i in $(seq 1 31); do
@@ -681,7 +695,9 @@ done   # the 31st must be 429
 ```
 
 If it is not 429, the header is passed through from the client: find the one the proxy sets (log
-`req.headers` once) and `supabase secrets set LONGLINES_CLIENT_IP_HEADER=<name>`. The `prune-callsign-lookups` job (:15 hourly)
+`req.headers` once) and `supabase secrets set LONGLINES_CLIENT_IP_HEADER=<name>`. Second, clients
+must not share one limit: the function logs must not contain `no client address in`, and after
+that loop a lookup from another network (a phone off Wi-Fi) must still get 200. The `prune-callsign-lookups` job (:15 hourly)
 deletes finished windows and cache entries older than 15 minutes.
 
 ## Hiding a profile

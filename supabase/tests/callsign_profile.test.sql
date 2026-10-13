@@ -1,8 +1,9 @@
--- pgTAP: callsign_profile() and its cache, rate limit and prune (20261012000060).
+-- pgTAP: callsign_profile() and its cache, rate limit and prune (20261012000060, recentSpots order
+-- 20261012000100).
 -- Pins the payload shape: CallsignProfile in web/src/profile/types.ts.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(71);
+select plan(73);
 
 create or replace function pg_temp.d(p_offset int) returns date language sql as $$
   select (now() at time zone 'utc')::date + p_offset;
@@ -274,6 +275,17 @@ select ok(exists (select 1 from pg_inherits i join pg_index x on x.indexrelid = 
                   where i.inhparent = 'rbn_spots_base_callsign_time_idx'::regclass
                     and x.indrelid = to_regclass('partitions.rbn_spots_' || to_char(pg_temp.d(30), 'YYYYMMDD'))),
   'a partition created later gets the index');
+
+-- recentSpots ties: 30 skimmers hear N0TIE in the same second, stored in reverse spotter order. The
+-- newest 25 are always the first 25 by spotter, whatever order the rows come back in.
+select ingest_rbn_spots((select jsonb_agg(pg_temp.rbn(pg_temp.at(-1, '12:00:00'), 'N0TIE', format('SK%s', lpad(i::text, 2, '0')),
+                                                      14030, '20m', 10) order by i desc)
+                         from generate_series(1, 30) as i));
+select is((select array_agg(e ->> 'spotter' order by o) from jsonb_array_elements(callsign_profile('N0TIE') #> '{heard,recentSpots}')
+             with ordinality as t(e, o)),
+  (select array_agg(format('SK%s', lpad(i::text, 2, '0')) order by i) from generate_series(1, 25) as i),
+  'recentSpots breaks ties at the cutoff by every column it shows, so the same rows give the same 25');
+select is(jsonb_array_length(callsign_profile('N0TIE') #> '{heard,recentSpots}'), 25, 'and still keeps 25');
 
 -- Access.
 select ok(not exists (

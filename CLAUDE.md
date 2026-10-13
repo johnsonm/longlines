@@ -182,7 +182,10 @@ relay on pushes to main; nothing else deploys automatically.
   `verify_jwt = false` and check `x-relay-secret` themselves.
 - The relay forwards every spot line. `ingest-rbn` stores all of them in `rbn_spots` (partitioned by
   UTC day; partitions live in the `partitions` schema and come from `create_rbn_spots_partition`,
-  never `create table ... partition of`) and runs `runIngest` only over watched callsigns. `spot_matches` lets an RBN spot match only
+  never `create table ... partition of`) and runs `runIngest` only over watched callsigns. A
+  migration that indexes `rbn_spots` partition by partition first takes
+  `lock table rbn_spots in share update exclusive mode`, so `maintain_rbn_spots` cannot add or drop a
+  partition mid-build; that lock does not block inserts. `spot_matches` lets an RBN spot match only
   subscriptions that name callsigns; keep that guard if the predicate changes.
 - Be polite: exactly one machine (`fly scale count 1`), reconnect backoff never below 30 s, no
   tests that connect to RBN. Tests use the captured fixture or a local TCP server.
@@ -232,8 +235,9 @@ relay on pushes to main; nothing else deploys automatically.
 - Live reads of `spot_stream` filter on `base_callsign` and `spot_time`, so `raw_spots` and the
   `rbn_spots` expression index both serve them. Group by spotter before calling `base_callsign()`
   or `cty_lookup()` on spotters.
-- The rate limit keys on a header the edge proxy sets (`LONGLINES_CLIENT_IP_HEADER`), never on the
-  first `x-forwarded-for` entry, and stores only an HMAC of the IP.
+- The rate limit keys on a header the edge proxy sets (`LONGLINES_CLIENT_IP_HEADER`, its last
+  entry), never on the first `x-forwarded-for` entry. It accepts only a parsed IP, keys IPv6 by /64,
+  and stores only an HMAC (`_shared/hmac.ts`, key imported once per isolate).
 - A `verify_jwt = false` function never imports `isServiceRole`, which trusts an unverified JWT
   claim; `function_config.test.ts` walks every such function's imports and fails if one does.
 - Every callsign the web shows links to `/call/<base>`, with the base call coming from SQL:
