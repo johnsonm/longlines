@@ -216,9 +216,8 @@ relay on pushes to main; nothing else deploys automatically.
 - The rollups run in their own hourly cron job (`rollup-callsign-days`), never inside
   `maintain_rbn_spots`, so a slow rollup cannot hold partition locks or undo retention.
 - Group a day by `callsign`/`spotter` before calling `base_callsign()` or `cty_lookup()`; the
-  RBN arm computes base calls per row. Profiles use `mode_bucket(mode, mode_family)`;
-  `refresh_stats_snapshot` still has its own copy of the same CASE until callsign profiles PR 7
-  moves it over, so change both together until then.
+  RBN arm computes base calls per row. Profiles and the Stats mode chart both use
+  `mode_bucket(mode, mode_family)`; never write the CASE out again.
 - `base_callsign()` output is now permanent in the rollups: changing it splits history. If it
   must change, the same migration rewrites `raw_spots.base_callsign`, runs
   `reindex index rbn_spots_base_callsign_time_idx` (Postgres never rebuilds an expression index when
@@ -237,6 +236,10 @@ relay on pushes to main; nothing else deploys automatically.
   first `x-forwarded-for` entry, and stores only an HMAC of the IP.
 - A `verify_jwt = false` function never imports `isServiceRole`, which trusts an unverified JWT
   claim; `function_config.test.ts` walks every such function's imports and fails if one does.
+- Every callsign the web shows links to `/call/<base>`, with the base call coming from SQL:
+  `topActivators[].base` in the Stats payload, `rbn.topStations` ranked by base call, the
+  profile's own `callsign`. The web never works out a base call. A link built from a call as typed
+  (`lookupPath`) works only because the profile page swaps it for the base the profile returns.
 
 ## Conventions
 
