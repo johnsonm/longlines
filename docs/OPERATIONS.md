@@ -689,12 +689,14 @@ limit:
 
 ```sh
 for i in $(seq 1 31); do
-  curl -s -o /dev/null -w "%{http_code} " -H "cf-connecting-ip: 192.0.2.$i" -H "x-forwarded-for: 192.0.2.$i" \
+  curl -s -o /dev/null -w "%{http_code} " -H "x-forwarded-for: 192.0.2.$i" \
     "$SUPABASE_URL/functions/v1/callsign-profile?callsign=KK4PWJ"
-done   # the 31st must be 429
+done   # the 31st must be 429 (earlier if you looked something up in the same minute)
 ```
 
-If it is not 429, the header is passed through from the client: find the one the proxy sets (log
+Leave `cf-connecting-ip` out: Cloudflare, in front of the hosted project, answers 403 to any
+request that sets it, so a client cannot spoof it at all. Checked on 2026-10-13: 429 arrived on
+time. If it does not, the header is passed through from the client: find the one the proxy sets (log
 `req.headers` once) and `supabase secrets set LONGLINES_CLIENT_IP_HEADER=<name>`. Second, clients
 must not share one limit: the function logs must not contain `no client address in`, and after
 that loop a lookup from another network (a phone off Wi-Fi) must still get 200. The `prune-callsign-lookups` job (:15 hourly)
