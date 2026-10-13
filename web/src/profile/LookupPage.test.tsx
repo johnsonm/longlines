@@ -11,8 +11,8 @@ vi.mock("../stats/useStats", () => ({ useStats: vi.fn() }));
 // Only topActivators matters here.
 const PAYLOAD = {
   topActivators: [
-    { callsign: "KK4PWJ", references: 9, activations: 11, spots: 120, topBand: "20m" },
-    { callsign: "W1AW", references: 2, activations: 2, spots: 10, topBand: null },
+    { callsign: "KK4PWJ/P", base: "KK4PWJ", references: 9, activations: 11, spots: 120, topBand: "20m" },
+    { callsign: "W1AW", base: "W1AW", references: 2, activations: 2, spots: 10, topBand: null },
   ],
 } as StatsPayload;
 
@@ -48,8 +48,9 @@ describe("LookupPage", () => {
     const { user } = renderPage(<LookupPage />, { route: "/lookup" });
     expect(screen.getByText("Busy this week")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "W1AW" })).toHaveAttribute("href", "/call/W1AW");
-    await user.click(screen.getByRole("link", { name: "KK4PWJ" }));
-    expect(screen.getByTestId("location")).toHaveTextContent("/call/KK4PWJ");
+    // A chip shows the call as spotted and opens the profile of its base call.
+    await user.click(screen.getByRole("link", { name: "KK4PWJ/P" }));
+    expect(screen.getByTestId("location")).toHaveTextContent(/^\/call\/KK4PWJ$/);
   });
 
   it("leaves out Busy this week without a snapshot", () => {

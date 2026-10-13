@@ -3,7 +3,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(102);
+select plan(104);
 
 -- Start from empty tables so every count below is exact. Both are empty on a
 -- fresh CI database; locally the cron jobs may have filled them. deliveries
@@ -64,15 +64,16 @@ values
   -- RBN: a skimmer report of a watched station, in the window. Not activity, so no total, chart or table counts it.
   ('rbn', 'r1', 'r1', pg_temp.at_utc(2, 20), 'RB1N', 'W3LPL', 14035, '20m', 'cw', '12 dB 22 WPM CQ', null, null, null, null, '{}');
 -- RBN firehose (rbn_spots). Seven in-window spots from three skimmers of three stations; W3LPL hears
--- K1ABC twice on 20m at different frequencies. One spot has no band. Today and eight days ago are out.
+-- K1ABC twice on 20m at different frequencies, DK8NE hears it only as K1ABC/P. One spot has no band.
+-- Today and eight days ago are out.
 insert into rbn_spots (spot_time, received_at, spotter, callsign, frequency_khz, band, mode, mode_family, snr, speed, speed_unit, spot_type, line)
 select t, t, sp, cs, f, b, 'cw', 'cw', 10, 25, 'WPM', 'CQ', 'line'
 from (values
   (pg_temp.at_utc(2, 20),  'W3LPL', 'K1ABC', 14025.0, '20m'),
   (pg_temp.at_utc(2, 20),  'W3LPL', 'K1ABC', 14030.0, '20m'),
   (pg_temp.at_utc(2, 20),  'W3LPL', 'N4XX',  7025.0,  '40m'),
-  (pg_temp.at_utc(2, 20),  'DK8NE', 'K1ABC', 14025.0, '20m'),
-  (pg_temp.at_utc(3, 5),   'DK8NE', 'K1ABC', 999.0,   null),
+  (pg_temp.at_utc(2, 20),  'DK8NE', 'K1ABC/P', 14025.0, '20m'),
+  (pg_temp.at_utc(3, 5),   'DK8NE', 'K1ABC/P', 999.0,   null),
   (pg_temp.at_utc(4, 3),   'W3LPL', 'N4XX',  1825.0,  '160m'),
   (pg_temp.at_utc(6, 23),  'VE7CC', 'JA1XX', 21025.0, '15m'),
   (pg_temp.at_utc(7, 1),   'VE7CC', 'XX1OUT', 14025.0, '20m'),
@@ -164,10 +165,11 @@ select is((select sum((e ->> 'percent')::int) from jsonb_array_elements(pg_temp.
 
 -- topActivators: references desc, then spots desc, then callsign.
 select is(jsonb_array_length(pg_temp.snap() -> 'topActivators'), 6, 'one entry per activator when there are fewer than 8');
-select is(pg_temp.snap() -> 'topActivators' -> 0, '{"callsign":"W1AW","references":3,"activations":3,"spots":4,"topBand":"20m"}'::jsonb,
+select is(pg_temp.snap() -> 'topActivators' -> 0, '{"callsign":"W1AW","base":"W1AW","references":3,"activations":3,"spots":4,"topBand":"20m"}'::jsonb,
           'most references first; topBand is the band with the most spots (20m x3 over 70cm x1)');
 select is((pg_temp.snap() #>> '{topActivators,4,activations}')::int, 2, 'N4DXX has two activations at one reference');
 select is(pg_temp.snap() #>> '{topActivators,2,callsign}', 'SQ1GPR/P', 'tie on references is broken by spots desc (4 spots ranks above 3)');
+select is(pg_temp.snap() #>> '{topActivators,2,base}', 'SQ1GPR', 'an activator carries its base call, the profile the page links to');
 select is(pg_temp.snap() #>> '{topActivators,3,callsign}', 'KK4PWJ', 'KK4PWJ follows with one reference and three spots');
 select is(pg_temp.snap() #>> '{topActivators,3,topBand}', '20m', 'topBand picks 20m (2) over 40m (1) for KK4PWJ');
 select is(pg_temp.snap() #> '{topActivators,5,topBand}', 'null'::jsonb, 'an activator with no band on any spot has a JSON null topBand');
@@ -206,10 +208,13 @@ select is(pg_temp.snap() #> '{rbn,bands,0}', '{"band":"160m","spots":1}'::jsonb,
 select is(pg_temp.snap() #> '{rbn,bands,5}', '{"band":"20m","spots":3}'::jsonb, 'rbn 20m count');
 select is((select sum((e ->> 'spots')::int) from jsonb_array_elements(pg_temp.snap() #> '{rbn,bands}') e), 6::bigint,
           'the null-band spot is left out of rbn.bands');
--- K1ABC: four spots by two skimmers over two days; N4XX: two spots by one skimmer on two bands.
+-- K1ABC by base call: four spots by two skimmers over two days, two of them as K1ABC/P; N4XX: two
+-- spots by one skimmer on two bands.
 select is(pg_temp.snap() #> '{rbn,topStations}',
           '[{"callsign":"K1ABC","spots":4,"skimmers":2},{"callsign":"N4XX","spots":2,"skimmers":1},{"callsign":"JA1XX","spots":1,"skimmers":1}]'::jsonb,
-          'rbn.topStations by spots, with distinct skimmers over the week');
+          'rbn.topStations by base call and spots, with distinct skimmers of any form of the call over the week');
+select is((select count(*) from rbn_daily_stations where callsign like 'K1ABC%'), 3::bigint,
+          'the daily rollup keeps callsigns as spotted (K1ABC on one day, K1ABC/P on two)');
 
 -- The rollup: every window day once, old rollups gone.
 select is((select count(*) from rbn_rollup_days), 7::bigint, 'each window day is rolled up');

@@ -24,8 +24,8 @@ export const PAYLOAD: StatsPayload = {
   sotaAssociations: [{ code: "W4C", spots: 120 }, { code: "W7A", spots: 90 }],
   bands: [{ band: "40m", pota: 3000, sota: 500 }, { band: "20m", pota: 5000, sota: 900 }],
   modes: [{ label: "CW", percent: 40 }, { label: "SSB", percent: 35 }, { label: "FT8/FT4", percent: 25 }],
-  topActivators: [{ callsign: "KK4PWJ", references: 9, activations: 11, spots: 120, topBand: "20m" },
-    { callsign: "W1AW", references: 2, activations: 2, spots: 10, topBand: null }],
+  topActivators: [{ callsign: "KK4PWJ/P", base: "KK4PWJ", references: 9, activations: 11, spots: 120, topBand: "20m" },
+    { callsign: "W1AW", base: "W1AW", references: 2, activations: 2, spots: 10, topBand: null }],
   topReferences: [
     { reference: "US-0817", name: "Pisgah National Forest", program: "POTA", activations: 14, spots: 80 },
     { reference: "W4C/CM-001", name: null, program: "SOTA", activations: 6, spots: 40 },
@@ -96,6 +96,25 @@ describe("StatsPage", () => {
     expect(screen.getByText("RBN bands")).toBeInTheDocument();
     expect(screen.getByText("Most heard on RBN")).toBeInTheDocument();
     expect(screen.getByText("K3LR")).toBeInTheDocument();
+  });
+
+  it("links every callsign to its profile by base call", async () => {
+    vi.mocked(useStats).mockReturnValue({ stats: STATS, loading: false, error: null });
+    const { user } = renderPage(<StatsPage />);
+    expect(screen.getByRole("link", { name: "W1AW" })).toHaveAttribute("href", "/call/W1AW");
+    expect(screen.getByRole("link", { name: "K3LR" })).toHaveAttribute("href", "/call/K3LR");
+    expect(screen.getByRole("link", { name: "DL1ABC" })).toHaveAttribute("href", "/call/DL1ABC");
+    await user.click(screen.getByRole("link", { name: "KK4PWJ/P" }));
+    expect(screen.getByTestId("location")).toHaveTextContent("/call/KK4PWJ");
+  });
+
+  it("links an activator by callsign in a snapshot written before base calls existed", () => {
+    // The profile page swaps KK4PWJ/P for its base call.
+    const topActivators = PAYLOAD.topActivators.map(({ base: _base, ...a }) => a);
+    const stats = { ...STATS, payload: { ...PAYLOAD, topActivators } } as unknown as LatestStats;
+    vi.mocked(useStats).mockReturnValue({ stats, loading: false, error: null });
+    renderPage(<StatsPage />);
+    expect(screen.getByRole("link", { name: "KK4PWJ/P" })).toHaveAttribute("href", "/call/KK4PWJ/P");
   });
 
   it("renders on phones", () => {
