@@ -353,7 +353,8 @@ Deno.test("the relay loads licenses through load-licenses with its secret", asyn
   );
   try {
     const deadline = Date.now() + 5_000;
-    while (!requests.some((r) => r.body.action === "finish") && Date.now() < deadline) {
+    // The log follows the finish response, so waiting on the request alone races it.
+    while (!logs.some((m) => m.startsWith("[licenses] load finished")) && Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 10));
     }
     assertEquals(requests.map((r) => r.body.action), [
