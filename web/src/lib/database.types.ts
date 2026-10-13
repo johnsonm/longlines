@@ -49,6 +49,38 @@ export type Database = {
                   Relationships: [
                     
                   ]
+                },"callsign_group_members": {
+                  Row: {
+                    "callsign": string,"group_id": string
+                  }
+                  Insert: {
+                    "callsign": string,"group_id": string
+                  }
+                  Update: {
+                    "callsign"?: string,"group_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "callsign_group_members_group_id_fkey"
+      columns: ["group_id"]
+isOneToOne: false
+      referencedRelation: "callsign_groups"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"callsign_groups": {
+                  Row: {
+                    "created_at": string,"id": string,"name": string,"updated_at": string,"user_id": string
+                  }
+                  Insert: {
+                    "created_at"?: string,"id"?: string,"name": string,"updated_at"?: string,"user_id": string
+                  }
+                  Update: {
+                    "created_at"?: string,"id"?: string,"name"?: string,"updated_at"?: string,"user_id"?: string
+                  }
+                  Relationships: [
+                    
+                  ]
                 },"callsign_licenses": {
                   Row: {
                     "authority": string,"callsign": string,"country": string | null,"expires_on": string | null,"granted_on": string | null,"grid": string | null,"loaded_at": string,"name": string | null,"operator_class": string | null,"state": string | null,"status": string | null
@@ -515,13 +547,13 @@ isOneToOne: false
                   ]
                 },"subscriptions": {
                   Row: {
-                    "bands": (string)[],"callsigns": (string)[],"created_at": string,"enabled": boolean,"id": string,"modes": (string)[],"name": string,"quiet_minutes": number,"reference": string,"sources": (string)[],"updated_at": string,"user_id": string
+                    "bands": (string)[],"callsigns": (string)[],"created_at": string,"enabled": boolean,"group_ids": (string)[],"id": string,"modes": (string)[],"name": string,"quiet_minutes": number,"reference": string,"sources": (string)[],"updated_at": string,"user_id": string
                   }
                   Insert: {
-                    "bands"?: (string)[],"callsigns"?: (string)[],"created_at"?: string,"enabled"?: boolean,"id"?: string,"modes"?: (string)[],"name": string,"quiet_minutes"?: number,"reference"?: string,"sources"?: (string)[],"updated_at"?: string,"user_id": string
+                    "bands"?: (string)[],"callsigns"?: (string)[],"created_at"?: string,"enabled"?: boolean,"group_ids"?: (string)[],"id"?: string,"modes"?: (string)[],"name": string,"quiet_minutes"?: number,"reference"?: string,"sources"?: (string)[],"updated_at"?: string,"user_id": string
                   }
                   Update: {
-                    "bands"?: (string)[],"callsigns"?: (string)[],"created_at"?: string,"enabled"?: boolean,"id"?: string,"modes"?: (string)[],"name"?: string,"quiet_minutes"?: number,"reference"?: string,"sources"?: (string)[],"updated_at"?: string,"user_id"?: string
+                    "bands"?: (string)[],"callsigns"?: (string)[],"created_at"?: string,"enabled"?: boolean,"group_ids"?: (string)[],"id"?: string,"modes"?: (string)[],"name"?: string,"quiet_minutes"?: number,"reference"?: string,"sources"?: (string)[],"updated_at"?: string,"user_id"?: string
                   }
                   Relationships: [
                     
@@ -572,7 +604,10 @@ isOneToOne: false
                 }
           }
           Functions: {
-            "apply_license_loads":
+            "add_group_callsigns":
+{ Args: { "p_calls": (string)[],"p_id": string }; Returns: Json
+                           },
+"apply_license_loads":
 { Args: Record<PropertyKey, never>; Returns: undefined
                            },
 "archive_ndjson":
@@ -616,6 +651,9 @@ isOneToOne: false
 "compact_callsign_rollups":
 { Args: Record<PropertyKey, never>; Returns: undefined
                            },
+"create_callsign_group":
+{ Args: { "p_name": string }; Returns: string
+                           },
 "create_destination":
 { Args: { "p_name": string,"p_type": string,"p_url": string }; Returns: {
               "created_at": string,"health": string,"id": string,"name": string,"signing_secret": string,"type": string,"url_display": string
@@ -631,6 +669,9 @@ isOneToOne: false
                            },
 "delay_deliveries":
 { Args: { "p_delay_seconds": number,"p_msg_ids": (number)[] }; Returns: undefined
+                           },
+"delete_callsign_group":
+{ Args: { "p_id": string }; Returns: undefined
                            },
 "delete_subscription":
 { Args: { "p_id": string }; Returns: undefined
@@ -681,6 +722,11 @@ isOneToOne: false
                            },
 "last_rollup_day":
 { Args: Record<PropertyKey, never>; Returns: string
+                           },
+"list_callsign_groups":
+{ Args: Record<PropertyKey, never>; Returns: {
+              "id": string,"member_count": number,"name": string,"subscription_count": number,"updated_at": string
+            }[]
                            },
 "list_ingest_health":
 { Args: Record<PropertyKey, never>; Returns: {
@@ -781,6 +827,12 @@ isOneToOne: false
 "refresh_stats_snapshot":
 { Args: Record<PropertyKey, never>; Returns: undefined
                            },
+"remove_group_callsigns":
+{ Args: { "p_calls": (string)[],"p_id": string }; Returns: number
+                           },
+"rename_callsign_group":
+{ Args: { "p_id": string,"p_name": string }; Returns: undefined
+                           },
 "retire_rbn_day":
 { Args: { "p_day": string }; Returns: undefined
                            },
@@ -804,6 +856,9 @@ isOneToOne: false
                            },
 "spot_matches":
 { Args: { "spot": Database["public"]['Tables']["raw_spots"]['Row'],"sub": Database["public"]['Tables']["subscriptions"]['Row'] }; Returns: boolean
+                           },
+"stats_payload_without_hidden":
+{ Args: { "p_payload": Json }; Returns: Json
                            },
 "validate_destination_url":
 { Args: { "p_type": string,"p_url": string }; Returns: undefined
