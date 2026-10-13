@@ -34,7 +34,26 @@ Deno.test("every function has a deno.json mapping supabase-js like the root one"
 // verify_jwt = false gets no such check, so a forged token would pass.
 
 const sharedAuth = new URL("../auth.ts", import.meta.url).href;
-const importPattern = /(?:import|export)\s+(?:type\s+)?([\s\S]*?)\s*from\s+["']([^"']+)["']/g;
+// Static imports and re-exports with a clause, side-effect imports (`import "./x.ts"`, no clause) and
+// dynamic imports. A clause cannot hold a quote or a semicolon, so a side-effect import is never
+// swallowed into the next statement's clause.
+const importPattern =
+  /\b(?:import|export)\s+(?:type\s+)?(?:([^;"'`]*?)\s*\bfrom\s*)?["']([^"']+)["']|\bimport\s*\(\s*["']([^"']+)["']\s*\)/g;
+
+interface ModuleImport {
+  specifier: string;
+  /** The import or export clause; "" for a side-effect import, "*" for a dynamic one (the whole module). */
+  clause: string;
+}
+
+/** Every import, re-export and dynamic import in a module's source. */
+function importsOf(source: string): ModuleImport[] {
+  return [...source.matchAll(importPattern)].map(([, clause, specifier, dynamic]) =>
+    dynamic
+      ? { specifier: dynamic, clause: "*" }
+      : { specifier: specifier ?? "", clause: clause ?? "" }
+  );
+}
 
 /**
  * True when an import or export clause from auth.ts can reach isServiceRole:
@@ -68,10 +87,10 @@ function modulesUsingIsServiceRole(fn: string): string[] {
     if (seen.has(href)) continue;
     seen.add(href);
     const source = Deno.readTextFileSync(new URL(href));
-    for (const [, clause, specifier] of source.matchAll(importPattern)) {
-      if (!specifier?.startsWith(".")) continue;
+    for (const { specifier, clause } of importsOf(source)) {
+      if (!specifier.startsWith(".")) continue;
       const target = new URL(specifier, href).href;
-      if (target === sharedAuth && exposesIsServiceRole(clause ?? "")) found.push(href);
+      if (target === sharedAuth && exposesIsServiceRole(clause)) found.push(href);
       queue.push(target);
     }
   }
@@ -92,6 +111,30 @@ Deno.test("the isServiceRole check recognizes every way to reach it", () => {
   for (const clause of ["{ bearerToken }", "{ secretsMatch, userFromRequest }"]) {
     assertEquals(exposesIsServiceRole(clause), false, clause);
   }
+});
+
+Deno.test("the import walker sees side-effect, re-export and dynamic imports", () => {
+  const source = [
+    'import "./setup.ts";',
+    'import { a, b } from "./a.ts";',
+    'import type { T } from "./types.ts";',
+    'import * as auth from "../auth.ts";',
+    'export { c } from "./c.ts";',
+    'export * from "./barrel.ts";',
+    'const lazy = await import("./lazy.ts");',
+    'import {\n  d,\n} from "./d.ts";',
+    'export const x = "not an import";',
+  ].join("\n");
+  assertEquals(importsOf(source), [
+    { specifier: "./setup.ts", clause: "" },
+    { specifier: "./a.ts", clause: "{ a, b }" },
+    { specifier: "./types.ts", clause: "{ T }" },
+    { specifier: "../auth.ts", clause: "* as auth" },
+    { specifier: "./c.ts", clause: "{ c }" },
+    { specifier: "./barrel.ts", clause: "*" },
+    { specifier: "./lazy.ts", clause: "*" },
+    { specifier: "./d.ts", clause: "{\n  d,\n}" },
+  ]);
 });
 
 Deno.test("the isServiceRole check finds the functions that use it", () => {

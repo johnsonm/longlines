@@ -659,14 +659,17 @@ A profile is everything Long Lines has heard from one station, for a public page
 - **Not heard and hidden.** `heard` is null for a station never spotted that never spotted
   anyone. A call in `hidden_callsigns` (operator-managed, base calls) gets that shape with no
   license, and skips the cache, so hiding takes effect at once.
-- **The function.** `callsign-profile` (`_shared/profile.ts`) is public: `verify_jwt = false`,
+- **The function.** `callsign-profile` (`_shared/handlers/callsign_profile.ts`) is public: `verify_jwt = false`,
   no caller check, so it must never import `isServiceRole` (a test fails if any
   `verify_jwt = false` function reaches it). It returns 400 for input that cannot be a callsign
   (TypeScript checks the shape; SQL returns null when the input has no base call, like `P/1`),
   counts each lookup against a one-minute window per client and returns 429 with "Too many
-  lookups. Try again in a minute." past 30. The client is the IP from a header the edge proxy sets
-  (`LONGLINES_CLIENT_IP_HEADER`, `cf-connecting-ip` by default), else the last `x-forwarded-for`
-  entry, never the first, which the client writes. It is stored as an HMAC keyed with the
-  service-role key, so the table cannot be reversed by hashing every IPv4 address. Profiles are
+  lookups. Try again in a minute." past 30. The client is the address from a header the edge proxy
+  sets (`LONGLINES_CLIENT_IP_HEADER`, `cf-connecting-ip` by default; the last entry if it holds a
+  list), else the last `x-forwarded-for` entry, never the first, which the client writes. A value
+  that is not an IP address counts as missing, and the first fallback in an isolate logs a warning.
+  An IPv6 client counts by its /64, since one host usually holds the whole prefix. It is stored as an
+  HMAC keyed with the service-role key (imported once per isolate), so the table cannot be reversed
+  by hashing every IPv4 address. Profiles are
   cached in the database for 15 minutes and sent with `Cache-Control: public, max-age=300`.
   `prune_callsign_lookups()` clears finished windows and expired entries hourly at :15.

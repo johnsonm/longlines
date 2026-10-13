@@ -1,20 +1,21 @@
-import { assertEquals, assertMatch } from "@std/assert";
+import { assertEquals } from "@std/assert";
 import {
-  clientIp,
-  clientKey,
-  DEFAULT_CLIENT_IP_HEADER,
+  clientSubject,
   handleProfile,
   INVALID_CALLSIGN,
   LOOKUP_UNAVAILABLE,
   MAX_LOOKUPS_PER_MINUTE,
   parseCallsign,
   PROFILE_CACHE_CONTROL,
+  rateLimitSubject,
   TOO_MANY_LOOKUPS,
-} from "../profile.ts";
+} from "../handlers/callsign_profile.ts";
+import { hmacKey, hmacSha256Hex } from "../hmac.ts";
 import { fakeSupabase, type FakeSupabaseOptions } from "./fake_supabase.ts";
 
 const PROFILE = { callsign: "KK4PWJ", heard: null, license: null };
-const SECRET = "test-secret";
+const KEY = await hmacKey("test-secret");
+const clientKey = (subject: string) => hmacSha256Hex(KEY, subject);
 
 function get(query: string, headers: Record<string, string> = {}): Request {
   return new Request(`http://x/callsign-profile${query}`, { headers });
@@ -23,7 +24,8 @@ function get(query: string, headers: Record<string, string> = {}): Request {
 async function run(
   req: Request,
   options: FakeSupabaseOptions = {},
-  keySecret: string | undefined = SECRET,
+  key: CryptoKey | undefined = KEY,
+  clientIpHeader: string | undefined = undefined,
 ) {
   const fake = fakeSupabase({
     rpc: {
@@ -34,8 +36,8 @@ async function run(
   });
   const res = await handleProfile(req, {
     db: () => fake.client,
-    clientIpHeader: DEFAULT_CLIENT_IP_HEADER,
-    keySecret,
+    clientIpHeader,
+    key,
   });
   return { res, body: res.status === 204 ? null : await res.json(), calls: fake.calls };
 }
@@ -68,28 +70,67 @@ Deno.test("parseCallsign rejects what cannot be a callsign", () => {
   }
 });
 
-Deno.test("clientIp prefers the trusted header, then the address the nearest proxy appended", () => {
+Deno.test("clientSubject prefers the trusted header, then the address the nearest proxy appended", () => {
   const both = new Request("http://x/", {
     headers: { "cf-connecting-ip": "203.0.113.7", "x-forwarded-for": "198.51.100.1, 10.0.0.1" },
   });
-  assertEquals(clientIp(both, "cf-connecting-ip"), "203.0.113.7");
-  assertEquals(clientIp(both, "x-real-ip"), "10.0.0.1");
+  assertEquals(clientSubject(both, "cf-connecting-ip"), { subject: "203.0.113.7", trusted: true });
+  assertEquals(clientSubject(both, "x-real-ip"), { subject: "10.0.0.1", trusted: false });
   // The first entry is whatever the client sent, so it is never the key.
   const spoofed = new Request("http://x/", {
     headers: { "x-forwarded-for": " 1.2.3.4 , 198.51.100.1 " },
   });
-  assertEquals(clientIp(spoofed, "cf-connecting-ip"), "198.51.100.1");
-  assertEquals(clientIp(new Request("http://x/"), "cf-connecting-ip"), "unknown");
+  assertEquals(clientSubject(spoofed, "cf-connecting-ip").subject, "198.51.100.1");
+  // A list-valued trusted header gives its last entry, never the client-written first one.
+  assertEquals(clientSubject(spoofed, "x-forwarded-for"), {
+    subject: "198.51.100.1",
+    trusted: true,
+  });
+  assertEquals(clientSubject(new Request("http://x/"), "cf-connecting-ip"), {
+    subject: "unknown",
+    trusted: false,
+  });
 });
 
-Deno.test("clientKey is a keyed HMAC, never the address or its plain hash", async () => {
-  const key = await clientKey("198.51.100.1", SECRET);
-  assertMatch(key, /^[0-9a-f]{64}$/);
-  assertEquals(key, await clientKey("198.51.100.1", SECRET));
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("198.51.100.1"));
-  const plain = Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
-  assertEquals(key === plain, false);
-  assertEquals(key === await clientKey("198.51.100.1", "other-secret"), false);
+Deno.test("clientSubject ignores a trusted header that is not an address", () => {
+  const junk = new Request("http://x/", {
+    headers: { "cf-connecting-ip": "not-an-ip", "x-forwarded-for": "198.51.100.1" },
+  });
+  assertEquals(clientSubject(junk, "cf-connecting-ip"), {
+    subject: "198.51.100.1",
+    trusted: false,
+  });
+  const nothing = new Request("http://x/", { headers: { "x-forwarded-for": "garbage" } });
+  assertEquals(clientSubject(nothing, "cf-connecting-ip").subject, "unknown");
+});
+
+Deno.test("rateLimitSubject keys IPv4 by address and IPv6 by /64", () => {
+  assertEquals(rateLimitSubject(" 198.51.100.1 "), "198.51.100.1");
+  assertEquals(rateLimitSubject("198.51.100.1:443"), "198.51.100.1");
+  assertEquals(rateLimitSubject("2001:db8:aa:bb:1:2:3:4"), "2001:db8:aa:bb::/64");
+  // Every address in one /64 is one client.
+  assertEquals(rateLimitSubject("2001:DB8:AA:BB::99"), "2001:db8:aa:bb::/64");
+  assertEquals(rateLimitSubject("[2001:db8::1]:443"), "2001:db8:0:0::/64");
+  assertEquals(rateLimitSubject("fe80::1%eth0"), "fe80:0:0:0::/64");
+  assertEquals(rateLimitSubject("::1"), "0:0:0:0::/64");
+  assertEquals(rateLimitSubject("::ffff:198.51.100.1"), "198.51.100.1");
+  assertEquals(rateLimitSubject("64:ff9b::198.51.100.1"), "64:ff9b:0:0::/64");
+  for (
+    const raw of [
+      "",
+      "unknown",
+      "256.1.1.1",
+      "1.2.3",
+      "1.2.3.4.5",
+      "2001:db8::1::2",
+      "2001:db8:1:2:3:4:5:6:7",
+      "2001:db8:1:2:3:4:5",
+      "12345::1",
+      "::ffff:999.1.1.1",
+    ]
+  ) {
+    assertEquals(rateLimitSubject(raw), null, raw);
+  }
 });
 
 Deno.test("handleProfile answers preflight and rejects other methods", async () => {
@@ -119,7 +160,7 @@ Deno.test("handleProfile returns the cached profile with a public Cache-Control"
   assertEquals(res.headers.get("Cache-Control"), PROFILE_CACHE_CONTROL);
   assertEquals(res.headers.get("Access-Control-Allow-Origin"), "*");
   assertEquals(calls.rpc.map((c) => c.fn), ["record_profile_lookup", "cached_callsign_profile"]);
-  assertEquals(calls.rpc[0]?.args, { p_client: await clientKey("198.51.100.1", SECRET) });
+  assertEquals(calls.rpc[0]?.args, { p_client: await clientKey("198.51.100.1") });
   assertEquals(calls.rpc[1]?.args, { p_callsign: "KK4PWJ/P" });
 });
 
@@ -154,9 +195,14 @@ Deno.test("handleProfile returns 500 when the rate limit or the profile fails", 
   assertEquals(profile.body, { error: LOOKUP_UNAVAILABLE });
   assertEquals(profile.res.headers.get("Cache-Control"), null);
 
-  const unset = await run(get("?callsign=KK4PWJ"), {}, "");
-  assertEquals(unset.res.status, 500);
-  assertEquals(unset.calls.rpc, []);
+  const fake = fakeSupabase();
+  const unset = await handleProfile(get("?callsign=KK4PWJ"), {
+    db: () => fake.client,
+    clientIpHeader: undefined,
+    key: undefined,
+  });
+  assertEquals(unset.status, 500);
+  assertEquals(fake.calls.rpc, []);
 });
 
 Deno.test("handleProfile returns 400 when SQL finds no base call in the input", async () => {
@@ -167,4 +213,36 @@ Deno.test("handleProfile returns 400 when SQL finds no base call in the input", 
   assertEquals(body, { error: INVALID_CALLSIGN });
   assertEquals(res.headers.get("Cache-Control"), null);
   assertEquals(calls.rpc[1]?.args, { p_callsign: "P/1" });
+});
+
+Deno.test("handleProfile keys the limit on the configured header, warning once when it falls back", async () => {
+  const warn = console.warn;
+  const warnings: unknown[] = [];
+  console.warn = (...args: unknown[]) => warnings.push(args[0]);
+  try {
+    const custom = await run(
+      get("?callsign=KK4PWJ", { "x-real-ip": "2001:db8:aa:bb::7" }),
+      {},
+      KEY,
+      " x-real-ip ",
+    );
+    assertEquals(custom.calls.rpc[0]?.args, { p_client: await clientKey("2001:db8:aa:bb::/64") });
+    assertEquals(warnings, []);
+
+    // A header no other test uses: the warning is once per isolate and header.
+    for (let i = 0; i < 2; i++) {
+      const fallback = await run(
+        get("?callsign=KK4PWJ", { "x-forwarded-for": "198.51.100.9" }),
+        {},
+        KEY,
+        "x-once-ip",
+      );
+      assertEquals(fallback.res.status, 200);
+      assertEquals(fallback.calls.rpc[0]?.args, { p_client: await clientKey("198.51.100.9") });
+    }
+    assertEquals(warnings.length, 1);
+    assertEquals(String(warnings[0]).includes("no client address in x-once-ip"), true);
+  } finally {
+    console.warn = warn;
+  }
 });

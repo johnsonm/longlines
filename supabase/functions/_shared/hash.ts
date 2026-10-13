@@ -1,3 +1,5 @@
+import { hex } from "./hmac.ts";
+
 /**
  * sha256 hex of the given fields joined by "\n", in order.
  *
@@ -9,5 +11,5 @@
 export async function contentHash(fields: ReadonlyArray<unknown>): Promise<string> {
   const text = fields.map((v) => (v === null || v === undefined ? "" : String(v))).join("\n");
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
-  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
+  return hex(digest);
 }

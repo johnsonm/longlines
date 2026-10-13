@@ -420,7 +420,7 @@ enabled = true
 verify_jwt = false
 
 # callsign-profile serves public profiles to signed-out browsers. It checks no
-# caller identity, only a per-IP rate limit (_shared/profile.ts).
+# caller identity, only a per-IP rate limit (_shared/handlers/callsign_profile.ts).
 [functions.callsign-profile]
 verify_jwt = false
 
