@@ -767,6 +767,9 @@ isOneToOne: false
 "fcc_license_staged_counts":
 { Args: Record<PropertyKey, never>; Returns: Json
                            },
+"group_matches":
+{ Args: { "p_base": string,"p_group_ids": (string)[] }; Returns: boolean
+                           },
 "ingest_rbn_spots":
 { Args: { "p_rows": Json }; Returns: number
                            },
@@ -877,7 +880,7 @@ isOneToOne: false
                            },
 "preview_subscription":
 { Args: { "filter": Json }; Returns: {
-              "count": number,"spots": Json
+              "count": number,"spots": Json,"station_count": number
             }[]
                            },
 "prune_callsign_lookups":

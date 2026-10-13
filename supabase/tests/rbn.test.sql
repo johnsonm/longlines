@@ -3,7 +3,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(17);
+select plan(20);
 
 select pgmq.purge_queue('spot_events');
 select pgmq.purge_queue('deliveries_queue');
@@ -18,6 +18,14 @@ select save_subscription(jsonb_build_object('name','Me on RBN','sources',array['
        save_subscription(jsonb_build_object('name','W1AW anywhere','callsigns',array['W1AW'],'quiet_minutes',0,'destinations',array[(select id from d)])) as any_source_call,
        save_subscription(jsonb_build_object('name','POTA only','sources',array['pota'],'callsigns',array['N4DXX'],'quiet_minutes',0,'destinations',array[(select id from d)])) as pota_only,
        save_subscription(jsonb_build_object('name','Paused','sources',array['rbn'],'callsigns',array['K9OFF'],'enabled',false,'quiet_minutes',0,'destinations',array[(select id from d)])) as paused;
+create temp table rgrp as
+select save_callsign_group('{"name":"RBN club","callsigns":["N4GRP"]}') as club,
+       save_callsign_group('{"name":"Paused club","callsigns":["K9GRP"]}') as paused,
+       save_callsign_group('{"name":"POTA club","callsigns":["W9POT"]}') as pota;
+create temp table rsubs as
+select save_subscription(jsonb_build_object('name','Club on RBN','sources',array['rbn'],'group_ids',array[(select club from rgrp)],'quiet_minutes',0,'destinations',array[(select id from d)])) as club,
+       save_subscription(jsonb_build_object('name','Paused club','sources',array['rbn'],'group_ids',array[(select paused from rgrp)],'enabled',false,'quiet_minutes',0,'destinations',array[(select id from d)])) as paused,
+       save_subscription(jsonb_build_object('name','POTA club','sources',array['pota'],'group_ids',array[(select pota from rgrp)],'quiet_minutes',0,'destinations',array[(select id from d)])) as pota;
 
 select throws_ok(
   format($$select save_subscription(jsonb_build_object('name','Bad','sources',array['rbn'],'destinations',array[%L]))$$, (select id from d)),
@@ -36,18 +44,26 @@ select is(
   'watchlist: stations named by enabled subscriptions that accept rbn, distinct and sorted');
 select is(array(select watched_among('pota', array['KK4PWJ', 'W1AW', 'N4DXX'])), array['N4DXX', 'W1AW'],
   'the watchlist follows each subscription''s sources');
+select is(array(select watched_among('rbn', array['N4GRP/P', 'N4GRP', 'K9GRP', 'W9POT', 'N0NE'])), array['N4GRP', 'N4GRP/P'],
+  'group members are watched by base call; a paused subscription''s groups and a POTA-only one''s are not');
+select is(array(select watched_among('pota', array['W9POT', 'N4GRP'])), array['W9POT'],
+  'group members follow the subscription''s sources');
 
 select ok(has_function_privilege('service_role', 'public.watched_among(text, text[])', 'execute'), 'service_role may call watched_among');
 select ok(not has_function_privilege('anon', 'public.watched_among(text, text[])', 'execute'), 'anon may not call watched_among');
 select ok(not has_function_privilege('authenticated', 'public.watched_among(text, text[])', 'execute'), 'authenticated may not call watched_among');
 
--- Matcher: an RBN spot reaches only subscriptions that name callsigns.
+-- Matcher: an RBN spot reaches only subscriptions that name callsigns, typed or through a group.
 select is((select count(*) from ingest_spots(jsonb_build_array(
   jsonb_build_object('source','rbn','source_spot_id','r1','content_hash','h1','spot_time',now(),'callsign','KK4PWJ','spotter','W3LPL','frequency_khz',14035.1,'band','20m','mode','cw','mode_family','cw','comment','12 dB 22 WPM CQ','raw_payload','{}'::jsonb),
   jsonb_build_object('source','rbn','source_spot_id','r2','content_hash','h2','spot_time',now(),'callsign','W1AW','spotter','W3LPL','frequency_khz',14040,'band','20m','mode','cw','mode_family','cw','comment','20 dB 18 WPM CQ','raw_payload','{}'::jsonb)
 ))), 2::bigint, 'ingest_spots accepts rbn rows');
 
+select count(*) from ingest_spots(jsonb_build_array(
+  jsonb_build_object('source','rbn','source_spot_id','r3','content_hash','h3','spot_time',now(),'callsign','N4GRP/P','spotter','W3LPL','frequency_khz',14030,'band','20m','mode','cw','mode_family','cw','comment','15 dB 20 WPM CQ','raw_payload','{}'::jsonb)));
 select match_pending_spots();
+select is((select count(*) from deliveries where subscription_id = (select club from rsubs)), 1::bigint,
+  'an RBN spot reaches a subscription whose group holds the station');
 select is((select count(*) from deliveries where subscription_id = (select mine from subs)), 1::bigint, 'the RBN subscription gets its own callsign');
 select is((select count(*) from deliveries where subscription_id = (select any_source_call from subs)), 1::bigint, 'an any-source subscription naming W1AW gets W1AW');
 select is((select count(*) from deliveries where subscription_id = (select any_source from subs)), 0::bigint, 'an any-source subscription without callsigns gets no RBN spots');
