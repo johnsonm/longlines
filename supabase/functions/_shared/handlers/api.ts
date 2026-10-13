@@ -12,7 +12,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { errorStatus } from "../api/errors.ts";
 import { apiPath, checkBody, type JsonObject, matchRoute, routeArgs } from "../api/routes.ts";
 import { apiToken, hashApiToken } from "../api/token.ts";
-import { json } from "../cors.ts";
+import { corsHeaders, json } from "../cors.ts";
 import { type SendTestDeps, sendTestTo } from "./test_delivery.ts";
 
 export const MAX_REQUESTS_PER_MINUTE = 60;
@@ -26,6 +26,9 @@ export const NOT_FOUND = "Not found.";
 export const BAD_BODY = "Send a JSON object.";
 export const BODY_TOO_LARGE = "Request body is too large.";
 export const SERVER_ERROR = "Something went wrong. Try again.";
+
+/** Every method a route takes, for the CORS preflight; the shared headers list only GET and POST. */
+const API_METHODS = "GET, POST, PUT, PATCH, DELETE, OPTIONS";
 
 export interface ApiDeps {
   /** Service-role client for authenticate_api_request, api_call and the send-test lookup. */
@@ -45,6 +48,13 @@ export async function handleApi(
   deps: ApiDeps,
   now: Date = new Date(),
 ): Promise<Response> {
+  // A browser sends a preflight before any request with an Authorization header; it carries no token.
+  if (req.method === "OPTIONS") {
+    return new Response(null, {
+      status: 204,
+      headers: { ...corsHeaders(), "Access-Control-Allow-Methods": API_METHODS },
+    });
+  }
   const url = new URL(req.url);
   const path = apiPath(url.pathname);
   const match = path === null ? { kind: "not_found" as const } : matchRoute(req.method, path);
