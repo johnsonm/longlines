@@ -177,7 +177,8 @@ export function ApiTokensPage() {
         </DialogActions>
       </Dialog>
 
-      <Dialog open={secret !== null} onClose={() => setSecret(null)} fullWidth maxWidth="sm">
+      {/* No onClose: a backdrop click or Escape would lose a token that can never be shown again. Done closes it. */}
+      <Dialog open={secret !== null} fullWidth maxWidth="sm">
         <DialogTitle>Copy your token</DialogTitle>
         <DialogContent>
           <Typography variant="body2" sx={{ mb: 2 }}>Copy this token now. You won't see it again.</Typography>

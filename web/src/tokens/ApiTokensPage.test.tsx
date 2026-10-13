@@ -65,6 +65,10 @@ describe("ApiTokensPage", () => {
     expect(createApiToken).toHaveBeenCalledWith("Club roster sync", "write", 90);
     expect(await screen.findByLabelText("Token")).toHaveValue("ll_live_secret");
     expect(screen.getByText("Copy this token now. You won't see it again.")).toBeInTheDocument();
+    // Only Done closes it: the token can't be shown again.
+    await user.keyboard("{Escape}");
+    await user.click(document.querySelector(".MuiBackdrop-root:not(.MuiBackdrop-invisible)")!);
+    expect(screen.getByLabelText("Token")).toHaveValue("ll_live_secret");
     await user.click(screen.getByRole("button", { name: "Done" }));
     await waitFor(() => expect(screen.queryByLabelText("Token")).not.toBeInTheDocument());
     expect(loadApiTokens).toHaveBeenCalledTimes(2);

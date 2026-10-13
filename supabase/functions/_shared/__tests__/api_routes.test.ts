@@ -85,7 +85,7 @@ Deno.test("every routed op is in api_call's allowlist with the same scope", () =
 
 Deno.test("checkBody wants lists of strings within the cap", () => {
   const r = route("POST", "/v1/subscriptions");
-  assertEquals(checkBody(r, { callsigns: ["W1AW"], sources: null }), null);
+  assertEquals(checkBody(r, { callsigns: ["W1AW"], bands: [] }), null);
   assertEquals(checkBody(r, { callsigns: "W1AW" }), "callsigns must be a list of strings.");
   assertEquals(checkBody(r, { bands: [20] }), "bands must be a list of strings.");
   const many = Array<string>(MAX_LIST_ITEMS + 1).fill("W1AW");
@@ -93,11 +93,68 @@ Deno.test("checkBody wants lists of strings within the cap", () => {
     checkBody(route("POST", `/v1/groups/${ID}/members`), { callsigns: many }),
     "callsigns can hold at most 2,000 items per request.",
   );
-  assertEquals(checkBody(route("POST", "/v1/groups"), { name: 5 }), null);
   assertEquals(
     checkBody(route("PATCH", `/v1/groups/${ID}`), { callsigns: "W1AW" }),
     "callsigns must be a list of strings.",
   );
+});
+
+Deno.test("checkBody refuses a null list, which SQL can't read as empty", () => {
+  assertEquals(
+    checkBody(route("POST", "/v1/subscriptions"), { sources: null }),
+    "sources must be a list of strings.",
+  );
+  assertEquals(
+    checkBody(route("PATCH", `/v1/subscriptions/${ID}`), { group_ids: null }),
+    "group_ids must be a list of strings.",
+  );
+  assertEquals(
+    checkBody(route("POST", "/v1/groups"), { name: "Club", callsigns: null }),
+    "callsigns must be a list of strings.",
+  );
+});
+
+Deno.test("checkBody checks scalar types and lets null through", () => {
+  const sub = route("PATCH", `/v1/subscriptions/${ID}`);
+  assertEquals(
+    checkBody(sub, { name: "NC", reference: null, enabled: false, quiet_minutes: 30 }),
+    null,
+  );
+  assertEquals(checkBody(sub, { reference: ["US-1234"] }), "reference must be a string.");
+  assertEquals(checkBody(sub, { enabled: "yes" }), "enabled must be a boolean.");
+  assertEquals(checkBody(sub, { quiet_minutes: "30" }), "quiet_minutes must be a number.");
+  const dest = route("PATCH", `/v1/destinations/${ID}`);
+  assertEquals(checkBody(dest, { name: { x: 1 } }), "name must be a string.");
+  assertEquals(
+    checkBody(route("POST", "/v1/destinations"), { type: "discord", name: "Club", url: 5 }),
+    "url must be a string.",
+  );
+  assertEquals(checkBody(route("POST", "/v1/groups"), { name: 5 }), "name must be a string.");
+  assertEquals(checkBody(route("PATCH", `/v1/groups/${ID}`), { name: null }), null);
+});
+
+Deno.test("checkBody requires callsigns on the add and remove routes", () => {
+  for (
+    const path of [
+      `/v1/groups/${ID}/members`,
+      `/v1/groups/${ID}/members/remove`,
+      `/v1/subscriptions/${ID}/callsigns`,
+      `/v1/subscriptions/${ID}/callsigns/remove`,
+    ]
+  ) {
+    assertEquals(
+      checkBody(route("POST", path), { callsign: ["KN4XYZ"] }),
+      "callsigns is required.",
+      path,
+    );
+    assertEquals(
+      checkBody(route("POST", path), { callsigns: null }),
+      "callsigns must be a list of strings.",
+      path,
+    );
+    assertEquals(checkBody(route("POST", path), { callsigns: [] }), null, path);
+  }
+  assertEquals(checkBody(route("PATCH", `/v1/groups/${ID}`), { name: "Club" }), null);
 });
 
 Deno.test("routeArgs builds each input kind, the path id winning", () => {

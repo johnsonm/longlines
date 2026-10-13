@@ -70,6 +70,22 @@ Deno.test("handleApi answers unknown paths and wrong methods before checking the
   assertEquals(wrong.calls.rpc, []);
 });
 
+Deno.test("handleApi answers a CORS preflight for every method without a token", async () => {
+  const { client, calls } = fakeSupabase({});
+  const res = await handleApi(request("OPTIONS", `/api/v1/subscriptions/${ID}`, undefined, null), {
+    db: () => client,
+    send: () => Promise.resolve({ ok: true, sent: 1 }),
+  }, NOW);
+  assertEquals(res.status, 204);
+  assertEquals(res.headers.get("Access-Control-Allow-Origin"), "*");
+  assertEquals(
+    res.headers.get("Access-Control-Allow-Methods"),
+    "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+  );
+  assertEquals(res.headers.get("Access-Control-Allow-Headers")?.includes("authorization"), true);
+  assertEquals(calls.rpc, []);
+});
+
 Deno.test("handleApi refuses missing, malformed and unknown tokens", async () => {
   for (const token of [null, "eyJ.a.b", "ll_live_short"]) {
     const { res, body, calls } = await run(request("GET", "/api/v1/groups", undefined, token));

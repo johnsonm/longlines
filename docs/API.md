@@ -69,7 +69,7 @@ destination's URL, only `url_display`, a masked form.
 | GET | `/destinations` | | All your destinations. |
 | POST | `/destinations` | `{"type": "discord" or "webhook", "name", "url"}` | The destination. A webhook also gets `signing_secret`, shown only here. |
 | GET | `/destinations/{id}` | | The destination. |
-| PATCH | `/destinations/{id}` | `{"name"?, "url"?}` | The destination. The type can't change. |
+| PATCH | `/destinations/{id}` | `{"name"?, "url"?}` | The destination. The type can't change. A new `url` clears `failing` health and the failure count. |
 | DELETE | `/destinations/{id}` | | `{"deleted": true}`, or `409` while a subscription uses it. |
 | POST | `/destinations/{id}/rotate-secret` | | `{"signing_secret"}`, for webhooks. The old secret stops working. |
 | POST | `/destinations/{id}/test` | | `{"ok": true}` once a sample spot is delivered, or `502` with the destination's error. |
