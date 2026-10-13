@@ -644,6 +644,9 @@ A profile is everything Long Lines has heard from one station, for a public page
   reach. The test checks that a day reads the same live as rolled up. "Heard by" (top 10) and
   "Recent spots" (newest 25) always read the last 7 days live. Hunting comes from the rollups
   only, since reading it live would need a spotter index on every source.
+- **The `rbn_spots` index.** `(base_callsign(callsign), spot_time)`, built per partition and
+  attached to a parent index so the build blocks inserts only for today's partition. It stores
+  `base_callsign()` output, so a migration that changes that function must reindex it.
 - **One read of a station.** The RPC reads `spot_stream` once, through `raw_spots`'
   `(base_callsign, spot_time)` index and `rbn_spots`' `(base_callsign(callsign), spot_time)`
   expression index, and groups spotters before resolving their base calls and countries. It reads
@@ -656,8 +659,12 @@ A profile is everything Long Lines has heard from one station, for a public page
   license, and skips the cache, so hiding takes effect at once.
 - **The function.** `callsign-profile` (`_shared/profile.ts`) is public: `verify_jwt = false`,
   no caller check, so it must never import `isServiceRole` (a test fails if any
-  `verify_jwt = false` function reaches it). It returns 400 for input that cannot be a callsign,
-  counts each lookup against a one-minute window per client (a SHA-256 of the IP, never the
-  address) and returns 429 with "Too many lookups. Try again in a minute." past 30. Profiles are
+  `verify_jwt = false` function reaches it). It returns 400 for input that cannot be a callsign
+  (TypeScript checks the shape; SQL returns null when the input has no base call, like `P/1`),
+  counts each lookup against a one-minute window per client and returns 429 with "Too many
+  lookups. Try again in a minute." past 30. The client is the IP from a header the edge proxy sets
+  (`LONGLINES_CLIENT_IP_HEADER`, `cf-connecting-ip` by default), else the last `x-forwarded-for`
+  entry, never the first, which the client writes. It is stored as an HMAC keyed with the
+  service-role key, so the table cannot be reversed by hashing every IPv4 address. Profiles are
   cached in the database for 15 minutes and sent with `Cache-Control: public, max-age=300`.
   `prune_callsign_lookups()` clears finished windows and expired entries hourly at :15.

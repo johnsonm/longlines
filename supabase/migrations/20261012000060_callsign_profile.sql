@@ -18,12 +18,46 @@
 --
 -- A call in hidden_callsigns gets the not-heard shape with no license.
 --
--- rbn_spots gets its base-callsign index here, the one PR 1 deferred. It is a
--- plain create index on the partitioned table, which holds a SHARE lock on
--- each partition while it builds, so RBN inserts wait for it on hosted
--- (docs/OPERATIONS.md, "Callsign profiles").
+-- rbn_spots gets its base-callsign index here, the one PR 1 deferred. A plain
+-- create index on the partitioned table would hold a SHARE lock on every
+-- partition until the migration commits, stopping RBN inserts for the whole
+-- build (minutes at hosted volume). Instead each partition is indexed on its
+-- own, oldest first, so the partitions taking inserts (today's, the empty
+-- future ones and the default) come last, and the parent index is created
+-- ON ONLY and the partition indexes attached at the end. Inserts wait only for
+-- today's partition (docs/OPERATIONS.md, "Callsign profiles"). Partitions
+-- created later get the index from the parent.
+--
+-- The index stores base_callsign() output. Replacing base_callsign() does not
+-- rebuild it: a migration that changes the function must reindex it.
 
-create index rbn_spots_base_callsign_time_idx on rbn_spots (public.base_callsign(callsign), spot_time);
+do $$
+declare
+  v_part regclass;
+begin
+  for v_part in
+    select i.inhrelid::regclass
+    from pg_inherits i
+    join pg_class c on c.oid = i.inhrelid
+    where i.inhparent = 'public.rbn_spots'::regclass
+    order by c.relname = 'rbn_spots_default', c.relname
+  loop
+    execute format('create index %I on %s (public.base_callsign(callsign), spot_time)',
+                   (select relname from pg_class where oid = v_part) || '_base_callsign_spot_time_idx', v_part);
+  end loop;
+
+  create index rbn_spots_base_callsign_time_idx on only rbn_spots (public.base_callsign(callsign), spot_time);
+
+  for v_part in
+    select i.inhrelid::regclass from pg_inherits i where i.inhparent = 'public.rbn_spots'::regclass
+  loop
+    execute format('alter index rbn_spots_base_callsign_time_idx attach partition %s',
+                   (select format('%I.%I', n.nspname, c.relname || '_base_callsign_spot_time_idx')
+                    from pg_class c join pg_namespace n on n.oid = c.relnamespace
+                    where c.oid = v_part));
+  end loop;
+end;
+$$;
 
 -- Calls whose profile is hidden on request, by base call. Managed by the
 -- operator in the SQL editor.
@@ -68,8 +102,10 @@ declare
   v_header    jsonb;
   v_heard     jsonb;
 begin
+  -- Input that has no base call (P/1, an empty string) is not a callsign:
+  -- null, which the Edge Function answers with a 400.
   if v_base is null or v_base !~ '^[A-Z0-9]+$' then
-    raise exception 'callsign_profile: % is not a callsign', p_callsign;
+    return null;
   end if;
 
   v_header := jsonb_build_object(
@@ -236,7 +272,7 @@ begin
       select g.name, g.continent, ls.n
       from live_spotters ls
       cross join lateral public.cty_lookup(ls.spotter) g
-      where public.base_callsign(ls.spotter) is distinct from v_base
+      where not public.is_self_spot(v_base, ls.spotter)
     ) x
     group by country, continent
   ),
@@ -275,7 +311,7 @@ begin
            (array_agg(band order by n desc, band) filter (where band is not null))[1] as top_band
     from week_spotters
     group by spotter
-    having public.base_callsign(spotter) is distinct from v_base
+    having not public.is_self_spot(v_base, spotter)
     order by spots desc, spotter
     limit 10
   )
@@ -355,7 +391,7 @@ end;
 $$;
 
 -- The profile from the cache when it is under 15 minutes old, otherwise built
--- and stored. A hidden call never touches the cache, so hiding and unhiding
+-- and stored. Null when the input is not a callsign. A hidden call never touches the cache, so hiding and unhiding
 -- take effect at once.
 create function public.cached_callsign_profile(p_callsign text)
 returns jsonb
@@ -379,6 +415,9 @@ begin
   end if;
 
   v_payload := public.callsign_profile(p_callsign);
+  if v_payload is null then
+    return null;
+  end if;
   insert into callsign_profile_cache (callsign, payload, generated_at)
   values (v_base, v_payload, now())
   on conflict (callsign) do update set payload = excluded.payload, generated_at = excluded.generated_at;

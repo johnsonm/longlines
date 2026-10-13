@@ -36,6 +36,14 @@ Deno.test("every function has a deno.json mapping supabase-js like the root one"
 const sharedAuth = new URL("../auth.ts", import.meta.url).href;
 const importPattern = /(?:import|export)\s+(?:type\s+)?([\s\S]*?)\s*from\s+["']([^"']+)["']/g;
 
+/**
+ * True when an import or export clause from auth.ts can reach isServiceRole:
+ * the name itself, a namespace import, or an `export *` barrel.
+ */
+function exposesIsServiceRole(clause: string): boolean {
+  return /\bisServiceRole\b|\*\s+as\b|^\*$/.test(clause.trim());
+}
+
 /** Functions that config.toml deploys with verify_jwt = false. */
 function functionsWithoutJwt(): string[] {
   const config = Deno.readTextFileSync(new URL("../../../config.toml", import.meta.url));
@@ -63,14 +71,28 @@ function modulesUsingIsServiceRole(fn: string): string[] {
     for (const [, clause, specifier] of source.matchAll(importPattern)) {
       if (!specifier?.startsWith(".")) continue;
       const target = new URL(specifier, href).href;
-      if (target === sharedAuth && /\bisServiceRole\b|\*\s+as\b/.test(clause ?? "")) {
-        found.push(href);
-      }
+      if (target === sharedAuth && exposesIsServiceRole(clause ?? "")) found.push(href);
       queue.push(target);
     }
   }
   return found;
 }
+
+Deno.test("the isServiceRole check recognizes every way to reach it", () => {
+  for (
+    const clause of [
+      "{ isServiceRole }",
+      "{\n  bearerToken,\n  isServiceRole,\n}",
+      "* as auth",
+      "*",
+    ]
+  ) {
+    assertEquals(exposesIsServiceRole(clause), true, clause);
+  }
+  for (const clause of ["{ bearerToken }", "{ secretsMatch, userFromRequest }"]) {
+    assertEquals(exposesIsServiceRole(clause), false, clause);
+  }
+});
 
 Deno.test("the isServiceRole check finds the functions that use it", () => {
   for (const fn of ["deliver", "archive", "import-cty"]) {

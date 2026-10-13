@@ -616,17 +616,17 @@ How they work is in `docs/ARCHITECTURE.md` ("Callsign profiles").
 
 ## First deploy (hosted)
 
-`20261012000060_callsign_profile` builds the `rbn_spots` base-callsign index with a plain
-`create index` on the partitioned table. **While it builds, RBN inserts wait**: every partition is
-under a SHARE lock, so `ingest-rbn` pushes queue behind it, run into the API's 8 s statement
-timeout and fail. The relay keeps the lines and retries (it buffers about 50 minutes), so nothing is
-lost if the build finishes well inside that. It computes `base_callsign()` for every row, which took
-1 min 43 s locally for a week at hosted volume (10.8M rows); expect longer on a small hosted
-compute. Apply it when `rbn_spots` is
-smallest, just after retention at 03:35 UTC, and not while an archive or rollup run is going (:00,
-:10, ... and :25).
+`20261012000060_callsign_profile` builds the `rbn_spots` base-callsign index one partition at a
+time, oldest first, then creates the parent index and attaches them. A partition is locked against
+inserts from its build until the migration commits, so only the partitions built last, today's and
+the empty future ones, ever hold up RBN inserts. Locally, at hosted volume, each full day took about
+16 s, and an insert probe into today's partition every second never waited more than 19 ms while the
+older days built. Today's partition takes about 16 s at the end of a UTC day and a few seconds in the
+early hours, under the API's 8 s timeout that `ingest-rbn` pushes run into; a push that does time out
+is retried by the relay, which buffers about 50 minutes. Prefer the early UTC hours, after retention
+at 03:35 removes old days, and avoid :25, when the rollup job reads `rbn_spots`.
 
-The GitHub integration applies the migration on merge, so merge at that time, or push it first:
+The GitHub integration applies the migration on merge, so merge then, or push it first:
 
 ```sh
 supabase migration list                    # 20261012000060 must be the only one pending
@@ -637,12 +637,12 @@ supabase functions deploy callsign-profile # new function: the GitHub integratio
 Then check, in the SQL editor:
 
 ```sql
-select indexrelid::regclass, indisvalid from pg_index where indrelid = 'rbn_spots'::regclass;
+select indisvalid from pg_index where indexrelid = 'rbn_spots_base_callsign_time_idx'::regclass;  -- t
 select cached_callsign_profile('KK4PWJ') -> 'heard' -> 'spots';
 ```
 
-The relay logs `push failed` lines during the build and stops once it ends. A gap in RBN rows that
-outlasts the relay's buffer shows in `select date_trunc('minute', spot_time), count(*) from rbn_spots
+If a push timed out, the relay logs `push failed` and retries. A gap in RBN rows that outlasts the
+relay's buffer shows in `select date_trunc('minute', spot_time), count(*) from rbn_spots
 where spot_time > now() - interval '2 hours' group by 1 order by 1;`.
 
 ## Is it working?
@@ -660,7 +660,25 @@ select client, lookups from lookup_rate_limits
 where window_start = date_trunc('minute', now()) and lookups > 30;
 ```
 
-`client` is a SHA-256 of the IP, never the address. The `prune-callsign-lookups` job (:15 hourly)
+`client` is an HMAC of the IP keyed with the service-role key, never the address.
+
+## Which client IP the rate limit sees
+
+The function keys on the header named by the `LONGLINES_CLIENT_IP_HEADER` function secret
+(`cf-connecting-ip` when unset), which the edge proxy sets and a client cannot. Without it, it uses the
+last `x-forwarded-for` entry, which the nearest proxy appended; that is safe but may be a proxy's
+address shared by many clients. It never uses the first entry, which the client writes. After the
+first deploy, check that a client cannot reset its own limit:
+
+```sh
+for i in $(seq 1 31); do
+  curl -s -o /dev/null -w "%{http_code} " -H "cf-connecting-ip: 192.0.2.$i" -H "x-forwarded-for: 192.0.2.$i" \
+    "$SUPABASE_URL/functions/v1/callsign-profile?callsign=KK4PWJ"
+done   # the 31st must be 429
+```
+
+If it is not 429, the header is passed through from the client: find the one the proxy sets (log
+`req.headers` once) and `supabase secrets set LONGLINES_CLIENT_IP_HEADER=<name>`. The `prune-callsign-lookups` job (:15 hourly)
 deletes finished windows and cache entries older than 15 minutes.
 
 ## Hiding a profile

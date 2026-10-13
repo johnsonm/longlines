@@ -218,7 +218,9 @@ relay on pushes to main; nothing else deploys automatically.
   `refresh_stats_snapshot` still has its own copy of the same CASE until callsign profiles PR 7
   moves it over, so change both together until then.
 - `base_callsign()` output is now permanent in the rollups: changing it splits history. If it
-  must change, rewrite `raw_spots.base_callsign` in the same migration.
+  must change, the same migration rewrites `raw_spots.base_callsign`, runs
+  `reindex index rbn_spots_base_callsign_time_idx` (Postgres never rebuilds an expression index when
+  its function changes) and fixes any `hidden_callsigns` row its check would now reject.
 
 ## Profile rules
 
@@ -229,6 +231,8 @@ relay on pushes to main; nothing else deploys automatically.
 - Live reads of `spot_stream` filter on `base_callsign` and `spot_time`, so `raw_spots` and the
   `rbn_spots` expression index both serve them. Group by spotter before calling `base_callsign()`
   or `cty_lookup()` on spotters.
+- The rate limit keys on a header the edge proxy sets (`LONGLINES_CLIENT_IP_HEADER`), never on the
+  first `x-forwarded-for` entry, and stores only an HMAC of the IP.
 - A `verify_jwt = false` function never imports `isServiceRole`, which trusts an unverified JWT
   claim; `function_config.test.ts` walks every such function's imports and fails if one does.
 

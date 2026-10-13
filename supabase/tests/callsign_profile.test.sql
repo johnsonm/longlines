@@ -2,7 +2,7 @@
 -- Pins the payload shape: CallsignProfile in web/src/profile/types.ts.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(68);
+select plan(71);
 
 create or replace function pg_temp.d(p_offset int) returns date language sql as $$
   select (now() at time zone 'utc')::date + p_offset;
@@ -229,7 +229,11 @@ select is(callsign_profile('K1HID/P') - 'generatedAt',
     "license": null, "heard": null}'::jsonb, 'a hidden call returns the not-heard shape with no license');
 select throws_ok($$insert into hidden_callsigns (callsign) values ('K1HID/P')$$, '23514', null,
   'hidden_callsigns holds base calls');
-select throws_like($$select callsign_profile('')$$, '%is not a callsign%', 'an empty callsign is refused');
+select ok(callsign_profile('') is null and callsign_profile('P/1') is null,
+  'input with no base call is not a callsign: null');
+select ok(cached_callsign_profile('P/1') is null
+          and not exists (select 1 from callsign_profile_cache where callsign = 'P/1'),
+  'cached_callsign_profile returns it as null and caches nothing');
 
 -- Cache: a fresh entry is served as is, a stale one rebuilt, a hidden call never served from it.
 select is(cached_callsign_profile('kk4pwj') -> 'heard' ->> 'spots', '9', 'cached_callsign_profile builds a profile');
@@ -263,6 +267,13 @@ select ok(exists (select 1 from pg_temp.plan($$select * from spot_stream
                   where l ~ 'Index Cond: \(\(base_callsign\(callsign\) = '),
   'rbn_spots has a base_callsign(callsign), spot_time index that spot_stream uses');
 reset enable_seqscan;
+select ok((select indisvalid from pg_index where indexrelid = 'rbn_spots_base_callsign_time_idx'::regclass),
+  'the parent index is valid: every partition''s index is attached');
+select create_rbn_spots_partition(pg_temp.d(30));
+select ok(exists (select 1 from pg_inherits i join pg_index x on x.indexrelid = i.inhrelid
+                  where i.inhparent = 'rbn_spots_base_callsign_time_idx'::regclass
+                    and x.indrelid = to_regclass('partitions.rbn_spots_' || to_char(pg_temp.d(30), 'YYYYMMDD'))),
+  'a partition created later gets the index');
 
 -- Access.
 select ok(not exists (
