@@ -122,7 +122,16 @@ Deno.test("checkBody checks scalar types and lets null through", () => {
   );
   assertEquals(checkBody(sub, { reference: ["US-1234"] }), "reference must be a string.");
   assertEquals(checkBody(sub, { enabled: "yes" }), "enabled must be a boolean.");
-  assertEquals(checkBody(sub, { quiet_minutes: "30" }), "quiet_minutes must be a number.");
+  assertEquals(checkBody(sub, { quiet_minutes: "30" }), "quiet_minutes must be an integer.");
+  // SQL casts it with ::int: a fraction would fail there with a Postgres message, and
+  // Infinity (1e400 in the JSON) would be sent on as null and keep the old value.
+  assertEquals(checkBody(sub, { quiet_minutes: 30.5 }), "quiet_minutes must be an integer.");
+  assertEquals(
+    checkBody(sub, { quiet_minutes: JSON.parse("1e400") }),
+    "quiet_minutes must be an integer.",
+  );
+  assertEquals(checkBody(sub, { quiet_minutes: 2 ** 31 }), "quiet_minutes must be an integer.");
+  assertEquals(checkBody(sub, { quiet_minutes: -(2 ** 31) }), null);
   const dest = route("PATCH", `/v1/destinations/${ID}`);
   assertEquals(checkBody(dest, { name: { x: 1 } }), "name must be a string.");
   assertEquals(

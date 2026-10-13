@@ -100,7 +100,7 @@ A subscription says which spots you want and where to send them. Empty lists mea
 | `callsigns` | strings | Exact calls. Uppercased for you. RBN spots only match subscriptions that name callsigns. |
 | `group_ids` | UUIDs | Callsign groups whose members count as callsigns. |
 | `reference` | string | A park or summit reference to look for, such as `US-1234`. |
-| `quiet_minutes` | number | 0, 5, 10, 30 or 60. Defaults to 10. |
+| `quiet_minutes` | integer | 0, 5, 10, 30 or 60. Defaults to 10. |
 | `destinations` | UUIDs | Required, at least one. |
 
 | Method | Path | Body | Returns |
@@ -109,7 +109,7 @@ A subscription says which spots you want and where to send them. Empty lists mea
 | POST | `/subscriptions` | All the fields above | The subscription. |
 | GET | `/subscriptions/{id}` | | The subscription. |
 | PUT | `/subscriptions/{id}` | All the fields above | The subscription. Lists and `reference` left out become empty; `enabled` and `quiet_minutes` left out keep their values. |
-| PATCH | `/subscriptions/{id}` | Any of the fields above | The subscription. Fields left out keep their values. |
+| PATCH | `/subscriptions/{id}` | Any of the fields above | The subscription. Fields left out, or sent as `null`, keep their values. |
 | DELETE | `/subscriptions/{id}` | | `{"deleted": true}` |
 | POST | `/subscriptions/{id}/callsigns` | `{"callsigns": [...]}` | `{"callsigns": [...]}`, the full list after adding. |
 | POST | `/subscriptions/{id}/callsigns/remove` | `{"callsigns": [...]}` | `{"callsigns": [...]}`, the full list after removing. |
@@ -133,7 +133,7 @@ callsign refuses the whole request with `400` and "Not a callsign: …", and not
 | GET | `/groups` | | All your groups. |
 | POST | `/groups` | `{"name", "callsigns"?: [...]}` | The group. Names are unique per account, ignoring case. |
 | GET | `/groups/{id}` | | The group. |
-| PATCH | `/groups/{id}` | `{"name"?, "callsigns"?: [...]}` | The group. A `callsigns` list replaces the whole member list. |
+| PATCH | `/groups/{id}` | `{"name"?, "callsigns"?: [...]}` | The group. A `callsigns` list replaces the whole member list. A `name` left out, or sent as `null`, stays. |
 | DELETE | `/groups/{id}` | | `{"deleted": true}`, or `409` while a subscription uses it. |
 | POST | `/groups/{id}/members` | `{"callsigns": [...]}` | The group, after adding. Calls already in the group are skipped. |
 | POST | `/groups/{id}/members/remove` | `{"callsigns": [...]}` | The group, after removing. Calls not in the group are ignored. |

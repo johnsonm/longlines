@@ -2,7 +2,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(38);
+select plan(40);
 
 -- ---------------------------------------------------------------------------
 -- Tokens
@@ -115,6 +115,13 @@ select is(pg_temp.call('update_group', jsonb_build_object('id', (select id from 
 select is(pg_temp.call('patch_subscription', jsonb_build_object('id', (select id from sub),
   'body', '{"quiet_minutes": 30}'::jsonb)) -> 'callsigns', '["K4ABC", "KN4XYZ"]'::jsonb,
   'a patch keeps the fields it does not name');
+select is(pg_temp.call('patch_subscription', jsonb_build_object('id', (select id from sub),
+  'body', '{"reference": "US-1234"}'::jsonb)) - 'id' - 'created_at' - 'updated_at',
+  pg_temp.call('patch_subscription', jsonb_build_object('id', (select id from sub),
+  'body', '{"name": null, "reference": null, "enabled": null, "quiet_minutes": null}'::jsonb)) - 'id' - 'created_at' - 'updated_at',
+  'a null in a subscription patch counts as left out, not as a value');
+select is(pg_temp.call('update_group', jsonb_build_object('id', (select id from grp), 'name', null)) ->> 'name',
+  'Club', 'a null group name counts as left out');
 select throws_ok(format($$ select pg_temp.call('patch_subscription', '{"id": "%s", "body": {"destinations": []}}') $$,
   (select id from sub)), 'Pick at least one destination.');
 select throws_ok(format($$ select pg_temp.call('delete_destination', '{"id": "%s"}') $$, (select id from dest)),
