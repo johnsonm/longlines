@@ -133,8 +133,8 @@ Also extend the advisor and account-delete tests.
 
 ## Section 1b: Changes from the mocks (approved; PR 1b)
 
-Branch `callsign-groups-ui-fixes`, worktree `../longlines-callsign-groups-ui`, stacked on #129.
-When #129 merges, rebase onto main and retarget the PR. The migration is
+Branch `callsign-groups-ui-fixes`, worktree `../longlines-callsign-groups-ui`, based on main
+after #129 merged. The migration is
 `20261013000210_callsign_groups_ui.sql`. Recheck the number: it must be above every migration in
 every worktree. `20261013000200` belongs to another branch.
 
@@ -364,8 +364,8 @@ above is added here once Brad approves it.
 
 ## PR order
 
-1. #129, schema and RPCs (branch `callsign-groups`). Merge it as it is.
-2. PR 1b, the changes from the mocks (branch `callsign-groups-ui-fixes`, stacked on #129). This
+1. #129, schema and RPCs (branch `callsign-groups`). Merged 2026-10-13.
+2. PR 1b, the changes from the mocks (branch `callsign-groups-ui-fixes`). This
    revision of the spec and the mock images are committed there.
 3. PR 2, matching. Starts after PR 1b merges.
 4. PR 3, the Groups page. Also needs only PR 1b, so it can run alongside PR 2. Don't run pgTAP
