@@ -29,3 +29,14 @@ describe("UsStateMap", () => {
     expect(screen.getByText("0 spots")).toBeInTheDocument();
   });
 });
+
+describe("UsStateMap units", () => {
+  it("names what it counts in the label, tooltip and legend", async () => {
+    const { container, user } = renderPage(<UsStateMap values={{ NC: 3 }} unit="activations" />);
+    expect(screen.getByRole("img", { name: "Map of activations by state" })).toBeInTheDocument();
+    expect(screen.getByText("3 activations")).toBeInTheDocument();
+    const nc = STATE_SHAPES.findIndex((s) => s.code === "NC");
+    await user.hover(container.querySelectorAll("path")[nc]!);
+    expect(await screen.findByText("North Carolina: 3 activations")).toBeInTheDocument();
+  });
+});

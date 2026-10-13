@@ -75,6 +75,12 @@ describe("SignInPage: sign in", () => {
     await user.click(screen.getByRole("button", { name: "View stats" }));
     expect(where()).toHaveTextContent("/stats");
   });
+
+  it("links to callsign lookup", async () => {
+    const { user } = renderPage(<SignInPage />, { route: "/signin" });
+    await user.click(screen.getByRole("button", { name: "Look up a callsign" }));
+    expect(where()).toHaveTextContent("/lookup");
+  });
 });
 
 describe("SignInPage: create account", () => {

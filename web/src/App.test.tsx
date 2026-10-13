@@ -37,6 +37,12 @@ vi.mock("./subscriptions/SubscriptionsPage", () => ({
 }));
 vi.mock("./stats/StatsPage", () => ({ StatsPage: () => <p>stats page</p> }));
 vi.mock("./account/AccountPage", () => ({ AccountPage: () => <p>account page</p> }));
+vi.mock("./profile/LookupPage", () => ({ LookupPage: () => <p>lookup page</p> }));
+vi.mock("./profile/CallsignPage", () => ({
+  CallsignPage: ({ prefs, account }: { prefs: { timezone: string }; account?: { dests: Destination[] } }) => (
+    <p>callsign page {prefs.timezone} {account ? `signed in ${account.dests.length}` : "signed out"}</p>
+  ),
+}));
 vi.mock("./tour/hooks", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./tour/hooks")>();
   return { useTour: vi.fn(actual.useTour) };
@@ -113,6 +119,31 @@ describe("App routing", () => {
   it("serves Stats inside the app shell when signed in", async () => {
     renderAt("/stats");
     expect(await screen.findByText("stats page")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Sign in" })).not.toBeInTheDocument();
+  });
+
+  it("serves lookup publicly", async () => {
+    session(null);
+    renderAt("/lookup");
+    expect(await screen.findByText("lookup page")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sign in" })).toBeInTheDocument();
+  });
+
+  it("serves a signed-out profile in UTC with no account", async () => {
+    session(null);
+    renderAt("/call/KK4PWJ/P");
+    expect(await screen.findByText("callsign page UTC signed out")).toBeInTheDocument();
+  });
+
+  it("serves lookup and profiles inside the app shell when signed in", async () => {
+    renderAt("/call/KK4PWJ");
+    expect(await screen.findByText("callsign page Asia/Tokyo signed in 1")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Callsign lookup" })).toHaveClass("Mui-selected");
+  });
+
+  it("serves the lookup page inside the app shell when signed in", async () => {
+    renderAt("/lookup");
+    expect(await screen.findByText("lookup page")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Sign in" })).not.toBeInTheDocument();
   });
 

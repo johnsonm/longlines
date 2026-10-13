@@ -1,24 +1,28 @@
-import { useState, type ReactNode } from "react";
+import { useState, type FormEvent, type ReactNode } from "react";
 import {
-  AppBar, Avatar, Badge, Box, Button, Container, Divider, Drawer, IconButton, List, ListItem,
-  ListItemButton, ListItemIcon, ListItemText, Menu, MenuItem, Toolbar, Typography, useMediaQuery, useTheme,
+  AppBar, Avatar, Badge, Box, Button, Container, Divider, Drawer, IconButton, InputBase, List, ListItem,
+  ListItemButton, ListItemIcon, ListItemText, Menu, MenuItem, Paper, Toolbar, Typography, useMediaQuery, useTheme,
 } from "@mui/material";
 import MenuIcon from "@mui/icons-material/Menu";
 import SensorsIcon from "@mui/icons-material/Sensors";
 import FilterListIcon from "@mui/icons-material/FilterList";
 import SendIcon from "@mui/icons-material/Send";
 import InsightsIcon from "@mui/icons-material/Insights";
+import PersonSearchIcon from "@mui/icons-material/PersonSearch";
+import SearchIcon from "@mui/icons-material/Search";
 import { useLocation, useNavigate } from "react-router";
 import { useApp } from "../app/hooks";
 import { signOut } from "../lib/api";
 import { useTour } from "../tour/hooks";
 import { TOUR_MENU_LABEL } from "../tour/model";
+import { lookupPath } from "../profile/format";
 
 const NAV = [
   { id: "sources", label: "Sources", icon: <SensorsIcon /> },
   { id: "subscriptions", label: "Subscriptions", icon: <FilterListIcon /> },
   { id: "destinations", label: "Destinations", icon: <SendIcon /> },
   { id: "stats", label: "Stats", icon: <InsightsIcon /> },
+  { id: "lookup", label: "Callsign lookup", icon: <PersonSearchIcon /> },
 ];
 const DRAWER = 232;
 
@@ -36,7 +40,9 @@ export function AppShell({ children, destinationsFailing }: { children: ReactNod
     setNavOpen(false);
     startTour();
   };
-  const page = location.pathname.replace(/^\//, "").split("/")[0] ?? "";
+  const section = location.pathname.replace(/^\//, "").split("/")[0] ?? "";
+  // A profile belongs to Callsign lookup in the nav.
+  const page = section === "call" ? "lookup" : section;
   const callsign = profile?.callsign ?? "";
   const initials = callsign.slice(0, 2) || "?";
 
@@ -87,6 +93,13 @@ export function AppShell({ children, destinationsFailing }: { children: ReactNod
             </IconButton>
           )}
           <Typography variant="h6" sx={{ flexGrow: 1 }}>Long Lines</Typography>
+          {mobile
+            ? (
+              <IconButton color="inherit" onClick={() => go("lookup")} aria-label="Callsign lookup">
+                <SearchIcon />
+              </IconButton>
+            )
+            : <BarSearch />}
           <IconButton color="inherit" onClick={(e) => setMenuEl(e.currentTarget)} aria-label="Account menu" sx={{ display: { xs: "inline-flex", sm: "none" } }}>
             <Avatar sx={{ width: 32, height: 32 }}>{initials}</Avatar>
           </IconButton>
@@ -132,5 +145,32 @@ export function AppShell({ children, destinationsFailing }: { children: ReactNod
         </Container>
       </Box>
     </Box>
+  );
+}
+
+/** The app bar's callsign search from md up; Paper gives it the theme's surface color on the colored bar. */
+function BarSearch() {
+  const navigate = useNavigate();
+  const [value, setValue] = useState("");
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    const path = lookupPath(value);
+    if (!path) return;
+    setValue("");
+    void navigate(path);
+  };
+  return (
+    <Paper component="form" role="search" onSubmit={submit} elevation={0} sx={{ display: "flex", alignItems: "center", width: 260, mr: 2, pl: 1.5 }}>
+      <InputBase
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        placeholder="Callsign, like KK4PWJ"
+        sx={{ flex: 1 }}
+        slotProps={{ input: { "aria-label": "Look up a callsign", autoCapitalize: "characters", autoCorrect: "off", spellCheck: false } }}
+      />
+      <IconButton type="submit" size="small" aria-label="Look up">
+        <SearchIcon />
+      </IconButton>
+    </Paper>
   );
 }

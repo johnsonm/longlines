@@ -4,6 +4,7 @@
 import { supabase, SUPABASE_ANON_KEY, SUPABASE_URL } from "../supabase";
 import type { Database, Json } from "./database.types";
 import type { LatestStats, StatsPayload } from "../stats/types";
+import type { CallsignProfile } from "../profile/types";
 
 type Tables = Database["public"]["Tables"];
 type Views = Database["public"]["Views"];
@@ -32,18 +33,23 @@ function fail(error: { message: string; code?: string } | null, fallback: string
 
 // ---- Edge Functions ---------------------------------------------------------
 
-async function callFunction<T>(name: string, body: unknown, accessToken?: string): Promise<T> {
-  const headers: Record<string, string> = { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY };
-  if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
+/** Fetch an Edge Function; a non-2xx body's `error` becomes the ApiError message and the status its code. */
+async function fetchFunction<T>(path: string, init: RequestInit): Promise<T> {
   let response: Response;
   try {
-    response = await fetch(`${SUPABASE_URL}/functions/v1/${name}`, { method: "POST", headers, body: JSON.stringify(body) });
+    response = await fetch(`${SUPABASE_URL}/functions/v1/${path}`, init);
   } catch {
     throw new ApiError("Couldn't reach Long Lines. Check your connection and try again.");
   }
   const data = (await response.json().catch(() => ({}))) as { error?: string } & T;
   if (!response.ok) throw new ApiError(data.error || `Request failed (HTTP ${response.status}).`, String(response.status));
   return data;
+}
+
+async function callFunction<T>(name: string, body: unknown, accessToken?: string): Promise<T> {
+  const headers: Record<string, string> = { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY };
+  if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
+  return fetchFunction<T>(name, { method: "POST", headers, body: JSON.stringify(body) });
 }
 
 export interface SignInTokens {
@@ -269,4 +275,17 @@ export async function loadLatestStats(): Promise<LatestStats | null> {
   // payload is jsonb in the generated types. Its shape is fixed by
   // refresh_stats_snapshot() and pinned by supabase/tests/stats_snapshot.test.sql.
   return { payload: data.payload as unknown as StatsPayload, generatedAt: data.generated_at };
+}
+
+// ---- Callsign profiles ------------------------------------------------------
+
+/**
+ * A station's public profile from the callsign-profile Edge Function, which
+ * works signed out, so no session is sent. The callsign goes as typed
+ * (KK4PWJ/P); the result's `callsign` is the base call SQL reduced it to.
+ * Invalid input rejects with code "400", the rate limit with "429".
+ */
+export async function loadCallsignProfile(callsign: string): Promise<CallsignProfile> {
+  const query = new URLSearchParams({ callsign });
+  return fetchFunction<CallsignProfile>(`callsign-profile?${query.toString()}`, { headers: { apikey: SUPABASE_ANON_KEY } });
 }

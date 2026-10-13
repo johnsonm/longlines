@@ -16,6 +16,8 @@ import { DestinationsPage } from "./destinations/DestinationsPage";
 import { SubscriptionsPage } from "./subscriptions/SubscriptionsPage";
 import { StatsPage } from "./stats/StatsPage";
 import { AccountPage } from "./account/AccountPage";
+import { LookupPage } from "./profile/LookupPage";
+import { CallsignPage } from "./profile/CallsignPage";
 import { loadDestinations, loadSubscriptions, type Destination, type SubscriptionWithLinks } from "./lib/api";
 import type { TimePrefs } from "./lib/time";
 import { TourProvider } from "./tour/TourProvider";
@@ -56,7 +58,9 @@ function Router() {
       <Route path="/sources" element={<RequireAuth page="sources" />} />
       <Route path="/subscriptions" element={<RequireAuth page="subscriptions" />} />
       <Route path="/destinations" element={<RequireAuth page="destinations" />} />
-      <Route path="/stats" element={<StatsRoute />} />
+      <Route path="/stats" element={<PublicRoute page="stats" />} />
+      <Route path="/lookup" element={<PublicRoute page="lookup" />} />
+      <Route path="/call/*" element={<PublicRoute page="call" />} />
       <Route path="/account" element={<RequireAuth page="account" />} />
       <Route path="*" element={<Navigate to="/sources" replace />} />
     </Routes>
@@ -71,14 +75,24 @@ function PublicOnly({ children }: { children: ReactNode }) {
   return children;
 }
 
-type Page = "sources" | "subscriptions" | "destinations" | "stats" | "account";
+type Page = "sources" | "subscriptions" | "destinations" | "stats" | "lookup" | "call" | "account";
+type PublicPage = "stats" | "lookup" | "call";
 
-/** Stats is public: signed-in users see it inside the app, everyone else in the public shell. */
-function StatsRoute() {
+// Signed-out visitors read profiles in UTC.
+const UTC: TimePrefs = { utcTimes: true, timezone: "UTC" };
+
+/** Stats and callsign profiles are public: signed-in users see them inside the app, everyone else in the public shell. */
+function PublicRoute({ page }: { page: PublicPage }) {
   const { session, sessionLoading } = useApp();
   if (sessionLoading) return <LinearProgress />;
-  if (!session) return <PublicShell><StatsPage /></PublicShell>;
-  return <RequireAuth page="stats" />;
+  if (session) return <RequireAuth page={page} />;
+  return (
+    <PublicShell>
+      {page === "stats" && <StatsPage />}
+      {page === "lookup" && <LookupPage />}
+      {page === "call" && <CallsignPage prefs={UTC} />}
+    </PublicShell>
+  );
 }
 
 function RequireAuth({ page }: { page: Page }) {
@@ -138,6 +152,8 @@ function SignedIn({ page }: { page: Page }) {
       )}
       {page === "destinations" && <DestinationsPage dests={dests} subs={subs} loading={loading} reload={reload} />}
       {page === "stats" && <StatsPage />}
+      {page === "lookup" && <LookupPage />}
+      {page === "call" && <CallsignPage prefs={prefs} account={{ dests, reload }} />}
       {page === "account" && <AccountPage profile={profile} />}
     </AppShell>
   );

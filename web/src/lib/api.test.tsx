@@ -310,3 +310,22 @@ describe("stats", () => {
     await expect(api.loadLatestStats()).rejects.toThrow("boom");
   });
 });
+
+describe("callsign profiles", () => {
+  it("GETs the profile function with the callsign as typed and no session", async () => {
+    fake.client.auth.getSession.mockClear();
+    const fetchMock = respond(200, { callsign: "KK4PWJ" });
+    expect(await api.loadCallsignProfile("KK4PWJ/P")).toEqual({ callsign: "KK4PWJ" });
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("https://proj.supabase.co/functions/v1/callsign-profile?callsign=KK4PWJ%2FP");
+    expect(init).toEqual({ headers: { apikey: "anon-key" } });
+    expect(fake.client.auth.getSession).not.toHaveBeenCalled();
+  });
+
+  it("rejects invalid input and the rate limit with the function's message and status", async () => {
+    respond(400, { error: "Enter a callsign, like KK4PWJ." });
+    await expect(api.loadCallsignProfile("BOGUS")).rejects.toMatchObject({ message: "Enter a callsign, like KK4PWJ.", code: "400" });
+    respond(429, { error: "Too many lookups. Try again in a minute." });
+    await expect(api.loadCallsignProfile("W1AW")).rejects.toMatchObject({ code: "429" });
+  });
+});

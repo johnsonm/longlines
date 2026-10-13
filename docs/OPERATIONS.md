@@ -246,6 +246,9 @@ Create a Vercel project from the GitHub repo with these settings:
   service-role key is never read and never reaches the bundle. Without the
   integration, set `SUPABASE_URL` and `SUPABASE_ANON_KEY` (or the `VITE_`
   names) by hand.
+- `VITE_CONTACT_EMAIL` (set by hand): the address callsign profiles give for
+  hiding a page ("To have this page hidden, email …"). Without it the footer
+  leaves that sentence out. It is public; it ships in the bundle.
 - Domain: `app.longlines.io`
 
 `web/vercel.json` rewrites every path to `index.html` so client-side routes

@@ -65,6 +65,31 @@ describe("AppShell", () => {
     await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Couldn't sign out. Try again."));
   });
 
+  it("lists Callsign lookup after Stats and keeps it highlighted on profiles", () => {
+    renderPage(shell(), { route: "/call/KK4PWJ" });
+    const labels = screen.getAllByRole("button").map((b) => b.textContent);
+    expect(labels.indexOf("Callsign lookup")).toBe(labels.indexOf("Stats") + 1);
+    expect(screen.getByRole("button", { name: "Callsign lookup" })).toHaveClass("Mui-selected");
+  });
+
+  it("looks up a callsign from the app bar search box", async () => {
+    const { user } = renderPage(shell(), { route: "/sources" });
+    const box = screen.getByRole("textbox", { name: "Look up a callsign" });
+    await user.click(screen.getByRole("button", { name: "Look up" }));
+    expect(screen.getByTestId("location")).toHaveTextContent("/sources");
+    await user.type(box, "kk4pwj/p{Enter}");
+    expect(screen.getByTestId("location")).toHaveTextContent("/call/KK4PWJ/P");
+    expect(box).toHaveValue("");
+  });
+
+  it("swaps the search box for an icon that opens lookup on phones", async () => {
+    setMobile(true);
+    const { user } = renderPage(shell(), { route: "/sources" });
+    expect(screen.queryByRole("textbox", { name: "Look up a callsign" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Callsign lookup" }));
+    expect(screen.getByTestId("location")).toHaveTextContent("/lookup");
+  });
+
   it("falls back to the callsign and a placeholder avatar", () => {
     renderPage(shell(), { route: "/sources", app: { profile: null } });
     expect(screen.getAllByText("?").length).toBeGreaterThan(0);
@@ -79,5 +104,21 @@ describe("PublicShell", () => {
     const where = screen.getByTestId("location");
     expect(where).toHaveTextContent("/signin");
     expect(JSON.parse(where.dataset.state ?? "null")).toEqual({ from: "/stats" });
+  });
+
+  it.each([["Lookup", "/lookup"], ["Stats", "/stats"]])("links to %s", async (name, path) => {
+    const { user } = renderPage(<PublicShell><p>public body</p></PublicShell>, { route: "/call/KK4PWJ" });
+    await user.click(screen.getByRole("button", { name }));
+    expect(screen.getByTestId("location")).toHaveTextContent(path);
+  });
+
+  it("shows the links as icons on phones", async () => {
+    setMobile(true);
+    const { user } = renderPage(<PublicShell><p>public body</p></PublicShell>, { route: "/call/KK4PWJ" });
+    expect(screen.queryByText("Lookup")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Lookup" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Stats" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Sign in" }));
+    expect(JSON.parse(screen.getByTestId("location").dataset.state ?? "null")).toEqual({ from: "/call/KK4PWJ" });
   });
 });
