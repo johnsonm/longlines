@@ -124,7 +124,8 @@ relay on pushes to main; nothing else deploys automatically.
 - Matching lives in SQL (`spot_matches`, `match_pending_spots`); never re-implement the predicate in
   TypeScript. The preview RPC and the matcher must stay on the same function.
 - A DX Cluster spot matches only subscriptions whose `sources` lists `dxcluster`; an empty sources
-  list ("any source") does not include it. The rule lives in `source_matches`. RBN spots match only subscriptions that name callsigns.
+  list ("any source") does not include it. The rule lives in `source_matches`. RBN spots match only subscriptions that name callsigns,
+  typed or through a callsign group.
 - The worker (`supabase/functions/deliver`) only talks to the database through the
   `claim_deliveries` / `mark_deliveries_*` / `delay_deliveries` RPCs so delivery rows, queue
   messages and destination health change atomically.
@@ -186,7 +187,8 @@ relay on pushes to main; nothing else deploys automatically.
   migration that indexes `rbn_spots` partition by partition first takes
   `lock table rbn_spots in share update exclusive mode`, so `maintain_rbn_spots` cannot add or drop a
   partition mid-build; that lock does not block inserts. `spot_matches` lets an RBN spot match only
-  subscriptions that name callsigns; keep that guard if the predicate changes.
+  subscriptions that name callsigns, typed or through a group (`callsigns` or `group_ids` non-empty);
+  keep that guard if the predicate changes, and keep `watched_among` on the same rule.
 - Be polite: exactly one machine (`fly scale count 1`), reconnect backoff never below 30 s, no
   tests that connect to RBN. Tests use the captured fixture or a local TCP server.
 - Merges to main deploy the relay through Fly's GitHub integration (set up in the Fly dashboard,
