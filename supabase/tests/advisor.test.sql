@@ -22,7 +22,8 @@ select set_eq(
   $$select proname::text from public_functions where has_function_privilege('authenticated', oid, 'execute')$$,
   array['callsign_available', 'create_destination', 'rotate_signing_secret', 'save_subscription',
         'delete_subscription', 'preview_subscription', 'list_ingest_health', 'list_recent_spots',
-        'normalize_group_callsigns', 'save_callsign_group', 'delete_callsign_group', 'list_callsign_groups'],
+        'normalize_group_callsigns', 'save_callsign_group', 'delete_callsign_group', 'list_callsign_groups',
+        'create_api_token', 'rotate_api_token'],
   'authenticated may execute only the client RPCs');
 
 select set_eq(

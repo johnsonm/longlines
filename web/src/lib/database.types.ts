@@ -23,7 +23,39 @@ export type Database = {
           }
         },"public": {
           Tables: {
-            "archive_log": {
+            "api_rate_limits": {
+                  Row: {
+                    "requests": number,"token_id": string,"window_start": string
+                  }
+                  Insert: {
+                    "requests": number,"token_id": string,"window_start": string
+                  }
+                  Update: {
+                    "requests"?: number,"token_id"?: string,"window_start"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "api_rate_limits_token_id_fkey"
+      columns: ["token_id"]
+isOneToOne: false
+      referencedRelation: "api_tokens"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"api_tokens": {
+                  Row: {
+                    "created_at": string,"expires_at": string | null,"id": string,"last_used_at": string | null,"lifetime_days": number | null,"name": string,"rotated_at": string | null,"scope": string,"token_hash": string,"token_prefix": string,"user_id": string
+                  }
+                  Insert: {
+                    "created_at"?: string,"expires_at"?: string | null,"id"?: string,"last_used_at"?: string | null,"lifetime_days"?: number | null,"name": string,"rotated_at"?: string | null,"scope": string,"token_hash": string,"token_prefix": string,"user_id": string
+                  }
+                  Update: {
+                    "created_at"?: string,"expires_at"?: string | null,"id"?: string,"last_used_at"?: string | null,"lifetime_days"?: number | null,"name"?: string,"rotated_at"?: string | null,"scope"?: string,"token_hash"?: string,"token_prefix"?: string,"user_id"?: string
+                  }
+                  Relationships: [
+                    
+                  ]
+                },"archive_log": {
                   Row: {
                     "archived_at": string,"bytes": number | null,"object_path": string | null,"row_count": number,"slice_end": string,"slice_start": string,"source": string
                   }
@@ -620,6 +652,15 @@ isOneToOne: false
             "apply_license_loads":
 { Args: Record<PropertyKey, never>; Returns: undefined
                            },
+"api_call":
+{ Args: { "p_args": Json,"p_op": string,"p_token_id": string }; Returns: Json
+                           },
+"api_destination_json":
+{ Args: { "d": Database["public"]["Tables"]["destinations"]["Row"] }; Returns: Json
+                           },
+"api_subscription_json":
+{ Args: { "s": Database["public"]["Tables"]["subscriptions"]["Row"] }; Returns: Json
+                           },
 "archive_ndjson":
 { Args: { "p_from": string,"p_source": string,"p_to": string }; Returns: {
               "ndjson": string,"row_count": number
@@ -632,6 +673,11 @@ isOneToOne: false
                            },
 "archive_slice_minutes":
 { Args: { "p_source": string }; Returns: number
+                           },
+"authenticate_api_request":
+{ Args: { "p_token_hash": string }; Returns: {
+              "requests": number,"scope": string,"token_id": string,"user_id": string
+            }[]
                            },
 "backfill_callsign_rollups":
 { Args: { "p_max_days"?: number }; Returns: {
@@ -661,6 +707,11 @@ isOneToOne: false
 "compact_callsign_rollups":
 { Args: Record<PropertyKey, never>; Returns: undefined
                            },
+"create_api_token":
+{ Args: { "p_lifetime_days"?: number,"p_name": string,"p_scope": string }; Returns: {
+              "created_at": string,"expires_at": string,"id": string,"lifetime_days": number,"name": string,"scope": string,"token": string,"token_prefix": string
+            }[]
+                           },
 "create_destination":
 { Args: { "p_name": string,"p_type": string,"p_url": string }; Returns: {
               "created_at": string,"health": string,"id": string,"name": string,"signing_secret": string,"type": string,"url_display": string
@@ -680,11 +731,20 @@ isOneToOne: false
 "delete_callsign_group":
 { Args: { "p_id": string }; Returns: undefined
                            },
+"delete_destination":
+{ Args: { "p_id": string }; Returns: undefined
+                           },
 "delete_subscription":
 { Args: { "p_id": string }; Returns: undefined
                            },
 "destination_url_display":
 { Args: { "p_type": string,"p_url": string }; Returns: string
+                           },
+"edit_group_callsigns":
+{ Args: { "p_add": Json,"p_id": string,"p_remove": Json }; Returns: undefined
+                           },
+"edit_subscription_callsigns":
+{ Args: { "p_add": Json,"p_id": string,"p_remove": Json }; Returns: (string)[]
                            },
 "email_for_identifier":
 { Args: { "p_identifier": string }; Returns: string
@@ -800,11 +860,20 @@ isOneToOne: false
 "mode_bucket":
 { Args: { "p_family": string,"p_mode": string }; Returns: string
                            },
+"new_api_token":
+{ Args: Record<PropertyKey, never>; Returns: string
+                           },
 "normalize_group_callsigns":
 { Args: { "p_calls": (string)[] }; Returns: Json
                            },
 "parse_https_url":
 { Args: { "p_url": string }; Returns: (string)[]
+                           },
+"patch_callsign_group":
+{ Args: { "p_id": string,"p_patch": Json }; Returns: undefined
+                           },
+"patch_subscription":
+{ Args: { "p_id": string,"p_patch": Json }; Returns: undefined
                            },
 "preview_subscription":
 { Args: { "filter": Json }; Returns: {
@@ -855,6 +924,11 @@ isOneToOne: false
 "rollup_rbn_hours":
 { Args: { "p_from": string,"p_to": string }; Returns: undefined
                            },
+"rotate_api_token":
+{ Args: { "p_id": string }; Returns: {
+              "expires_at": string,"token": string,"token_prefix": string
+            }[]
+                           },
 "rotate_signing_secret":
 { Args: { "p_destination_id": string }; Returns: string
                            },
@@ -875,6 +949,9 @@ isOneToOne: false
                            },
 "stats_payload_without_hidden":
 { Args: { "p_payload": Json }; Returns: Json
+                           },
+"update_destination":
+{ Args: { "p_id": string,"p_name": string,"p_url": string }; Returns: undefined
                            },
 "validate_destination_url":
 { Args: { "p_type": string,"p_url": string }; Returns: undefined

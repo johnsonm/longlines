@@ -684,3 +684,37 @@ A profile is everything Long Lines has heard from one station, for a public page
   by hashing every IPv4 address. Profiles are
   cached in the database for 15 minutes and sent with `Cache-Control: public, max-age=300`.
   `prune_callsign_lookups()` clears finished windows and expired entries hourly at :15.
+
+## Management API
+
+Scripts manage destinations, subscriptions and callsign groups through the `api` Edge Function with
+a personal API token instead of a browser session (`docs/API.md` is the public reference;
+migration `20261013000300_management_api.sql`). Public URL `https://api.longlines.io/v1/...`, a
+host-matched rewrite in `web/vercel.json` to `/functions/v1/api/v1/...`.
+
+- **Tokens.** `api_tokens` stores a SHA-256 of each token (`ll_live_` + 52 base32 characters, 260
+  random bits, so no slow hash) plus its first 12 characters for display. `create_api_token` and
+  `rotate_api_token` return the plaintext once, like `create_destination`'s signing secret.
+  `token_hash` is left out of the column grant. Rotation keeps the row and restarts the expiry
+  window. Revoking is a plain delete (own rows, RLS). Ten tokens per user.
+- **A request.** The function (`verify_jwt = false`, since the token isn't a JWT) routes the path
+  first (`_shared/api/routes.ts`), so an unknown path costs no database call. It then hashes the
+  bearer token and calls `authenticate_api_request`, which finds an unexpired token, touches
+  `last_used_at` at most once a minute and counts the request in `api_rate_limits`. That table
+  holds one row per token: each new minute deletes the token's older rows, so no cron prunes it.
+  Over 60 a minute is 429. A write route with a read token is 403.
+- **Acting as the user.** `api_call(token_id, op, args)` is the only way in. It checks the token
+  and the op's scope again, sets `request.jwt.claim.sub` and `request.jwt.claims` to the owner for
+  the transaction, and calls the same RPCs the web app calls (`save_subscription`,
+  `create_destination`, `save_callsign_group`, ...). `auth.uid()` inside them is the owner, so
+  ownership checks, validation and messages are shared with the web app and can't drift. The
+  claims are put back before it returns. A few operations the web app doesn't have yet live next to
+  it as ordinary `auth.uid()` RPCs, executable only through `api_call`: `update_destination`,
+  `delete_destination`, `patch_subscription` (merges the patch into the stored subscription and
+  saves through `save_subscription`), `edit_subscription_callsigns` (one atomic update), and
+  `patch_callsign_group` / `edit_group_callsigns`, which lock the group, merge the change and save
+  the whole list through `save_callsign_group`, so normalization to base calls and the 1,000-call
+  cap stay the web app's.
+- **Errors.** SQL raises user-facing messages. `_shared/api/errors.ts` maps "... not found." to
+  404, "Remove it from its subscriptions first." to 409, other raised messages and Postgres data
+  and integrity errors to 400, and everything else to a logged 500.

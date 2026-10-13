@@ -246,6 +246,22 @@ relay on pushes to main; nothing else deploys automatically.
   profile's own `callsign`. The web never works out a base call. A link built from a call as typed
   (`lookupPath`) works only because the profile page swaps it for the base the profile returns.
 
+## Management API rules
+
+- The `api` function (`docs/API.md`, `_shared/handlers/api.ts`) only routes, checks shapes and maps
+  errors. Behavior goes in SQL: `api_call` acts as the token's owner and calls the same RPCs the
+  web app calls. A new operation goes in `api_call`'s allowlist and the route table together, with
+  the same scope (`api_routes.test.ts` compares them); only `GET` routes are read scope.
+- `api_call` sets the request's JWT claims to the owner and must put them back before returning.
+  Never call it, or `set_config('request.jwt.claim...')`, anywhere else.
+- `api_tokens.token_hash` is never granted, and plaintext tokens come back only from
+  `create_api_token` / `rotate_api_token`. Never log a token or its hash.
+- The `api` function keeps `verify_jwt = false` and never imports `isServiceRole`.
+- API responses never include `destinations.url` or `signing_secret`, except the one-time return
+  from create and rotate. Shapes come from `api_destination_json` / `api_subscription_json`.
+- Copy for the API tokens page (`web/src/tokens/`) follows Brad's API tokens mockup, which
+  isn't in `docs/ui-mock.html` yet.
+
 ## Conventions
 
 - Time-dependent functions take `now: Date` so tests pin the clock. The POTA and SOTAwatch

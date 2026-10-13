@@ -35,6 +35,7 @@
       "read": [
         "supabase/functions",
         "supabase/config.toml",
+        "supabase/migrations",
         "deno.json",
         "relay/Dockerfile"
       ]

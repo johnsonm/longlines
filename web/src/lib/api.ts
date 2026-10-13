@@ -15,9 +15,14 @@ export type SubscriptionLink = Tables["subscription_destinations"]["Row"];
 export type RecentSpot = Views["recent_spots"]["Row"];
 export type IngestHealth = Views["ingest_health"]["Row"];
 export type DestinationType = "discord" | "webhook";
+export type ApiToken = Omit<Tables["api_tokens"]["Row"], "token_hash">;
+export type ApiTokenScope = "read" | "write";
 
 export const DESTINATION_COLUMNS =
   "id, user_id, type, name, url_display, health, consecutive_failures, last_success_at, last_error, last_error_at, created_at";
+
+export const API_TOKEN_COLUMNS =
+  "id, user_id, name, scope, token_prefix, lifetime_days, expires_at, created_at, rotated_at, last_used_at";
 
 export class ApiError extends Error {
   code: string | undefined;
@@ -190,6 +195,39 @@ export async function deleteDestination(destinationId: string): Promise<void> {
     if (error.code === "23503") throw new ApiError("Remove it from its subscriptions first.", error.code);
     fail(error, "Couldn't delete the destination.");
   }
+}
+
+// ---- API tokens ------------------------------------------------------------
+
+export async function loadApiTokens(): Promise<ApiToken[]> {
+  const { data, error } = await supabase.from("api_tokens").select(API_TOKEN_COLUMNS).order("created_at");
+  if (error) fail(error, "Couldn't load your tokens.");
+  return data;
+}
+
+/** Creates a token and returns its secret, which is never readable again. A null lifetime never expires. */
+export async function createApiToken(name: string, scope: ApiTokenScope, lifetimeDays: number | null): Promise<string> {
+  const { data, error } = await supabase.rpc("create_api_token", {
+    p_name: name, p_scope: scope, ...(lifetimeDays === null ? {} : { p_lifetime_days: lifetimeDays }),
+  });
+  if (error) fail(error, "Couldn't create the token.");
+  const row = data[0];
+  if (!row) throw new ApiError("Couldn't create the token.");
+  return row.token;
+}
+
+/** Replaces a token's secret; the old one stops working at once. Returns the new secret. */
+export async function rotateApiToken(id: string): Promise<string> {
+  const { data, error } = await supabase.rpc("rotate_api_token", { p_id: id });
+  if (error) fail(error, "Couldn't rotate the token.");
+  const row = data[0];
+  if (!row) throw new ApiError("Couldn't rotate the token.");
+  return row.token;
+}
+
+export async function deleteApiToken(id: string): Promise<void> {
+  const { error } = await supabase.from("api_tokens").delete().eq("id", id);
+  if (error) fail(error, "Couldn't delete the token.");
 }
 
 // ---- Subscriptions ---------------------------------------------------------
