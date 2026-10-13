@@ -142,13 +142,18 @@ every worktree. `20261013000200` belongs to another branch.
   any existing rows to base calls and drops the duplicates that creates. A check constraint
   `callsign = public.base_callsign(callsign)` sits next to the format check. Also add
   `callsign_group_members` to the CLAUDE.md rule that says what a `base_callsign()` change must
-  rewrite.
+  rewrite. *As built:* the rewrite is `rebase_callsign_group_members()` (service role only), so
+  pgTAP can run it and a later `base_callsign()` change can call it again. It also drops a row
+  whose base fails the format check.
 - **One normaliser, used twice.** `normalize_group_callsigns(p_calls text[]) → jsonb {callsigns
   text[], rejected text[]}`:
   - It trims all whitespace and uppercases.
   - It validates the value as typed against the `CALLSIGN_RE` rule.
   - It maps each call to its base call and removes duplicates.
   - It drops blanks.
+  - *As built:* it also rejects a call whose base fails the rule, since it couldn't be stored
+    (`W1AW/12345` has base `12345`). `rejected` keeps the order given, so the save's
+    "Not a callsign" names the first bad value typed.
   
   It is granted to `authenticated` and listed in `advisor.test.sql`. The dialog's Type, Paste and
   CSV tabs call it, so the chips show exactly what will be stored. `save_callsign_group` uses the

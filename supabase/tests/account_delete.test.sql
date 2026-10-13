@@ -8,8 +8,7 @@ select plan(6);
 
 select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
 create temp table d as select * from create_destination('discord', 'A discord', 'https://discord.com/api/webhooks/1/a');
-create temp table g as select create_callsign_group('Club') as id;
-select add_group_callsigns((select id from g), array['W1AW']);
+create temp table g as select save_callsign_group('{"name":"Club","callsigns":["W1AW"]}') as id;
 select save_subscription(jsonb_build_object('name', 'all', 'group_ids', array[(select id from g)], 'destinations', array[(select id from d)]));
 reset role;
 
