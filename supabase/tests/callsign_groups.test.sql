@@ -4,7 +4,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(57);
+select plan(67);
 
 -- Grants: clients read only; every write goes through an RPC.
 select table_privs_are('public', 'callsign_groups', 'authenticated', array['SELECT'], 'authenticated may only select groups');
@@ -17,6 +17,10 @@ set local role authenticated;
 set local request.jwt.claims = '';
 select throws_ok($$ select create_callsign_group('x') $$, 'P0001', 'Not signed in.', 'create needs a session');
 select throws_ok($$ select * from list_callsign_groups() $$, 'P0001', 'Not signed in.', 'list needs a session');
+select throws_ok(format('select rename_callsign_group(%L, %L)', gen_random_uuid(), 'x'), 'P0001', 'Not signed in.', 'rename needs a session');
+select throws_ok(format('select delete_callsign_group(%L)', gen_random_uuid()), 'P0001', 'Not signed in.', 'delete needs a session');
+select throws_ok(format('select add_group_callsigns(%L, %L)', gen_random_uuid(), array['W1AW']), 'P0001', 'Not signed in.', 'add needs a session');
+select throws_ok(format('select remove_group_callsigns(%L, %L)', gen_random_uuid(), array['W1AW']), 'P0001', 'Not signed in.', 'remove needs a session');
 reset role;
 
 -- Create: trimmed names, unique per account regardless of case.
@@ -28,6 +32,7 @@ select is((select name from callsign_groups where id = (select id from g1)), 'Cl
 select throws_ok($$ select create_callsign_group('club ROSTER') $$, 'P0001', 'You already have a group with that name.',
   'duplicate name refused regardless of case');
 select throws_ok($$ select create_callsign_group('   ') $$, 'P0001', 'Give the group a name.', 'empty name refused on create');
+select throws_ok($$ select create_callsign_group(null) $$, 'P0001', 'Give the group a name.', 'null name refused on create');
 
 -- Rename.
 select throws_ok(format('select rename_callsign_group(%L, %L)', (select id from g2), 'CLUB roster'),
@@ -46,10 +51,10 @@ set local session_replication_role = origin;
 select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
 
 create temp table r1 as select add_group_callsigns((select id from g1),
-  array[' w1aw ', 'kk4pwj', 'W1AW', 'junk!', '', 'W1AW/P', 'abc']) as r;
+  array[' w1aw ', 'kk4pwj', 'W1AW', 'junk!', 'Junk!', '', 'W1AW/P', 'abc']) as r;
 select is((select (r ->> 'added')::int from r1), 3, 'add counts distinct new calls');
 select is((select (r ->> 'already')::int from r1), 0, 'a call repeated in one batch is not counted as already there');
-select is((select array(select jsonb_array_elements_text(r -> 'rejected')) from r1), array['ABC', 'JUNK!'], 'invalid values come back rejected');
+select is((select array(select jsonb_array_elements_text(r -> 'rejected')) from r1), array['ABC', 'JUNK!'], 'invalid values come back rejected, once each');
 select is((select array_agg(callsign order by callsign) from callsign_group_members where group_id = (select id from g1)),
   array['KK4PWJ', 'W1AW', 'W1AW/P'], 'members stored uppercase and trimmed');
 select is((select updated_at from callsign_groups where id = (select id from g1)), now(), 'adding bumps the group''s updated_at');
@@ -76,6 +81,8 @@ select is((select updated_at from callsign_groups where id = (select id from g1)
 reset role;
 select throws_ok(format('insert into callsign_group_members (group_id, callsign) values (%L, %L)', (select id from g1), 'junk'),
   '23514', null, 'member callsigns are checked');
+select throws_ok(format('insert into callsign_groups (user_id, name) values (%L, %L)', '11111111-1111-1111-1111-111111111111', ' x'),
+  '23514', null, 'group names are checked trimmed');
 select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
 
 -- Subscriptions: group ids must be the caller's.
@@ -85,6 +92,8 @@ create temp table s1 as select save_subscription(jsonb_build_object('name', 'Clu
 select is((select group_ids from subscriptions where id = (select id from s1)), array[(select id from g1)], 'group ids saved');
 select throws_ok(format($f$ select save_subscription('{"name":"x","group_ids":["%s"],"destinations":["%s"]}') $f$,
   gen_random_uuid(), (select id from da)), 'P0001', 'Group not found.', 'an unknown group id is refused');
+select throws_ok(format($f$ select save_subscription('{"name":"x","group_ids":["%s","%s"],"destinations":["%s"]}') $f$,
+  (select id from g1), gen_random_uuid(), (select id from da)), 'P0001', 'Group not found.', 'one unknown group among owned ones is refused');
 select is(save_subscription(jsonb_build_object('id', (select id from s1), 'name', 'Club v2',
   'destinations', array[(select id from da)])), (select id from s1), 'an update without group_ids saves');
 select is((select group_ids from subscriptions where id = (select id from s1)), array[(select id from g1)],
@@ -142,7 +151,14 @@ select throws_ok($$ update callsign_groups set name = 'x' $$, '42501', null, 'di
 select throws_ok($$ delete from callsign_groups $$, '42501', null, 'direct group delete is not allowed');
 select throws_ok(format('insert into callsign_group_members (group_id, callsign) values (%L, %L)', (select id from g1), 'K1ABC'),
   '42501', null, 'direct member insert is not allowed');
+select throws_ok($$ update callsign_group_members set callsign = 'K1ABC' $$, '42501', null, 'direct member update is not allowed');
 select throws_ok($$ delete from callsign_group_members $$, '42501', null, 'direct member delete is not allowed');
+
+-- Once no subscription lists the group, it can be deleted.
+select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
+select lives_ok(format($f$ select save_subscription('{"id":"%s","name":"Club","group_ids":[],"destinations":["%s"]}') $f$,
+  (select id from s1), (select id from da)), 'the subscription drops the group');
+select lives_ok(format('select delete_callsign_group(%L)', (select id from g1)), 'a group no longer in use can be deleted');
 
 select * from finish();
 rollback;
