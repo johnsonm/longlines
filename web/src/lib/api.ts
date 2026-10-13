@@ -5,6 +5,7 @@ import { supabase, SUPABASE_ANON_KEY, SUPABASE_URL } from "../supabase";
 import type { Database, Json } from "./database.types";
 import type { LatestStats, StatsPayload } from "../stats/types";
 import type { CallsignProfile } from "../profile/types";
+import type { CallsignGroup, GroupInput, NormalizedCallsigns } from "../groups/types";
 
 type Tables = Database["public"]["Tables"];
 type Views = Database["public"]["Views"];
@@ -263,6 +264,8 @@ export interface SubscriptionInput extends SubscriptionFilter {
   enabled: boolean;
   quiet_minutes: number;
   destinations: string[];
+  // Optional until the subscription dialog edits groups; save_subscription keeps a subscription's groups when it's absent.
+  group_ids?: string[];
 }
 
 export async function saveSubscription(input: SubscriptionInput): Promise<string> {
@@ -292,6 +295,41 @@ export async function previewSubscription(filter: SubscriptionFilter): Promise<P
   if (error) fail(error, "Couldn't load the preview.");
   const row = data[0];
   return { count: Number(row?.count ?? 0), spots: (row?.spots ?? []) as unknown as RecentSpot[] };
+}
+
+// ---- Callsign groups ---------------------------------------------------------
+
+export async function listGroups(): Promise<CallsignGroup[]> {
+  const { data, error } = await supabase.rpc("list_callsign_groups");
+  if (error) fail(error, "Couldn't load your groups.");
+  return data.map((g) => ({
+    ...g,
+    member_count: Number(g.member_count),
+    subscription_count: Number(g.subscription_count),
+    // on_air is jsonb in the generated types; its shape is fixed by list_callsign_groups().
+    on_air: g.on_air as unknown as CallsignGroup["on_air"],
+  }));
+}
+
+/** Creates the group without an id, otherwise replaces its name and whole member list. Returns the id. */
+export async function saveGroup(input: GroupInput): Promise<string> {
+  const payload: Json = { ...input };
+  const { data, error } = await supabase.rpc("save_callsign_group", { payload });
+  if (error) fail(error, "Couldn't save the group.");
+  return data;
+}
+
+export async function deleteGroup(id: string): Promise<void> {
+  const { error } = await supabase.rpc("delete_callsign_group", { p_id: id });
+  if (error) fail(error, "Couldn't delete the group.");
+}
+
+/** Raw values to the base calls a group would store, plus the values that aren't callsigns. */
+export async function normalizeCallsigns(values: string[]): Promise<NormalizedCallsigns> {
+  const { data, error } = await supabase.rpc("normalize_group_callsigns", { p_calls: values });
+  if (error) fail(error, "Couldn't check those callsigns.");
+  // jsonb in the generated types; normalize_group_callsigns() always returns both arrays.
+  return data as unknown as NormalizedCallsigns;
 }
 
 // ---- Stats ------------------------------------------------------------------

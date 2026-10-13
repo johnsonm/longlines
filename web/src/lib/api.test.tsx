@@ -340,6 +340,53 @@ describe("subscriptions", () => {
   });
 });
 
+describe("callsign groups", () => {
+  const latest = {
+    callsign: "KK4PWJ/P", frequency_khz: 14062, band: "20m", mode: "CW", source: "pota", reference: "US-2763",
+    spot_time: "2026-10-13T14:00:00Z",
+  };
+
+  it("listGroups returns the RPC rows with numeric counts", async () => {
+    fake.rpcs.set("list_callsign_groups", {
+      data: [{
+        id: "g1", name: "RARS", callsigns: ["KK4PWJ"], member_count: "1", subscription_count: "2", updated_at: "x",
+        on_air: { count: 1, latest },
+      }],
+    });
+    expect(await api.listGroups()).toEqual([{
+      id: "g1", name: "RARS", callsigns: ["KK4PWJ"], member_count: 1, subscription_count: 2, updated_at: "x",
+      on_air: { count: 1, latest },
+    }]);
+    fake.rpcs.set("list_callsign_groups", { error: boom });
+    await expect(api.listGroups()).rejects.toThrow("boom");
+  });
+
+  it("saveGroup sends the whole list and returns the id", async () => {
+    fake.rpcs.set("save_callsign_group", { data: "g1" });
+    expect(await api.saveGroup({ name: "RARS", callsigns: ["KK4PWJ"] })).toBe("g1");
+    expect(fake.client.rpc).toHaveBeenCalledWith("save_callsign_group", { payload: { name: "RARS", callsigns: ["KK4PWJ"] } });
+    await api.saveGroup({ id: "g1", name: "RARS", callsigns: [] });
+    expect(fake.client.rpc).toHaveBeenCalledWith("save_callsign_group", { payload: { id: "g1", name: "RARS", callsigns: [] } });
+    fake.rpcs.set("save_callsign_group", { error: { message: "You already have a group with that name." } });
+    await expect(api.saveGroup({ name: "RARS", callsigns: [] })).rejects.toThrow("You already have a group with that name.");
+  });
+
+  it("deleteGroup goes through its RPC", async () => {
+    await api.deleteGroup("g1");
+    expect(fake.client.rpc).toHaveBeenCalledWith("delete_callsign_group", { p_id: "g1" });
+    fake.rpcs.set("delete_callsign_group", { error: { message: "Remove it from its subscriptions first." } });
+    await expect(api.deleteGroup("g1")).rejects.toThrow("Remove it from its subscriptions first.");
+  });
+
+  it("normalizeCallsigns returns the server's base calls and rejections", async () => {
+    fake.rpcs.set("normalize_group_callsigns", { data: { callsigns: ["KK4PWJ"], rejected: ["NOPE"] } });
+    expect(await api.normalizeCallsigns(["kk4pwj/p", "nope"])).toEqual({ callsigns: ["KK4PWJ"], rejected: ["NOPE"] });
+    expect(fake.client.rpc).toHaveBeenCalledWith("normalize_group_callsigns", { p_calls: ["kk4pwj/p", "nope"] });
+    fake.rpcs.set("normalize_group_callsigns", { error: boom });
+    await expect(api.normalizeCallsigns(["x"])).rejects.toThrow("boom");
+  });
+});
+
 describe("stats", () => {
   it("returns the newest snapshot, or null before the first refresh", async () => {
     fake.tables.set("stats_snapshots", { data: { payload: { totals: {} }, generated_at: "2026-10-05T13:00:00Z" } });

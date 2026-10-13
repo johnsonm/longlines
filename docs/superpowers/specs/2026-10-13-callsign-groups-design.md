@@ -233,11 +233,13 @@ Migration `20261013000220_callsign_group_matching.sql`. Recheck the number.
   - a `KK4PWJ/P` spot matching through a `KK4PWJ` member
   - another user's group id being ignored in preview, including in `station_count`
 
-## Section 3: Groups page (proposed; PR 3)
+## Section 3: Groups page (approved; PR 3)
 
 Build it to the mocks: `groups-page.png`, `new-group.png` and `edit-group.png`. The copy comes
-from the Copy section below. Strings the mocks don't show are marked *proposed*: show them to
-Brad and get a yes before using them.
+from the Copy section below. The strings the mocks don't show were approved and are in the Copy
+section. *As built:* chips are alphabetical, as `list_callsign_groups` returns them (the mock's
+order is just sample data). `SubscriptionInput` gains an optional `group_ids` for Get alerts;
+PR 4 makes the dialog edit it.
 
 - **Route and nav.** `/groups` (RequireAuth). A **Groups** nav item with a people icon goes
   between Subscriptions and Destinations.
@@ -340,6 +342,12 @@ above is added here once Brad approves it.
 - On-air chip: {N} on the air now
 - Latest spot: {CALL} {kHz} kHz {MODE} / {band} · {Source} · {reference} · {age} ago
 - Actions: Get alerts · Edit · Delete
+- Empty (approved): No groups yet. / button Create your first group
+- Delete has no confirmation, as on Destinations and Subscriptions. Disabled tooltip: Remove it
+  from its subscriptions first
+- Toasts (approved): Created {name} · Saved changes · Deleted {name}. Get alerts reuses the
+  profile's: Created {name} on the air · You already have {name}. · Add a destination to start
+  getting alerts.
 
 **Group dialog**
 - Titles: New group / Edit group
@@ -348,6 +356,16 @@ above is added here once Brad approves it.
 - Tabs: Type · Paste · Import CSV
 - Type tab field: Callsign (placeholder KK4PWJ), button Add
 - Type tab helper: Press Enter to add. Spaces or commas add several at once.
+- Paste tab (approved): field Callsigns (multi-line, placeholder KK4PWJ, N4DXX, AB4RD), helper
+  Separate them with commas, spaces or new lines., button Add
+- Import CSV tab (approved): button Choose file; helper One callsign per row. Long Lines uses the
+  column headed Call or Callsign, or the first column if there isn't one.; after parsing
+  "{file}: using the {Header} column. Found {N} callsigns, skipped {M}." (or "using the first
+  column"), then button Add; "No callsigns found in {file}."; "Couldn't read that file."
+- Rejected values (approved, under the tab): Not callsigns, so not added: {CALL}, {CALL}, …
+  (past 20, it ends "and {N} more")
+- Limit refusal (approved, under the tab, nothing added): That would make {N} callsigns. A group
+  can hold up to 1,000.
 - Panel heading: {N} callsigns
 - Panel button: Remove all
 - Panel helper: Portable suffixes like /P are removed, so KK4PWJ also matches KK4PWJ/P. Up to 1,000 per group.
