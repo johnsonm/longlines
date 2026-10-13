@@ -617,10 +617,7 @@ isOneToOne: false
                 }
           }
           Functions: {
-            "add_group_callsigns":
-{ Args: { "p_calls": (string)[],"p_id": string }; Returns: Json
-                           },
-"apply_license_loads":
+            "apply_license_loads":
 { Args: Record<PropertyKey, never>; Returns: undefined
                            },
 "archive_ndjson":
@@ -663,9 +660,6 @@ isOneToOne: false
                            },
 "compact_callsign_rollups":
 { Args: Record<PropertyKey, never>; Returns: undefined
-                           },
-"create_callsign_group":
-{ Args: { "p_name": string }; Returns: string
                            },
 "create_destination":
 { Args: { "p_name": string,"p_type": string,"p_url": string }; Returns: {
@@ -738,7 +732,7 @@ isOneToOne: false
                            },
 "list_callsign_groups":
 { Args: Record<PropertyKey, never>; Returns: {
-              "id": string,"member_count": number,"name": string,"subscription_count": number,"updated_at": string
+              "callsigns": (string)[],"id": string,"member_count": number,"name": string,"on_air": Json,"subscription_count": number,"updated_at": string
             }[]
                            },
 "list_ingest_health":
@@ -806,6 +800,9 @@ isOneToOne: false
 "mode_bucket":
 { Args: { "p_family": string,"p_mode": string }; Returns: string
                            },
+"normalize_group_callsigns":
+{ Args: { "p_calls": (string)[] }; Returns: Json
+                           },
 "parse_https_url":
 { Args: { "p_url": string }; Returns: (string)[]
                            },
@@ -825,6 +822,9 @@ isOneToOne: false
               "archived_rows": number,"db_rows": number,"slice_start": string
             }[]
                            },
+"rebase_callsign_group_members":
+{ Args: Record<PropertyKey, never>; Returns: undefined
+                           },
 "record_ingest_failure":
 { Args: { "p_error": string,"p_source": string }; Returns: undefined
                            },
@@ -843,12 +843,6 @@ isOneToOne: false
 "refresh_stats_snapshot_at":
 { Args: { "p_now": string }; Returns: undefined
                            },
-"remove_group_callsigns":
-{ Args: { "p_calls": (string)[],"p_id": string }; Returns: number
-                           },
-"rename_callsign_group":
-{ Args: { "p_id": string,"p_name": string }; Returns: undefined
-                           },
 "retire_rbn_day":
 { Args: { "p_day": string }; Returns: undefined
                            },
@@ -866,6 +860,9 @@ isOneToOne: false
                            },
 "run_housekeeping":
 { Args: Record<PropertyKey, never>; Returns: undefined
+                           },
+"save_callsign_group":
+{ Args: { "payload": Json }; Returns: string
                            },
 "save_subscription":
 { Args: { "payload": Json }; Returns: string

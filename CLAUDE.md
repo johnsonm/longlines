@@ -224,7 +224,8 @@ relay on pushes to main; nothing else deploys automatically.
 - `base_callsign()` output is now permanent in the rollups: changing it splits history. If it
   must change, the same migration rewrites `raw_spots.base_callsign`, runs
   `reindex index rbn_spots_base_callsign_time_idx` (Postgres never rebuilds an expression index when
-  its function changes) and fixes any `hidden_callsigns` row its check would now reject.
+  its function changes), fixes any `hidden_callsigns` row its check would now reject and calls
+  `rebase_callsign_group_members()`, since `callsign_group_members` stores base calls.
 
 ## Profile rules
 
