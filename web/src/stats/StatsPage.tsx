@@ -1,12 +1,14 @@
 import {
-  Alert, Box, Card, CardContent, Grid, LinearProgress, List, ListItem, ListItemText, Stack, Typography,
+  Alert, Box, Card, CardContent, Grid, LinearProgress, Link, List, ListItem, ListItemText, Stack, Typography,
   useMediaQuery, useTheme,
 } from "@mui/material";
 // MUI X Charts and Data Grid are the MIT community packages (not Pro/Premium):
 // fixed charts and three read-only tables. Nothing on this page is adjustable.
 import { BarChart, LineChart, PieChart } from "@mui/x-charts";
-import { DataGrid, type GridColDef } from "@mui/x-data-grid";
+import { DataGrid, type GridColDef, type GridRenderCellParams } from "@mui/x-data-grid";
+import { Link as RouterLink } from "react-router";
 import { PageTitle } from "../layout/PageTitle";
+import { lookupPath } from "../profile/format";
 import { ChartCard, GRID, Kpi } from "./parts";
 import { compact, dayLabel, fmt, hasData, hourLabel, slotLabel, topStates, updatedCaption, weekday } from "./format";
 import { stateName } from "./stateShapes";
@@ -14,8 +16,19 @@ import type { StatsPayload } from "./types";
 import { UsStateMap } from "./UsStateMap";
 import { useStats } from "./useStats";
 
+// A callsign cell links to the station's profile, /call/<base>. The row's base is the base call SQL
+// worked out (TypeScript never does).
+function callsignColumn(minWidth: number): GridColDef {
+  return {
+    field: "callsign", headerName: "Callsign", flex: 1, minWidth, sortable: false,
+    renderCell: ({ row, value }: GridRenderCellParams<{ base: string }, string>) => (
+      <Link component={RouterLink} to={lookupPath(row.base) ?? "/lookup"}>{value}</Link>
+    ),
+  };
+}
+
 const ACTIVATOR_COLUMNS: GridColDef[] = [
-  { field: "callsign", headerName: "Callsign", flex: 1, minWidth: 70, sortable: false },
+  callsignColumn(70),
   { field: "references", headerName: "Refs", type: "number", width: 70, sortable: false },
   { field: "activations", headerName: "Activations", type: "number", width: 100, sortable: false },
   { field: "spots", headerName: "Spots", type: "number", width: 80, sortable: false },
@@ -23,7 +36,7 @@ const ACTIVATOR_COLUMNS: GridColDef[] = [
 ];
 
 const RBN_STATION_COLUMNS: GridColDef[] = [
-  { field: "callsign", headerName: "Callsign", flex: 1, minWidth: 100, sortable: false },
+  callsignColumn(100),
   { field: "spots", headerName: "Spots", type: "number", width: 100, sortable: false },
   { field: "skimmers", headerName: "Skimmers", type: "number", width: 100, sortable: false },
 ];
@@ -270,7 +283,8 @@ function Dashboard({ payload }: { payload: StatsPayload }) {
           <ChartCard title="Most active activators" subheader="By number of parks and summits activated">
             <DataGrid
               {...GRID}
-              rows={payload.topActivators.map((r, id) => ({ id, ...r, topBand: r.topBand ?? "" }))}
+              // A snapshot written before 20261012000090 has no base; its profile redirects to the base call.
+              rows={payload.topActivators.map((r, id) => ({ id, ...r, base: r.base ?? r.callsign, topBand: r.topBand ?? "" }))}
               columns={ACTIVATOR_COLUMNS}
               columnVisibilityModel={{ topBand: !mobile }}
             />
@@ -291,7 +305,7 @@ function Dashboard({ payload }: { payload: StatsPayload }) {
       <ChartCard title="Most heard on RBN" subheader="Stations with the most skimmer spots">
         <DataGrid
           {...GRID}
-          rows={rbn.topStations.map((r, id) => ({ id, ...r }))}
+          rows={rbn.topStations.map((r, id) => ({ id, ...r, base: r.callsign }))}
           columns={RBN_STATION_COLUMNS}
         />
       </ChartCard>

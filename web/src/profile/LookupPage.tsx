@@ -24,7 +24,7 @@ export function LookupPage() {
           <Typography variant="subtitle2" gutterBottom>Busy this week</Typography>
           <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap" }}>
             {busy.map((a) => (
-              <Chip key={a.callsign} label={a.callsign} component={Link} to={lookupPath(a.callsign) ?? "/lookup"} clickable />
+              <Chip key={a.callsign} label={a.callsign} component={Link} to={lookupPath(a.base ?? a.callsign) ?? "/lookup"} clickable />
             ))}
           </Stack>
         </Box>

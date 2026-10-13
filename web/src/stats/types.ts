@@ -1,5 +1,5 @@
 // Shape of stats_snapshots.payload. It is produced by refresh_stats_snapshot()
-// in supabase/migrations/20261011000007_stats_rbn_volume.sql and pinned by
+// in supabase/migrations/20261012000090_stats_base_callsign.sql and pinned by
 // supabase/tests/stats_snapshot.test.sql; change both together.
 
 export type ModeLabel = "CW" | "SSB" | "FT8/FT4" | "FM" | "Other";
@@ -20,14 +20,17 @@ export type StatsPayload = {
   sotaAssociations: { code: string; spots: number }[]; // top 10
   bands: { band: string; pota: number; sota: number }[]; // fixed order 160m … 2m
   modes: { label: ModeLabel; percent: number }[]; // integers, sum to 100
-  topActivators: { callsign: string; references: number; activations: number; spots: number; topBand: string | null }[]; // top 8
+  // callsign as spotted (KK4PWJ/P); base is its base call, the profile the page links to. Top 8.
+  topActivators: { callsign: string; base: string; references: number; activations: number; spots: number; topBand: string | null }[];
   topReferences: { reference: string; name: string | null; program: Program; activations: number; spots: number }[]; // top 8
   // Every RBN spot in rbn_spots, not the watched copies in raw_spots, which count nowhere.
   rbn: {
     spots: number;
     skimmers: number; // distinct skimmer callsigns
     bands: { band: string; spots: number }[]; // same fixed order as bands
-    topStations: { callsign: string; spots: number; skimmers: number }[]; // top 8 by spots; skimmers is distinct over the week
+    // Top 8 by spots per base call (K3PA and K3PA-1 are one station), so callsign is a base call;
+    // skimmers is distinct over the week, for any form of the call.
+    topStations: { callsign: string; spots: number; skimmers: number }[];
   };
 };
 
