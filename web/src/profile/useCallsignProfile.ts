@@ -3,19 +3,21 @@ import { loadCallsignProfile } from "../lib/api";
 import { keyedCached, type KeyedCached } from "../stats/cache";
 import type { CallsignProfile } from "./types";
 
-const PROFILE_CACHE_MS = 15 * 60 * 1000;
+// As long as the function lets a browser cache it (Cache-Control max-age=300),
+// counted from when it arrived: the database may already have held it for up
+// to 15 minutes, and the server's clock is not the browser's.
+const PROFILE_CACHE_MS = 5 * 60 * 1000;
 
-// Kept until the database cache that served it expires, so going back to a
-// profile renders it at once without another lookup against the rate limit.
-// A lookup of KK4PWJ/P is also kept under the base call it returned, which the
-// page redirects to next.
+// Going back to a profile renders it at once without another lookup against
+// the rate limit. A lookup of KK4PWJ/P is also kept under the base call it
+// returned, which the page redirects to next.
 const profiles: KeyedCached<CallsignProfile> = keyedCached(
   async (callsign) => {
     const profile = await loadCallsignProfile(callsign);
     if (profile.callsign !== callsign) profiles.put(profile.callsign, profile);
     return profile;
   },
-  (p) => Date.parse(p.generatedAt) + PROFILE_CACHE_MS,
+  () => Date.now() + PROFILE_CACHE_MS,
 );
 
 interface Result {

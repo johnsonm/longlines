@@ -108,6 +108,8 @@ relay on pushes to main; nothing else deploys automatically.
   `rollup_rbn_day` tables, never from `rbn_spots` directly: the refresh runs hourly and the
   firehose is ~1.5M rows a day. The payload shape is `StatsPayload` in `web/src/stats/types.ts` and is pinned by
   `supabase/tests/stats_snapshot.test.sql`; change the SQL, the type and the test together.
+  A trigger on `stats_snapshots` (`stats_snapshots_drop_hidden`) removes calls in
+  `hidden_callsigns` from `topActivators` and `rbn.topStations`, so a top list can hold fewer than eight.
 - The Stats page is deliberately fixed: no controls beyond tooltips, one request per hour of use
   (`web/src/stats/cache.ts` keeps a snapshot until the next refresh is due; never poll).
   Do not add filters, date pickers, sorting or MUI X Pro components.

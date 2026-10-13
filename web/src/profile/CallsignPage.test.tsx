@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router";
-import { ApiError, saveSubscription, type Destination } from "../lib/api";
+import { ApiError, loadDestinations, loadSubscriptions, saveSubscription, type Destination, type SubscriptionWithLinks } from "../lib/api";
 import { appValue, tourValue, wrap } from "../test/render";
 import { LocationProbe } from "../test/LocationProbe";
 import { setMobile } from "../test/media";
@@ -21,6 +21,8 @@ vi.mock("../lib/api", () => ({
     }
   },
   saveSubscription: vi.fn(),
+  loadDestinations: vi.fn(),
+  loadSubscriptions: vi.fn(),
 }));
 vi.mock("./useCallsignProfile", () => ({ useCallsignProfile: vi.fn() }));
 
@@ -53,6 +55,8 @@ function renderAt(path: string, options: { account?: AlertAccount; app?: Partial
 beforeEach(() => {
   vi.mocked(useCallsignProfile).mockReset();
   vi.mocked(saveSubscription).mockReset().mockResolvedValue("s1");
+  vi.mocked(loadDestinations).mockReset().mockResolvedValue([DEST]);
+  vi.mocked(loadSubscriptions).mockReset().mockResolvedValue([]);
   profileIs(FULL);
 });
 
@@ -92,7 +96,10 @@ describe("CallsignPage states", () => {
     profileIs(null, new ApiError("Enter a callsign, like KK4PWJ.", "400"));
     const { user, where } = renderAt("/call/BOGUS");
     expect(screen.getByText("BOGUS isn't a valid callsign. Enter a callsign, like KK4PWJ.")).toBeInTheDocument();
-    await user.type(screen.getByRole("textbox", { name: "Callsign" }), "w1aw{Enter}");
+    const box = screen.getByRole("textbox", { name: "Callsign" });
+    expect(box).toHaveValue("BOGUS");
+    await user.clear(box);
+    await user.type(box, "w1aw{Enter}");
     expect(where()).toHaveTextContent("/call/W1AW");
   });
 
@@ -211,6 +218,33 @@ describe("Share", () => {
     }
   });
 
+  it("falls back to copying the link when the share sheet fails for another reason", async () => {
+    const share = vi.fn(() => Promise.reject(new DOMException("not allowed", "NotAllowedError")));
+    Object.defineProperty(navigator, "share", { value: share, configurable: true });
+    try {
+      const { user, app } = renderAt("/call/KK4PWJ");
+      const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValueOnce(undefined);
+      await user.click(screen.getByRole("button", { name: "Share" }));
+      expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/call/KK4PWJ`);
+      await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Link copied."));
+    } finally {
+      Reflect.deleteProperty(navigator, "share");
+    }
+  });
+
+  it("does nothing more once the share sheet succeeds", async () => {
+    const share = vi.fn(() => Promise.resolve());
+    Object.defineProperty(navigator, "share", { value: share, configurable: true });
+    try {
+      const { user, app } = renderAt("/call/KK4PWJ");
+      await user.click(screen.getByRole("button", { name: "Share" }));
+      expect(share).toHaveBeenCalled();
+      expect(app.notify).not.toHaveBeenCalled();
+    } finally {
+      Reflect.deleteProperty(navigator, "share");
+    }
+  });
+
   it("copies the link otherwise, and says when it can't", async () => {
     const { user, app } = renderAt("/call/KK4PWJ");
     const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValueOnce(undefined);
@@ -223,6 +257,8 @@ describe("Share", () => {
   });
 });
 
+const account = () => ({ reload: vi.fn(() => Promise.resolve()) });
+
 describe("Get alerts", () => {
   it("sends a signed-out visitor to sign in and back", async () => {
     const { user, where } = renderAt("/call/KK4PWJ");
@@ -232,40 +268,72 @@ describe("Get alerts", () => {
   });
 
   it("creates the subscription to the first healthy destination and opens Subscriptions", async () => {
-    const reload = vi.fn(() => Promise.resolve());
-    const dests = [{ ...DEST, id: "bad", health: "failing" }, DEST];
-    const { user, app, where } = renderAt("/call/KK4PWJ", { account: { dests, reload } });
+    vi.mocked(loadDestinations).mockResolvedValue([{ ...DEST, id: "bad", health: "failing" }, DEST]);
+    const alerts = account();
+    const { user, app, where } = renderAt("/call/KK4PWJ", { account: alerts });
     await user.click(screen.getByRole("button", { name: "Get alerts" }));
     await waitFor(() => expect(where()).toHaveTextContent("/subscriptions"));
     expect(saveSubscription).toHaveBeenCalledWith({
       name: "KK4PWJ on the air", enabled: true, quiet_minutes: 30, destinations: ["d1"],
       sources: [], bands: [], modes: [], callsigns: ["KK4PWJ"], reference: "",
     });
-    expect(reload).toHaveBeenCalled();
+    expect(alerts.reload).toHaveBeenCalled();
     expect(app.notify).toHaveBeenCalledWith("Created KK4PWJ on the air");
   });
 
-  it("falls back to any destination when none is healthy", async () => {
-    const { user } = renderAt("/call/KK4PWJ", { account: { dests: [{ ...DEST, health: "paused" }], reload: vi.fn(() => Promise.resolve()) } });
+  it("opens Subscriptions instead of creating a second subscription for the same call", async () => {
+    vi.mocked(loadSubscriptions).mockResolvedValue([
+      { id: "s9", name: "Pisgah regulars", callsigns: ["W1AW", "KK4PWJ"] } as SubscriptionWithLinks,
+    ]);
+    const { user, app, where } = renderAt("/call/KK4PWJ", { account: account() });
     await user.click(screen.getByRole("button", { name: "Get alerts" }));
-    await waitFor(() => expect(saveSubscription).toHaveBeenCalledWith(expect.objectContaining({ destinations: ["d1"] })));
+    await waitFor(() => expect(where()).toHaveTextContent("/subscriptions"));
+    expect(app.notify).toHaveBeenCalledWith("You already have Pisgah regulars.");
+    expect(saveSubscription).not.toHaveBeenCalled();
   });
 
-  it("sends a user without destinations to add one", async () => {
-    const { user, app, where } = renderAt("/call/KK4PWJ", { account: { dests: [], reload: vi.fn() } });
+  it("does not count a subscription to a portable form as covering the base call", async () => {
+    vi.mocked(loadSubscriptions).mockResolvedValue([{ id: "s9", name: "Portable", callsigns: ["KK4PWJ/P"] } as SubscriptionWithLinks]);
+    const { user } = renderAt("/call/KK4PWJ", { account: account() });
     await user.click(screen.getByRole("button", { name: "Get alerts" }));
-    expect(where()).toHaveTextContent("/destinations");
+    await waitFor(() => expect(saveSubscription).toHaveBeenCalled());
+  });
+
+  it.each([
+    ["no destinations", []],
+    ["only paused or failing ones", [{ ...DEST, health: "paused" }, { ...DEST, id: "d2", health: "failing" }]],
+  ])("sends a user with %s to add one", async (_label, dests) => {
+    vi.mocked(loadDestinations).mockResolvedValue(dests as Destination[]);
+    const { user, app, where } = renderAt("/call/KK4PWJ", { account: account() });
+    await user.click(screen.getByRole("button", { name: "Get alerts" }));
+    await waitFor(() => expect(where()).toHaveTextContent("/destinations"));
     expect(app.notify).toHaveBeenCalledWith("Add a destination to start getting alerts.");
     expect(saveSubscription).not.toHaveBeenCalled();
   });
 
+  it("reads destinations at the click, not from a list that may not have loaded", async () => {
+    const { user } = renderAt("/call/KK4PWJ", { account: account() });
+    expect(loadDestinations).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Get alerts" }));
+    await waitFor(() => expect(saveSubscription).toHaveBeenCalled());
+    expect(loadDestinations).toHaveBeenCalledTimes(1);
+  });
+
   it("reports a failed save and stays on the profile", async () => {
     vi.mocked(saveSubscription).mockRejectedValue(new Error("Destination not found."));
-    const { user, app, where } = renderAt("/call/KK4PWJ", { account: { dests: [DEST], reload: vi.fn() } });
+    const { user, app, where } = renderAt("/call/KK4PWJ", { account: account() });
     await user.click(screen.getByRole("button", { name: "Get alerts" }));
     await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Destination not found."));
     expect(where()).toHaveTextContent("/call/KK4PWJ");
     expect(screen.getByRole("button", { name: "Get alerts" })).toBeEnabled();
+  });
+
+  it("reports a failed destination load", async () => {
+    vi.mocked(loadDestinations).mockRejectedValue(new Error("Couldn't load destinations."));
+    const { user, app } = renderAt("/call/KK4PWJ", { account: account() });
+    await user.click(screen.getByRole("button", { name: "Get alerts" }));
+    await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Couldn't load destinations."));
+    expect(saveSubscription).not.toHaveBeenCalled();
   });
 });
 

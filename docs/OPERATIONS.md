@@ -695,6 +695,9 @@ delete from hidden_callsigns where callsign = 'KK4PWJ';   -- show it again
 
 A hidden call gets the not-heard page with no license from the next lookup on; the cache is
 skipped for it. Browsers and CDNs may still hold the old page for up to 5 minutes.
+The Stats snapshot drops hidden calls from its top lists (a trigger on `stats_snapshots`) from the
+next hourly refresh on; to drop a newly hidden call now, run
+`update stats_snapshots set payload = payload;`.
 
 ## A profile looks stale
 

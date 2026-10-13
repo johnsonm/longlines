@@ -3,6 +3,8 @@
 // section of docs/superpowers/specs/2026-10-12-callsign-lookup-design.md.
 
 import type { RecentSpot } from "../lib/api";
+import { normalizeCallsign } from "../lib/callsign";
+import { formatDate } from "../lib/time";
 import { sourceName } from "../sources/sources";
 import { fmt } from "../stats/format";
 import { stateName } from "../stats/stateShapes";
@@ -25,7 +27,7 @@ export function plural(n: number, one: string, many: string): string {
  * works out the base call itself. Null for blank input.
  */
 export function lookupPath(input: string): string | null {
-  const call = input.trim().toUpperCase();
+  const call = normalizeCallsign(input);
   if (!call) return null;
   return `/call/${call.split("/").map(encodeURIComponent).join("/")}`;
 }
@@ -35,9 +37,9 @@ export function profileUrl(origin: string, callsign: string): string {
   return `${origin}/call/${callsign}`;
 }
 
-/** "Oct 5, 2026" for a YYYY-MM-DD day. */
+/** "Oct 5, 2026" for a YYYY-MM-DD day; the account page's format. */
 export function dateLabel(day: string): string {
-  return DATE.format(new Date(`${day}T00:00:00Z`));
+  return formatDate(`${day}T00:00:00Z`);
 }
 
 /** "Oct 2026" for a YYYY-MM month. */

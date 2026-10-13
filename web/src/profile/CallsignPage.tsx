@@ -10,7 +10,7 @@ import { BarChart, PieChart } from "@mui/x-charts";
 import { DataGrid, type GridColDef } from "@mui/x-data-grid";
 import { Navigate, useLocation, useNavigate, useParams } from "react-router";
 import { errorText, useApp } from "../app/hooks";
-import { ApiError, saveSubscription, type Destination } from "../lib/api";
+import { ApiError, loadDestinations, loadSubscriptions, saveSubscription } from "../lib/api";
 import type { TimePrefs } from "../lib/time";
 import { PageTitle } from "../layout/PageTitle";
 import { SpotsTable } from "../sources/SpotsTable";
@@ -30,7 +30,7 @@ const CONTACT_EMAIL = (import.meta.env.VITE_CONTACT_EMAIL as string | undefined)
 
 /** What Get alerts needs from a signed-in user; absent when signed out. */
 export interface AlertAccount {
-  dests: Destination[];
+  /** Refreshes the app's destinations and subscriptions after Get alerts creates one. */
   reload: () => Promise<void>;
 }
 
@@ -74,7 +74,7 @@ function Invalid({ callsign, message }: { callsign: string; message: string }) {
     <Stack spacing={3} useFlexGap>
       <PageTitle>Callsign lookup</PageTitle>
       <Alert severity="warning">{`${callsign} isn't a valid callsign. ${message}`}</Alert>
-      <LookupForm />
+      <LookupForm initial={callsign} />
     </Stack>
   );
 }
@@ -96,10 +96,11 @@ function Header({ profile, account }: { profile: CallsignProfile; account?: Aler
     if (typeof navigator.share === "function") {
       try {
         await navigator.share({ title: `${callsign} on Long Lines`, url });
-      } catch {
-        // dismissed
+        return;
+      } catch (err) {
+        // Closing the sheet is not a failure; anything else falls back to copying the link.
+        if (err instanceof DOMException && err.name === "AbortError") return;
       }
-      return;
     }
     try {
       await navigator.clipboard.writeText(url);
@@ -114,16 +115,24 @@ function Header({ profile, account }: { profile: CallsignProfile; account?: Aler
       void navigate("/signin", { state: { from: location.pathname } });
       return;
     }
-    // save_subscription requires a destination, so with none there is nothing to create yet.
-    const dest = account.dests.find((d) => d.health === "ok") ?? account.dests[0];
-    if (!dest) {
-      notify("Add a destination to start getting alerts.");
-      void navigate("/destinations");
-      return;
-    }
-    const name = `${callsign} on the air`;
     setBusy(true);
     try {
+      // Read fresh rather than from the app's copy, which may not have loaded yet.
+      const [dests, subs] = await Promise.all([loadDestinations(), loadSubscriptions()]);
+      const existing = subs.find((s) => s.callsigns.includes(callsign));
+      if (existing) {
+        notify(`You already have ${existing.name}.`);
+        void navigate("/subscriptions");
+        return;
+      }
+      // save_subscription requires a destination, and a paused or failing one would deliver nothing.
+      const dest = dests.find((d) => d.health === "ok");
+      if (!dest) {
+        notify("Add a destination to start getting alerts.");
+        void navigate("/destinations");
+        return;
+      }
+      const name = `${callsign} on the air`;
       await saveSubscription({
         name, enabled: true, quiet_minutes: 30, destinations: [dest.id],
         sources: [], bands: [], modes: [], callsigns: [callsign], reference: "",

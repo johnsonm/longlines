@@ -35,6 +35,16 @@ describe("useCallsignProfile", () => {
     expect(loadCallsignProfile).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps a profile from when it arrived, however old the server's copy is", async () => {
+    vi.mocked(loadCallsignProfile).mockResolvedValue({ ...FULL, callsign: "KD2OLD", generatedAt: "2020-01-01T00:00:00Z" });
+    const first = renderHook(() => useCallsignProfile("KD2OLD"));
+    await waitFor(() => expect(first.result.current.profile?.callsign).toBe("KD2OLD"));
+    first.unmount();
+    const again = renderHook(() => useCallsignProfile("KD2OLD"));
+    expect(again.result.current.loading).toBe(false);
+    expect(loadCallsignProfile).toHaveBeenCalledTimes(1);
+  });
+
   it("reports a failure and does not keep it", async () => {
     vi.mocked(loadCallsignProfile).mockRejectedValueOnce(new Error("down")).mockResolvedValueOnce(fresh("N0CALL"));
     const first = renderHook(() => useCallsignProfile("N0CALL"));

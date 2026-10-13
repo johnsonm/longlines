@@ -39,8 +39,8 @@ vi.mock("./stats/StatsPage", () => ({ StatsPage: () => <p>stats page</p> }));
 vi.mock("./account/AccountPage", () => ({ AccountPage: () => <p>account page</p> }));
 vi.mock("./profile/LookupPage", () => ({ LookupPage: () => <p>lookup page</p> }));
 vi.mock("./profile/CallsignPage", () => ({
-  CallsignPage: ({ prefs, account }: { prefs: { timezone: string }; account?: { dests: Destination[] } }) => (
-    <p>callsign page {prefs.timezone} {account ? `signed in ${account.dests.length}` : "signed out"}</p>
+  CallsignPage: ({ prefs, account }: { prefs: { timezone: string }; account?: { reload: () => Promise<void> } }) => (
+    <p>callsign page {prefs.timezone} {account ? "signed in" : "signed out"}</p>
   ),
 }));
 vi.mock("./tour/hooks", async (importOriginal) => {
@@ -137,7 +137,7 @@ describe("App routing", () => {
 
   it("serves lookup and profiles inside the app shell when signed in", async () => {
     renderAt("/call/KK4PWJ");
-    expect(await screen.findByText("callsign page Asia/Tokyo signed in 1")).toBeInTheDocument();
+    expect(await screen.findByText("callsign page Asia/Tokyo signed in")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Callsign lookup" })).toHaveClass("Mui-selected");
   });
 

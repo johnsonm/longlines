@@ -153,7 +153,7 @@ function SignedIn({ page }: { page: Page }) {
       {page === "destinations" && <DestinationsPage dests={dests} subs={subs} loading={loading} reload={reload} />}
       {page === "stats" && <StatsPage />}
       {page === "lookup" && <LookupPage />}
-      {page === "call" && <CallsignPage prefs={prefs} account={{ dests, reload }} />}
+      {page === "call" && <CallsignPage prefs={prefs} account={{ reload }} />}
       {page === "account" && <AccountPage profile={profile} />}
     </AppShell>
   );
