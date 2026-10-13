@@ -1,9 +1,10 @@
 -- pgTAP: FCC license loads (20261012000050). Batches stage, finish checks the
 -- counts, apply swaps the staged set into callsign_licenses in one go, and
--- clients can read licenses but nothing else.
+-- clients can read none of it (20261012000070: licenses reach them only
+-- through callsign_profile, which honors hidden_callsigns).
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(37);
+select plan(38);
 
 delete from callsign_licenses;
 delete from license_loads;
@@ -125,13 +126,17 @@ select fcc_license_load_abandon((select max(id) - 1 from license_loads), 'stale'
 select is((select count(*) from fcc_uls_hd), 1::bigint,
   'abandoning a load that is no longer loading leaves the current staging alone');
 
--- Clients read licenses and nothing else.
+-- Clients read none of it, so a hidden call's license cannot be read around its profile.
 set local role anon;
-select is((select count(*) from callsign_licenses), 3::bigint, 'anon reads licenses');
+select throws_ok($$select * from callsign_licenses$$, '42501', null, 'anon cannot read licenses');
 select throws_ok($$select * from license_loads$$, '42501', null, 'anon cannot read license_loads');
 select throws_ok($$select * from fcc_uls_hd$$, '42501', null, 'anon cannot read staging');
 select throws_ok($$select fcc_license_load_begin('x')$$, '42501', null,
   'anon cannot start a load');
+reset role;
+
+set local role authenticated;
+select throws_ok($$select * from callsign_licenses$$, '42501', null, 'authenticated cannot read licenses');
 reset role;
 
 select * from finish();
