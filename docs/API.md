@@ -1,0 +1,186 @@
+# Long Lines API
+
+Manage your subscriptions, destinations and callsign groups from your own scripts, bots and club
+tools. Everything the web app can change about these, the API can change too, and the same rules
+and error messages apply.
+
+Base URL: `https://api.longlines.io/v1`
+
+## Tokens
+
+Create a token on the **API tokens** page. Long Lines shows it once; copy it then. A token looks
+like `ll_live_7hq2…` followed by more letters and digits.
+
+- **Access.** *Read only* tokens can only make `GET` requests. *Read and write* tokens can do
+  everything below.
+- **Expiry.** A token can expire after 30, 90 or 365 days, or never.
+- **Rotate** gives a token a new secret, keeping its name, access and expiry. The old secret stops
+  working immediately. The expiry window restarts from the rotation.
+- **Revoke** deletes the token. It stops working immediately.
+- You can have up to 10 tokens.
+
+Send the token in the `Authorization` header on every request:
+
+```sh
+curl https://api.longlines.io/v1/subscriptions \
+  -H "Authorization: Bearer ll_live_…"
+```
+
+A token acts as you. Anyone who has it can change your subscriptions and destinations, so keep it
+out of source control. If one leaks, rotate or revoke it.
+
+## Limits
+
+- **Rate limit.** 60 requests per minute per token. Over the limit you get `429` with a
+  `Retry-After` header giving the seconds until the next minute.
+- **Request size.** A request body can be at most 256 KB.
+- **List size.** A list in a request, such as `callsigns`, can hold at most 2,000 items, and a
+  group at most 1,000 callsigns.
+
+## Responses and errors
+
+Successful responses are JSON. Creates return `201`, everything else `200`. Deletes return
+`{"deleted": true}`.
+
+Errors return `{"error": "<message>"}` with one of these statuses:
+
+| Status | Meaning |
+|---|---|
+| 400 | The request was invalid. The message says why, for example "Pick at least one destination." |
+| 401 | The token is missing, malformed, unknown, revoked or expired. |
+| 403 | A read-only token tried to change something. |
+| 404 | No such route, or the subscription, destination or group isn't yours. |
+| 405 | The route exists but not with that method. The `Allow` header lists the methods it takes. |
+| 409 | A destination or group is still used by a subscription. |
+| 413 | The request body is too large. |
+| 429 | Too many requests. See Limits. |
+| 500 | Something went wrong on our side. Try again. |
+
+Ids are UUIDs. Times are ISO 8601 in UTC.
+
+## Destinations
+
+A destination is where matching spots go: a Discord channel webhook, or your own HTTPS webhook. See
+[WEBHOOKS.md](WEBHOOKS.md) for the webhook payload and its signature. The API never returns a
+destination's URL, only `url_display`, a masked form.
+
+| Method | Path | Body | Returns |
+|---|---|---|---|
+| GET | `/destinations` | | All your destinations. |
+| POST | `/destinations` | `{"type": "discord" or "webhook", "name", "url"}` | The destination. A webhook also gets `signing_secret`, shown only here. |
+| GET | `/destinations/{id}` | | The destination. |
+| PATCH | `/destinations/{id}` | `{"name"?, "url"?}` | The destination. The type can't change. |
+| DELETE | `/destinations/{id}` | | `{"deleted": true}`, or `409` while a subscription uses it. |
+| POST | `/destinations/{id}/rotate-secret` | | `{"signing_secret"}`, for webhooks. The old secret stops working. |
+| POST | `/destinations/{id}/test` | | `{"ok": true}` once a sample spot is delivered, or `502` with the destination's error. |
+
+A destination looks like this:
+
+```json
+{
+  "id": "4b0e…", "type": "discord", "name": "Club #spots",
+  "url_display": "https://discord.com/api/webhooks/1234…/abc",
+  "health": "ok", "consecutive_failures": 0,
+  "last_success_at": "2026-10-13T14:02:11Z", "last_error": null, "last_error_at": null,
+  "created_at": "2026-10-01T18:30:00Z"
+}
+```
+
+## Subscriptions
+
+A subscription says which spots you want and where to send them. Empty lists mean "any".
+
+| Field | Type | Notes |
+|---|---|---|
+| `name` | string | Required. |
+| `enabled` | boolean | Defaults to `true`. |
+| `sources` | strings | `pota`, `sotawatch`, `rbn`, `dxcluster`. A DX Cluster spot only matches a subscription that lists `dxcluster`. |
+| `bands` | strings | For example `20m`. |
+| `modes` | strings | For example `cw`, `ssb`, `ft8`. |
+| `callsigns` | strings | Exact calls. Uppercased for you. RBN spots only match subscriptions that name callsigns. |
+| `group_ids` | UUIDs | Callsign groups whose members count as callsigns. |
+| `reference` | string | A park or summit reference to look for, such as `US-1234`. |
+| `quiet_minutes` | number | 0, 5, 10, 30 or 60. Defaults to 10. |
+| `destinations` | UUIDs | Required, at least one. |
+
+| Method | Path | Body | Returns |
+|---|---|---|---|
+| GET | `/subscriptions` | | All your subscriptions. |
+| POST | `/subscriptions` | All the fields above | The subscription. |
+| GET | `/subscriptions/{id}` | | The subscription. |
+| PUT | `/subscriptions/{id}` | All the fields above | The subscription. Lists and `reference` left out become empty; `enabled` and `quiet_minutes` left out keep their values. |
+| PATCH | `/subscriptions/{id}` | Any of the fields above | The subscription. Fields left out keep their values. |
+| DELETE | `/subscriptions/{id}` | | `{"deleted": true}` |
+| POST | `/subscriptions/{id}/callsigns` | `{"callsigns": [...]}` | `{"callsigns": [...]}`, the full list after adding. |
+| POST | `/subscriptions/{id}/callsigns/remove` | `{"callsigns": [...]}` | `{"callsigns": [...]}`, the full list after removing. |
+
+Adding a call that's already there, or removing one that isn't, is not an error. The two
+`callsigns` routes change the list in one step, so two scripts adding calls at the same time don't
+lose each other's changes. A `PATCH` with a new `callsigns` list replaces the whole list.
+
+## Callsign groups
+
+A group is a named list of up to 1,000 callsigns, such as a club roster. Point subscriptions at a
+group with `group_ids`. Adding a member to the group changes what every subscription using it
+matches, and you don't need to save the subscriptions again.
+
+Members are stored as base calls: adding `KN4XYZ/P` stores `KN4XYZ`, which matches `KN4XYZ` and
+any portable or prefixed form of it. Removing works the same way. A call that isn't a valid
+callsign refuses the whole request with `400` and "Not a callsign: …", and nothing changes.
+
+| Method | Path | Body | Returns |
+|---|---|---|---|
+| GET | `/groups` | | All your groups. |
+| POST | `/groups` | `{"name", "callsigns"?: [...]}` | The group. Names are unique per account, ignoring case. |
+| GET | `/groups/{id}` | | The group. |
+| PATCH | `/groups/{id}` | `{"name"?, "callsigns"?: [...]}` | The group. A `callsigns` list replaces the whole member list. |
+| DELETE | `/groups/{id}` | | `{"deleted": true}`, or `409` while a subscription uses it. |
+| POST | `/groups/{id}/members` | `{"callsigns": [...]}` | The group, after adding. Calls already in the group are skipped. |
+| POST | `/groups/{id}/members/remove` | `{"callsigns": [...]}` | The group, after removing. Calls not in the group are ignored. |
+
+The two `members` routes change the list in one step, so two scripts adding members at the same
+time don't lose each other's changes.
+
+A group looks like this. `on_air` counts the members spotted in the last 30 minutes and carries the
+newest of those spots.
+
+```json
+{
+  "id": "9c1d…", "name": "Club members", "callsigns": ["KK4PWJ", "N4DXX"],
+  "member_count": 2, "subscription_count": 1, "updated_at": "2026-10-13T18:40:00Z",
+  "on_air": {"count": 1, "latest": {"callsign": "KK4PWJ/P", "frequency_khz": 14062, "band": "20m",
+             "mode": "CW", "source": "pota", "reference": "US-1234", "spot_time": "2026-10-13T18:31:07Z"}}
+}
+```
+
+## Example: keep a club roster in sync
+
+Set up once, in the web app or with the API:
+
+```sh
+TOKEN="ll_live_…"
+API="https://api.longlines.io/v1"
+
+# A Discord destination for the club channel.
+curl -X POST "$API/destinations" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"type": "discord", "name": "Club #spots", "url": "https://discord.com/api/webhooks/…"}'
+
+# The roster group.
+curl -X POST "$API/groups" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"name": "Club members"}'
+
+# A subscription for POTA and SOTA spots of any member.
+curl -X POST "$API/subscriptions" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"name": "Members on the air", "sources": ["pota", "sotawatch"],
+       "group_ids": ["<group id>"], "destinations": ["<destination id>"]}'
+```
+
+Then, when someone joins or leaves:
+
+```sh
+curl -X POST "$API/groups/<group id>/members" -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" -d '{"callsigns": ["KN4XYZ"]}'
+
+curl -X POST "$API/groups/<group id>/members/remove" -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" -d '{"callsigns": ["W1OLD"]}'
+```

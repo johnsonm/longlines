@@ -243,6 +243,46 @@ describe("sources and destinations", () => {
   });
 });
 
+describe("API tokens", () => {
+  it("loadApiTokens selects every column but the hash", async () => {
+    fake.tables.set("api_tokens", { data: [{ id: "t1" }] });
+    expect(await api.loadApiTokens()).toEqual([{ id: "t1" }]);
+    expect(fake.ops).toContainEqual(["api_tokens", "select", [api.API_TOKEN_COLUMNS]]);
+    expect(api.API_TOKEN_COLUMNS).not.toContain("token_hash");
+    fake.tables.set("api_tokens", { error: boom });
+    await expect(api.loadApiTokens()).rejects.toThrow("boom");
+  });
+
+  it("createApiToken returns the secret and omits a missing lifetime", async () => {
+    fake.rpcs.set("create_api_token", { data: [{ token: "ll_x" }] });
+    expect(await api.createApiToken("Sync", "write", 30)).toBe("ll_x");
+    expect(fake.client.rpc).toHaveBeenLastCalledWith("create_api_token", { p_name: "Sync", p_scope: "write", p_lifetime_days: 30 });
+    await api.createApiToken("Board", "read", null);
+    expect(fake.client.rpc).toHaveBeenLastCalledWith("create_api_token", { p_name: "Board", p_scope: "read" });
+    fake.rpcs.set("create_api_token", { data: [] });
+    await expect(api.createApiToken("x", "read", null)).rejects.toThrow("Couldn't create the token.");
+    fake.rpcs.set("create_api_token", { error: boom });
+    await expect(api.createApiToken("x", "read", null)).rejects.toThrow("boom");
+  });
+
+  it("rotateApiToken returns the new secret", async () => {
+    fake.rpcs.set("rotate_api_token", { data: [{ token: "ll_new" }] });
+    expect(await api.rotateApiToken("t1")).toBe("ll_new");
+    fake.rpcs.set("rotate_api_token", { data: [] });
+    await expect(api.rotateApiToken("t1")).rejects.toThrow("Couldn't rotate the token.");
+    fake.rpcs.set("rotate_api_token", { error: boom });
+    await expect(api.rotateApiToken("t1")).rejects.toThrow("boom");
+  });
+
+  it("deleteApiToken deletes by id", async () => {
+    fake.tables.set("api_tokens", {});
+    await expect(api.deleteApiToken("t1")).resolves.toBeUndefined();
+    expect(fake.ops).toContainEqual(["api_tokens", "eq", ["id", "t1"]]);
+    fake.tables.set("api_tokens", { error: boom });
+    await expect(api.deleteApiToken("t1")).rejects.toThrow("boom");
+  });
+});
+
 describe("subscriptions", () => {
   it("joins each subscription with its destination ids", async () => {
     fake.tables.set("subscriptions", { data: [{ id: "s1" }, { id: "s2" }] });

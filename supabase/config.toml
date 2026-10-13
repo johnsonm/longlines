@@ -424,6 +424,11 @@ verify_jwt = false
 [functions.callsign-profile]
 verify_jwt = false
 
+# api is the management API for scripts. Callers send a personal API token
+# (ll_...), not a JWT, and the function checks it itself (_shared/handlers/api.ts).
+[functions.api]
+verify_jwt = false
+
 # ingest-rbn is called by the relay on Fly.io, which holds the relay secret but
 # no Supabase key. It checks x-relay-secret itself (_shared/serve.ts).
 [functions.ingest-rbn]

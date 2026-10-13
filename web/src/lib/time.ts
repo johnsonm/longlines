@@ -32,3 +32,10 @@ export function formatDate(iso: string | null | undefined): string {
   if (!iso) return "unknown";
   return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }).format(new Date(iso));
 }
+
+/** "1 minute ago", "3 hours ago", "5 days ago", never less than a minute, for API token rows. */
+export function timeAgo(iso: string, now: Date = new Date()): string {
+  const minutes = Math.max(1, Math.floor((now.getTime() - new Date(iso).getTime()) / 60000));
+  const [n, unit] = minutes < 60 ? [minutes, "minute"] : minutes < 1440 ? [Math.floor(minutes / 60), "hour"] : [Math.floor(minutes / 1440), "day"];
+  return `${n} ${unit}${n === 1 ? "" : "s"} ago`;
+}

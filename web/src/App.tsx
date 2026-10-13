@@ -15,6 +15,7 @@ import { SourcesPage } from "./sources/SourcesPage";
 import { DestinationsPage } from "./destinations/DestinationsPage";
 import { SubscriptionsPage } from "./subscriptions/SubscriptionsPage";
 import { StatsPage } from "./stats/StatsPage";
+import { ApiTokensPage } from "./tokens/ApiTokensPage";
 import { AccountPage } from "./account/AccountPage";
 import { LookupPage } from "./profile/LookupPage";
 import { CallsignPage } from "./profile/CallsignPage";
@@ -62,6 +63,7 @@ function Router() {
       <Route path="/lookup" element={<PublicRoute page="lookup" />} />
       <Route path="/call/*" element={<PublicRoute page="call" />} />
       <Route path="/account" element={<RequireAuth page="account" />} />
+      <Route path="/api-tokens" element={<RequireAuth page="api-tokens" />} />
       <Route path="*" element={<Navigate to="/sources" replace />} />
     </Routes>
   );
@@ -75,7 +77,7 @@ function PublicOnly({ children }: { children: ReactNode }) {
   return children;
 }
 
-type Page = "sources" | "subscriptions" | "destinations" | "stats" | "lookup" | "call" | "account";
+type Page = "sources" | "subscriptions" | "destinations" | "stats" | "lookup" | "call" | "account" | "api-tokens";
 type PublicPage = "stats" | "lookup" | "call";
 
 // Signed-out visitors read profiles in UTC.
@@ -155,6 +157,7 @@ function SignedIn({ page }: { page: Page }) {
       {page === "lookup" && <LookupPage />}
       {page === "call" && <CallsignPage prefs={prefs} account={{ reload }} />}
       {page === "account" && <AccountPage profile={profile} />}
+      {page === "api-tokens" && <ApiTokensPage />}
     </AppShell>
   );
 }

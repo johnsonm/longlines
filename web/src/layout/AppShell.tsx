@@ -9,6 +9,7 @@ import FilterListIcon from "@mui/icons-material/FilterList";
 import SendIcon from "@mui/icons-material/Send";
 import InsightsIcon from "@mui/icons-material/Insights";
 import PersonSearchIcon from "@mui/icons-material/PersonSearch";
+import KeyIcon from "@mui/icons-material/Key";
 import SearchIcon from "@mui/icons-material/Search";
 import { useLocation, useNavigate } from "react-router";
 import { useApp } from "../app/hooks";
@@ -23,6 +24,7 @@ const NAV = [
   { id: "destinations", label: "Destinations", icon: <SendIcon /> },
   { id: "stats", label: "Stats", icon: <InsightsIcon /> },
   { id: "lookup", label: "Callsign lookup", icon: <PersonSearchIcon /> },
+  { id: "api-tokens", label: "API tokens", icon: <KeyIcon /> },
 ];
 const DRAWER = 232;
 
