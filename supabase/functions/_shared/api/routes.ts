@@ -7,7 +7,9 @@ export type Scope = "read" | "write";
 
 export type JsonObject = Record<string, unknown>;
 
-type Scalar = "string" | "boolean" | "number";
+// "integer" is a JSON number that fits Postgres's int: SQL casts it with ::int, which fails on a
+// fraction or overflow with a Postgres message, and JSON.stringify would send Infinity on as null.
+type Scalar = "string" | "boolean" | "integer";
 
 export interface Route {
   /** An api_call operation, or "send_test", which the handler runs itself. */
@@ -46,7 +48,7 @@ const write = (
 
 const SUB = {
   arrays: SUBSCRIPTION_ARRAYS,
-  scalars: { name: "string", reference: "string", enabled: "boolean", quiet_minutes: "number" },
+  scalars: { name: "string", reference: "string", enabled: "boolean", quiet_minutes: "integer" },
 } as const;
 const DEST = { scalars: { type: "string", name: "string", url: "string" } } as const;
 const GROUP = { arrays: CALLSIGN_ARRAYS, scalars: { name: "string" } } as const;
@@ -115,6 +117,9 @@ export function matchRoute(method: string, path: string): RouteMatch {
   return allow.length > 0 ? { kind: "method_not_allowed", allow } : { kind: "not_found" };
 }
 
+const isInt4 = (v: unknown) =>
+  Number.isInteger(v) && (v as number) >= -(2 ** 31) && (v as number) < 2 ** 31;
+
 /** A message for the first body field of the wrong shape, or null when the body is acceptable. */
 export function checkBody(route: Route, body: JsonObject): string | null {
   for (const key of route.required ?? []) {
@@ -133,8 +138,9 @@ export function checkBody(route: Route, body: JsonObject): string | null {
   }
   for (const [key, type] of Object.entries(route.scalars ?? {})) {
     const value = body[key];
-    if (value === undefined || value === null || typeof value === type) continue;
-    return `${key} must be ${type === "string" ? "a string" : `a ${type}`}.`;
+    if (value === undefined || value === null) continue;
+    if (type === "integer" ? isInt4(value) : typeof value === type) continue;
+    return `${key} must be ${type === "integer" ? "an integer" : `a ${type}`}.`;
   }
   return null;
 }
