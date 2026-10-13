@@ -158,9 +158,11 @@ describe("GroupDialog", () => {
     it("refuses a file that would pass 1,000", async () => {
       const full = Array.from({ length: 1000 }, (_, i) => `K${i}AA`);
       const { user } = render({ name: "Big", callsigns: full });
-      await user.click(screen.getByRole("tab", { name: "Import CSV" }));
+      // Text queries, not role queries: a role query works out the accessible
+      // name of all 1,000 chip buttons, which took this test past 15 s on CI.
+      await user.click(screen.getByText("Import CSV"));
       await user.upload(screen.getByTestId("csv-input"), csvFile("W1AW\n"));
-      await user.click(await screen.findByRole("button", { name: "Add" }));
+      await user.click(await screen.findByText("Add", { selector: "button" }));
       expect(await screen.findByText("That would make 1,001 callsigns. A group can hold up to 1,000.")).toBeInTheDocument();
       expect(screen.getByText("1,000 callsigns")).toBeInTheDocument();
     });
