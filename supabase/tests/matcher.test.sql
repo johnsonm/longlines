@@ -23,7 +23,7 @@ reset role;
 -- Helper to build a subscription row for predicate tests without inserting.
 create or replace function pg_temp.sub(p_sources text[], p_bands text[], p_modes text[], p_calls text[], p_ref text)
 returns subscriptions language sql as $$
-  select (gen_random_uuid(), '11111111-1111-1111-1111-111111111111', 'x', true, p_sources, p_bands, p_modes, p_calls, p_ref, 0, now(), now())::subscriptions;
+  select (gen_random_uuid(), '11111111-1111-1111-1111-111111111111', 'x', true, p_sources, p_bands, p_modes, p_calls, p_ref, 0, now(), now(), '{}'::uuid[])::subscriptions;
 $$;
 create or replace function pg_temp.spot(p_source text, p_call text, p_band text, p_mode text, p_ref text, p_loc text, p_summit text, p_family text default null)
 returns raw_spots language sql as $$
