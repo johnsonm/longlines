@@ -248,6 +248,23 @@ relay on pushes to main; nothing else deploys automatically.
   profile's own `callsign`. The web never works out a base call. A link built from a call as typed
   (`lookupPath`) works only because the profile page swaps it for the base the profile returns.
 
+## Callsign group rules
+
+- Membership is live: a subscription stores `group_ids`, never a copy of the calls, so editing a
+  group changes every subscription that uses it. Never copy members into `subscriptions.callsigns`.
+- Members are base calls (`base_callsign()`, enforced by a check constraint), at most 1,000 per
+  group. `save_callsign_group` is the only write path and `normalize_group_callsigns` the only
+  normaliser; the web never works out a base call or enforces the cap itself.
+- The callsign filter is off only when `callsigns` and `group_ids` are both empty. A subscription
+  whose groups are all empty matches nothing; never let it fall back to "any station".
+- `delete_callsign_group` refuses a group any subscription uses, as with destinations; keep the
+  guard and keep Delete disabled in the UI while `subscription_count > 0`.
+- `preview_subscription` keeps only the caller's own group ids before matching and counting, so it
+  cannot probe another user's groups. Keep that filter on any RPC that takes group ids.
+- Membership and station counts are resolved only in SQL (`group_matches`, `watched_among`,
+  `station_count` from the preview). The web shows group names and SQL's numbers and never tests
+  a call against a group's members.
+
 ## Management API rules
 
 - The `api` function (`docs/API.md`, `_shared/handlers/api.ts`) only routes, checks shapes and maps

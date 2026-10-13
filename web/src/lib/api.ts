@@ -256,6 +256,7 @@ export interface SubscriptionFilter {
   modes: string[];
   callsigns: string[];
   reference: string;
+  group_ids: string[];
 }
 
 export interface SubscriptionInput extends SubscriptionFilter {
@@ -264,8 +265,6 @@ export interface SubscriptionInput extends SubscriptionFilter {
   enabled: boolean;
   quiet_minutes: number;
   destinations: string[];
-  // Optional until the subscription dialog edits groups; save_subscription keeps a subscription's groups when it's absent.
-  group_ids?: string[];
 }
 
 export async function saveSubscription(input: SubscriptionInput): Promise<string> {
@@ -288,13 +287,19 @@ export async function setSubscriptionEnabled(id: string, enabled: boolean): Prom
 export interface Preview {
   count: number;
   spots: RecentSpot[];
+  // Distinct base calls across the typed calls and the caller's selected groups, counted in SQL.
+  station_count: number;
 }
 
 export async function previewSubscription(filter: SubscriptionFilter): Promise<Preview> {
   const { data, error } = await supabase.rpc("preview_subscription", { filter: { ...filter } });
   if (error) fail(error, "Couldn't load the preview.");
   const row = data[0];
-  return { count: Number(row?.count ?? 0), spots: (row?.spots ?? []) as unknown as RecentSpot[] };
+  return {
+    count: Number(row?.count ?? 0),
+    spots: (row?.spots ?? []) as unknown as RecentSpot[],
+    station_count: Number(row?.station_count ?? 0),
+  };
 }
 
 // ---- Callsign groups ---------------------------------------------------------

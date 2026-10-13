@@ -3,10 +3,9 @@
 Date: 2026-10-13. Status: **Section 1 (schema and RPCs) approved and built in PR #129.** Brad
 then supplied UI mocks (`callsign-groups-mocks/`). They overrode four things: a cap of 1,000 per
 group, members stored as base calls, whole-list saves, and "on the air now". Those changes are
-approved and are Section 1b. Sections 2–4 were proposals revised to follow the mocks; Sections 2
-and 3 are now approved and built. Before
-implementing one of them, its PR's chat presents it to Brad and gets a yes. If the design
-changes, update this file in that PR.
+approved and are Section 1b. Sections 2–4 were proposals revised to follow the mocks; all three
+are now approved and built (Section 4 in PR 4). If the design changes, update this file in the PR
+that changes it.
 
 **The mocks are authoritative for layout and copy on the Groups page, the group dialog and the
 subscription dialog.** Ignore anything else in them that doesn't match the current app: the
@@ -320,21 +319,21 @@ PR 4 makes the dialog edit it.
   
   Meet the 80% gate.
 
-## Section 4: Groups in subscriptions (proposed; PR 4)
+## Section 4: Groups in subscriptions (approved; PR 4)
 
 Build it to `subscription-dialog.png`.
 
 - **Callsigns** stays where it is. When any group is selected, its helper text becomes "Added to
-  the groups below.". With no groups selected it keeps "Leave empty to match any station." (the
-  *proposed* rule; confirm with Brad).
+  the groups below.". With no groups selected it keeps "Leave empty to match any station." (approved).
 - A **Callsign groups** multi-select (an autocomplete over `list_callsign_groups`, chips of group
   names) goes directly below Callsigns. When there are typed calls or selected groups, its helper
   reads "Matches N stations from your groups and callsigns.", with N from the preview's
-  `station_count`. With no groups in the account, the field is replaced by a link to `/groups`
-  (*proposed* copy).
+  `station_count`. With no groups in the account, the field is replaced by a line linking to `/groups`
+  (approved copy below). Following the link closes the dialog like any nav click; there is no
+  discard prompt.
 - `SubscriptionInput` gains `group_ids`. Also update `blankSub`, `toInput` and the preview
   payload, which adds `group_ids` to the memoised JSON key.
-- `filterChips` shows each group's name as a chip. Names come from the groups list that `api.ts`
+- `filterChips` shows one "Group: {name}" chip per group, after the callsigns chip. Names come from the groups list that `api.ts`
   already loads. Never resolve membership in TypeScript.
 - Docs: add a "Callsign group rules" section to CLAUDE.md covering:
   - live membership
@@ -399,6 +398,13 @@ above is added here once Brad approves it.
 - Callsigns helper, groups selected: Added to the groups below.
 - Field: Callsign groups
 - Groups helper: Matches {N} stations from your groups and callsigns.
+- Callsigns helper, no groups selected (approved): Leave empty to match any station.
+- Groups helper (approved): singular "Matches 1 station from your groups and callsigns."; no
+  helper with no typed calls and no groups; the last {N} stays while a new preview loads.
+- No groups in the account (approved, replaces the field): No callsign groups yet. Create a group
+  to watch a club roster or an award list. ("Create a group" links to /groups.)
+- Subscription card chip (approved): Group: {name}, one per group, after the callsigns chip.
+  Left out when the groups list doesn't load.
 
 **Errors (from the RPCs)**
 - Give the group a name.

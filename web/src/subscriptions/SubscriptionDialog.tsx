@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Alert, Autocomplete, Box, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogTitle, Divider, FormControl,
-  FormControlLabel, FormGroup, FormLabel, Grid, InputLabel, LinearProgress, List, ListItem, ListItemText, MenuItem, Paper,
+  FormControlLabel, FormGroup, FormLabel, Grid, InputLabel, LinearProgress, Link, List, ListItem, ListItemText, MenuItem, Paper,
   Select, Stack, TextField, Typography,
 } from "@mui/material";
+import { Link as RouterLink } from "react-router";
 import { previewSubscription, type Destination, type Preview, type SubscriptionInput } from "../lib/api";
 import { formatSpotTime, type TimePrefs } from "../lib/time";
 import { errorText } from "../app/hooks";
@@ -11,6 +12,7 @@ import { useTour } from "../tour/hooks";
 import { BANDS, LIVE_SOURCES, MODES, modeLabel, sourceName } from "../sources/sources";
 import { spotReference } from "../sources/spots";
 import { typeLabel } from "../destinations/types";
+import type { CallsignGroup } from "../groups/types";
 import { PREVIEW_WINDOW } from "./model";
 
 const DEBOUNCE_MS = 300;
@@ -19,6 +21,8 @@ interface Props {
   open: boolean;
   initial: SubscriptionInput;
   dests: Destination[];
+  // null when the list hasn't loaded: the picker is hidden and the subscription's groups are kept as they are.
+  groups: CallsignGroup[] | null;
   prefs: TimePrefs;
   busy: boolean;
   onClose: () => void;
@@ -26,7 +30,7 @@ interface Props {
   fullScreen: boolean;
 }
 
-export function SubscriptionDialog({ open, initial, dests, prefs, busy, onClose, onSave, fullScreen }: Props) {
+export function SubscriptionDialog({ open, initial, dests, groups, prefs, busy, onClose, onSave, fullScreen }: Props) {
   const [sub, setSub] = useState<SubscriptionInput>(initial);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
@@ -35,8 +39,10 @@ export function SubscriptionDialog({ open, initial, dests, prefs, busy, onClose,
   const set = <K extends keyof SubscriptionInput>(k: K, v: SubscriptionInput[K]) => setSub((s) => ({ ...s, [k]: v }));
 
   const filterKey = useMemo(
-    () => JSON.stringify({ sources: sub.sources, bands: sub.bands, modes: sub.modes, callsigns: sub.callsigns, reference: sub.reference }),
-    [sub.sources, sub.bands, sub.modes, sub.callsigns, sub.reference],
+    () => JSON.stringify({
+      sources: sub.sources, bands: sub.bands, modes: sub.modes, callsigns: sub.callsigns, reference: sub.reference, group_ids: sub.group_ids,
+    }),
+    [sub.sources, sub.bands, sub.modes, sub.callsigns, sub.reference, sub.group_ids],
   );
 
   // Preview is computed by the database with the same predicate the matcher uses.
@@ -56,6 +62,11 @@ export function SubscriptionDialog({ open, initial, dests, prefs, busy, onClose,
 
   const sortedDests = [...dests].sort((a, b) => typeLabel(a.type).localeCompare(typeLabel(b.type)) || a.name.localeCompare(b.name));
   const count = preview?.count ?? 0;
+  // Membership and the station count are resolved in SQL (preview_subscription); the last count stays while a new one loads.
+  const stations = preview?.station_count ?? 0;
+  const stationsText = preview && (sub.callsigns.length > 0 || sub.group_ids.length > 0)
+    ? `Matches ${stations} ${stations === 1 ? "station" : "stations"} from your groups and callsigns.`
+    : undefined;
 
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="md" fullScreen={fullScreen} disableEnforceFocus={tourActive}>
@@ -89,8 +100,26 @@ export function SubscriptionDialog({ open, initial, dests, prefs, busy, onClose,
               <Autocomplete
                 multiple freeSolo options={[] as string[]} value={sub.callsigns}
                 onChange={(_e, v) => set("callsigns", v.map((x) => x.toUpperCase().trim()).filter(Boolean))}
-                renderInput={(p) => <TextField {...p} label="Callsigns" placeholder="Type a call and press Enter" helperText="Leave empty to match any station." />}
+                renderInput={(p) => (
+                  <TextField
+                    {...p} label="Callsigns" placeholder="Type a call and press Enter"
+                    helperText={sub.group_ids.length ? "Added to the groups below." : "Leave empty to match any station."}
+                  />
+                )}
               />
+              {groups && groups.length > 0 && (
+                <Autocomplete
+                  multiple options={groups} getOptionLabel={(g) => g.name} isOptionEqualToValue={(a, b) => a.id === b.id}
+                  value={groups.filter((g) => sub.group_ids.includes(g.id))}
+                  onChange={(_e, v) => set("group_ids", v.map((g) => g.id))}
+                  renderInput={(p) => <TextField {...p} label="Callsign groups" helperText={stationsText} />}
+                />
+              )}
+              {groups && groups.length === 0 && (
+                <Typography variant="caption" color="text.secondary">
+                  No callsign groups yet. <Link component={RouterLink} to="/groups">Create a group</Link> to watch a club roster or an award list.
+                </Typography>
+              )}
               <TextField
                 label="Park, summit, or location contains" value={sub.reference} onChange={(e) => set("reference", e.target.value)}
                 placeholder="US-NC, W4C/, US-0817" helperText="Matches POTA references and locations, and SOTA summit codes." fullWidth
