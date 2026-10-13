@@ -417,6 +417,19 @@ isOneToOne: false
                   Relationships: [
                     
                   ]
+                },"rbn_rollup_hours": {
+                  Row: {
+                    "hour": string,"rolled_at": string
+                  }
+                  Insert: {
+                    "hour": string,"rolled_at": string
+                  }
+                  Update: {
+                    "hour"?: string,"rolled_at"?: string
+                  }
+                  Relationships: [
+                    
+                  ]
                 },"rbn_spots": {
                   Row: {
                     "band": string | null,"callsign": string,"frequency_khz": number,"ingested_at": string,"line": string,"mode": string | null,"mode_family": string | null,"received_at": string,"snr": number,"speed": number,"speed_unit": string,"spot_time": string,"spot_type": string,"spotter": string
@@ -781,6 +794,9 @@ isOneToOne: false
 "refresh_stats_snapshot":
 { Args: Record<PropertyKey, never>; Returns: undefined
                            },
+"refresh_stats_snapshot_at":
+{ Args: { "p_now": string }; Returns: undefined
+                           },
 "retire_rbn_day":
 { Args: { "p_day": string }; Returns: undefined
                            },
@@ -789,6 +805,9 @@ isOneToOne: false
                            },
 "rollup_rbn_day":
 { Args: { "p_day": string }; Returns: undefined
+                           },
+"rollup_rbn_hours":
+{ Args: { "p_from": string,"p_to": string }; Returns: undefined
                            },
 "rotate_signing_secret":
 { Args: { "p_destination_id": string }; Returns: string
@@ -804,6 +823,9 @@ isOneToOne: false
                            },
 "spot_matches":
 { Args: { "spot": Database["public"]['Tables']["raw_spots"]['Row'],"sub": Database["public"]['Tables']["subscriptions"]['Row'] }; Returns: boolean
+                           },
+"stats_payload_without_hidden":
+{ Args: { "p_payload": Json }; Returns: Json
                            },
 "validate_destination_url":
 { Args: { "p_type": string,"p_url": string }; Returns: undefined
