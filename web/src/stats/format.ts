@@ -35,6 +35,16 @@ export function slotLabel(hour: Date | string): string {
   return `${dayLabel(d.toISOString().slice(0, 10))} ${hourLabel(d.getUTCHours())}`;
 }
 
+/**
+ * The UTC midnights of the hourly series, for the day ticks. The series ends
+ * at the last complete hour, so it rarely starts at midnight. On phones every
+ * other one, counting back from the newest so the latest day stays labelled.
+ */
+export function midnightTicks(hours: Date[], everyOther: boolean): Date[] {
+  const midnights = hours.filter((d) => d.getUTCHours() === 0);
+  return everyOther ? midnights.filter((_, i) => (midnights.length - 1 - i) % 2 === 0) : midnights;
+}
+
 /** The caption under the page title; copy from docs/ui-mock.html. */
 export function updatedCaption(generatedAt: string): string {
   const d = new Date(generatedAt);

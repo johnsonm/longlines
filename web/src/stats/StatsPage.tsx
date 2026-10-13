@@ -10,7 +10,7 @@ import { Link as RouterLink } from "react-router";
 import { PageTitle } from "../layout/PageTitle";
 import { lookupPath } from "../profile/format";
 import { ChartCard, GRID, Kpi } from "./parts";
-import { compact, dayLabel, fmt, hasData, hourLabel, slotLabel, topStates, updatedCaption, weekday } from "./format";
+import { compact, dayLabel, fmt, hasData, hourLabel, midnightTicks, slotLabel, topStates, updatedCaption, weekday } from "./format";
 import { stateName } from "./stateShapes";
 import type { StatsPayload } from "./types";
 import { UsStateMap } from "./UsStateMap";
@@ -104,7 +104,7 @@ function Dashboard({ payload }: { payload: StatsPayload }) {
   const hours = hourly.map((h) => new Date(h.hour));
   const hourTotals = hourly.map((h) => h.pota + h.sota + h.rbn);
   // Midnight ticks; every other day on phones so the labels do not collide.
-  const midnights = hours.filter((d, i) => d.getUTCHours() === 0 && (!mobile || i % 48 === 0));
+  const midnights = midnightTicks(hours, mobile);
   const processed = payload.totals.spots + rbn.spots;
   const perDay: [string, number[], string][] = [
     ["RBN", payload.daily.map((d) => d.rbn ?? 0), rbnColor],
