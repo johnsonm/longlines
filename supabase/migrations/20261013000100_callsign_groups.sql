@@ -136,9 +136,11 @@ end;
 $$;
 
 -- One RPC for typing, pasting and CSV import; the client sends large imports
--- in chunks of 2,000. Blanks are skipped; values that fail the callsign rule
--- come back in "rejected" (trimmed, uppercased) rather than raising.
--- "already" counts valid calls that were in the group before this call.
+-- in chunks of 2,000. Values are trimmed of any whitespace (trim() alone
+-- strips only spaces; pastes and CSV cells bring tabs, line ends and
+-- non-breaking spaces) and uppercased. Blanks are skipped; values that fail
+-- the callsign rule come back in "rejected" rather than raising. "already"
+-- counts valid calls that were in the group before this call.
 create function public.add_group_callsigns(p_id uuid, p_calls text[])
 returns jsonb
 language plpgsql
@@ -165,9 +167,9 @@ begin
     coalesce(array_agg(c order by c) filter (where c !~ '^[A-Z0-9]{1,3}[0-9][A-Z0-9]{0,4}[A-Z](/[A-Z0-9]+)?$'), '{}')
   into v_valid, v_rejected
   from (
-    select distinct upper(trim(x)) as c
+    select distinct upper(btrim(x, E' \t\n\r\f\x0b\u00a0')) as c
     from unnest(coalesce(p_calls, '{}')) as x
-    where trim(x) <> ''
+    where btrim(x, E' \t\n\r\f\x0b\u00a0') <> ''
   ) t;
 
   insert into callsign_group_members (group_id, callsign)
@@ -202,7 +204,7 @@ begin
 
   delete from callsign_group_members m
   where m.group_id = p_id
-    and m.callsign = any (select upper(trim(x)) from unnest(coalesce(p_calls, '{}')) as x);
+    and m.callsign = any (select upper(btrim(x, E' \t\n\r\f\x0b\u00a0')) from unnest(coalesce(p_calls, '{}')) as x);
   get diagnostics v_removed = row_count;
   return v_removed;
 end;
@@ -249,7 +251,9 @@ grant execute on function public.list_callsign_groups() to authenticated;
 
 -- save_subscription: same as 20261006000003 plus group_ids, each of which must
 -- be the caller's. The key-share lock keeps a group from being deleted between
--- this check and the commit (see delete_callsign_group).
+-- this check and the commit (see delete_callsign_group). An update without a
+-- group_ids key keeps the subscription's groups, so a client that predates
+-- groups cannot drop them.
 create or replace function public.save_subscription(payload jsonb)
 returns uuid
 language plpgsql
@@ -281,12 +285,14 @@ begin
     raise exception 'Destination not found.';
   end if;
 
-  select coalesce(array_agg(distinct x::uuid), '{}') into v_groups
-  from jsonb_array_elements_text(coalesce(payload -> 'group_ids', '[]'::jsonb)) as x;
-  select count(*) into v_owned
-  from (select 1 from callsign_groups g where g.id = any (v_groups) and g.user_id = v_user for key share of g) t;
-  if v_owned <> cardinality(v_groups) then
-    raise exception 'Group not found.';
+  if payload ? 'group_ids' then
+    select coalesce(array_agg(distinct x::uuid), '{}') into v_groups
+    from jsonb_array_elements_text(payload -> 'group_ids') as x;
+    select count(*) into v_owned
+    from (select 1 from callsign_groups g where g.id = any (v_groups) and g.user_id = v_user for key share of g) t;
+    if v_owned <> cardinality(v_groups) then
+      raise exception 'Group not found.';
+    end if;
   end if;
 
   if v_id is null then
@@ -300,7 +306,7 @@ begin
       public.jsonb_text_array(payload -> 'callsigns', 'upper'),
       trim(coalesce(payload ->> 'reference', '')),
       coalesce((payload ->> 'quiet_minutes')::int, 10),
-      v_groups
+      coalesce(v_groups, '{}')
     )
     returning id into v_id;
   else
@@ -313,7 +319,7 @@ begin
         callsigns     = public.jsonb_text_array(payload -> 'callsigns', 'upper'),
         reference     = trim(coalesce(payload ->> 'reference', '')),
         quiet_minutes = coalesce((payload ->> 'quiet_minutes')::int, s.quiet_minutes),
-        group_ids     = v_groups
+        group_ids     = coalesce(v_groups, s.group_ids)
     where s.id = v_id and s.user_id = v_user;
     if not found then
       raise exception 'Subscription not found.';
@@ -325,6 +331,21 @@ begin
   select v_id, d from unnest(v_dests) as d;
 
   return v_id;
+end;
+$$;
+
+-- An RBN-only subscription needs stations to watch: typed callsigns or a group
+-- (20261011000001 required callsigns). Matching groups comes in 20261013000110.
+create or replace function public.subscriptions_rbn_needs_callsign()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  if new.sources = array['rbn'] and cardinality(new.callsigns) = 0 and cardinality(new.group_ids) = 0 then
+    raise exception 'RBN reports stations by callsign. Add at least one callsign.';
+  end if;
+  return new;
 end;
 $$;
 

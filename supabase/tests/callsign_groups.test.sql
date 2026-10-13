@@ -4,7 +4,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(49);
+select plan(57);
 
 -- Grants: clients read only; every write goes through an RPC.
 select table_privs_are('public', 'callsign_groups', 'authenticated', array['SELECT'], 'authenticated may only select groups');
@@ -57,6 +57,8 @@ select is((select updated_at from callsign_groups where id = (select id from g1)
 create temp table r2 as select add_group_callsigns((select id from g1), array['W1AW', 'n0call']) as r;
 select is((select r from r2), '{"added": 1, "already": 1, "rejected": []}'::jsonb, 'calls already in the group are counted, not added');
 select is(add_group_callsigns((select id from g1), null), '{"added": 0, "already": 0, "rejected": []}'::jsonb, 'a null list adds nothing');
+select is(add_group_callsigns((select id from g1), array[E'W1AW\r', E'\tk1abc ', E'\r\n', E'\u00a0K2ABC\u00a0']),
+  '{"added": 2, "already": 1, "rejected": []}'::jsonb, 'tabs, line ends and non-breaking spaces are trimmed; whitespace-only values are skipped');
 
 -- Remove.
 reset role;
@@ -65,7 +67,8 @@ update callsign_groups set updated_at = '2000-01-01' where id = (select id from 
 set local session_replication_role = origin;
 select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
 
-select is(remove_group_callsigns((select id from g1), array[' n0call', 'K1ABC']), 1, 'remove returns rows removed');
+select is(remove_group_callsigns((select id from g1), array[' n0call', E'K1ABC\t', E'k2abc\r', 'K9ZZZ']), 3,
+  'remove trims, uppercases and returns rows removed');
 select is((select count(*) from callsign_group_members where group_id = (select id from g1)), 3::bigint, 'removed call is gone');
 select is((select updated_at from callsign_groups where id = (select id from g1)), now(), 'removing bumps the group''s updated_at');
 
@@ -82,6 +85,13 @@ create temp table s1 as select save_subscription(jsonb_build_object('name', 'Clu
 select is((select group_ids from subscriptions where id = (select id from s1)), array[(select id from g1)], 'group ids saved');
 select throws_ok(format($f$ select save_subscription('{"name":"x","group_ids":["%s"],"destinations":["%s"]}') $f$,
   gen_random_uuid(), (select id from da)), 'P0001', 'Group not found.', 'an unknown group id is refused');
+select is(save_subscription(jsonb_build_object('id', (select id from s1), 'name', 'Club v2',
+  'destinations', array[(select id from da)])), (select id from s1), 'an update without group_ids saves');
+select is((select group_ids from subscriptions where id = (select id from s1)), array[(select id from g1)],
+  'an update without group_ids keeps the groups');
+select is(save_subscription(jsonb_build_object('id', (select id from s1), 'name', 'Club',
+  'group_ids', '[]'::jsonb, 'destinations', array[(select id from da)])), (select id from s1), 'an empty group_ids saves');
+select is((select group_ids from subscriptions where id = (select id from s1)), '{}'::uuid[], 'an empty group_ids clears the groups');
 select is(save_subscription(jsonb_build_object('id', (select id from s1), 'name', 'Club',
   'group_ids', array[(select id from g1), (select id from g1)], 'destinations', array[(select id from da)])),
   (select id from s1), 'a repeated group id saves');
@@ -92,6 +102,15 @@ select results_eq(
   $$ select name, member_count, subscription_count from list_callsign_groups() $$,
   $$ values ('Club roster', 3::bigint, 1::bigint), ('PALS', 0::bigint, 0::bigint) $$,
   'list_callsign_groups orders by name and counts members and subscriptions');
+
+-- RBN reports stations by callsign; a group is a list of them.
+create temp table s_rbn as select save_subscription(jsonb_build_object('name', 'RBN club', 'sources', array['rbn'],
+  'group_ids', array[(select id from g1)], 'destinations', array[(select id from da)])) as id;
+select is((select group_ids from subscriptions where id = (select id from s_rbn)), array[(select id from g1)],
+  'an RBN subscription can name a group instead of callsigns');
+select throws_ok(format($f$ select save_subscription('{"name":"x","sources":["rbn"],"destinations":["%s"]}') $f$, (select id from da)),
+  'P0001', 'RBN reports stations by callsign. Add at least one callsign.', 'an RBN subscription still needs callsigns or a group');
+select lives_ok(format('select delete_subscription(%L)', (select id from s_rbn)), 'RBN subscription removed');
 
 -- Delete guard.
 select throws_ok(format('select delete_callsign_group(%L)', (select id from g1)), 'P0001', 'Remove it from its subscriptions first.',

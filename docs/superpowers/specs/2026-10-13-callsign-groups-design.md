@@ -60,7 +60,10 @@ Migration `20261013000100_callsign_groups.sql`. Recheck the number across every 
 of these tables, and every write goes through an RPC:
 
 - `save_subscription` takes `group_ids` and checks that each one belongs to the caller. If not,
-  it raises "Group not found.".
+  it raises "Group not found.". An update without a `group_ids` key keeps the subscription's
+  groups, so a client that predates groups cannot drop them.
+- The `subscriptions_rbn_needs_callsign` trigger accepts an RBN-only subscription that has a group
+  instead of typed calls: a group is a list of callsigns.
 - `delete_callsign_group(id)` refuses while any subscription's `group_ids` contains the id. It
   raises "Remove it from its subscriptions first.".
 - `preview_subscription` (PR 2) keeps only the caller's own group ids before matching. Otherwise
@@ -74,7 +77,8 @@ only. Each goes on the client-callable list in `supabase/tests/advisor.test.sql`
   raises "You already have a group with that name.". Catch `unique_violation` and re-raise with
   that message.
 - `add_group_callsigns(p_id uuid, p_calls text[]) → jsonb {added int, already int, rejected
-  text[]}`. One RPC covers typing, pasting and CSV import. It trims, uppercases and validates.
+  text[]}`. One RPC covers typing, pasting and CSV import. It trims any whitespace (tabs, line
+  ends and non-breaking spaces as well as spaces), uppercases and validates. Blank values are skipped.
   Invalid values come back in `rejected` and are not raised. It ends with `insert … on conflict do
   nothing`. The client sends large imports in chunks of 2,000.
 - `remove_group_callsigns(p_id uuid, p_calls text[]) → int` (rows removed)
@@ -116,6 +120,7 @@ Migration `20261013000110_callsign_group_matching.sql`.
   `(cardinality(sub.callsigns) = 0 and cardinality(sub.group_ids) = 0) or
   callsign_matches(sub.callsigns, …) or group_matches(sub.group_ids, …)`. The RBN guard becomes
   `spot.source <> 'rbn' or cardinality(sub.callsigns) > 0 or cardinality(sub.group_ids) > 0`.
+  (PR 1 already relaxed the save-time trigger the same way.)
   Update `advisor.test.sql` if `spot_matches` leaves the unpinned-helper list. Update the
   CLAUDE.md bullet that calls RBN matching "subscriptions that name callsigns": groups count.
 - `watched_among` has to cover group members. It runs on every RBN firehose batch, so drive it
