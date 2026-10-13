@@ -271,15 +271,19 @@ sample spot.
 flowchart LR
   R[(raw_spots)] -->|pg_cron, 5 past every hour| F[refresh_stats_snapshot]
   RB[(rbn_spots)] -->|once per complete day| U[rollup_rbn_day]
+  RB -->|today's complete hours| UH[rollup_rbn_hours]
   U --> RR[(rbn_hourly, rbn_daily_skimmers, rbn_daily_stations)]
+  UH --> RR
   RR --> F
   F --> S[(stats_snapshots)]
   S -->|newest row, one query| W[Stats page]
 ```
 
 The Stats page is a fixed dashboard of the seven most recent complete UTC days: midnight UTC seven
-days ago up to, but not including, midnight UTC today, filtered on `spot_time`. Nothing on it is
-adjustable, so the whole page is one precomputed JSON document.
+days ago up to, but not including, midnight UTC today, filtered on `spot_time`. The one exception
+is "Spots processed per hour", which is hourly and so ends at the last complete UTC hour: the 168
+hours before the refresh. Nothing on the page is adjustable, so the whole page is one precomputed
+JSON document.
 
 ## Why a snapshot table
 
@@ -318,9 +322,10 @@ refresh prunes older ones.
   integer percentages that sum to exactly 100; the rounding remainder goes to the largest bucket.
 - Window arithmetic is done on `now() at time zone 'utc'` so a session time zone with DST cannot
   shift the window by an hour.
-- `hourly` feeds "Spots processed per hour": 168 UTC hours, zero-filled, each with the POTA and
-  SOTAwatch `raw_spots` rows and the `rbn_spots` rows whose `spot_time` falls in that hour. The page
-  plots their sum; the "Average rate" and "Peak hour" tile figures come from the same series.
+- `hourly` feeds "Spots processed per hour": the 168 complete UTC hours before the refresh (not
+  the day window), zero-filled, each with the POTA and SOTAwatch `raw_spots` rows and the
+  `rbn_spots` rows whose `spot_time` falls in that hour. The page plots their sum; the "Peak hour"
+  tile figure comes from the same series.
   `daily[].rbn` is the RBN count per day.
 
 ## RBN figures
@@ -336,9 +341,15 @@ counted from `rbn_spots` (through `rbn_spots_callsign_time_idx`) for the eight s
 kept in `rbn_top_stations` until a rollup changes or the window moves. A full day's rollup takes
 about 2.5 s; the refresh itself stays well under a second.
 
+The hourly series also needs RBN counts for today's complete hours, which no day rollup covers
+yet. `rollup_rbn_hours(from, to)` counts a range of hours into `rbn_hourly` through the
+`spot_time`-led unique key of `rbn_spots` (two hours are about 30,000 rows, 25 ms on hosted), and
+`rbn_rollup_hours` records when each hour was counted. When the day ends, `rollup_rbn_day`
+replaces its 24 rows and the hour markers are deleted.
+
 The refresh rolls up every window day missing from `rbn_rollup_days`, and once more any day rolled
 up within an hour of its end, since the relay can hold up to about 50 minutes of lines while
-`ingest-rbn` is unreachable. Rows arriving later than that are not counted. Rollups older than
+`ingest-rbn` is unreachable. Today's hours follow the same rule through `rbn_rollup_hours`. Rows arriving later than that are not counted. Rollups older than
 the window are deleted; the archive keeps every spot.
 
 The payload's TypeScript shape is `StatsPayload` in `web/src/stats/types.ts`; the pgTAP suite

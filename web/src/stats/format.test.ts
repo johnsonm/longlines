@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compact, dayLabel, fillOpacity, fmt, hasData, hourLabel, slotLabel, topStates, updatedCaption, weekday } from "./format";
+import { compact, dayLabel, fillOpacity, fmt, hasData, hourLabel, midnightTicks, slotLabel, topStates, updatedCaption, weekday } from "./format";
 import type { LatestStats, StatsPayload } from "./types";
 
 const payload = (spots: number): StatsPayload => ({
@@ -41,6 +41,23 @@ describe("day labels", () => {
     expect(weekday("2026-09-29")).toBe("Tue");
     expect(dayLabel("2026-09-29")).toBe("Tue 9/29");
     expect(dayLabel("2026-10-04")).toBe("Sun 10/4");
+  });
+});
+
+describe("midnightTicks", () => {
+  // 168 hours starting at `startHour` UTC on 2026-10-06, like the payload's hourly series.
+  const week = (startHour: number) => Array.from({ length: 168 }, (_, i) => new Date(Date.UTC(2026, 9, 6, startHour + i)));
+  const days = (ticks: Date[]) => ticks.map((d) => d.toISOString().slice(0, 10));
+
+  it("ticks every UTC midnight in the series", () => {
+    expect(days(midnightTicks(week(0), false))).toEqual(["2026-10-06", "2026-10-07", "2026-10-08", "2026-10-09", "2026-10-10", "2026-10-11", "2026-10-12"]);
+    expect(days(midnightTicks(week(13), false))).toEqual(["2026-10-07", "2026-10-08", "2026-10-09", "2026-10-10", "2026-10-11", "2026-10-12", "2026-10-13"]);
+  });
+
+  it("keeps every other midnight on phones, counting back from the newest", () => {
+    expect(days(midnightTicks(week(0), true))).toEqual(["2026-10-06", "2026-10-08", "2026-10-10", "2026-10-12"]);
+    // A series that does not start at midnight still gets ticks.
+    expect(days(midnightTicks(week(13), true))).toEqual(["2026-10-07", "2026-10-09", "2026-10-11", "2026-10-13"]);
   });
 });
 

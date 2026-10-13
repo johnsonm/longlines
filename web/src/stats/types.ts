@@ -15,7 +15,7 @@ export type StatsPayload = {
   peakHour: number; // 0-23 UTC
   busiestSlot: { day: string; hour: number }; // day is YYYY-MM-DD
   daily: { day: string; pota: number; sota: number; rbn: number }[]; // exactly 7, oldest first, zero-filled
-  hourly: { hour: string; pota: number; sota: number; rbn: number }[]; // exactly 168, oldest first, zero-filled; hour is ISO UTC
+  hourly: { hour: string; pota: number; sota: number; rbn: number }[]; // exactly 168, oldest first, zero-filled, ending at the last complete hour; hour is ISO UTC
   potaByState: Record<string, number>; // 50 states + DC, zero-filled
   sotaAssociations: { code: string; spots: number }[]; // top 10
   bands: { band: string; pota: number; sota: number }[]; // fixed order 160m … 2m

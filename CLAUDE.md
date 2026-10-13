@@ -105,7 +105,7 @@ relay on pushes to main; nothing else deploys automatically.
 - `stats_snapshots` is written only by `refresh_stats_snapshot()` from pg_cron; clients have
   `select` only. It is the one table `anon` may read: the Stats page (`/stats`) is public and
   renders in `PublicShell` when signed out, `AppShell` when signed in. RBN figures come from the
-  `rollup_rbn_day` tables, never from `rbn_spots` directly: the refresh runs hourly and the
+  `rollup_rbn_day` tables (today's hours from `rollup_rbn_hours`), never from `rbn_spots` directly: the refresh runs hourly and the
   firehose is ~1.5M rows a day. The payload shape is `StatsPayload` in `web/src/stats/types.ts` and is pinned by
   `supabase/tests/stats_snapshot.test.sql`; change the SQL, the type and the test together.
   A trigger on `stats_snapshots` (`stats_snapshots_drop_hidden`) removes calls in

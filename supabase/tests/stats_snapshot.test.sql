@@ -1,9 +1,10 @@
 -- pgTAP: stats_snapshots table, refresh_stats_snapshot() payload shape and
--- numbers, the RBN rollup, window boundaries, pruning to 48 rows, RLS.
+-- numbers, the RBN rollups, window boundaries, the hourly series moving with
+-- the hour, pruning to 48 rows, RLS.
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(104);
+select plan(126);
 
 -- Start from empty tables so every count below is exact. Both are empty on a
 -- fresh CI database; locally the cron jobs may have filled them. deliveries
@@ -16,6 +17,7 @@ delete from rbn_hourly;
 delete from rbn_daily_skimmers;
 delete from rbn_daily_stations;
 delete from rbn_rollup_days;
+delete from rbn_rollup_hours;
 
 -- Day k of the window (0 = oldest, 6 = yesterday, 7 = today) at hour h UTC,
 -- derived from the current UTC date so the test is stable at any time of day.
@@ -25,6 +27,12 @@ create or replace function pg_temp.at_utc(k int, h int) returns timestamptz lang
 $$;
 create or replace function pg_temp.day_str(k int) returns text language sql as $$
   select to_char(date_trunc('day', now() at time zone 'utc') - interval '7 days' + make_interval(days => k), 'YYYY-MM-DD');
+$$;
+-- Refreshes as of p_at, by default 00:30 UTC today: the hourly series then ends
+-- at window_end, like every other figure, so the numbers below hold at any
+-- time of day. The rolling hours have their own section at the end.
+create or replace function pg_temp.refresh(p_at timestamptz default null) returns void language sql as $$
+  select refresh_stats_snapshot_at(coalesce(p_at, pg_temp.at_utc(7, 0) + interval '30 minutes'));
 $$;
 -- Payload of the newest snapshot.
 create or replace function pg_temp.snap() returns jsonb language sql as $$
@@ -90,7 +98,7 @@ update raw_spots set mode_family = case
 end;
 
 -- Refresh and window.
-select lives_ok('select refresh_stats_snapshot()', 'refresh runs');
+select lives_ok('select pg_temp.refresh()', 'refresh runs');
 select is((select count(*) from stats_snapshots), 1::bigint, 'refresh inserts exactly one row');
 select is((select window_start from stats_snapshots), pg_temp.at_utc(0, 0), 'window_start is 00:00 UTC seven days ago');
 select is((select window_end from stats_snapshots), pg_temp.at_utc(7, 0), 'window_end is 00:00 UTC today');
@@ -228,6 +236,9 @@ select throws_ok('delete from stats_snapshots', '42501', null, 'clients cannot d
 select throws_ok('select refresh_stats_snapshot()', '42501', null, 'clients cannot run the refresh');
 select throws_ok('select count(*) from rbn_hourly', '42501', null, 'clients cannot read the RBN rollup');
 select throws_ok('select rollup_rbn_day(current_date)', '42501', null, 'clients cannot run the RBN rollup');
+select throws_ok('select refresh_stats_snapshot_at(now())', '42501', null, 'clients cannot run the refresh at a pinned time');
+select throws_ok('select rollup_rbn_hours(now(), now())', '42501', null, 'clients cannot run the RBN hour rollup');
+select throws_ok('select count(*) from rbn_rollup_hours', '42501', null, 'clients cannot read the RBN hour markers');
 reset role;
 
 set local role anon;
@@ -240,11 +251,11 @@ reset role;
 -- Window boundaries: exactly window_end is out, exactly window_start is in.
 insert into raw_spots (source, source_spot_id, content_hash, spot_time, callsign, frequency_khz, raw_payload)
 values ('pota', 'b1', 'b1', pg_temp.at_utc(7, 0), 'XX1OUT', 14062, '{}');
-select lives_ok('select refresh_stats_snapshot()', 'refresh runs after adding a spot at window_end');
+select lives_ok('select pg_temp.refresh()', 'refresh runs after adding a spot at window_end');
 select is((pg_temp.snap() #>> '{totals,spots}')::int, 16, 'a spot at exactly 00:00 UTC today is excluded');
 insert into raw_spots (source, source_spot_id, content_hash, spot_time, callsign, frequency_khz, raw_payload)
 values ('pota', 'b2', 'b2', pg_temp.at_utc(0, 0), 'XX1IN', 14062, '{}');
-select lives_ok('select refresh_stats_snapshot()', 'refresh runs after adding a spot at window_start');
+select lives_ok('select pg_temp.refresh()', 'refresh runs after adding a spot at window_start');
 select is((pg_temp.snap() #>> '{totals,spots}')::int, 17, 'a spot at exactly window_start is included');
 
 -- Pruning. now() is frozen inside this transaction, so the dummies get
@@ -255,7 +266,7 @@ from generate_series(1, 50) as i;
 select is((select count(*) from stats_snapshots), 53::bigint, 'setup: 53 rows before the refresh');
 create temp table before_refresh as select max(id) as id from stats_snapshots;
 
-select lives_ok('select refresh_stats_snapshot()', 'refresh runs with rows to prune');
+select lives_ok('select pg_temp.refresh()', 'refresh runs with rows to prune');
 select is((select count(*) from stats_snapshots), 48::bigint, 'refresh prunes to the 48 most recent rows');
 select ok((select id from stats_snapshots order by generated_at desc, id desc limit 1) > (select id from before_refresh),
           'the newest row is the one the refresh just inserted');
@@ -268,13 +279,57 @@ values (pg_temp.at_utc(5, 12), now(), 'VE7CC', 'LATE1', 14025.0, '20m', 'cw', 'c
        (pg_temp.at_utc(6, 23), now(), 'VE7CC', 'LATE2', 14025.0, '20m', 'cw', 'cw', 10, 25, 'WPM', 'CQ', 'line');
 update rbn_rollup_days set rolled_at = pg_temp.at_utc(6, 3) where day = (pg_temp.at_utc(5, 0) at time zone 'utc')::date;
 update rbn_rollup_days set rolled_at = pg_temp.at_utc(7, 0) + interval '5 minutes' where day = (pg_temp.at_utc(6, 0) at time zone 'utc')::date;
-select lives_ok('select refresh_stats_snapshot()', 'refresh runs after late RBN rows');
+select lives_ok('select pg_temp.refresh()', 'refresh runs after late RBN rows');
 select is((pg_temp.snap() #>> '{rbn,spots}')::int, 8, 'a day rolled up within an hour of its end is rolled up again; a final day is not');
 select is((pg_temp.snap() #>> '{hourly,167,rbn}')::int, 2, 'the re-rolled hour shows the late row');
 select ok((select rolled_at from rbn_rollup_days where day = (pg_temp.at_utc(5, 0) at time zone 'utc')::date) = pg_temp.at_utc(6, 3),
           'the final day kept its rollup');
 select is((select count(*) from rbn_hourly), 168::bigint, 're-rolling a day replaces its hourly rows');
 select is(jsonb_array_length(pg_temp.snap() #> '{rbn,topStations}'), 4, 'a rollup recounts the most heard stations (LATE2 joins)');
+
+-- The hourly series ends at the last complete hour. At 02:10 UTC today it runs from 02:00 seven days
+-- ago through 01:00 today: b1 (00:00) and x1 and an RBN spot (01:00) are in it. Every other figure keeps
+-- window_end.
+select lives_ok($$select pg_temp.refresh(pg_temp.at_utc(7, 2) + interval '10 minutes')$$, 'refresh runs at 02:10 UTC');
+select is(jsonb_array_length(pg_temp.snap() -> 'hourly'), 168, 'the moved hourly series still has 168 entries');
+select is(pg_temp.snap() #>> '{hourly,0,hour}', to_char(pg_temp.at_utc(0, 2) at time zone 'utc', 'YYYY-MM-DD"T"HH24":00:00Z"'),
+          'hourly starts 168 hours before the last complete hour');
+select is(pg_temp.snap() -> 'hourly' -> 166,
+          jsonb_build_object('hour', to_char(pg_temp.at_utc(7, 0) at time zone 'utc', 'YYYY-MM-DD"T"HH24":00:00Z"'), 'pota', 1, 'sota', 0, 'rbn', 0),
+          'hourly includes 00:00 UTC today');
+select is(pg_temp.snap() -> 'hourly' -> 167,
+          jsonb_build_object('hour', to_char(pg_temp.at_utc(7, 1) at time zone 'utc', 'YYYY-MM-DD"T"HH24":00:00Z"'), 'pota', 1, 'sota', 0, 'rbn', 1),
+          'hourly ends at 01:00 UTC today, with its RBN spot');
+select is((pg_temp.snap() #>> '{totals,spots}')::int, 17, 'totals still end at window_end');
+select is((select window_end from stats_snapshots order by generated_at desc, id desc limit 1), pg_temp.at_utc(7, 0),
+          'window_end stays 00:00 UTC today');
+select is((select count(*) from rbn_rollup_hours), 2::bigint, 'each complete hour of today is counted');
+select is((select count(*) from rbn_hourly), 170::bigint, 'today''s hours join the rolled-up days in rbn_hourly');
+
+-- Late rows. Hour 00 looks counted two hours after it ended, so it is final; hour 01 looks counted ten
+-- minutes after it ended, inside the relay's buffer time, so it is counted again.
+insert into rbn_spots (spot_time, received_at, spotter, callsign, frequency_khz, band, mode, mode_family, snr, speed, speed_unit, spot_type, line)
+values (pg_temp.at_utc(7, 0) + interval '20 minutes', now(), 'VE7CC', 'LATE3', 14025.0, '20m', 'cw', 'cw', 10, 25, 'WPM', 'CQ', 'line'),
+       (pg_temp.at_utc(7, 1) + interval '30 minutes', now(), 'VE7CC', 'LATE4', 14025.0, '20m', 'cw', 'cw', 10, 25, 'WPM', 'CQ', 'line');
+update rbn_rollup_hours set rolled_at = pg_temp.at_utc(7, 2) where hour = pg_temp.at_utc(7, 0);
+update rbn_rollup_hours set rolled_at = pg_temp.at_utc(7, 2) + interval '10 minutes' where hour = pg_temp.at_utc(7, 1);
+select lives_ok($$select pg_temp.refresh(pg_temp.at_utc(7, 2) + interval '40 minutes')$$, 'refresh runs after late RBN rows in today''s hours');
+select is((pg_temp.snap() #>> '{hourly,166,rbn}')::int, 0, 'a final hour is not counted again');
+select is((pg_temp.snap() #>> '{hourly,167,rbn}')::int, 2, 'an hour counted within an hour of its end is counted again');
+
+-- At 00:30 UTC tomorrow today is a complete day: its day rollup replaces the hour counts, late rows
+-- included, and the hour markers go.
+select lives_ok($$select pg_temp.refresh(pg_temp.at_utc(8, 0) + interval '30 minutes')$$, 'refresh runs after today ends');
+select is((select count(*) from rbn_rollup_hours), 0::bigint, 'a rolled-up day keeps no hour markers');
+select is((pg_temp.snap() #>> '{hourly,144,rbn}')::int, 1, 'the day rollup counts the late row in a final hour');
+select is((pg_temp.snap() #>> '{hourly,145,rbn}')::int, 2, 'the day rollup keeps the recounted hour');
+select is((select count(*) from rbn_hourly), 168::bigint, 'rbn_hourly holds the seven window days');
+
+-- The cron entry point refreshes at now().
+select lives_ok('select refresh_stats_snapshot()', 'refresh_stats_snapshot runs');
+select is(pg_temp.snap() #>> '{hourly,167,hour}',
+          to_char(date_trunc('hour', now() at time zone 'utc') - interval '1 hour', 'YYYY-MM-DD"T"HH24":00:00Z"'),
+          'refresh_stats_snapshot ends the hourly series at the last complete hour before now()');
 
 select * from finish();
 rollback;
