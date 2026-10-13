@@ -120,6 +120,12 @@ export function matchRoute(method: string, path: string): RouteMatch {
 const isInt4 = (v: unknown) =>
   Number.isInteger(v) && (v as number) >= -(2 ** 31) && (v as number) < 2 ** 31;
 
+const SCALAR_OK: Readonly<Record<Scalar, (v: unknown) => boolean>> = {
+  string: (v) => typeof v === "string",
+  boolean: (v) => typeof v === "boolean",
+  integer: isInt4,
+};
+
 /** A message for the first body field of the wrong shape, or null when the body is acceptable. */
 export function checkBody(route: Route, body: JsonObject): string | null {
   for (const key of route.required ?? []) {
@@ -139,7 +145,7 @@ export function checkBody(route: Route, body: JsonObject): string | null {
   for (const [key, type] of Object.entries(route.scalars ?? {})) {
     const value = body[key];
     if (value === undefined || value === null) continue;
-    if (type === "integer" ? isInt4(value) : typeof value === type) continue;
+    if (SCALAR_OK[type](value)) continue;
     return `${key} must be ${type === "integer" ? "an integer" : `a ${type}`}.`;
   }
   return null;
