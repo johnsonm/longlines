@@ -172,7 +172,9 @@ A callsign filter value matches a spot whose callsign is that value or whose bas
 (`base_callsign()`, below): `KK4PWJ` catches `KK4PWJ/P` and `W4/KK4PWJ`, while `KK4PWJ/P` catches
 only `/P`. `raw_spots.base_callsign` is a stored generated column with its own index. The rule is
 `callsign_matches()` (and `source_matches()` for sources), shared by `spot_matches` and the RBN
-watchlist `watched_among`, so the two cannot drift apart.
+watchlist `watched_among`, so the two cannot drift apart. A subscription can also name callsign
+groups (`group_ids`); the callsign filter is the union of the typed calls and the groups' members
+(see "Callsign groups" below).
 
 A mode filter value matches either `raw_spots.mode` or `raw_spots.mode_family` (`cw`, `phone`,
 `digital`). The family is derived at ingest by `supabase/functions/_shared/modes.ts`, the only
@@ -201,7 +203,7 @@ not block the cascade.
   are the client path. Supabase's security linter flags definer views in an exposed schema, so
   don't turn either back into one.
 - Their own `profiles`, `destinations` (safe columns), `subscriptions` and
-  links, through RLS.
+  links, `callsign_groups` and `callsign_group_members`, through RLS.
 - `stats_snapshots`: hourly jsonb summaries of the last 7 complete UTC days, written only by
   cron (`refresh_stats_snapshot`). Anyone can read every row, signed in or not: the Stats page
   is public and the payload is aggregated from already-public spot feeds.
@@ -718,3 +720,49 @@ host-matched rewrite in `web/vercel.json` to `/functions/v1/api/v1/...`.
 - **Errors.** SQL raises user-facing messages. `_shared/api/errors.ts` maps "... not found." to
   404, "Remove it from its subscriptions first." to 409, other raised messages and Postgres data
   and integrity errors to 400, and everything else to a logged 500.
+
+# Callsign groups
+
+A group is a named list of up to 1,000 callsigns, such as a club roster, that subscriptions use in
+place of typed calls (spec `docs/superpowers/specs/2026-10-13-callsign-groups-design.md`).
+
+```mermaid
+flowchart LR
+  GP[Groups page] -- "normalize_group_callsigns, save_callsign_group" --> G[(callsign_groups, callsign_group_members)]
+  SD[Subscription dialog] -- "save_subscription(group_ids)" --> S[(subscriptions.group_ids)]
+  SD -- "preview_subscription → count, spots, station_count" --> PV[spot_matches]
+  M[match_pending_spots] --> PV
+  PV -- group_matches --> G
+  R[ingest-rbn] -- watched_among --> G
+```
+
+- **Storage.** `callsign_groups` (name unique per account, case-insensitively) and
+  `callsign_group_members(group_id, callsign)`, indexed `(callsign, group_id)` for the matcher.
+  Members are base calls (`base_callsign()`, a check constraint), so `KK4PWJ` catches `KK4PWJ/P`;
+  a group cannot target only `/P`, though a typed callsign still can. Clients read their own rows
+  through RLS and write only through `save_callsign_group(payload)`, which validates the name,
+  normalises the calls with `normalize_group_callsigns` (the Groups page shows its output, so the
+  chips are what will be stored), refuses more than 1,000 and replaces the members by diff in one
+  transaction. `list_callsign_groups()` returns every group with its members, counts and
+  `on_air` (members spotted in `raw_spots` in the last 30 minutes, and the newest such spot).
+- **Subscriptions.** `subscriptions.group_ids uuid[]` is an array rather than a join table, so
+  the preview can match an unsaved row built from the dialog, like the other filters.
+  `save_subscription` refuses an id the caller doesn't own ("Group not found."), and an update
+  without a `group_ids` key keeps the groups. `delete_callsign_group` refuses a group any
+  subscription still uses ("Remove it from its subscriptions first."). Edits are live: a changed
+  group changes every subscription that names it, with no re-save.
+- **Matching.** `spot_matches` checks groups last, through `group_matches(group_ids, base)`, an
+  `exists` probe of the member index with the spot's base call, so a call in two groups is one
+  match and one delivery. The callsign filter is off only when there are no typed calls and no
+  groups; a subscription whose groups are all empty matches nothing, never "any station". An RBN
+  spot needs typed calls or a group, and `watched_among` adds group members to the RBN watchlist,
+  starting from the member index.
+- **Preview.** `preview_subscription` keeps only the caller's own group ids (compared as text,
+  so a malformed id is ignored too), so it cannot probe another user's groups. It also returns
+  `station_count`, the distinct base calls across the typed calls and those groups' members, which
+  the dialog shows as "Matches N stations from your groups and callsigns.".
+- **The web.** The Groups page (`web/src/groups/`) edits whole lists. The Subscriptions page loads
+  `list_callsign_groups` once per visit for the group chips on each card and the dialog's
+  "Callsign groups" picker. TypeScript never resolves membership or counts stations; both come
+  from SQL. If the list fails to load, the chips and picker are hidden and a saved subscription
+  keeps its groups.

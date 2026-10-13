@@ -8,10 +8,11 @@ import EditIcon from "@mui/icons-material/Edit";
 import { useNavigate } from "react-router";
 import { PageTitle } from "../layout/PageTitle";
 import {
-  deleteSubscription, previewSubscription, saveSubscription, setSubscriptionEnabled,
+  deleteSubscription, listGroups, previewSubscription, saveSubscription, setSubscriptionEnabled,
   type Destination, type SubscriptionInput, type SubscriptionWithLinks,
 } from "../lib/api";
 import type { TimePrefs } from "../lib/time";
+import type { CallsignGroup } from "../groups/types";
 import { errorText, useNotify } from "../app/hooks";
 import { useTour } from "../tour/hooks";
 import { SubscriptionDialog } from "./SubscriptionDialog";
@@ -33,6 +34,21 @@ export function SubscriptionsPage({ subs, dests, loading, reload, prefs, fullScr
   const [editing, setEditing] = useState<SubscriptionInput | null>(null);
   const [busy, setBusy] = useState(false);
   const [hits, setHits] = useState<Record<string, number>>({});
+  // Names for the chips and the dialog's picker. null until loaded, and if loading fails.
+  const [groups, setGroups] = useState<CallsignGroup[] | null>(null);
+
+  // Groups change only on the Groups page, which is another route, so one load per visit is enough.
+  useEffect(() => {
+    let active = true;
+    listGroups()
+      .then((g) => {
+        if (active) setGroups(g);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, []);
 
   // "N of the last 200 spots matched", from the same predicate the matcher uses.
   useEffect(() => {
@@ -119,7 +135,7 @@ export function SubscriptionsPage({ subs, dests, loading, reload, prefs, fullScr
                   />
                 </Stack>
                 <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap", my: 1.5 }}>
-                  {filterChips(toInput(s)).map((c, i) => <Chip key={i} size="small" label={c} />)}
+                  {filterChips(toInput(s), groups).map((c, i) => <Chip key={i} size="small" label={c} />)}
                 </Stack>
                 <Typography variant="body2" color="text.secondary">
                   Sends to {s.destinations.map((id) => dests.find((d) => d.id === id)?.name).filter(Boolean).join(", ") || "nothing"}.
@@ -138,7 +154,7 @@ export function SubscriptionsPage({ subs, dests, loading, reload, prefs, fullScr
       </Grid>
       {editing && (
         <SubscriptionDialog
-          open initial={editing} dests={dests} prefs={prefs} busy={busy} fullScreen={fullScreen}
+          open initial={editing} dests={dests} groups={groups} prefs={prefs} busy={busy} fullScreen={fullScreen}
           onClose={cancelEdit} onSave={(s) => void save(s)}
         />
       )}

@@ -2,13 +2,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import { renderPage } from "../test/render";
 import {
-  deleteSubscription, previewSubscription, saveSubscription, setSubscriptionEnabled,
+  deleteSubscription, listGroups, previewSubscription, saveSubscription, setSubscriptionEnabled,
   type Destination, type Preview, type RecentSpot, type SubscriptionWithLinks,
 } from "../lib/api";
+import type { CallsignGroup } from "../groups/types";
 import { SubscriptionsPage } from "./SubscriptionsPage";
 
 vi.mock("../lib/api", () => ({
   deleteSubscription: vi.fn(),
+  listGroups: vi.fn(),
   previewSubscription: vi.fn(),
   saveSubscription: vi.fn(),
   setSubscriptionEnabled: vi.fn(),
@@ -26,7 +28,7 @@ function dest(id: string, name: string, overrides: Partial<Destination> = {}): D
 function sub(overrides: Partial<SubscriptionWithLinks> = {}): SubscriptionWithLinks {
   return {
     id: "s1", user_id: "u1", name: "NC parks", enabled: true, sources: ["pota"], bands: ["20m"], modes: ["cw"], callsigns: [],
-    reference: "US-NC", quiet_minutes: 10, created_at: "2026-10-01T00:00:00Z", updated_at: "2026-10-01T00:00:00Z",
+    reference: "US-NC", quiet_minutes: 10, group_ids: [], created_at: "2026-10-01T00:00:00Z", updated_at: "2026-10-01T00:00:00Z",
     destinations: ["d1"], ...overrides,
   } as SubscriptionWithLinks;
 }
@@ -36,11 +38,21 @@ const SPOT = {
   sota_summit_ref: null, spot_time: "2026-10-05T14:00:00Z",
 } as RecentSpot;
 
+function group(id: string, name: string): CallsignGroup {
+  return {
+    id, name, callsigns: ["KK4PWJ"], member_count: 1, subscription_count: 0, updated_at: "2026-10-13T00:00:00Z",
+    on_air: { count: 0, latest: null },
+  };
+}
+
+const GROUPS = [group("g1", "Friends"), group("g2", "RARS members")];
+
 const DESTS = [dest("d1", "Shack"), dest("d2", "Club", { type: "webhook", health: "failing" })];
 
 beforeEach(() => {
   for (const fn of [deleteSubscription, saveSubscription, setSubscriptionEnabled]) vi.mocked(fn).mockReset().mockResolvedValue(undefined as never);
-  vi.mocked(previewSubscription).mockReset().mockResolvedValue({ count: 3, spots: [SPOT] });
+  vi.mocked(previewSubscription).mockReset().mockResolvedValue({ count: 3, spots: [SPOT], station_count: 0 });
+  vi.mocked(listGroups).mockReset().mockResolvedValue(GROUPS);
 });
 
 function render(subs: SubscriptionWithLinks[], dests: Destination[] = DESTS, loading = false) {
@@ -163,17 +175,17 @@ describe("SubscriptionDialog preview", () => {
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByText("Checking recent spots…")).toBeInTheDocument();
     await waitFor(() => expect(answer).toBeDefined());
-    answer?.({ count: 3, spots: [SPOT] });
+    answer?.({ count: 3, spots: [SPOT], station_count: 0 });
     expect(await within(dialog).findByText("3 of the last 200 spots would have matched.")).toBeInTheDocument();
     expect(within(dialog).getByText("W1AW on 14062.0 kHz CW")).toBeInTheDocument();
     expect(within(dialog).getByText(/US-0817 · POTA ·/)).toBeInTheDocument();
   });
 
   it("warns when the filter matches everything and notes an empty match", async () => {
-    vi.mocked(previewSubscription).mockResolvedValueOnce({ count: 200, spots: [] }).mockResolvedValue({ count: 0, spots: [] });
+    vi.mocked(previewSubscription).mockResolvedValueOnce({ count: 200, spots: [], station_count: 0 }).mockResolvedValue({ count: 0, spots: [], station_count: 0 });
     const { user } = render([sub()]);
     await waitFor(() => expect(previewSubscription).toHaveBeenCalledTimes(1));
-    vi.mocked(previewSubscription).mockResolvedValueOnce({ count: 200, spots: [] });
+    vi.mocked(previewSubscription).mockResolvedValueOnce({ count: 200, spots: [], station_count: 0 });
     await user.click(screen.getByRole("button", { name: "Edit" }));
     const dialog = await screen.findByRole("dialog");
     expect(await within(dialog).findByText(/This matches everything/)).toBeInTheDocument();
@@ -222,5 +234,73 @@ describe("SubscriptionDialog preview", () => {
     await user.click(within(dialog).getByLabelText(/^Send matches to/));
     const club = await screen.findByRole("option", { name: /Club/ });
     expect(within(club).getByText("Failing")).toBeInTheDocument();
+  });
+});
+
+describe("Callsign groups", () => {
+  async function openEdit(overrides: Partial<SubscriptionWithLinks> = {}) {
+    const r = render([sub(overrides)]);
+    await waitFor(() => expect(listGroups).toHaveBeenCalled());
+    await r.user.click(screen.getByRole("button", { name: "Edit" }));
+    return { ...r, dialog: await screen.findByRole("dialog") };
+  }
+
+  it("shows a Group chip on the card for each of its groups", async () => {
+    render([sub({ group_ids: ["g2"] })]);
+    expect(await screen.findByText("Group: RARS members")).toBeInTheDocument();
+    expect(screen.queryByText("Group: Friends")).not.toBeInTheDocument();
+  });
+
+  it("picks groups, swaps the Callsigns helper and previews and saves them", async () => {
+    vi.mocked(previewSubscription).mockResolvedValue({ count: 3, spots: [SPOT], station_count: 12 });
+    const { user, dialog } = await openEdit();
+    expect(within(dialog).getByText("Leave empty to match any station.")).toBeInTheDocument();
+    expect(within(dialog).queryByText(/stations? from your groups/)).not.toBeInTheDocument();
+
+    await user.click(within(dialog).getByLabelText("Callsign groups"));
+    await user.click(await screen.findByRole("option", { name: "RARS members" }));
+    expect(within(dialog).getByText("Added to the groups below.")).toBeInTheDocument();
+    await waitFor(() => expect(previewSubscription).toHaveBeenLastCalledWith(expect.objectContaining({ group_ids: ["g2"] })));
+    expect(await within(dialog).findByText("Matches 12 stations from your groups and callsigns.")).toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole("button", { name: "Save changes" }));
+    expect(saveSubscription).toHaveBeenCalledWith(expect.objectContaining({ id: "s1", group_ids: ["g2"] }));
+  });
+
+  it("counts typed calls alone, in the singular", async () => {
+    vi.mocked(previewSubscription).mockResolvedValue({ count: 3, spots: [SPOT], station_count: 1 });
+    const { dialog } = await openEdit({ callsigns: ["W1AW"] });
+    expect(await within(dialog).findByText("Matches 1 station from your groups and callsigns.")).toBeInTheDocument();
+    expect(within(dialog).getByText("Leave empty to match any station.")).toBeInTheDocument();
+  });
+
+  it("removes a group from an existing subscription", async () => {
+    const { user, dialog } = await openEdit({ group_ids: ["g1"] });
+    expect(within(dialog).getByText("Added to the groups below.")).toBeInTheDocument();
+    await user.click(within(within(dialog).getByRole("button", { name: "Friends" })).getByTestId("CancelIcon"));
+    expect(within(dialog).getByText("Leave empty to match any station.")).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Save changes" }));
+    expect(saveSubscription).toHaveBeenCalledWith(expect.objectContaining({ group_ids: [] }));
+  });
+
+  it("links to Groups when the account has none", async () => {
+    vi.mocked(listGroups).mockResolvedValue([]);
+    const { user, dialog } = await openEdit();
+    expect(within(dialog).queryByLabelText("Callsign groups")).not.toBeInTheDocument();
+    expect(within(dialog).getByText(/No callsign groups yet\./)).toHaveTextContent(
+      "No callsign groups yet. Create a group to watch a club roster or an award list.",
+    );
+    await user.click(within(dialog).getByRole("link", { name: "Create a group" }));
+    expect(screen.getByTestId("location")).toHaveTextContent("/groups");
+  });
+
+  it("hides the field and the chips but keeps the groups when the list doesn't load", async () => {
+    vi.mocked(listGroups).mockRejectedValue(new Error("x"));
+    const { user, dialog } = await openEdit({ group_ids: ["g1"] });
+    expect(screen.queryByText(/^Group: /)).not.toBeInTheDocument();
+    expect(within(dialog).queryByLabelText("Callsign groups")).not.toBeInTheDocument();
+    expect(within(dialog).queryByText(/No callsign groups yet/)).not.toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Save changes" }));
+    expect(saveSubscription).toHaveBeenCalledWith(expect.objectContaining({ group_ids: ["g1"] }));
   });
 });

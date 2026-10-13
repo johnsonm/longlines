@@ -275,7 +275,7 @@ describe("Get alerts", () => {
     await waitFor(() => expect(where()).toHaveTextContent("/subscriptions"));
     expect(saveSubscription).toHaveBeenCalledWith({
       name: "KK4PWJ on the air", enabled: true, quiet_minutes: 30, destinations: ["d1"],
-      sources: [], bands: [], modes: [], callsigns: ["KK4PWJ"], reference: "",
+      sources: [], bands: [], modes: [], callsigns: ["KK4PWJ"], reference: "", group_ids: [],
     });
     expect(alerts.reload).toHaveBeenCalled();
     expect(app.notify).toHaveBeenCalledWith("Created KK4PWJ on the air");
