@@ -261,6 +261,11 @@ relay on pushes to main; nothing else deploys automatically.
   object. The exception is `select` on `stats_snapshots` (anon). `callsign_licenses` is public FCC
   data but stays service-role only, so `hidden_callsigns` cannot be read around; clients get
   licenses from the `callsign-profile` function.
+- New functions start executable by `public`; `revoke all ... from public` leaves only
+  `service_role` (default privileges, `20261012000120`), then grant clients explicitly. New
+  functions pin `search_path` except one-expression SQL helpers that must stay inlinable.
+  `supabase/tests/advisor.test.sql` lists the functions clients may call and the unpinned
+  helpers, and fails on anything new.
 - `supabase/seed.sql` is a synthetic week relative to `now()` (made-up calls ending in `S`) for
   preview branches and local resets; it ends with a stats refresh. pgTAP suites that count rows
   delete from those tables first, inside their rolled-back transaction, so they pass seeded or not.
