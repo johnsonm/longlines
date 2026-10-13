@@ -609,3 +609,92 @@ serving the same zip with Range support.
 A local run (functions URL on localhost) does not load licenses by default. To exercise the real
 load locally, serve `load-licenses` and set `RELAY_LICENSES=https://data.fcc.gov/download/pub/uls/complete/l_amat.zip`;
 it downloads about 160 MB, so not routinely.
+
+# Callsign profiles
+
+How they work is in `docs/ARCHITECTURE.md` ("Callsign profiles").
+
+## First deploy (hosted)
+
+`20261012000060_callsign_profile` builds the `rbn_spots` base-callsign index one partition at a
+time, oldest first, then creates the parent index and attaches them. A partition is locked against
+inserts from its build until the migration commits, so only the partitions built last, today's and
+the empty future ones, ever hold up RBN inserts. Locally, at hosted volume, each full day took about
+16 s, and an insert probe into today's partition every second never waited more than 19 ms while the
+older days built. Today's partition takes about 16 s at the end of a UTC day and a few seconds in the
+early hours, under the API's 8 s timeout that `ingest-rbn` pushes run into; a push that does time out
+is retried by the relay, which buffers about 50 minutes. Prefer the early UTC hours, after retention
+at 03:35 removes old days, and avoid :25, when the rollup job reads `rbn_spots`.
+
+The GitHub integration applies the migration on merge, so merge then, or push it first:
+
+```sh
+supabase migration list                    # 20261012000060 must be the only one pending
+supabase db push
+supabase functions deploy callsign-profile # new function: the GitHub integration skips it
+```
+
+Then check, in the SQL editor:
+
+```sql
+select indisvalid from pg_index where indexrelid = 'rbn_spots_base_callsign_time_idx'::regclass;  -- t
+select cached_callsign_profile('KK4PWJ') -> 'heard' -> 'spots';
+```
+
+If a push timed out, the relay logs `push failed` and retries. A gap in RBN rows that outlasts the
+relay's buffer shows in `select date_trunc('minute', spot_time), count(*) from rbn_spots
+where spot_time > now() - interval '2 hours' group by 1 order by 1;`.
+
+## Is it working?
+
+```sh
+curl -si "$SUPABASE_URL/functions/v1/callsign-profile?callsign=KK4PWJ" | head -20
+```
+
+200 with `Cache-Control: public, max-age=300` and the profile; 400 for input that is not a
+callsign; 429 past 30 lookups a minute from one IP; 500 means an RPC failed (the function logs
+`callsign-profile:` with the error). Clients being throttled now:
+
+```sql
+select client, lookups from lookup_rate_limits
+where window_start = date_trunc('minute', now()) and lookups > 30;
+```
+
+`client` is an HMAC of the IP keyed with the service-role key, never the address.
+
+## Which client IP the rate limit sees
+
+The function keys on the header named by the `LONGLINES_CLIENT_IP_HEADER` function secret
+(`cf-connecting-ip` when unset), which the edge proxy sets and a client cannot. Without it, it uses the
+last `x-forwarded-for` entry, which the nearest proxy appended; that is safe but may be a proxy's
+address shared by many clients. It never uses the first entry, which the client writes. After the
+first deploy, check that a client cannot reset its own limit:
+
+```sh
+for i in $(seq 1 31); do
+  curl -s -o /dev/null -w "%{http_code} " -H "cf-connecting-ip: 192.0.2.$i" -H "x-forwarded-for: 192.0.2.$i" \
+    "$SUPABASE_URL/functions/v1/callsign-profile?callsign=KK4PWJ"
+done   # the 31st must be 429
+```
+
+If it is not 429, the header is passed through from the client: find the one the proxy sets (log
+`req.headers` once) and `supabase secrets set LONGLINES_CLIENT_IP_HEADER=<name>`. The `prune-callsign-lookups` job (:15 hourly)
+deletes finished windows and cache entries older than 15 minutes.
+
+## Hiding a profile
+
+On request (the page footer gives the contact address), by base call:
+
+```sql
+insert into hidden_callsigns (callsign, note) values ('KK4PWJ', 'email 2026-10-12');
+delete from hidden_callsigns where callsign = 'KK4PWJ';   -- show it again
+```
+
+A hidden call gets the not-heard page with no license from the next lookup on; the cache is
+skipped for it. Browsers and CDNs may still hold the old page for up to 5 minutes.
+
+## A profile looks stale
+
+Profiles are cached for 15 minutes. To rebuild one now:
+`delete from callsign_profile_cache where callsign = 'KK4PWJ';`. Days that are rolled up come from
+the rollups ("Callsign rollups" above); today and yesterday until 02:25 UTC are read live.

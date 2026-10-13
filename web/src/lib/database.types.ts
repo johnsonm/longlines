@@ -62,6 +62,19 @@ export type Database = {
                   Relationships: [
                     
                   ]
+                },"callsign_profile_cache": {
+                  Row: {
+                    "callsign": string,"generated_at": string,"payload": NonNullable<Json>
+                  }
+                  Insert: {
+                    "callsign": string,"generated_at": string,"payload": NonNullable<Json>
+                  }
+                  Update: {
+                    "callsign"?: string,"generated_at"?: string,"payload"?: NonNullable<Json>
+                  }
+                  Relationships: [
+                    
+                  ]
                 },"callsign_reach": {
                   Row: {
                     "base": string,"continent": string,"country": string,"grain": string,"period": string,"source": string,"spots": number
@@ -261,6 +274,19 @@ isOneToOne: false
                   Relationships: [
                     
                   ]
+                },"hidden_callsigns": {
+                  Row: {
+                    "callsign": string,"hidden_at": string,"note": string | null
+                  }
+                  Insert: {
+                    "callsign": string,"hidden_at"?: string,"note"?: string | null
+                  }
+                  Update: {
+                    "callsign"?: string,"hidden_at"?: string,"note"?: string | null
+                  }
+                  Relationships: [
+                    
+                  ]
                 },"ingest_failures": {
                   Row: {
                     "error": string,"id": number,"occurred_at": string,"raw_payload": NonNullable<Json>,"source": string
@@ -296,6 +322,19 @@ isOneToOne: false
                   }
                   Update: {
                     "applied_at"?: string | null,"authority"?: string,"counts"?: Json | null,"error"?: string | null,"id"?: never,"licenses"?: number | null,"ready_at"?: string | null,"started_at"?: string,"status"?: string,"version"?: string
+                  }
+                  Relationships: [
+                    
+                  ]
+                },"lookup_rate_limits": {
+                  Row: {
+                    "client": string,"lookups": number,"window_start": string
+                  }
+                  Insert: {
+                    "client": string,"lookups": number,"window_start": string
+                  }
+                  Update: {
+                    "client"?: string,"lookups"?: number,"window_start"?: string
                   }
                   Relationships: [
                     
@@ -533,13 +572,13 @@ isOneToOne: false
                 }
           }
           Functions: {
-            "archive_ndjson":
+            "apply_license_loads":
+{ Args: Record<PropertyKey, never>; Returns: undefined
+                           },
+"archive_ndjson":
 { Args: { "p_from": string,"p_source": string,"p_to": string }; Returns: {
               "ndjson": string,"row_count": number
             }[]
-                           },
-"apply_license_loads":
-{ Args: Record<PropertyKey, never>; Returns: undefined
                            },
 "archive_pending_slices":
 { Args: { "p_before": string,"p_limit": number,"p_source": string }; Returns: {
@@ -557,11 +596,17 @@ isOneToOne: false
 "base_callsign":
 { Args: { "p_call": string }; Returns: string
                            },
+"cached_callsign_profile":
+{ Args: { "p_callsign": string }; Returns: Json
+                           },
 "callsign_available":
 { Args: { "p_callsign": string }; Returns: boolean
                            },
 "callsign_matches":
 { Args: { "p_base": string,"p_call": string,"p_callsigns": (string)[] }; Returns: boolean
+                           },
+"callsign_profile":
+{ Args: { "p_callsign": string }; Returns: Json
                            },
 "claim_deliveries":
 { Args: { "p_limit"?: number,"p_vt"?: number }; Returns: {
@@ -710,6 +755,9 @@ isOneToOne: false
               "count": number,"spots": Json
             }[]
                            },
+"prune_callsign_lookups":
+{ Args: Record<PropertyKey, never>; Returns: undefined
+                           },
 "rbn_day_archived":
 { Args: { "p_day": string }; Returns: boolean
                            },
@@ -723,6 +771,9 @@ isOneToOne: false
                            },
 "record_ingest_success":
 { Args: { "p_epoch"?: string,"p_inserted": number,"p_source": string }; Returns: undefined
+                           },
+"record_profile_lookup":
+{ Args: { "p_client": string }; Returns: number
                            },
 "record_sign_in_attempt":
 { Args: { "p_identifier": string }; Returns: number

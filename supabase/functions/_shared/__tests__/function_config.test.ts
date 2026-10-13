@@ -28,3 +28,83 @@ Deno.test("every function has a deno.json mapping supabase-js like the root one"
   }
   assertEquals(missing, [], "functions without a deno.json");
 });
+
+// isServiceRole trusts a JWT's role claim without checking its signature,
+// because the gateway has already verified it. A function deployed with
+// verify_jwt = false gets no such check, so a forged token would pass.
+
+const sharedAuth = new URL("../auth.ts", import.meta.url).href;
+const importPattern = /(?:import|export)\s+(?:type\s+)?([\s\S]*?)\s*from\s+["']([^"']+)["']/g;
+
+/**
+ * True when an import or export clause from auth.ts can reach isServiceRole:
+ * the name itself, a namespace import, or an `export *` barrel.
+ */
+function exposesIsServiceRole(clause: string): boolean {
+  return /\bisServiceRole\b|\*\s+as\b|^\*$/.test(clause.trim());
+}
+
+/** Functions that config.toml deploys with verify_jwt = false. */
+function functionsWithoutJwt(): string[] {
+  const config = Deno.readTextFileSync(new URL("../../../config.toml", import.meta.url));
+  const open: string[] = [];
+  let section: string | null = null;
+  for (const line of config.split("\n")) {
+    const header = /^\[functions\.([\w-]+)\]/.exec(line);
+    if (header) section = header[1] ?? null;
+    else if (line.startsWith("[")) section = null;
+    else if (section && /^verify_jwt\s*=\s*false\b/.test(line)) open.push(section);
+  }
+  return open;
+}
+
+/** Modules reachable from a function's entrypoint that import isServiceRole from auth.ts. */
+function modulesUsingIsServiceRole(fn: string): string[] {
+  const found: string[] = [];
+  const seen = new Set<string>();
+  const queue = [new URL(`${fn}/index.ts`, functionsDir).href];
+  while (queue.length > 0) {
+    const href = queue.pop()!;
+    if (seen.has(href)) continue;
+    seen.add(href);
+    const source = Deno.readTextFileSync(new URL(href));
+    for (const [, clause, specifier] of source.matchAll(importPattern)) {
+      if (!specifier?.startsWith(".")) continue;
+      const target = new URL(specifier, href).href;
+      if (target === sharedAuth && exposesIsServiceRole(clause ?? "")) found.push(href);
+      queue.push(target);
+    }
+  }
+  return found;
+}
+
+Deno.test("the isServiceRole check recognizes every way to reach it", () => {
+  for (
+    const clause of [
+      "{ isServiceRole }",
+      "{\n  bearerToken,\n  isServiceRole,\n}",
+      "* as auth",
+      "*",
+    ]
+  ) {
+    assertEquals(exposesIsServiceRole(clause), true, clause);
+  }
+  for (const clause of ["{ bearerToken }", "{ secretsMatch, userFromRequest }"]) {
+    assertEquals(exposesIsServiceRole(clause), false, clause);
+  }
+});
+
+Deno.test("the isServiceRole check finds the functions that use it", () => {
+  for (const fn of ["deliver", "archive", "import-cty"]) {
+    assertEquals(modulesUsingIsServiceRole(fn).length > 0, true, `${fn} uses isServiceRole`);
+  }
+});
+
+Deno.test("no verify_jwt = false function imports isServiceRole", () => {
+  const open = functionsWithoutJwt();
+  for (const fn of ["sign-in", "ingest-rbn", "callsign-profile"]) {
+    assertEquals(open.includes(fn), true, `config.toml lists ${fn} with verify_jwt = false`);
+  }
+  const offenders = open.flatMap((fn) => modulesUsingIsServiceRole(fn).map((m) => `${fn}: ${m}`));
+  assertEquals(offenders, [], "verify_jwt = false functions reaching isServiceRole");
+});
