@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { Alert, Box, Button, Grid, LinearProgress, Link, Paper, Stack, Tab, Tabs, TextField, Typography, useMediaQuery, useTheme } from "@mui/material";
 import { useLocation, useNavigate } from "react-router";
 import InsightsIcon from "@mui/icons-material/Insights";
+import PersonSearchIcon from "@mui/icons-material/PersonSearch";
 import heroUrl from "../assets/landing-hero.jpg";
 import { callsignAvailable, signIn, signUp } from "../lib/api";
 import { isValidCallsign, normalizeCallsign } from "../lib/callsign";
@@ -114,9 +115,14 @@ export function SignInPage() {
           <Typography variant="body2" color="text.secondary">
             One connection upstream, as many destinations as you want downstream. Named for the AT&amp;T microwave relay network.
           </Typography>
-          <Button variant="outlined" startIcon={<InsightsIcon />} onClick={() => void navigate("/stats")} sx={{ mt: 3 }}>
-            View stats
-          </Button>
+          <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap", mt: 3 }}>
+            <Button variant="outlined" startIcon={<InsightsIcon />} onClick={() => void navigate("/stats")}>
+              View stats
+            </Button>
+            <Button variant="outlined" startIcon={<PersonSearchIcon />} onClick={() => void navigate("/lookup")}>
+              Look up a callsign
+            </Button>
+          </Stack>
         </Box>
       </Grid>
       <Grid size={{ xs: 12, md: 4 }} sx={{ display: "flex", alignItems: "center", justifyContent: "center", p: { xs: 2, sm: 3 } }}>

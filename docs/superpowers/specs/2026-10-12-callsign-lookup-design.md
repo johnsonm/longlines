@@ -123,7 +123,9 @@ through the base-callsign indexes. "Heard by" (top 10, last 7 days) and "Recent 
 
 ### Licenses
 
-`callsign_licenses` has these columns, readable by `anon` and `authenticated`:
+`callsign_licenses` has these columns. (Amended in PR 6: it is service-role only. A client grant let
+anyone read a hidden call's license around its profile, so licenses reach clients only through the
+profile function.)
 
 | Column | Notes |
 |---|---|

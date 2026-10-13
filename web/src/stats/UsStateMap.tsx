@@ -5,11 +5,13 @@ import { fillOpacity, fmt } from "./format";
 import { STATE_SHAPES } from "./stateShapes";
 
 /**
- * Choropleth of POTA spots per US state. Static: the only interaction is the
- * per-state tooltip, which also works on tap. Shapes come precomputed from
- * stateShapes.ts; colors come from the theme so dark mode just works.
+ * Choropleth of a count per US state (POTA spots on Stats, activations on a
+ * profile), named by `unit` in the tooltip and legend. Static: the only
+ * interaction is the per-state tooltip, which also works on tap. Shapes come
+ * precomputed from stateShapes.ts; colors come from the theme so dark mode
+ * just works.
  */
-export function UsStateMap({ values }: { values: Record<string, number> }) {
+export function UsStateMap({ values, unit = "spots" }: { values: Record<string, number>; unit?: string }) {
   const theme = useTheme();
   const gradientId = useId();
   const max = Math.max(0, ...Object.values(values));
@@ -24,13 +26,13 @@ export function UsStateMap({ values }: { values: Record<string, number> }) {
         component="svg"
         viewBox="0 0 975 610"
         role="img"
-        aria-label="Map of spots by state"
+        aria-label={`Map of ${unit} by state`}
         sx={{ width: "100%", height: "auto", display: "block" }}
       >
         {STATE_SHAPES.map((s) => {
           const value = values[s.code] ?? 0;
           return (
-            <Tooltip key={s.code} title={`${s.name}: ${fmt(value)} spots`} followCursor enterTouchDelay={0}>
+            <Tooltip key={s.code} title={`${s.name}: ${fmt(value)} ${unit}`} followCursor enterTouchDelay={0}>
               <path d={s.d} fill={fill(value)} stroke={theme.palette.background.paper} strokeWidth={1} />
             </Tooltip>
           );
@@ -47,7 +49,7 @@ export function UsStateMap({ values }: { values: Record<string, number> }) {
           </defs>
           <rect width="200" height="10" rx="2" fill={`url(#${gradientId})`} />
         </Box>
-        <Typography variant="caption" color="text.secondary">{fmt(max)} spots</Typography>
+        <Typography variant="caption" color="text.secondary">{fmt(max)} {unit}</Typography>
       </Stack>
     </Stack>
   );

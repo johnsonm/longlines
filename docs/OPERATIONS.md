@@ -246,6 +246,9 @@ Create a Vercel project from the GitHub repo with these settings:
   service-role key is never read and never reaches the bundle. Without the
   integration, set `SUPABASE_URL` and `SUPABASE_ANON_KEY` (or the `VITE_`
   names) by hand.
+- `VITE_CONTACT_EMAIL` (set by hand): the address callsign profiles give for
+  hiding a page ("To have this page hidden, email …"). Without it the footer
+  leaves that sentence out. It is public; it ships in the bundle.
 - Domain: `app.longlines.io`
 
 `web/vercel.json` rewrites every path to `index.html` so client-side routes
@@ -692,6 +695,9 @@ delete from hidden_callsigns where callsign = 'KK4PWJ';   -- show it again
 
 A hidden call gets the not-heard page with no license from the next lookup on; the cache is
 skipped for it. Browsers and CDNs may still hold the old page for up to 5 minutes.
+The Stats snapshot drops hidden calls from its top lists (a trigger on `stats_snapshots`) from the
+next hourly refresh on; to drop a newly hidden call now, run
+`update stats_snapshots set payload = payload;`.
 
 ## A profile looks stale
 

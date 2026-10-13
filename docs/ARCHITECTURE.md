@@ -614,8 +614,10 @@ registries can load into it later; FCC is the only loader for now.
   call reissued after it lapsed), the active one wins, then the latest grant. If staging no longer
   matches the recorded counts (unlogged tables are emptied by a crash) or the insert fails, the
   load is marked `failed` and the old set stays.
-- **Access.** `callsign_licenses` is public FCC data: `anon` and `authenticated` may select it.
-  `license_loads` and the staging tables are service-role only; so are the RPCs.
+- **Access.** Service-role only, like `license_loads`, the staging tables and the RPCs. The data
+  is public FCC data, but a direct read would show the license of a call in `hidden_callsigns`,
+  so clients get licenses only through `callsign_profile()` (the `callsign-profile` function).
+  `20261012000050` granted `select` to `anon` and `authenticated`; `20261012000070` revokes it.
 
 # Callsign profiles
 

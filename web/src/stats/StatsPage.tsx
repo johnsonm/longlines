@@ -1,6 +1,5 @@
-import type { ReactNode } from "react";
 import {
-  Alert, Box, Card, CardContent, CardHeader, Grid, LinearProgress, List, ListItem, ListItemText, Stack, Typography,
+  Alert, Box, Card, CardContent, Grid, LinearProgress, List, ListItem, ListItemText, Stack, Typography,
   useMediaQuery, useTheme,
 } from "@mui/material";
 // MUI X Charts and Data Grid are the MIT community packages (not Pro/Premium):
@@ -8,22 +7,12 @@ import {
 import { BarChart, LineChart, PieChart } from "@mui/x-charts";
 import { DataGrid, type GridColDef } from "@mui/x-data-grid";
 import { PageTitle } from "../layout/PageTitle";
+import { ChartCard, GRID, Kpi } from "./parts";
 import { compact, dayLabel, fmt, hasData, hourLabel, slotLabel, topStates, updatedCaption, weekday } from "./format";
 import { stateName } from "./stateShapes";
 import type { StatsPayload } from "./types";
 import { UsStateMap } from "./UsStateMap";
 import { useStats } from "./useStats";
-
-// Shared by every grid: no menus, filters, selection, footer or sorting.
-const GRID = {
-  disableColumnMenu: true,
-  disableColumnFilter: true,
-  disableColumnSelector: true,
-  disableRowSelectionOnClick: true,
-  hideFooter: true,
-  density: "compact",
-  autoHeight: true,
-} as const;
 
 const ACTIVATOR_COLUMNS: GridColDef[] = [
   { field: "callsign", headerName: "Callsign", flex: 1, minWidth: 70, sortable: false },
@@ -78,27 +67,6 @@ function EmptyState() {
       <CardContent>
         <Typography color="text.secondary">Not enough data yet. Stats appear after the first full day of spots.</Typography>
       </CardContent>
-    </Card>
-  );
-}
-
-function Kpi({ label, value, detail }: { label: string; value: string; detail: string }) {
-  return (
-    <Card variant="outlined" sx={{ height: "100%" }}>
-      <CardContent>
-        <Typography variant="overline" color="text.secondary">{label}</Typography>
-        <Typography variant="h4" component="div">{value}</Typography>
-        <Typography variant="body2" color="text.secondary">{detail}</Typography>
-      </CardContent>
-    </Card>
-  );
-}
-
-function ChartCard({ title, subheader, children }: { title: string; subheader: string; children: ReactNode }) {
-  return (
-    <Card variant="outlined" sx={{ height: "100%" }}>
-      <CardHeader title={title} subheader={subheader} slotProps={{ title: { variant: "h6" } }} />
-      <CardContent sx={{ pt: 0 }}>{children}</CardContent>
     </Card>
   );
 }
