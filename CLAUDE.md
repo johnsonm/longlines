@@ -194,6 +194,13 @@ relay on pushes to main; nothing else deploys automatically.
 - Merges to main deploy the relay through Fly's GitHub integration (set up in the Fly dashboard,
   not in this repo); a merge that changes `relay/` or `_shared/*.ts` ships to production. Never run
   `fly deploy` or `fly secrets set` yourself unless asked.
+- APRS-IS (`aprsFeed`, off until `APRS_LOGIN_CALL` is set) is the full feed on port 10152 with a
+  receive-only login and no filter; never add one. It is plain TCP (`telnet: false`,
+  `TcpLineDecoder`), not telnet. Packets go only to `aprs_packets` (partitions from
+  `create_aprs_packets_partition`, kept two days, retired by `maintain_aprs_packets` once archived);
+  never send them to `raw_spots`, matching, `spot_stream` or the rollups. `raw_spots`' source check
+  leaves `aprs` out on purpose. Its archive runs in its own cron job (`archive-aprs`, body
+  `{"sources": ["aprs"]}`); keep it out of `ARCHIVE_ORDER`.
 - The relay also runs the weekly FCC license load (`relay/licenses.ts`, `relay/zip.ts`): it reads
   `l_amat.zip` by HTTP Range and stages HD/EN/AM rows through `load-licenses`. Record parsing is
   `_shared/uls.ts`; the join and the swap into `callsign_licenses` are SQL
@@ -203,7 +210,7 @@ relay on pushes to main; nothing else deploys automatically.
 
 ## Archive rules
 
-- Slice length lives only in `archive_slice_minutes(source)` (RBN 10 minutes, others 60). NDJSON is
+- Slice length lives only in `archive_slice_minutes(source)` (APRS-IS 5 minutes, RBN 10, others 60). NDJSON is
   built in SQL (`archive_ndjson`), never in TypeScript; the `archive` function only gzips, uploads
   and logs.
 - A slice is logged in `archive_log` only after its upload succeeds. Nothing leaves `rbn_spots`

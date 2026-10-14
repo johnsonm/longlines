@@ -1,18 +1,24 @@
-// Long Lines stream relay. Holds one telnet connection per feed and pushes
-// every spot line to the feed's Edge Function, which stores all of them and
-// alerts on watched callsigns. Runs on Fly.io (see the root fly.toml);
+// Long Lines stream relay. Holds one connection per feed and pushes every spot
+// line to the feed's Edge Function, which stores all of them (and, for RBN and
+// DX Cluster, alerts on watched callsigns). Runs on Fly.io (see the root fly.toml);
 // docs/OPERATIONS.md has the deploy steps. The relay itself is relay.ts; this
 // file is only the process shell.
 
 import { loadConfig } from "./config.ts";
-import { dxclusterFeed, type Feed, RBN_FEED } from "./feeds.ts";
+import { aprsFeed, dxclusterFeed, type Feed, RBN_FEED } from "./feeds.ts";
 import { startRelay } from "./relay.ts";
 
 const env = (name: string) => Deno.env.get(name);
 
+/** RBN and DX Cluster always; APRS-IS once APRS_LOGIN_CALL is set. */
+function defaultFeeds(): Feed[] {
+  const aprs = aprsFeed(env);
+  return [RBN_FEED, dxclusterFeed(env), ...(aprs ? [aprs] : [])];
+}
+
 /** Run the relay until SIGINT/SIGTERM. `feedList` is overridable for local end-to-end runs. */
 export async function main(
-  feedList: readonly Feed[] = [RBN_FEED, dxclusterFeed(env)],
+  feedList: readonly Feed[] = defaultFeeds(),
 ): Promise<void> {
   const relay = startRelay(loadConfig(env), feedList);
 

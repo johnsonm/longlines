@@ -1,4 +1,4 @@
-// The relay itself: one telnet session and forwarder per feed, the weekly
+// The relay itself: one telnet (or TCP) session and forwarder per feed, the weekly
 // license load (licenses.ts), and the /healthz server. main.ts is the process shell around it (environment,
 // signals, exit code); everything here runs in tests against local servers.
 
@@ -22,7 +22,12 @@ function startFeed(
 ): { health: FeedHealth; done: Promise<void>; forwarder: Forwarder } {
   const log = (message: string) => logLine(`[${feed.id}] ${message}`);
   const client = functionClient(config.functionsUrl, feed.functionName, config.relaySecret);
-  const forwarder = new Forwarder({ push: client.push, log });
+  const forwarder = new Forwarder({
+    push: client.push,
+    log,
+    ...(feed.maxBuffer === undefined ? {} : { maxBuffer: feed.maxBuffer }),
+  });
+  const loginCall = feed.loginCall ?? config.loginCall;
   const status: SessionStatus = { connected: false, lastDataAt: null, connects: 0 };
   let lines = 0;
   let spots = 0;
@@ -47,8 +52,10 @@ function startFeed(
     runTelnet({
       host: feed.host,
       port: feed.port,
-      loginCall: config.loginCall,
+      loginCall,
       loginPrompt: feed.loginPrompt,
+      ...(feed.loginLine === undefined ? {} : { loginLine: feed.loginLine(loginCall) }),
+      ...(feed.telnet === undefined ? {} : { telnet: feed.telnet }),
       ...(feed.idleMs === undefined ? {} : { idleMs: feed.idleMs }),
       status,
       signal,

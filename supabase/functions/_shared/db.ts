@@ -6,6 +6,8 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { CtyData } from "./cty.ts";
 import type { LicenseLoad } from "./uls.ts";
 import type {
+  AprsDb,
+  AprsPacketRow,
   ArchiveDb,
   ArchiveLogEntry,
   ArchiveSlice,
@@ -132,6 +134,16 @@ export function createRbnDb(client: SupabaseClient): RbnDb {
     async ingestRbnSpots(rows: RbnSpotRow[]): Promise<number> {
       const { data, error } = await client.rpc("ingest_rbn_spots", { p_rows: rows });
       if (error) throw new Error(`ingest_rbn_spots failed: ${error.message}`);
+      return typeof data === "number" ? data : 0;
+    },
+  };
+}
+
+export function createAprsDb(client: SupabaseClient): AprsDb {
+  return {
+    async ingestAprsPackets(rows: AprsPacketRow[]): Promise<number> {
+      const { data, error } = await client.rpc("ingest_aprs_packets", { p_rows: rows });
+      if (error) throw new Error(`ingest_aprs_packets failed: ${error.message}`);
       return typeof data === "number" ? data : 0;
     },
   };

@@ -1,6 +1,14 @@
 import { assertEquals, assertRejects, assertThrows } from "@std/assert";
 import { FCC_AMATEUR_ZIP, loadConfig } from "../config.ts";
-import { DXCLUSTER_DEFAULT_HOST, dxclusterFeed, RBN_FEED } from "../feeds.ts";
+import {
+  APRS_DEFAULT_HOST,
+  APRS_DEFAULT_PORT,
+  aprsFeed,
+  aprsLoginCall,
+  DXCLUSTER_DEFAULT_HOST,
+  dxclusterFeed,
+  RBN_FEED,
+} from "../feeds.ts";
 import { functionClient } from "../functions.ts";
 import { healthHandler } from "../health.ts";
 
@@ -67,6 +75,10 @@ Deno.test("the Docker image allows every environment variable the relay reads", 
   };
   loadConfig(recorder);
   dxclusterFeed(recorder);
+  aprsFeed((name) => {
+    read.add(name);
+    return name === "APRS_LOGIN_CALL" ? "N0CALL-LL" : undefined;
+  });
   const dockerfile = Deno.readTextFileSync(new URL("../Dockerfile", import.meta.url));
   const allowed = /--allow-env=([^"]+)"/.exec(dockerfile)?.[1]?.split(",") ?? [];
   assertEquals([...read].filter((name) => !allowed.includes(name)), []);
@@ -103,6 +115,56 @@ Deno.test("dxclusterFeed.isSpot accepts every fixture spot line, nothing else an
   for (const l of fixture) assertEquals(feed.isSpot(l), l.startsWith("DX de"), l);
   const skimmer = "DX de SM1HEV-#: 14038.30  CT1JGA/P       CW     8 dB  24 WPM  CQ      1454Z";
   assertEquals(feed.isSpot(skimmer), false);
+});
+
+Deno.test("aprsFeed is off until APRS_LOGIN_CALL is set", () => {
+  assertEquals(aprsFeed(env({})), null);
+  assertEquals(aprsFeed(env({ APRS_LOGIN_CALL: "  " })), null);
+});
+
+Deno.test("aprsFeed holds the full feed on rotate.aprs2.net with a receive-only login", () => {
+  const feed = aprsFeed(env({ APRS_LOGIN_CALL: " n0call-ll " }))!;
+  assertEquals([feed.id, feed.host, feed.port], ["aprs", APRS_DEFAULT_HOST, APRS_DEFAULT_PORT]);
+  assertEquals(APRS_DEFAULT_PORT, 10152);
+  assertEquals(feed.functionName, "ingest-aprs");
+  assertEquals(feed.telnet, false);
+  assertEquals(feed.loginCall, "N0CALL-LL");
+  // No filter command: the full feed is deliberate.
+  assertEquals(feed.loginLine?.("N0CALL-LL"), "user N0CALL-LL pass -1 vers LongLines 0.1");
+  assertEquals(feed.loginPrompt.test("# aprsc 2.1.19-g730c5c0"), true);
+  assertEquals(feed.loginPrompt.test("N0CALL>APRS:# not a comment"), false);
+  assertEquals([feed.idleMs, feed.staleMs, feed.maxBuffer], [2 * 60_000, 5 * 60_000, 150_000]);
+  const other = aprsFeed(
+    env({ APRS_LOGIN_CALL: "N0CALL", APRS_HOST: " euro.aprs2.net ", APRS_PORT: "14580" }),
+  )!;
+  assertEquals([other.host, other.port], ["euro.aprs2.net", 14580]);
+  assertThrows(
+    () => aprsFeed(env({ APRS_LOGIN_CALL: "N0CALL", APRS_PORT: "aprs" })),
+    Error,
+    "APRS_PORT",
+  );
+});
+
+Deno.test("aprsLoginCall accepts a call or call-SSID of at most nine characters", () => {
+  assertEquals(aprsLoginCall("kk4pwj-10"), "KK4PWJ-10");
+  assertEquals(aprsLoginCall("N0CALL"), "N0CALL");
+  for (
+    const bad of ["", "N0CALL-LLL", "KK4PWJ-123", "N0 CALL", "N0CALL/P", "ABCDEFGHIJ", "AB-CD-1"]
+  ) {
+    assertThrows(() => aprsLoginCall(bad), Error, "APRS_LOGIN_CALL", bad);
+  }
+  // Ten characters with an SSID is still too long.
+  assertThrows(() => aprsLoginCall("KK4PWJA-10"), Error, "nine");
+});
+
+Deno.test("aprsFeed.isSpot accepts every fixture packet and no server comment", () => {
+  const feed = aprsFeed(env({ APRS_LOGIN_CALL: "N0CALL" }))!;
+  const fixture = Deno.readTextFileSync(
+    new URL("../../supabase/functions/_shared/__tests__/fixtures/aprs-is.txt", import.meta.url),
+  ).split("\n").filter((l) => l !== "");
+  const forwarded = fixture.filter((l) => feed.isSpot(l));
+  assertEquals(forwarded.length, 20);
+  assertEquals(forwarded.some((l) => l.startsWith("#")), false);
 });
 
 function fakeFetch(status: number, body: string) {
