@@ -276,6 +276,10 @@ flowchart LR
   RB -->|today's complete hours| UH[rollup_rbn_hours]
   U --> RR[(rbn_hourly, rbn_daily_skimmers, rbn_daily_stations)]
   UH --> RR
+  AP[(aprs_packets)] -->|once per complete day| UA[rollup_aprs_day]
+  UA --> AR[(aprs_daily_stations, aprs_daily_igates, aprs_daily_types)]
+  AH[(aprs_packet_hours)] --> F
+  AR --> F
   RR --> F
   F --> S[(stats_snapshots)]
   S -->|newest row, one query| W[Stats page]
@@ -325,10 +329,11 @@ refresh prunes older ones.
 - Window arithmetic is done on `now() at time zone 'utc'` so a session time zone with DST cannot
   shift the window by an hour.
 - `hourly` feeds "Spots processed per hour": the 168 complete UTC hours before the refresh (not
-  the day window), zero-filled, each with the POTA and SOTAwatch `raw_spots` rows and the
-  `rbn_spots` rows whose `spot_time` falls in that hour. The page plots their sum; the "Peak hour"
-  tile figure comes from the same series.
-  `daily[].rbn` is the RBN count per day.
+  the day window), zero-filled, each with the POTA and SOTAwatch `raw_spots` rows, the
+  `rbn_spots` rows whose `spot_time` falls in that hour and the hour's APRS-IS packets from
+  `aprs_packet_hours`. The page plots their sum; the "Peak hour" tile figure comes from the same
+  series.
+  `daily[].rbn` and `daily[].aprs` are the RBN and APRS-IS counts per day.
 
 ## RBN figures
 
@@ -353,6 +358,17 @@ The refresh rolls up every window day missing from `rbn_rollup_days`, and once m
 up within an hour of its end, since the relay can hold up to about 50 minutes of lines while
 `ingest-rbn` is unreachable. Today's hours follow the same rule through `rbn_rollup_hours`. Rows arriving later than that are not counted. Rollups older than
 the window are deleted; the archive keeps every spot.
+
+## APRS-IS figures
+
+`aprs` holds the week's APRS-IS packets, distinct stations (base calls, so SSIDs combine),
+distinct igates as sent, and packets for each of the 14 packet types, busiest first. Packets come
+from `aprs_packet_hours`, which ingest keeps current. `aprs_packets` keeps only about two days, so
+`rollup_aprs_day(day)` saves the rest per UTC day into `aprs_daily_stations`, `aprs_daily_igates`
+and `aprs_daily_types`, on the same schedule as the RBN days, including the re-roll an hour after
+the day ends. It refuses a day whose rows no longer add up to its `aprs_packet_hours`.
+`maintain_aprs_packets()` keeps a day until `aprs_rollup_days` shows a rollup at least an hour
+after the day ended.
 
 The payload's TypeScript shape is `StatsPayload` in `web/src/stats/types.ts`; the pgTAP suite
 `supabase/tests/stats_snapshot.test.sql` pins both the shape and the numbers.
@@ -469,7 +485,8 @@ feed is deliberate; never add a filter to the login. It runs at roughly 50-150 p
 - **Packets, not spots.** `ingest-aprs` runs `runAprsPush` (`_shared/aprs.ts`): every line
   `parseAprsLine` accepts goes to `aprs_packets` through `ingest_aprs_packets`, unparseable lines
   to `ingest_failures`, and `ingest_state` records the batch. Nothing reaches `raw_spots`, the
-  matcher, `spot_stream`, the rollups or Stats, and `raw_spots`' source check does not allow
+  matcher, `spot_stream` or the callsign rollups; Stats reads its own per-day rollups (see
+  "APRS-IS figures"), and `raw_spots`' source check does not allow
   `aprs`. The Sources page shows the feed's health; it is not a subscription source.
 - **What is parsed.** The header (source, destination, digipeater path, the q-construct the
   server added and the igate after it) and the packet type from the data type identifier
@@ -483,8 +500,8 @@ feed is deliberate; never add a filter to the login. It runs at roughly 50-150 p
   packets per hour indefinitely; the Sources page reads its 24-hour figure there instead of
   counting millions of rows.
 - **Two days.** `maintain_aprs_packets()` drops a day once it is two days old and every
-  five-minute slice is archived with a matching count, so the database holds yesterday and today
-  (about 5 GB at 8 million packets a day).
+  five-minute slice is archived with a matching count and the Stats rollup of the day is final,
+  so the database holds yesterday and today (about 5 GB at 8 million packets a day).
 
 # The spot archive
 
