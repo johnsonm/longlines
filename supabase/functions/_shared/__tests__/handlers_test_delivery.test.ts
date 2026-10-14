@@ -101,3 +101,58 @@ Deno.test("handleSendTest returns 502 with the delivery error", async () => {
   const silent = await run(post({ destination_id: "d1" }), {}, { ok: false, sent: 0 });
   assertEquals(silent.body, { error: "Delivery failed." });
 });
+
+const PUSH: DeliveryDestination = {
+  id: "p1",
+  type: "push",
+  name: "Push notifications",
+  url: null,
+  signing_secret: null,
+  health: "ok",
+  consecutive_failures: 0,
+};
+const DEVICES = [{ endpoint: "https://fcm.googleapis.com/fcm/send/a", p256dh: "k", auth: "a" }];
+
+Deno.test("handleSendTest loads the owner's devices for a push destination", async () => {
+  const { res, sent, calls } = await run(post({ destination_id: "p1" }), {
+    from: { destinations: { data: PUSH }, push_devices: { data: DEVICES } },
+  });
+  assertEquals(res.status, 200);
+  assertEquals(sent[0]!.destination.devices, DEVICES);
+  assertEquals(sent[0]!.batch[0]!.spot.base_callsign, "N0CALL");
+  const devices = calls.from.find((f) => f.table === "push_devices")!;
+  assertEquals(devices.ops, [["select", ["endpoint, p256dh, auth"]], ["eq", ["user_id", "u1"]]]);
+});
+
+Deno.test("handleSendTest reports a device lookup error", async () => {
+  const { res, sent } = await run(post({ destination_id: "p1" }), {
+    from: { destinations: { data: PUSH }, push_devices: { error: { message: "x" } } },
+  });
+  assertEquals(res.status, 500);
+  assertEquals(sent, []);
+});
+
+Deno.test("handleSendTest prunes and records devices after a push test", async () => {
+  const { body, calls } = await run(
+    post({ destination_id: "p1" }),
+    { from: { destinations: { data: PUSH }, push_devices: { data: [] } } },
+    {
+      ok: false,
+      sent: 0,
+      error: "Turn on notifications on a device first.",
+      expiredEndpoints: ["https://fcm.googleapis.com/gone"],
+      deviceResults: { ok: [], errors: {} },
+    },
+  );
+  assertEquals(body, { error: "Turn on notifications on a device first." });
+  assertEquals(calls.rpc, [{
+    fn: "prune_push_devices",
+    args: { p_endpoints: ["https://fcm.googleapis.com/gone"] },
+  }]);
+});
+
+Deno.test("handleSendTest leaves other destinations' devices alone", async () => {
+  const { calls } = await run(post({ destination_id: "d1" }));
+  assertEquals(calls.from.map((f) => f.table), ["destinations"]);
+  assertEquals(calls.rpc, []);
+});

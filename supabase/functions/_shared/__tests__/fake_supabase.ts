@@ -1,5 +1,6 @@
 // Minimal stand-in for the slice of SupabaseClient the handlers and db.ts use:
-// rpc, from(...).select/eq/single/maybeSingle/insert, storage.from(...).upload,
+// rpc, from(...).select/eq/single/maybeSingle/insert (or awaiting the builder),
+// storage.from(...).upload,
 // and a few auth calls.
 // Every call is recorded so tests can assert what was sent.
 
@@ -84,6 +85,10 @@ export function fakeSupabase(
         insert(...a: unknown[]) {
           entry.ops.push(["insert", a]);
           return settle(result);
+        },
+        // Awaiting the builder itself (a plain select of many rows).
+        then<T>(onFulfilled: (value: { data: unknown; error: FakeError | null }) => T) {
+          return settle(result).then(onFulfilled);
         },
       };
       return builder;

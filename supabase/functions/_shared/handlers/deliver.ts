@@ -5,7 +5,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isServiceRole } from "../auth.ts";
 import { backoffSeconds } from "../delivery/format.ts";
-import type { SendResult } from "../delivery/send.ts";
+import { pushBookkeeping, type SendResult } from "../delivery/send.ts";
 import type { DeliveryDestination, PendingDelivery } from "../delivery/types.ts";
 
 export const CLAIM_LIMIT = 200;
@@ -90,6 +90,7 @@ export async function handleDeliver(
     }
 
     const result = await deps.send(destination, batch);
+    for (const [fn, args] of pushBookkeeping(result)) await rpcOrLog(db, summary, fn, args);
 
     const done = batch.slice(0, result.sent);
     const rest = batch.slice(result.sent);

@@ -214,6 +214,49 @@ against a receiver on your own machine, set
 `create_destination()` will not accept such a URL. Never set this on the hosted
 project.
 
+### Push notifications
+
+Push sends are signed with a VAPID keypair held only in Edge Function env. Without all three
+values, push deliveries fail with "Push isn't configured on the server." and Discord and webhooks
+carry on as normal.
+
+Once per project, generate a pair. The script prints three lines and writes nothing:
+
+```sh
+deno run scripts/generate-vapid-keys.ts mailto:you@example.com
+```
+
+Hosted: set the three values as function secrets, then redeploy the functions that send push
+(`deliver`, `send-test` and `api`). Keep the private key out of the repo, the web app and the relay.
+
+```sh
+supabase secrets set LONGLINES_VAPID_PUBLIC_KEY=<public> LONGLINES_VAPID_PRIVATE_KEY=<private> \
+  LONGLINES_VAPID_SUBJECT=mailto:you@example.com
+supabase functions deploy deliver
+supabase functions deploy send-test
+supabase functions deploy api
+```
+
+Locally, put the same three lines in `supabase/functions/.env`. The web app needs the public key
+too (`VAPID_PUBLIC_KEY` on Vercel); that arrives with the push UI.
+
+Don't rotate the pair casually. Every browser subscribed with the public key that was current at
+the time, so new keys break every registered device until it subscribes again.
+
+Is it working?
+
+```sql
+select count(*) as devices, count(last_error) as with_errors, max(last_success_at) as last_success
+from push_devices;
+select label, last_success_at, last_error, last_error_at from push_devices
+where last_error_at > now() - interval '1 day' order by last_error_at desc;
+```
+
+Endpoints and keys in `push_devices` are capability secrets: don't paste them anywhere. A device
+the push service reports gone (404/410) is deleted on the next send. A push destination with no
+devices fails each run with "Turn on notifications on a device first." and goes `failing` after
+five runs, like any other destination.
+
 ### Housekeeping
 
 A daily job (`housekeeping`, 03:00 UTC) deletes deliveries and archived queue
