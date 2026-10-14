@@ -3,7 +3,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(47);
+select plan(50);
 
 -- Drain anything already queued so counts below are exact.
 select pgmq.purge_queue('spot_events');
@@ -94,6 +94,9 @@ select is(match_pending_spots(), 2, 'after the window both subscriptions match, 
 select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
 select is((select count from preview_subscription('{"sources":["pota"],"reference":"us-nc"}')), 5::bigint, 'preview counts matching recent spots');
 select is((select jsonb_array_length(spots) from preview_subscription('{"sources":["pota"],"reference":"us-nc"}')), 5, 'preview returns the matching spots');
+select is((select window_size from preview_subscription('{"sources":["pota"]}')), 5::bigint, 'preview samples only the filter''s sources');
+select is((select window_size from preview_subscription('{"sources":["sotawatch"]}')), 1::bigint, 'a SOTA preview is not sampled from POTA spots');
+select is((select window_size from preview_subscription('{}')), 6::bigint, 'no sources samples every recent spot');
 
 -- Callsign groups. Members are base calls; groups merge without duplicates, an
 -- empty group matches nothing, and preview ignores another user's groups.

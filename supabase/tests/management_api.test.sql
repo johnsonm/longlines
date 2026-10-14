@@ -2,7 +2,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(52);
+select plan(53);
 
 -- ---------------------------------------------------------------------------
 -- Tokens
@@ -143,8 +143,11 @@ select throws_ok(format($$ select pg_temp.call('patch_subscription', '{"id": "%s
   (select id from sub)), 'quiet_minutes must be 0, 5, 10, 30 or 60.');
 select is(pg_temp.call('patch_subscription', jsonb_build_object('id', (select id from sub),
   'body', '{"quiet_minutes": 60.0}'::jsonb)) -> 'quiet_minutes', '60'::jsonb, 'an allowed value written as 60.0 is accepted');
-select throws_ok(format($$ select pg_temp.call('patch_subscription', '{"id": "%s", "body": {"destinations": []}}') $$,
-  (select id from sub)), 'Pick at least one destination.');
+select is(pg_temp.call('patch_subscription', jsonb_build_object('id', (select id from sub),
+  'body', '{"destinations": []}'::jsonb)) -> 'destinations', '[]'::jsonb, 'a subscription can have no destinations');
+select is(pg_temp.call('patch_subscription', jsonb_build_object('id', (select id from sub),
+  'body', jsonb_build_object('destinations', jsonb_build_array((select id from dest))))) -> 'destinations',
+  jsonb_build_array((select id from dest)), 'and get one back');
 select throws_ok(format($$ select pg_temp.call('delete_destination', '{"id": "%s"}') $$, (select id from dest)),
   'Remove it from its subscriptions first.');
 

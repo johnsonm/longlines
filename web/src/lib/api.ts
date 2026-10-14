@@ -289,6 +289,8 @@ export interface Preview {
   spots: RecentSpot[];
   // Distinct base calls across the typed calls and the caller's selected groups, counted in SQL.
   station_count: number;
+  // How many recent spots of the filter's sources were checked: "7 of the last 42 POTA spots".
+  window_size: number;
 }
 
 export async function previewSubscription(filter: SubscriptionFilter): Promise<Preview> {
@@ -299,6 +301,7 @@ export async function previewSubscription(filter: SubscriptionFilter): Promise<P
     count: Number(row?.count ?? 0),
     spots: (row?.spots ?? []) as unknown as RecentSpot[],
     station_count: Number(row?.station_count ?? 0),
+    window_size: Number(row?.window_size ?? 0),
   };
 }
 
