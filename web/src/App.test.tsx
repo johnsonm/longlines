@@ -38,6 +38,9 @@ vi.mock("./destinations/DestinationsPage", () => ({
 vi.mock("./subscriptions/SubscriptionsPage", () => ({
   SubscriptionsPage: ({ subs }: { subs: unknown[] }) => <p>subscriptions page {subs.length}</p>,
 }));
+vi.mock("./subscriptions/SubscriptionEditorPage", () => ({
+  SubscriptionEditorPage: ({ id, source }: { id?: string; source?: string | null }) => <p>subscription editor {id ?? "new"} {source ?? "none"}</p>,
+}));
 vi.mock("./groups/GroupsPage", () => ({ GroupsPage: () => <p>groups page</p> }));
 vi.mock("./stats/StatsPage", () => ({ StatsPage: () => <p>stats page</p> }));
 vi.mock("./account/AccountPage", () => ({ AccountPage: () => <p>account page</p> }));
@@ -170,6 +173,8 @@ describe("App routing", () => {
 
   it.each([
     ["/subscriptions", "subscriptions page 0"],
+    ["/subscriptions/new?source=pota", "subscription editor new pota"],
+    ["/subscriptions/s1", "subscription editor s1 none"],
     ["/groups", "groups page"],
     ["/account", "account page"],
   ])("renders %s", async (path, text) => {

@@ -3,9 +3,11 @@ import {
   Alert, AlertTitle, Box, Breadcrumbs, Button, Card, CardContent, Chip, Grid, Link, Skeleton, Stack, Table, TableBody,
   TableCell, TableHead, TableRow, Typography,
 } from "@mui/material";
+import AddIcon from "@mui/icons-material/Add";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import { Navigate, Link as RouterLink, useParams } from "react-router";
 import type { TimePrefs } from "../lib/time";
+import type { SubscriptionWithLinks } from "../lib/api";
 import { PageTitle } from "../layout/PageTitle";
 import { ChartCard } from "../stats/parts";
 import { useStats } from "../stats/useStats";
@@ -64,7 +66,7 @@ function Mono({ children }: { children: ReactNode }) {
   return <Box component="code">{children}</Box>;
 }
 
-export function SourceDetailPage({ prefs }: { prefs: TimePrefs }) {
+export function SourceDetailPage({ prefs, subs }: { prefs: TimePrefs; subs: SubscriptionWithLinks[] }) {
   const { id } = useParams();
   const source = findLiveSource(id);
   // Hooks stay above the redirect; a bad id costs one extra health load.
@@ -74,6 +76,7 @@ export function SourceDetailPage({ prefs }: { prefs: TimePrefs }) {
 
   const rates = source.statsKey && stats ? sourceRates(stats.payload.hourly, source.statsKey, source.volume) : null;
   const status = sourceStatus(source, health);
+  const using = subs.filter((s) => s.sources.includes(source.id));
   const alert = volumeAlert(source, rates);
   const unit = rateUnitShort(source.volume);
   const rate = (n: number | undefined) => (n === undefined ? "–" : `${formatRate(n)} ${unit}`);
@@ -102,11 +105,18 @@ export function SourceDetailPage({ prefs }: { prefs: TimePrefs }) {
           </Stack>
           <Typography color="text.secondary">{source.tagline}</Typography>
         </Box>
-        {source.site && (
-          <Button variant="outlined" endIcon={<OpenInNewIcon />} href={`https://${source.site}`} target="_blank" rel="noopener">
-            Visit {source.site}
-          </Button>
-        )}
+        <Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ flexShrink: 0 }}>
+          {source.site && (
+            <Button variant="outlined" endIcon={<OpenInNewIcon />} href={`https://${source.site}`} target="_blank" rel="noopener">
+              Visit {source.site}
+            </Button>
+          )}
+          {source.alerts && (
+            <Button variant="contained" startIcon={<AddIcon />} component={RouterLink} to={`/subscriptions/new?source=${source.id}`}>
+              Create subscription
+            </Button>
+          )}
+        </Stack>
       </Stack>
 
       {alert && (
@@ -192,6 +202,19 @@ export function SourceDetailPage({ prefs }: { prefs: TimePrefs }) {
                     <TableRow><TableCell>Modes</TableCell><TableCell>{source.runBy.modes}</TableCell></TableRow>
                   </TableBody>
                 </Table>
+              </ChartCard>
+            )}
+            {source.alerts && (
+              <ChartCard title="Your subscriptions" subheader="Using this source">
+                {using.length ? (
+                  <Stack spacing={1}>
+                    {using.map((s) => (
+                      <Link key={s.id} component={RouterLink} to={`/subscriptions/${s.id}`} variant="body2">{s.name}</Link>
+                    ))}
+                  </Stack>
+                ) : (
+                  <Typography variant="body2" color="text.secondary">None yet.</Typography>
+                )}
               </ChartCard>
             )}
             <ChartCard title="Where it shows up"><Lines lines={source.showsUp} /></ChartCard>

@@ -9,11 +9,13 @@ export const TOUR_EVENTS = [
   "test-sent",
   "subscription-dialog-opened",
   "subscription-dialog-closed",
+  "subscription-form-opened",
+  "subscription-form-cancelled",
   "subscription-created",
 ] as const;
 export type TourEvent = (typeof TOUR_EVENTS)[number];
 
-export type TourRoute = "/destinations" | "/subscriptions";
+export type TourRoute = "/destinations" | "/subscriptions" | "/subscriptions/new";
 
 /** Body copy; an object segment renders as a link that opens in a new tab. */
 export type Segment = string | { text: string; href: string };
@@ -32,6 +34,13 @@ export interface TourStep {
    * is cancelled, the target unmounts, so the tour returns to the button that opens it.
    */
   backOn?: TourEvent;
+  /** The step `backOn` returns to, by id, when it isn't the one before. */
+  backTo?: string;
+  /**
+   * A page the step's own action moves to before it reports `advanceOn`. Landing there doesn't
+   * end the tour; the next step's route is that page.
+   */
+  leadsTo?: TourRoute;
   /** Primary button label on "next" steps. Defaults to Next (Done on the last step). */
   nextLabel?: string;
   /** Tooltip side; ignored for centered steps. Defaults to bottom. */
@@ -87,12 +96,18 @@ export const STEPS: readonly TourStep[] = [
     body: ["Click New subscription."],
   },
   {
-    // Anchored to the save button, not the form: the dialog is nearly viewport-high, so a tooltip
-    // beside or above the form gets pushed off screen.
-    id: "subscription-form", route: "/subscriptions", target: "subscription-save", advanceOn: "subscription-created", backOn: "subscription-dialog-closed",
-    placement: "top", hideOverlay: true, dismissible: true,
+    // Anchored to Continue, not the list: on a phone the dialog is full screen.
+    id: "pick-source", route: "/subscriptions", target: "source-continue", advanceOn: "subscription-form-opened",
+    backOn: "subscription-dialog-closed", leadsTo: "/subscriptions/new", placement: "top", hideOverlay: true, dismissible: true,
+    title: "Pick a source",
+    body: ["A subscription takes spots from one source. Parks on the Air is a good start. Click Continue."],
+  },
+  {
+    // Anchored to the save button at the top of the page, so the tooltip never covers the form.
+    id: "subscription-form", route: "/subscriptions/new", target: "subscription-save", advanceOn: "subscription-created",
+    backOn: "subscription-form-cancelled", backTo: "new-subscription", placement: "bottom", hideOverlay: true, dismissible: true,
     title: "Choose what to receive",
-    body: ["Name it and pick filters: sources, bands, modes, callsigns, or a park, summit, or location. Leave a filter empty to match everything. Under Send matches to, choose your webhook. The preview shows how many of the last 200 spots would have matched. Click Create subscription."],
+    body: ["Name it, then add rules to narrow what passes: callsigns, groups, bands, modes, or a park, summit, or location. With no rules every spot passes. Under Destinations, click Add destination and choose your webhook. The preview shows how many recent spots would pass. Click Save subscription."],
   },
   {
     id: "done", route: "/subscriptions", target: null, advanceOn: "next", nextLabel: "Done",
@@ -142,7 +157,10 @@ export function reduce(state: TourState, action: TourAction): TourState {
     case "event": {
       const step = STEPS[state.index];
       if (!state.active || !step) return state;
-      if (step.backOn === action.event) return { ...state, index: Math.max(0, state.index - 1), dismissed: false };
+      if (step.backOn === action.event) {
+        const to = step.backTo ? STEPS.findIndex((x) => x.id === step.backTo) : state.index - 1;
+        return { ...state, index: Math.max(0, to), dismissed: false };
+      }
       if (step.advanceOn !== action.event) return state;
       let to = state.index + 1;
       // A Discord destination has no secret, so there is no secret dialog to point at.

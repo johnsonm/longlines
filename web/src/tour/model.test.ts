@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { INITIAL, reduce, STEPS, TOUR_EVENTS, type TourState } from "./model";
+import { INITIAL, reduce, STEPS, TOUR_EVENTS, type TourAction, type TourState } from "./model";
 
 const started = (): TourState => reduce(INITIAL, { type: "start" });
 
@@ -23,26 +23,33 @@ describe("STEPS", () => {
 
   it("uses only tour routes and centers next-steps", () => {
     for (const s of STEPS) {
-      expect(["/destinations", "/subscriptions"]).toContain(s.route);
+      expect(["/destinations", "/subscriptions", "/subscriptions/new"]).toContain(s.route);
       if (s.target === null) expect(s.advanceOn).toBe("next");
     }
   });
 
   it("lets the form steps be dismissed, and only event steps", () => {
-    expect(STEPS.filter((s) => s.dismissible).map((s) => s.id)).toEqual(["destination-form", "subscription-form"]);
+    expect(STEPS.filter((s) => s.dismissible).map((s) => s.id)).toEqual(["destination-form", "pick-source", "subscription-form"]);
     for (const s of STEPS) {
       if (s.dismissible) expect(s.advanceOn).not.toBe("next");
     }
   });
 
   it("form steps step back when their dialog closes, and nothing else does", () => {
-    expect(STEPS.filter((s) => s.backOn).map((s) => s.id)).toEqual(["destination-form", "subscription-form"]);
+    expect(STEPS.filter((s) => s.backOn).map((s) => s.id)).toEqual(["destination-form", "pick-source", "subscription-form"]);
     for (const s of STEPS) {
       if (s.backOn) {
         expect(TOUR_EVENTS).toContain(s.backOn);
         expect(s.backOn).not.toBe(s.advanceOn);
       }
+      if (s.backTo) expect(indexOf(s.backTo)).toBeGreaterThanOrEqual(0);
     }
+  });
+
+  it("a step that leads to another page hands over to a step on that page", () => {
+    STEPS.forEach((s, i) => {
+      if (s.leadsTo) expect(STEPS[i + 1]?.route).toBe(s.leadsTo);
+    });
   });
 });
 
@@ -85,17 +92,28 @@ describe("reduce", () => {
     expect(back.index).toBe(indexOf("add-destination"));
   });
 
-  it("cancelling the subscription dialog returns to the New subscription step", () => {
+  const toSubscriptions = (): TourAction[] => [
+    { type: "next" },
+    { type: "event", event: "destination-dialog-opened" },
+    { type: "event", event: "destination-created", destinationId: "d1", secret: false },
+    { type: "event", event: "test-sent" },
+    { type: "next" },
+  ];
+
+  it("cancelling the source picker returns to the New subscription step", () => {
+    const picker = play(...toSubscriptions(), { type: "event", event: "subscription-dialog-opened" });
+    expect(picker.index).toBe(indexOf("pick-source"));
+    expect(reduce(picker, { type: "event", event: "subscription-dialog-closed" }).index).toBe(indexOf("new-subscription"));
+  });
+
+  it("cancelling the subscription form goes back past the picker to New subscription", () => {
     const form = play(
-      { type: "next" },
-      { type: "event", event: "destination-dialog-opened" },
-      { type: "event", event: "destination-created", destinationId: "d1", secret: false },
-      { type: "event", event: "test-sent" },
-      { type: "next" },
+      ...toSubscriptions(),
       { type: "event", event: "subscription-dialog-opened" },
+      { type: "event", event: "subscription-form-opened" },
     );
     expect(form.index).toBe(indexOf("subscription-form"));
-    expect(reduce(form, { type: "event", event: "subscription-dialog-closed" }).index).toBe(indexOf("new-subscription"));
+    expect(reduce(form, { type: "event", event: "subscription-form-cancelled" }).index).toBe(indexOf("new-subscription"));
   });
 
   it("dialog-closed events are ignored on other steps", () => {
@@ -155,6 +173,7 @@ describe("reduce", () => {
       { type: "event", event: "test-sent" },
       { type: "next" },
       { type: "event", event: "subscription-dialog-opened" },
+      { type: "event", event: "subscription-form-opened" },
       { type: "event", event: "subscription-created" },
     );
     expect(s.index).toBe(STEPS.length - 1);

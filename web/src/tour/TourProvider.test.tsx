@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -21,6 +22,13 @@ vi.mock("react-joyride", async (importOriginal) => ({
 }));
 const { ACTIONS, EVENTS } = await import("react-joyride");
 
+// The editor reports subscription-form-opened when it mounts, after the navigation that shows it.
+function FormPage() {
+  const { report } = useTour();
+  useEffect(() => report("subscription-form-opened"), [report]);
+  return null;
+}
+
 function Probe() {
   const tour = useTour();
   const location = useLocation();
@@ -34,6 +42,11 @@ function Probe() {
       <button onClick={() => tour.report("destination-dialog-opened")}>opened</button>
       <button onClick={() => tour.report("destination-created", { destinationId: "d9", secret: true })}>created</button>
       <button onClick={() => void navigate("/account")}>leave</button>
+      <button onClick={() => tour.report("secret-dismissed")}>secret</button>
+      <button onClick={() => tour.report("test-sent")}>tested</button>
+      <button onClick={() => tour.report("subscription-dialog-opened")}>picker</button>
+      <button onClick={() => void navigate("/subscriptions/new?source=pota")}>continue</button>
+      {location.pathname === "/subscriptions/new" && <FormPage />}
     </>
   );
 }
@@ -103,6 +116,24 @@ describe("TourProvider", () => {
     expect(joy()).toHaveAttribute("data-index", "3");
     expect(joy()).toHaveAttribute("data-run", "true");
     expect(screen.getByTestId("dest")).toHaveTextContent("d9");
+  });
+
+  it("follows the source picker to the new subscription page without ending", async () => {
+    const { user, fire, joy, app } = setup({}, "/destinations");
+    await user.click(screen.getByRole("button", { name: "start" }));
+    fire({ type: EVENTS.STEP_AFTER, action: ACTIONS.NEXT, index: 0 });
+    for (const name of ["opened", "created", "secret", "tested"]) await user.click(screen.getByRole("button", { name }));
+    fire({ type: EVENTS.STEP_AFTER, action: ACTIONS.NEXT, index: STEPS.findIndex((s) => s.id === "to-subscriptions") });
+    await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent("/subscriptions"));
+    await user.click(screen.getByRole("button", { name: "picker" }));
+    expect(joy()).toHaveAttribute("data-index", String(STEPS.findIndex((s) => s.id === "pick-source")));
+
+    await user.click(screen.getByRole("button", { name: "continue" }));
+    await waitFor(() => expect(joy()).toHaveAttribute("data-index", String(STEPS.findIndex((s) => s.id === "subscription-form"))));
+    expect(screen.getByTestId("active")).toHaveTextContent("true");
+    expect(screen.getByTestId("where")).toHaveTextContent("/subscriptions/new");
+    expect(joy()).toHaveAttribute("data-run", "true");
+    expect(app.notify).not.toHaveBeenCalled();
   });
 
   it("ignores other Joyride events", async () => {
