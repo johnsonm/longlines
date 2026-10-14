@@ -141,7 +141,7 @@ describe("Pick your source", () => {
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByText("Pick your source")).toBeInTheDocument();
     expect(within(dialog).getByText("36 / hour")).toBeInTheDocument();
-    expect(within(dialog).getByText("3.2 / min")).toBeInTheDocument();
+    expect(within(dialog).getByText("192 / hour")).toBeInTheDocument();
     // RBN, and PSK Reporter while it is planned.
     expect(within(dialog).getAllByText("High volume. Needs a callsign filter")).toHaveLength(2);
     expect(within(dialog).queryByText("APRS-IS")).not.toBeInTheDocument();
