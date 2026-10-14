@@ -67,7 +67,10 @@ Security definer, `search_path = public`, execute revoked from `public`, `anon` 
 
 `maintain_aprs_packets()` gets one more condition: a day is dropped only if `aprs_rollup_days` holds
 it with `rolled_at` at least an hour after the day ended. Otherwise it raises a warning and keeps
-the day until the next night. It never runs the rollup itself; rollups stay out of the partition
+the day until the next night. A day older than the Stats window (before today minus seven) is
+dropped without a marker: the refresh never rolls it up, so without this cap a failing refresh or a
+refused day would keep gigabytes of packets forever (`maintain_rbn_spots` caps its callsign-rollup
+guard the same way). It never runs the rollup itself; rollups stay out of the partition
 maintenance job, as with the callsign rollups.
 
 Timing on a normal day D: the refresh at D+1 00:05 rolls it, and the refresh at D+1 01:05 rolls it

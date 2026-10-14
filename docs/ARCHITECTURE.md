@@ -367,8 +367,9 @@ from `aprs_packet_hours`, which ingest keeps current. `aprs_packets` keeps only 
 `rollup_aprs_day(day)` saves the rest per UTC day into `aprs_daily_stations`, `aprs_daily_igates`
 and `aprs_daily_types`, on the same schedule as the RBN days, including the re-roll an hour after
 the day ends. It refuses a day whose rows no longer add up to its `aprs_packet_hours`.
-`maintain_aprs_packets()` keeps a day until `aprs_rollup_days` shows a rollup at least an hour
-after the day ended.
+`maintain_aprs_packets()` keeps a day in the Stats window until `aprs_rollup_days` shows a rollup
+at least an hour after the day ended. A day older than the window drops without one, so a failing
+refresh cannot hold packets forever.
 
 The payload's TypeScript shape is `StatsPayload` in `web/src/stats/types.ts`; the pgTAP suite
 `supabase/tests/stats_snapshot.test.sql` pins both the shape and the numbers.
@@ -500,8 +501,8 @@ feed is deliberate; never add a filter to the login. It runs at roughly 50-150 p
   packets per hour indefinitely; the Sources page reads its 24-hour figure there instead of
   counting millions of rows.
 - **Two days.** `maintain_aprs_packets()` drops a day once it is two days old and every
-  five-minute slice is archived with a matching count and the Stats rollup of the day is final,
-  so the database holds yesterday and today (about 5 GB at 8 million packets a day).
+  five-minute slice is archived with a matching count and, while the day is in the Stats window,
+  its Stats rollup is final, so the database holds yesterday and today (about 5 GB at 8 million packets a day).
 
 # The spot archive
 

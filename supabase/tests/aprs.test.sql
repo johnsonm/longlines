@@ -4,7 +4,7 @@
 -- retention after two days, grants and the cron jobs.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(54);
+select plan(55);
 
 delete from aprs_packets;
 delete from aprs_packet_hours;
@@ -191,8 +191,9 @@ delete from archive_log where source = 'aprs';
 -- Day -5: archived, rolled up within an hour of its end.          -> kept
 -- Day -6: rows only in the default partition, archived, rolled up -> rows deleted
 -- Day -7: archived, never rolled up for Stats.                    -> kept
+-- Day -9: archived, never rolled up, older than the Stats window  -> dropped
 -- Day -1: archived but recent.                                    -> kept
-select create_aprs_packets_partition(pg_temp.d(o)) from unnest(array[-7, -5, -4, -3, -2, -1]) as o;
+select create_aprs_packets_partition(pg_temp.d(o)) from unnest(array[-9, -7, -5, -4, -3, -2, -1]) as o;
 select ingest_aprs_packets(jsonb_build_array(
   pg_temp.pkt(pg_temp.at(-2, '10:01'), 'A1'), pg_temp.pkt(pg_temp.at(-2, '10:02'), 'A2'),
   pg_temp.pkt(pg_temp.at(-3, '11:01'), 'B1'), pg_temp.pkt(pg_temp.at(-3, '11:02'), 'B2'),
@@ -200,8 +201,9 @@ select ingest_aprs_packets(jsonb_build_array(
   pg_temp.pkt(pg_temp.at(-5, '09:00'), 'F1'),
   pg_temp.pkt(pg_temp.at(-6, '13:00'), 'D1'),
   pg_temp.pkt(pg_temp.at(-7, '08:00'), 'G1'),
+  pg_temp.pkt(pg_temp.at(-9, '08:00'), 'H1'),
   pg_temp.pkt(pg_temp.at(-1, '14:00'), 'E1')));
-select pg_temp.archive_day(o) from unnest(array[-1, -2, -3, -5, -6, -7]) as o;
+select pg_temp.archive_day(o) from unnest(array[-1, -2, -3, -5, -6, -7, -9]) as o;
 select log_archive('aprs', pg_temp.at(-3, '11:00'), pg_temp.at(-3, '11:05'), 1, 100, 'aprs/test');
 select rollup_aprs_day(pg_temp.d(o)) from unnest(array[-2, -3, -5, -6]) as o;
 update aprs_rollup_days set rolled_at = pg_temp.at(-4, '00:30') where day = pg_temp.d(-5);
@@ -219,6 +221,7 @@ select is((select count(*) from aprs_packets where source_call = 'D1')::int, 0,
 select ok(pg_temp.partition(-1) is not null, 'yesterday is kept even when archived');
 select ok(pg_temp.partition(-5) is not null, 'a day rolled up within an hour of its end is kept');
 select ok(pg_temp.partition(-7) is not null, 'a day the Stats rollup never saw is kept');
+select ok(pg_temp.partition(-9) is null, 'a day older than the Stats window is dropped without a rollup');
 
 -- Grants and jobs.
 select ok(not has_table_privilege('authenticated', 'aprs_packets', 'select')

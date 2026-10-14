@@ -111,7 +111,9 @@ revoke all on function public.rollup_aprs_day(date) from public, anon, authentic
 -- As in 20261014000010, plus the Stats guard: an archived day is dropped only
 -- once aprs_rollup_days shows it rolled up at least an hour after it ended
 -- (the refresh re-rolls anything earlier, for late relay batches). Without
--- that it stays until the next night.
+-- that it stays until the next night, but only while it is in the Stats window
+-- (the seven days before today): the refresh never rolls up an older day, so
+-- a failing refresh or a refused day cannot hold gigabytes of packets forever.
 create or replace function public.maintain_aprs_packets()
 returns void
 language plpgsql
@@ -138,9 +140,10 @@ begin
   loop
     continue when v_day > v_today - 2;
     if public.aprs_day_archived(v_day) then
-      if exists (select 1 from aprs_rollup_days r
-                 where r.day = v_day
-                   and r.rolled_at >= (v_day + 1)::timestamp at time zone 'utc' + interval '1 hour') then
+      if v_day < v_today - 7
+         or exists (select 1 from aprs_rollup_days r
+                    where r.day = v_day
+                      and r.rolled_at >= (v_day + 1)::timestamp at time zone 'utc' + interval '1 hour') then
         v_drop := v_drop || v_day;
       else
         raise warning 'aprs retention: % kept until the Stats rollup has it', v_day;

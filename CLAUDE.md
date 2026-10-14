@@ -201,7 +201,7 @@ relay on pushes to main; nothing else deploys automatically.
   `create_aprs_packets_partition`, kept two days, retired by `maintain_aprs_packets` once archived);
   never send them to `raw_spots`, matching, `spot_stream` or the callsign rollups. The Stats refresh
   rolls them up per day (`rollup_aprs_day` into `aprs_daily_*`), and `maintain_aprs_packets` keeps a
-  day until that rollup is final. `raw_spots`' source check
+  day in the Stats window until that rollup is final; older days drop without it. `raw_spots`' source check
   leaves `aprs` out on purpose. Its archive runs in its own cron job (`archive-aprs`, body
   `{"sources": ["aprs"]}`); keep it out of `ARCHIVE_ORDER`.
 - The relay also runs the weekly FCC license load (`relay/licenses.ts`, `relay/zip.ts`): it reads
