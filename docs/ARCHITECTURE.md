@@ -511,36 +511,43 @@ flowchart LR
   CRON[pg_cron every 10 min] -- "service-role key" --> A[archive function]
   CRONA[pg_cron every 5 min: sources aprs] -- "service-role key" --> A
   A -- "rpc archive_pending_slices" --> P[(due slices)]
-  A -- "rpc archive_ndjson" --> N[(rbn_spots / aprs_packets / raw_spots)]
-  A -- "gzip, upload" --> S[[Storage bucket: archive]]
+  A -- "rpc archive_columns" --> N[(rbn_spots / aprs_packets / raw_spots)]
+  A -- "encode Parquet, upload" --> S[[Storage bucket: archive]]
   A -- "rpc log_archive" --> L[(archive_log)]
   M[maintain_rbn_spots daily] -- "rbn_day_archived, retire_rbn_day" --> N
   MA[maintain_aprs_packets daily] -- "aprs_day_archived, retire_aprs_day" --> N
 ```
 
-Every spot of every source is kept for analytics as gzipped NDJSON in a private Storage bucket,
-`archive` (spec `docs/superpowers/specs/2026-10-11-rbn-firehose-archive-design.md` and its
-measurement amendment).
+Every spot of every source is kept for analytics as Parquet in a private Storage bucket, `archive`
+(specs `docs/superpowers/specs/2026-10-11-rbn-firehose-archive-design.md` with its measurement
+amendment, and `docs/superpowers/specs/2026-10-14-archive-parquet-design.md`). Slices archived
+before 2026-10-14 are gzipped NDJSON at `<source>/YYYY/MM/DD/HHMM.ndjson.gz` until a one-off
+migration rewrites them.
 
 - **Slices.** APRS-IS is archived in 5-minute slices, RBN in 10-minute slices, POTA, SOTAwatch and DX Cluster hourly. The length lives only
   in `archive_slice_minutes(source)`; slices are aligned with `date_bin` and half-open
-  (`[start, end)`). Objects are `<source>/YYYY/MM/DD/HHMM.ndjson.gz`.
+  (`[start, end)`). Objects are one Parquet file per slice, in Hive-style day folders under the
+  source: `<source>/year=YYYY/month=MM/day=DD/HHMM.parquet` (UTC slice start), so readers get
+  `year`, `month` and `day` as columns and skip folders a filter rules out.
 - **Postgres does the heavy lifting.** `archive_pending_slices` returns the slices that ended two
-  hours ago and are not logged, starting at midnight UTC of the first spot's day; `archive_ndjson` builds a slice's NDJSON with `to_json` and
-  `string_agg`. The function only gzips and uploads, which measured at about 0.3 s of CPU for a full
-  RBN hour against the 2 s limit.
+  hours ago and are not logged, starting at midnight UTC of the first spot's day; `archive_columns`
+  returns a slice as one JSON object of column arrays in row order, timestamps as epoch
+  milliseconds. The function only encodes Parquet (`hyparquet-writer`, snappy, one row group a
+  file; column types in `ARCHIVE_SCHEMAS`) and uploads, which measured at about 0.25 s for a full
+  60,000-row run against the 2 s CPU limit.
 - **Runs.** pg_cron calls `archive` every 10 minutes with the service-role key (Vault), like the
   ingest jobs. A run takes POTA, then SOTAwatch, then DX Cluster, then RBN, oldest first, and
   starts no new slice once it has archived 60,000 rows, so a backlog clears about six times faster
   than real time without risking the CPU limit. APRS-IS is not in that list: at ~100 packets a
   second it alone fills the budget. A second job, `archive-aprs`, calls `archive` every five
   minutes (two minutes off the 10-minute grid) with `{"sources": ["aprs"]}`; two 30,000-packet
-  slices a run measured at about 0.2 s of CPU, and a backlog clears at about twice real time. The
+  slices a run measured at about 0.2 s, and a backlog clears at about twice real time. The
   function answers 400 to a body naming an unknown source.
 - **Logged only when stored.** A slice gets its `archive_log` row (count, bytes, path) only after
   the upload succeeds; a failure leaves it pending for the next run. Empty slices are logged with
   `row_count = 0` and no object, so a gap in `archive_log` always means "not archived".
-- **Lines.** RBN: `spot_time, received_at, spotter, callsign, frequency_khz, band, mode,
+- **Columns.** Timestamps are `TIMESTAMP(MILLIS)` adjusted to UTC, `frequency_khz` is `DOUBLE`,
+  `snr` and `speed` are `INT32`, `raw_payload` is JSON text, the rest are strings. RBN: `spot_time, received_at, spotter, callsign, frequency_khz, band, mode,
   mode_family, snr, speed, speed_unit, spot_type, line`. POTA, SOTAwatch and DX Cluster: every
   `raw_spots` column except `id`, including the upstream `raw_payload`. Watched RBN rows in
   `raw_spots` are not archived from there. APRS-IS: `received_at, source_call, destination, path,

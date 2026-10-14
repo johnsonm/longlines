@@ -760,9 +760,9 @@ isOneToOne: false
               "archived_rows": number,"db_rows": number,"slice_start": string
             }[]
                            },
-"archive_ndjson":
+"archive_columns":
 { Args: { "p_from": string,"p_source": string,"p_to": string }; Returns: {
-              "ndjson": string,"row_count": number
+              "columns": Json,"row_count": number
             }[]
                            },
 "archive_pending_slices":

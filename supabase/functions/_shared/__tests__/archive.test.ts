@@ -1,20 +1,50 @@
 import { assertEquals, assertThrows } from "@std/assert";
+import { parquetMetadata, parquetReadObjects } from "hyparquet";
 import {
   ARCHIVE_ORDER,
+  ARCHIVE_SCHEMAS,
   archiveSources,
-  gzip,
+  encodeParquet,
   LAG_MS,
   MAX_ROWS_PER_RUN,
   objectPath,
   runArchive,
 } from "../archive.ts";
-import type { ArchiveDb, ArchiveLogEntry, ArchiveSlice, ArchiveStore, Source } from "../types.ts";
+import type {
+  ArchiveColumns,
+  ArchiveDb,
+  ArchiveLogEntry,
+  ArchiveSlice,
+  ArchiveStore,
+  Source,
+} from "../types.ts";
 
 const NOW = new Date("2026-10-11T20:05:00Z");
 
-async function gunzip(bytes: Uint8Array): Promise<string> {
-  const stream = new Blob([bytes.slice()]).stream().pipeThrough(new DecompressionStream("gzip"));
-  return await new Response(stream).text();
+function readParquet(bytes: Uint8Array): Promise<Record<string, unknown>[]> {
+  return parquetReadObjects({ file: bytes.slice().buffer });
+}
+
+/** n rows of a source's columns: timestamps one second apart from `at`, numbers from i, strings tagged with i. */
+function columnsFor(source: Source, n: number, at = "2026-10-11T14:10:00Z"): ArchiveColumns {
+  const t0 = new Date(at).getTime();
+  return Object.fromEntries(ARCHIVE_SCHEMAS[source].map(([name, type]) => [
+    name,
+    Array.from({ length: n }, (_, i) => {
+      switch (type) {
+        case "timestamp":
+          return t0 + i * 1000;
+        case "double":
+          return 14000.5 + i;
+        case "int32":
+          return i;
+        case "json":
+          return JSON.stringify({ i });
+        case "string":
+          return `${name}-${i}`;
+      }
+    }),
+  ]));
 }
 
 function slice(start: string, minutes: number): ArchiveSlice {
@@ -40,13 +70,12 @@ function fakes(
       calls.pending.push([source, before.toISOString(), limit]);
       return Promise.resolve(options.pending?.[source] ?? []);
     },
-    sliceNdjson(source, s) {
+    sliceColumns(source, s) {
       const n = options.rows?.(source, s) ?? 2;
-      const lines = Array.from(
-        { length: n },
-        (_, i) => JSON.stringify({ source, i, at: s.slice_start }),
-      );
-      return Promise.resolve({ row_count: n, ndjson: lines.join("\n") });
+      return Promise.resolve({
+        row_count: n,
+        columns: n === 0 ? null : columnsFor(source, n, s.slice_start),
+      });
     },
     logArchive(entry) {
       calls.events.push(`log ${entry.source} ${entry.slice_start}`);
@@ -65,13 +94,98 @@ function fakes(
   return { db, store, calls };
 }
 
-Deno.test("objectPath names the object by source and UTC slice start", () => {
-  assertEquals(objectPath("rbn", "2026-10-11T14:10:00+00:00"), "rbn/2026/10/11/1410.ndjson.gz");
-  assertEquals(objectPath("pota", "2026-01-02T03:00:00.000Z"), "pota/2026/01/02/0300.ndjson.gz");
+Deno.test("objectPath puts the object in hive-style UTC day folders under its source", () => {
+  assertEquals(
+    objectPath("rbn", "2026-10-11T14:10:00+00:00"),
+    "rbn/year=2026/month=10/day=11/1410.parquet",
+  );
+  assertEquals(
+    objectPath("pota", "2026-01-02T03:00:00.000Z"),
+    "pota/year=2026/month=01/day=02/0300.parquet",
+  );
+  // A slice start late on the 14th in New York is already the 15th in UTC.
+  assertEquals(
+    objectPath("dxcluster", "2026-10-14T23:00:00-04:00"),
+    "dxcluster/year=2026/month=10/day=15/0300.parquet",
+  );
 });
 
 Deno.test("objectPath names APRS-IS slices by their five-minute start", () => {
-  assertEquals(objectPath("aprs", "2026-10-14T15:55:00+00:00"), "aprs/2026/10/14/1555.ndjson.gz");
+  assertEquals(
+    objectPath("aprs", "2026-10-14T15:55:00+00:00"),
+    "aprs/year=2026/month=10/day=14/1555.parquet",
+  );
+});
+
+Deno.test("ARCHIVE_SCHEMAS matches the columns archive_columns returns", () => {
+  const sql = Deno.readTextFileSync(
+    new URL(
+      "../../../migrations/20261014000400_archive_parquet.sql",
+      import.meta.url,
+    ),
+  );
+  // Each branch's json_build_object, in order: rbn, aprs, then the raw_spots sources.
+  const branches = [...sql.matchAll(/json_build_object\(([\s\S]*?)\) end/g)].map((m) =>
+    [...m[1]!.matchAll(/^\s*'(\w+)', json_agg/gm)].map((c) => c[1])
+  );
+  const names = (source: Source) => ARCHIVE_SCHEMAS[source].map(([name]) => name);
+  assertEquals(branches, [names("rbn"), names("aprs"), names("pota")]);
+  assertEquals(names("sotawatch"), names("pota"));
+  assertEquals(names("dxcluster"), names("pota"));
+});
+
+Deno.test("encodeParquet round-trips every source's columns in row order", async () => {
+  for (const source of ["rbn", "aprs", "pota", "sotawatch", "dxcluster"] as const) {
+    const columns = columnsFor(source, 3);
+    const rows = await readParquet(encodeParquet(source, columns, 3));
+    assertEquals(rows.length, 3, source);
+    assertEquals(Object.keys(rows[0]!), ARCHIVE_SCHEMAS[source].map(([name]) => name), source);
+    for (const [name, type] of ARCHIVE_SCHEMAS[source]) {
+      const expected = type === "timestamp"
+        ? columns[name]!.map((ms) => new Date(ms as number))
+        : columns[name];
+      assertEquals(rows.map((r) => r[name]), expected, `${source}.${name}`);
+    }
+  }
+});
+
+Deno.test("encodeParquet writes UTC millisecond timestamps, typed numbers and nulls", async () => {
+  const columns = columnsFor("rbn", 2);
+  columns["band"] = [null, "20m"];
+  columns["snr"] = [-3, null];
+  const bytes = encodeParquet("rbn", columns, 2);
+  const rows = await readParquet(bytes);
+  assertEquals(rows.map((r) => r["band"]), [null, "20m"]);
+  assertEquals(rows.map((r) => r["snr"]), [-3, null]);
+  assertEquals(rows[0]!["spot_time"], new Date("2026-10-11T14:10:00Z"));
+  const schema = parquetMetadata(bytes.slice().buffer).schema;
+  const element = (name: string) => schema.find((e) => e.name === name);
+  assertEquals(element("spot_time")?.logical_type, {
+    type: "TIMESTAMP",
+    isAdjustedToUTC: true,
+    unit: "MILLIS",
+  });
+  assertEquals(element("frequency_khz")?.type, "DOUBLE");
+  assertEquals(element("snr")?.type, "INT32");
+});
+
+Deno.test("encodeParquet keeps raw_payload as JSON text", async () => {
+  const columns = columnsFor("pota", 1);
+  columns["raw_payload"] = ['{"spotId":1,"activator":"K1ABC"}'];
+  const bytes = encodeParquet("pota", columns, 1);
+  const schema = parquetMetadata(bytes.slice().buffer).schema;
+  assertEquals(schema.find((e) => e.name === "raw_payload")?.converted_type, "JSON");
+  const [row] = await readParquet(bytes);
+  assertEquals(row!["raw_payload"], '{"spotId":1,"activator":"K1ABC"}');
+});
+
+Deno.test("encodeParquet refuses a missing or short column", () => {
+  const short = columnsFor("aprs", 2);
+  short["igate"] = ["x"];
+  assertThrows(() => encodeParquet("aprs", short, 2), Error, "column igate: expected 2 values");
+  const missing = columnsFor("aprs", 2);
+  delete missing["line"];
+  assertThrows(() => encodeParquet("aprs", missing, 2), Error, "column line");
 });
 
 Deno.test("archiveSources defaults to every source but APRS-IS and takes a list from the body", () => {
@@ -93,12 +207,8 @@ Deno.test("runArchive takes only the sources it is given", async () => {
   const { db, store, calls } = fakes({ pending: { aprs: [slice(start, 5)] } });
   const summary = await runArchive(db, store, NOW, ["aprs"]);
   assertEquals(calls.pending.map(([s]) => s), ["aprs"]);
-  assertEquals(calls.uploads.map((u) => u.path), ["aprs/2026/10/11/1700.ndjson.gz"]);
+  assertEquals(calls.uploads.map((u) => u.path), ["aprs/year=2026/month=10/day=11/1700.parquet"]);
   assertEquals([summary.slices, summary.rows], [1, 2]);
-});
-
-Deno.test("gzip round-trips text", async () => {
-  assertEquals(await gunzip(await gzip("a\nb\n")), "a\nb\n");
 });
 
 Deno.test("runArchive asks every source for slices that ended two hours ago, POTA first", async () => {
@@ -113,20 +223,20 @@ Deno.test("runArchive asks every source for slices that ended two hours ago, POT
   ]);
 });
 
-Deno.test("runArchive uploads a gzipped slice, then logs it with its count and size", async () => {
+Deno.test("runArchive uploads a slice as Parquet, then logs it with its count and size", async () => {
   const s = slice("2026-10-11T14:10:00Z", 10);
   const { db, store, calls } = fakes({ pending: { rbn: [s] }, rows: () => 3 });
   const summary = await runArchive(db, store, NOW);
-  assertEquals(calls.events, ["upload rbn/2026/10/11/1410.ndjson.gz", `log rbn ${s.slice_start}`]);
-  const text = await gunzip(calls.uploads[0]!.bytes);
-  assertEquals(text.split("\n").filter((l) => l !== "").length, 3);
-  assertEquals(text.endsWith("\n"), true);
+  const path = "rbn/year=2026/month=10/day=11/1410.parquet";
+  assertEquals(calls.events, [`upload ${path}`, `log rbn ${s.slice_start}`]);
+  const rows = await readParquet(calls.uploads[0]!.bytes);
+  assertEquals(rows.map((r) => r["callsign"]), ["callsign-0", "callsign-1", "callsign-2"]);
   assertEquals(calls.logs[0], {
     source: "rbn",
     ...s,
     row_count: 3,
     bytes: calls.uploads[0]!.bytes.length,
-    object_path: "rbn/2026/10/11/1410.ndjson.gz",
+    object_path: path,
   });
   assertEquals([summary.slices, summary.rows, summary.empty, summary.errors], [1, 3, 0, []]);
 });
@@ -173,6 +283,19 @@ Deno.test("runArchive: an upload failure leaves the slice unlogged and the other
   assertEquals(calls.events.filter((e) => e.startsWith("upload pota")).length, 1); // stopped POTA after the failure
   assertEquals(summary.errors.length, 1);
   assertEquals(summary.errors[0]!.includes("storage 503"), true);
+});
+
+Deno.test("runArchive: a slice with rows but no columns is an error, not an empty slice", async () => {
+  const s = slice("2026-10-11T14:00:00Z", 60);
+  const { db, store, calls } = fakes({ pending: { pota: [s] } });
+  const broken: ArchiveDb = {
+    ...db,
+    sliceColumns: () => Promise.resolve({ row_count: 2, columns: null }),
+  };
+  const summary = await runArchive(broken, store, NOW);
+  assertEquals([calls.uploads, calls.logs], [[], []]);
+  assertEquals(summary.errors.length, 1);
+  assertEquals(summary.errors[0]!.includes("expected 2 values"), true);
 });
 
 Deno.test("runArchive records a pending-slices error and moves on", async () => {

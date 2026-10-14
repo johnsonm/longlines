@@ -29,6 +29,11 @@ Deno.test("every function has a deno.json mapping supabase-js like the root one"
   assertEquals(missing, [], "functions without a deno.json");
 });
 
+Deno.test("archive's deno.json maps hyparquet-writer like the root one", () => {
+  const config = JSON.parse(Deno.readTextFileSync(new URL("archive/deno.json", functionsDir)));
+  assertEquals(config.imports?.["hyparquet-writer"], root.imports["hyparquet-writer"]);
+});
+
 // isServiceRole trusts a JWT's role claim without checking its signature,
 // because the gateway has already verified it. A function deployed with
 // verify_jwt = false gets no such check, so a forged token would pass.

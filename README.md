@@ -77,9 +77,9 @@ atomically. Failures back off for 24 hours and then drop; five in a row mark the
 failing. Rate limits delay rather than fail. Outbound URLs are checked in SQL at creation and
 again in the worker, with DNS resolved, so private addresses are never reached.
 
-**Archive.** Every spot from every source is also written to a private Storage bucket as gzipped
-NDJSON, ten-minute files for RBN and hourly for POTA and SOTAwatch, by the `archive` function
-every 10 minutes. DuckDB, pandas or Spark read the files directly. RBN days leave the database
+**Archive.** Every spot from every source is also written to a private Storage bucket as Parquet,
+one file per slice (five minutes for APRS-IS, ten for RBN, an hour for the others) in
+`<source>/year=/month=/day=` folders, by the `archive` function every 10 minutes. DuckDB, pandas or Spark read the files directly. RBN days leave the database
 only after their archive matches.
 
 **Web app.** `web/` is a Vite, React and MUI single-page app that talks to Supabase with the anon

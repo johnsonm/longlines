@@ -225,9 +225,11 @@ relay on pushes to main; nothing else deploys automatically.
 
 ## Archive rules
 
-- Slice length lives only in `archive_slice_minutes(source)` (APRS-IS 5 minutes, RBN 10, others 60). NDJSON is
-  built in SQL (`archive_ndjson`), never in TypeScript; the `archive` function only gzips, uploads
-  and logs.
+- Slice length lives only in `archive_slice_minutes(source)` (APRS-IS 5 minutes, RBN 10, others 60). A slice's
+  rows, columns and order are chosen in SQL (`archive_columns`, column arrays), never in
+  TypeScript; the `archive` function only encodes Parquet, uploads and logs. One file per slice at
+  `<source>/year=YYYY/month=MM/day=DD/HHMM.parquet`. A column change goes in `archive_columns` and
+  `ARCHIVE_SCHEMAS` (`_shared/archive.ts`) together; a test compares them.
 - A slice is logged in `archive_log` only after its upload succeeds. Nothing leaves `rbn_spots`
   unless `rbn_day_archived` finds every slice of the day logged with a matching count; `raw_spots` is
   never pruned by the archive.

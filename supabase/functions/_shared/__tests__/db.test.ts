@@ -164,23 +164,24 @@ Deno.test("pendingSlices calls archive_pending_slices with an ISO cutoff", async
   }]);
 });
 
-Deno.test("sliceNdjson returns the RPC's single row, or an empty slice", async () => {
+Deno.test("sliceColumns returns the RPC's single row, or an empty slice", async () => {
+  const columns = { callsign: ["K1ABC", "W1AW"] };
   const a = fakeSupabase({
-    rpc: { archive_ndjson: { data: [{ row_count: 2, ndjson: "{}\n{}" }] } },
+    rpc: { archive_columns: { data: [{ row_count: 2, columns }] } },
   });
-  assertEquals(await createArchiveDb(a.client).sliceNdjson("rbn", SLICE), {
+  assertEquals(await createArchiveDb(a.client).sliceColumns("rbn", SLICE), {
     row_count: 2,
-    ndjson: "{}\n{}",
+    columns,
   });
   assertEquals(a.calls.rpc[0]!.args, {
     p_source: "rbn",
     p_from: SLICE.slice_start,
     p_to: SLICE.slice_end,
   });
-  const b = fakeSupabase({ rpc: { archive_ndjson: { data: [] } } });
-  assertEquals(await createArchiveDb(b.client).sliceNdjson("pota", SLICE), {
+  const b = fakeSupabase({ rpc: { archive_columns: { data: [] } } });
+  assertEquals(await createArchiveDb(b.client).sliceColumns("pota", SLICE), {
     row_count: 0,
-    ndjson: "",
+    columns: null,
   });
 });
 
@@ -191,7 +192,7 @@ Deno.test("logArchive passes every field to log_archive", async () => {
     ...SLICE,
     row_count: 3,
     bytes: 120,
-    object_path: "rbn/2026/10/11/1410.ndjson.gz",
+    object_path: "rbn/year=2026/month=10/day=11/1410.parquet",
   });
   assertEquals(calls.rpc, [{
     fn: "log_archive",
@@ -201,14 +202,14 @@ Deno.test("logArchive passes every field to log_archive", async () => {
       p_slice_end: SLICE.slice_end,
       p_row_count: 3,
       p_bytes: 120,
-      p_object_path: "rbn/2026/10/11/1410.ndjson.gz",
+      p_object_path: "rbn/year=2026/month=10/day=11/1410.parquet",
     },
   }]);
 });
 
 Deno.test("archive RPC errors are thrown with the function name", async () => {
   const { client } = fakeSupabase({
-    rpc: { archive_pending_slices: boom, archive_ndjson: boom, log_archive: boom },
+    rpc: { archive_pending_slices: boom, archive_columns: boom, log_archive: boom },
   });
   const db = createArchiveDb(client);
   await assertRejects(
@@ -216,7 +217,7 @@ Deno.test("archive RPC errors are thrown with the function name", async () => {
     Error,
     "archive_pending_slices failed: boom",
   );
-  await assertRejects(() => db.sliceNdjson("rbn", SLICE), Error, "archive_ndjson failed: boom");
+  await assertRejects(() => db.sliceColumns("rbn", SLICE), Error, "archive_columns failed: boom");
   await assertRejects(
     () => db.logArchive({ source: "rbn", ...SLICE, row_count: 0, bytes: null, object_path: null }),
     Error,
@@ -224,15 +225,15 @@ Deno.test("archive RPC errors are thrown with the function name", async () => {
   );
 });
 
-Deno.test("createArchiveStore uploads gzip to the private archive bucket, replacing any object", async () => {
+Deno.test("createArchiveStore uploads Parquet to the private archive bucket, replacing any object", async () => {
   const { client, calls } = fakeSupabase();
   const bytes = new Uint8Array([1, 2, 3]);
-  await createArchiveStore(client).upload("rbn/2026/10/11/1410.ndjson.gz", bytes);
+  await createArchiveStore(client).upload("rbn/year=2026/month=10/day=11/1410.parquet", bytes);
   assertEquals(calls.storage, [{
     bucket: "archive",
-    path: "rbn/2026/10/11/1410.ndjson.gz",
+    path: "rbn/year=2026/month=10/day=11/1410.parquet",
     body: bytes,
-    options: { contentType: "application/gzip", upsert: true },
+    options: { contentType: "application/vnd.apache.parquet", upsert: true },
   }]);
   const failing = fakeSupabase({ storageUpload: boom });
   await assertRejects(

@@ -8,6 +8,7 @@ import type { LicenseLoad } from "./uls.ts";
 import type {
   AprsDb,
   AprsPacketRow,
+  ArchiveColumns,
   ArchiveDb,
   ArchiveLogEntry,
   ArchiveSlice,
@@ -161,15 +162,16 @@ export function createArchiveDb(client: SupabaseClient): ArchiveDb {
       return (data ?? []) as ArchiveSlice[];
     },
 
-    async sliceNdjson(source: Source, slice: ArchiveSlice) {
-      const { data, error } = await client.rpc("archive_ndjson", {
+    async sliceColumns(source: Source, slice: ArchiveSlice) {
+      const { data, error } = await client.rpc("archive_columns", {
         p_source: source,
         p_from: slice.slice_start,
         p_to: slice.slice_end,
       });
-      if (error) throw new Error(`archive_ndjson failed: ${error.message}`);
-      const row = (data as Array<{ row_count: number; ndjson: string | null }> | null)?.[0];
-      return { row_count: Number(row?.row_count ?? 0), ndjson: row?.ndjson ?? "" };
+      if (error) throw new Error(`archive_columns failed: ${error.message}`);
+      const row = (data as Array<{ row_count: number; columns: ArchiveColumns | null }> | null)
+        ?.[0];
+      return { row_count: Number(row?.row_count ?? 0), columns: row?.columns ?? null };
     },
 
     async logArchive(entry: ArchiveLogEntry): Promise<void> {
@@ -190,7 +192,7 @@ export function createArchiveStore(client: SupabaseClient): ArchiveStore {
   return {
     async upload(path: string, bytes: Uint8Array): Promise<void> {
       const { error } = await client.storage.from("archive").upload(path, bytes, {
-        contentType: "application/gzip",
+        contentType: "application/vnd.apache.parquet",
         upsert: true,
       });
       if (error) throw new Error(`archive upload failed for ${path}: ${error.message}`);

@@ -52,8 +52,8 @@ select ok(spot_matches(
 
 -- Archive: hourly slices from raw_spots.
 select is(archive_slice_minutes('dxcluster'), 60, 'DX Cluster slices are an hour');
-select is((select row_count from archive_ndjson('dxcluster', now() - interval '1 minute', now() + interval '1 minute')), 1,
-  'archive_ndjson reads DX Cluster spots from raw_spots');
+select is((select row_count from archive_columns('dxcluster', now() - interval '1 minute', now() + interval '1 minute')), 1,
+  'archive_columns reads DX Cluster spots from raw_spots');
 select ok(exists (select 1 from archive_status where source = 'dxcluster'), 'archive_status lists dxcluster');
 select lives_ok(format('select log_archive(%L, %L, %L, 0, null, null)', 'dxcluster',
   date_trunc('hour', now()) - interval '3 hours', date_trunc('hour', now()) - interval '2 hours'),
