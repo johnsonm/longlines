@@ -5,7 +5,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(61);
+select plan(62);
 select pgmq.purge_queue('spot_events');
 select pgmq.purge_queue('deliveries_queue');
 
@@ -37,6 +37,15 @@ select throws_ok($$ select create_destination('push', 'Again', null) $$, 'P0001'
 reset role; -- update_destination is the API's (api_call runs it); A's claims stay set
 select throws_ok(format('select update_destination(%L, null, %L)', (select id from pa), 'https://example.com/x'),
   'P0001', 'Push notifications don''t use a URL.', 'a push destination cannot gain a URL');
+-- Only the one-push index gets the push message; any other unique violation stays itself.
+create unique index destinations_probe_name on destinations (user_id, name);
+select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
+select create_destination('webhook', 'Probe', 'https://probe.example.com/x');
+select throws_ok($$ select create_destination('webhook', 'Probe', 'https://probe.example.com/y') $$,
+  '23505', null, 'another unique violation is not reported as a second push destination');
+reset role;
+delete from destinations where name = 'Probe';
+drop index destinations_probe_name;
 select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
 create temp table wa as select * from create_destination('webhook', 'Shack', 'https://shack.example.com/spots');
 

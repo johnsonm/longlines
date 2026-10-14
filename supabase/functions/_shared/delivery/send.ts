@@ -30,6 +30,8 @@ export interface SendOptions {
   resolver?: Resolver;
   /** From LONGLINES_VAPID_* env; push sends fail without it. */
   vapid?: VapidKeys;
+  /** Tests pin the clock that dates the VAPID JWT. */
+  now?: Date;
 }
 
 /** Per-device status for record_push_results: endpoints that took everything, and errors. */
@@ -233,11 +235,17 @@ export function sendToDestination(
   }
 }
 
+/** How one device's run ended, and how many notifications it took before that. */
 type DeviceOutcome =
-  | { kind: "accepted" }
-  | { kind: "gone" }
-  | { kind: "rate_limited"; retryAfterSeconds: number }
-  | { kind: "error"; error: string };
+  & { accepted: number }
+  & (
+    | { kind: "accepted" }
+    | { kind: "gone" }
+    | { kind: "rate_limited"; retryAfterSeconds: number }
+    | { kind: "error"; error: string }
+  );
+
+const RATE_LIMITED = "Push HTTP 429 (rate limited)";
 
 /** Push's Topic header allows at most 32 characters of the URL-safe base64 alphabet. */
 export function pushTopic(tag: string): string {
@@ -254,12 +262,14 @@ async function pushToDevice(
   device: PushDevice,
   payloads: readonly Uint8Array[],
   topics: readonly string[],
-  vapid: VapidKeys,
+  authorization: (endpoint: string) => string | undefined,
   options: SendOptions,
 ): Promise<DeviceOutcome> {
+  let accepted = 0;
   try {
     if (!options.allowInsecure) assertSafePushEndpoint(device.endpoint);
-    const authorization = await vapidAuthorization(device.endpoint, vapid, new Date());
+    const vapid = authorization(device.endpoint);
+    if (vapid === undefined) throw new Error("Use a browser push service.");
     for (const [index, payload] of payloads.entries()) {
       const body = await encryptPushPayload(payload, device);
       let response: Response;
@@ -267,7 +277,7 @@ async function pushToDevice(
         response = await fetch(device.endpoint, {
           method: "POST",
           headers: {
-            "Authorization": authorization,
+            "Authorization": vapid,
             "Content-Encoding": "aes128gcm",
             "Content-Type": "application/octet-stream",
             "TTL": String(PUSH_TTL_SECONDS),
@@ -280,33 +290,69 @@ async function pushToDevice(
           redirect: "manual",
         });
       } catch (error) {
-        return { kind: "error", error: `Push request failed: ${errorMessage(error)}` };
+        return { kind: "error", accepted, error: `Push request failed: ${errorMessage(error)}` };
       }
       await response.body?.cancel();
       if (isRedirect(response)) {
         return {
           kind: "error",
+          accepted,
           error: `Push redirected (HTTP ${response.status}); redirects are not followed`,
         };
       }
-      if (response.status === 404 || response.status === 410) return { kind: "gone" };
+      if (response.status === 404 || response.status === 410) return { kind: "gone", accepted };
       if (response.status === 429) {
-        return { kind: "rate_limited", retryAfterSeconds: pushRetryAfterSeconds(response) };
+        return {
+          kind: "rate_limited",
+          accepted,
+          retryAfterSeconds: pushRetryAfterSeconds(response),
+        };
       }
       if (response.status !== 201 && response.status !== 202) {
-        return { kind: "error", error: `Push HTTP ${response.status}` };
+        return { kind: "error", accepted, error: `Push HTTP ${response.status}` };
       }
+      accepted++;
     }
-    return { kind: "accepted" };
+    return { kind: "accepted", accepted };
   } catch (error) {
-    return { kind: "error", error: errorMessage(error) };
+    return { kind: "error", accepted, error: errorMessage(error) };
   }
 }
 
 /**
+ * One VAPID header per push-service origin, signed before anything is sent so
+ * a bad key reads as server configuration rather than a fault on every device.
+ * Null when the key cannot sign; endpoints that are not URLs get no entry.
+ */
+async function vapidHeaders(
+  devices: readonly PushDevice[],
+  vapid: VapidKeys,
+  now: Date,
+): Promise<Map<string, string> | null> {
+  const headers = new Map<string, string>();
+  for (const device of devices) {
+    let origin: string;
+    try {
+      origin = new URL(device.endpoint).origin;
+    } catch {
+      continue; // the device's own allowlist check reports it
+    }
+    if (headers.has(origin)) continue;
+    try {
+      headers.set(origin, await vapidAuthorization(origin, vapid, now));
+    } catch {
+      return null;
+    }
+  }
+  return headers;
+}
+
+/**
  * Sends a run's notifications (three spots, then a summary) to every device.
- * The batch counts as sent when at least one device accepted everything; a
- * device that is gone (404/410) is reported for pruning, not as a failure.
+ * The batch counts as sent once any device took at least one notification:
+ * retrying would show that device the same spots again. A device that is gone
+ * (404/410) is reported for pruning, not as a failure; a 429 with no device
+ * reached delays the batch.
  */
 export async function sendPush(
   destination: DeliveryDestination,
@@ -315,25 +361,31 @@ export async function sendPush(
 ): Promise<SendResult> {
   const devices = destination.devices ?? [];
   if (devices.length === 0) return { ok: false, sent: 0, error: NO_DEVICES };
-  if (!options.vapid) return { ok: false, sent: 0, error: "Push isn't configured on the server." };
-  const vapid = options.vapid;
+  const headers = options.vapid
+    ? await vapidHeaders(devices, options.vapid, options.now ?? new Date())
+    : null;
+  if (!headers) return { ok: false, sent: 0, error: "Push isn't configured on the server." };
 
   const notifications = pushNotifications(deliveries.map((d) => d.spot));
   const payloads = notifications.map((n) => new TextEncoder().encode(pushPayload(n)));
   const topics = notifications.map((n) => pushTopic(n.tag));
+  const authorization = (endpoint: string) => headers.get(new URL(endpoint).origin);
   const outcomes = await Promise.all(
-    devices.map((device) => pushToDevice(device, payloads, topics, vapid, options)),
+    devices.map((device) => pushToDevice(device, payloads, topics, authorization, options)),
   );
 
   const expiredEndpoints: string[] = [];
   const deviceResults: PushDeviceResults = { ok: [], errors: {} };
+  let reached = false;
   let retryAfterSeconds: number | undefined;
   let firstError: string | undefined;
   for (const [index, outcome] of outcomes.entries()) {
     const endpoint = devices[index]!.endpoint;
+    if (outcome.accepted > 0) reached = true;
     if (outcome.kind === "accepted") deviceResults.ok.push(endpoint);
     else if (outcome.kind === "gone") expiredEndpoints.push(endpoint);
     else if (outcome.kind === "rate_limited") {
+      deviceResults.errors[endpoint] = RATE_LIMITED;
       retryAfterSeconds = Math.max(retryAfterSeconds ?? 0, outcome.retryAfterSeconds);
     } else {
       deviceResults.errors[endpoint] = outcome.error;
@@ -342,15 +394,9 @@ export async function sendPush(
   }
 
   const reported = { expiredEndpoints, deviceResults };
-  if (deviceResults.ok.length > 0) return { ok: true, sent: deliveries.length, ...reported };
+  if (reached) return { ok: true, sent: deliveries.length, ...reported };
   if (retryAfterSeconds !== undefined) {
-    return {
-      ok: false,
-      sent: 0,
-      error: "Push HTTP 429 (rate limited)",
-      retryAfterSeconds,
-      ...reported,
-    };
+    return { ok: false, sent: 0, error: RATE_LIMITED, retryAfterSeconds, ...reported };
   }
   return { ok: false, sent: 0, error: firstError ?? NO_DEVICES, ...reported };
 }

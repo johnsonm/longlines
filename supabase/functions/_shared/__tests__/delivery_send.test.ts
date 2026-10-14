@@ -335,15 +335,20 @@ function pushDest(devices: PushDevice[] | undefined): DeliveryDestination {
   };
 }
 
-/** Serves push endpoints whose status is the first path segment ("/201/a", "/410/b", ...). */
+/**
+ * Serves push endpoints whose status is the first path segment ("/201/a", "/410/b", ...),
+ * or one status per request in turn ("/201,500/a").
+ */
 async function withPushServer(
   fn: (base: string, requests: PushRequest[]) => Promise<void>,
 ): Promise<void> {
   const requests: PushRequest[] = [];
   await withServer(async (req) => {
     const path = new URL(req.url).pathname;
+    const seen = requests.filter((r) => r.path === path).length;
     requests.push({ path, headers: req.headers, body: new Uint8Array(await req.arrayBuffer()) });
-    const status = Number(path.split("/")[1]);
+    const statuses = (path.split("/")[1] ?? "").split(",");
+    const status = Number(statuses[Math.min(seen, statuses.length - 1)]);
     if (status === 301) return new Response(null, { status, headers: { Location: "/201/x" } });
     if (status === 429) return new Response(null, { status, headers: { "Retry-After": "42" } });
     return new Response(null, { status });
@@ -450,7 +455,77 @@ Deno.test("sendPush treats a 429 as a rate limit, not a failure", async () => {
     assertEquals(result.ok, false);
     assertEquals(result.sent, 0);
     assertEquals(result.retryAfterSeconds, 42);
-    assertEquals(result.deviceResults, { ok: [], errors: { [`${base}/500/b`]: "Push HTTP 500" } });
+    assertEquals(result.deviceResults, {
+      ok: [],
+      errors: {
+        [`${base}/429/a`]: "Push HTTP 429 (rate limited)",
+        [`${base}/500/b`]: "Push HTTP 500",
+      },
+    });
+  });
+});
+
+Deno.test("sendPush records a rate-limited device when another device took the batch", async () => {
+  await withPushServer(async (base) => {
+    const d = pushDest([device(base, "/201/a"), device(base, "/429/b")]);
+    const result = await sendPush(d, [delivery(1, d)], {
+      allowInsecure: true,
+      vapid: await vapid(),
+    });
+    assertEquals(result, {
+      ok: true,
+      sent: 1,
+      expiredEndpoints: [],
+      deviceResults: {
+        ok: [`${base}/201/a`],
+        errors: { [`${base}/429/b`]: "Push HTTP 429 (rate limited)" },
+      },
+    });
+  });
+});
+
+Deno.test("sendPush does not retry a batch a device already started showing", async () => {
+  // Retrying would show the accepted notifications again on every attempt.
+  for (const path of ["/201,500/a", "/201,429/a"]) {
+    await withPushServer(async (base, requests) => {
+      const d = pushDest([device(base, path)]);
+      const result = await sendPush(d, [delivery(1, d), delivery(2, d)], {
+        allowInsecure: true,
+        vapid: await vapid(),
+      });
+      assertEquals(result.ok, true, path);
+      assertEquals(result.sent, 2);
+      assertEquals(result.retryAfterSeconds, undefined);
+      assertEquals(result.deviceResults?.ok, []);
+      assertMatch(result.deviceResults?.errors[`${base}${path}`] ?? "", /^Push HTTP (500|429)/);
+      assertEquals(requests.length, 2);
+    });
+  }
+});
+
+Deno.test("sendPush reports a bad VAPID key as server configuration, not a device fault", async () => {
+  await withPushServer(async (base, requests) => {
+    const d = pushDest([device(base, "/201/a"), device(base, "/201/b")]);
+    const result = await sendPush(d, [delivery(1, d)], {
+      allowInsecure: true,
+      vapid: { ...(await vapid()), privateKey: "short" },
+    });
+    assertEquals(result, { ok: false, sent: 0, error: "Push isn't configured on the server." });
+    assertEquals(requests, []);
+  });
+});
+
+Deno.test("sendPush signs one VAPID JWT per origin with the pinned clock", async () => {
+  await withPushServer(async (base, requests) => {
+    const now = new Date("2026-10-13T12:00:00Z");
+    const d = pushDest([device(base, "/201/a"), device(base, "/201/b")]);
+    await sendPush(d, [delivery(1, d)], { allowInsecure: true, vapid: await vapid(), now });
+    const headers = requests.map((r) => r.headers.get("authorization"));
+    assertEquals(headers[0], headers[1]);
+    const claims = JSON.parse(
+      new TextDecoder().decode(base64UrlDecode(/t=[\w-]+\.([\w-]+)\./.exec(headers[0]!)![1]!)),
+    );
+    assertEquals(claims.exp, now.getTime() / 1000 + 12 * 60 * 60);
   });
 });
 

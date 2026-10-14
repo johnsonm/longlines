@@ -26,6 +26,7 @@ X-LongLines-Signature: sha256=3f1c…
         "source": "pota",
         "spot_time": "2026-10-05T13:37:03+00:00",
         "callsign": "DL/HB9JNH",
+        "base_callsign": "HB9JNH",
         "spotter": "OK1HRA",
         "frequency_khz": 10123.9,
         "band": "30m",
@@ -42,8 +43,10 @@ X-LongLines-Signature: sha256=3f1c…
 }
 ```
 
-`spot` has the same fields as the `recent_spots` view. `delivery_id` is unique
-per spot and destination, so you can use it to deduplicate retries.
+`spot` has the fields of the `recent_spots` view plus `base_callsign`, the call
+without prefixes or suffixes that Long Lines profiles are keyed on. New fields may be added to `spot`, so ignore ones you don't know.
+`delivery_id` is unique per spot and destination, so you can use it to
+deduplicate retries.
 
 Respond with any `2xx` status within 10 seconds. Redirects are never followed,
 so a `3xx` counts as a failure; point the destination at the final URL.

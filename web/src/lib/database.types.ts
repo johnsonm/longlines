@@ -288,13 +288,13 @@ isOneToOne: false
                   ]
                 },"destinations": {
                   Row: {
-                    "consecutive_failures": number,"created_at": string,"health": string,"id": string,"last_error": string | null,"last_error_at": string | null,"last_success_at": string | null,"name": string,"signing_secret": string | null,"type": string,"url": string,"url_display": string,"user_id": string
+                    "consecutive_failures": number,"created_at": string,"health": string,"id": string,"last_error": string | null,"last_error_at": string | null,"last_success_at": string | null,"name": string,"signing_secret": string | null,"type": string,"url": string | null,"url_display": string,"user_id": string
                   }
                   Insert: {
-                    "consecutive_failures"?: number,"created_at"?: string,"health"?: string,"id"?: string,"last_error"?: string | null,"last_error_at"?: string | null,"last_success_at"?: string | null,"name": string,"signing_secret"?: string | null,"type": string,"url": string,"url_display": string,"user_id": string
+                    "consecutive_failures"?: number,"created_at"?: string,"health"?: string,"id"?: string,"last_error"?: string | null,"last_error_at"?: string | null,"last_success_at"?: string | null,"name": string,"signing_secret"?: string | null,"type": string,"url"?: string | null,"url_display": string,"user_id": string
                   }
                   Update: {
-                    "consecutive_failures"?: number,"created_at"?: string,"health"?: string,"id"?: string,"last_error"?: string | null,"last_error_at"?: string | null,"last_success_at"?: string | null,"name"?: string,"signing_secret"?: string | null,"type"?: string,"url"?: string,"url_display"?: string,"user_id"?: string
+                    "consecutive_failures"?: number,"created_at"?: string,"health"?: string,"id"?: string,"last_error"?: string | null,"last_error_at"?: string | null,"last_success_at"?: string | null,"name"?: string,"signing_secret"?: string | null,"type"?: string,"url"?: string | null,"url_display"?: string,"user_id"?: string
                   }
                   Relationships: [
                     
@@ -412,6 +412,19 @@ isOneToOne: false
                   }
                   Update: {
                     "callsign"?: string,"created_at"?: string,"id"?: string,"name"?: string,"timezone"?: string,"utc_times"?: boolean
+                  }
+                  Relationships: [
+                    
+                  ]
+                },"push_devices": {
+                  Row: {
+                    "auth": string,"created_at": string,"endpoint": string,"id": string,"label": string,"last_error": string | null,"last_error_at": string | null,"last_success_at": string | null,"p256dh": string,"user_id": string
+                  }
+                  Insert: {
+                    "auth": string,"created_at"?: string,"endpoint": string,"id"?: string,"label": string,"last_error"?: string | null,"last_error_at"?: string | null,"last_success_at"?: string | null,"p256dh": string,"user_id": string
+                  }
+                  Update: {
+                    "auth"?: string,"created_at"?: string,"endpoint"?: string,"id"?: string,"label"?: string,"last_error"?: string | null,"last_error_at"?: string | null,"last_success_at"?: string | null,"p256dh"?: string,"user_id"?: string
                   }
                   Relationships: [
                     
@@ -649,17 +662,17 @@ isOneToOne: false
                 }
           }
           Functions: {
-            "apply_license_loads":
-{ Args: Record<PropertyKey, never>; Returns: undefined
-                           },
-"api_call":
+            "api_call":
 { Args: { "p_args": Json,"p_op": string,"p_token_id": string }; Returns: Json
                            },
 "api_destination_json":
-{ Args: { "d": Database["public"]["Tables"]["destinations"]["Row"] }; Returns: Json
+{ Args: { "d": Database["public"]['Tables']["destinations"]['Row'] }; Returns: Json
                            },
 "api_subscription_json":
-{ Args: { "s": Database["public"]["Tables"]["subscriptions"]["Row"] }; Returns: Json
+{ Args: { "s": Database["public"]['Tables']["subscriptions"]['Row'] }; Returns: Json
+                           },
+"apply_license_loads":
+{ Args: Record<PropertyKey, never>; Returns: undefined
                            },
 "archive_ndjson":
 { Args: { "p_from": string,"p_source": string,"p_to": string }; Returns: {
@@ -686,6 +699,9 @@ isOneToOne: false
                            },
 "base_callsign":
 { Args: { "p_call": string }; Returns: string
+                           },
+"base64url_bytes":
+{ Args: { "p_text": string }; Returns: string
                            },
 "cached_callsign_profile":
 { Args: { "p_callsign": string }; Returns: Json
@@ -732,6 +748,9 @@ isOneToOne: false
 { Args: { "p_id": string }; Returns: undefined
                            },
 "delete_destination":
+{ Args: { "p_id": string }; Returns: undefined
+                           },
+"delete_push_device":
 { Args: { "p_id": string }; Returns: undefined
                            },
 "delete_subscription":
@@ -813,6 +832,11 @@ isOneToOne: false
         isOneToOne: false
         isSetofReturn: true
       } },
+"list_push_devices":
+{ Args: { "p_current_endpoint"?: string }; Returns: {
+              "created_at": string,"id": string,"is_current": boolean,"label": string,"last_error": string,"last_error_at": string,"last_success_at": string
+            }[]
+                           },
 "list_recent_spots":
 { Args: { "max_rows": number,"p_source": string }; Returns: {
               "band": string | null,
@@ -883,6 +907,9 @@ isOneToOne: false
 "prune_callsign_lookups":
 { Args: Record<PropertyKey, never>; Returns: undefined
                            },
+"prune_push_devices":
+{ Args: { "p_endpoints": (string)[] }; Returns: number
+                           },
 "rbn_day_archived":
 { Args: { "p_day": string }; Returns: boolean
                            },
@@ -903,6 +930,9 @@ isOneToOne: false
 "record_profile_lookup":
 { Args: { "p_client": string }; Returns: number
                            },
+"record_push_results":
+{ Args: { "p_errors": Json,"p_ok": (string)[] }; Returns: undefined
+                           },
 "record_sign_in_attempt":
 { Args: { "p_identifier": string }; Returns: number
                            },
@@ -911,6 +941,9 @@ isOneToOne: false
                            },
 "refresh_stats_snapshot_at":
 { Args: { "p_now": string }; Returns: undefined
+                           },
+"register_push_device":
+{ Args: { "p_auth": string,"p_endpoint": string,"p_label": string,"p_name"?: string,"p_p256dh": string }; Returns: string
                            },
 "retire_rbn_day":
 { Args: { "p_day": string }; Returns: undefined
@@ -950,11 +983,17 @@ isOneToOne: false
 "stats_payload_without_hidden":
 { Args: { "p_payload": Json }; Returns: Json
                            },
+"unregister_push_device":
+{ Args: { "p_endpoint": string }; Returns: undefined
+                           },
 "update_destination":
 { Args: { "p_id": string,"p_name": string,"p_url": string }; Returns: undefined
                            },
 "validate_destination_url":
 { Args: { "p_type": string,"p_url": string }; Returns: undefined
+                           },
+"validate_push_endpoint":
+{ Args: { "p_endpoint": string }; Returns: undefined
                            },
 "watched_among":
 { Args: { "p_callsigns": (string)[],"p_source": string }; Returns: string[]

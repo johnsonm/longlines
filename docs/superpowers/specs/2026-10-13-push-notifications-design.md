@@ -87,7 +87,8 @@ anywhere is `20261013000300_management_api.sql`.
     - The label is trimmed and capped at 60 characters; a blank one becomes "This browser". The
       keys must be base64url (helper `base64url_bytes`): `p256dh` is a 65-byte uncompressed point
       and `auth` is 16 bytes. Otherwise it raises "That browser sent an invalid subscription.".
-    - An account can have at most 20 devices (approved 2026-10-13). A 21st raises "You can turn on
+    - An account can have at most 20 devices (approved 2026-10-13). The account's push destination
+      row is locked before the count, so two browsers registering at once can't both pass. A 21st raises "You can turn on
       notifications on up to 20 devices. Remove one first."; re-registering an existing endpoint
       at the cap still works.
   - `unregister_push_device(p_endpoint)` deletes the caller's row for that endpoint. It is silent if
@@ -163,10 +164,17 @@ Cover:
     at 32.
   - A 201 or 202 counts as accepted.
   - A 404 or 410 adds the endpoint to `expiredEndpoints`, which isn't a failure.
-  - A 429 sets `retryAfterSeconds`: a rate limit, not a failure.
+  - A 429 sets `retryAfterSeconds`: a rate limit, not a failure. The device's `last_error` says
+    so either way.
   - Any other status, or a network error, is a device error (`Push HTTP <status>`).
-  - The batch is `sent` if at least one device accepted. When every device failed with a non-gone
-    error, the result is `ok: false`, which counts toward `consecutive_failures`.
+  - The batch is `sent` once any device accepted at least one notification. Retrying after that
+    would show that device the same spots again, so a device that took notification 1 and then
+    refused notification 2 is recorded as an error, not retried. When no device took anything and
+    every device failed with a non-gone error, the result is `ok: false`, which counts toward
+    `consecutive_failures`.
+  - The VAPID header is signed once per push-service origin before anything is sent, so a bad
+    key fails the whole send with "Push isn't configured on the server." instead of a device error
+    on every device. `SendOptions.now` pins its clock in tests.
   - With zero devices, or zero left after pruning, the result is `ok: false` with the error
     "Turn on notifications on a device first.". Send test shows that string as is. After 5 runs
     the destination goes `failing`, like any other.
@@ -177,7 +185,9 @@ Cover:
   - `SendResult` gains optional `expiredEndpoints` and `deviceResults` (fed into
     `record_push_results`).
   - `DeliverySpot` gains `base_callsign`.
-- **`handlers/deliver.ts`.** After a push send, it calls `prune_push_devices` and
+- **`handlers/deliver.ts`.** A push delivery older than `TTL` (15 minutes, `PUSH_MAX_AGE_MS`) is
+  dropped instead of retried, so a push service outage doesn't end in a burst of hours-old
+  alerts. Other types keep the 24-hour limit. After a push send, it calls `prune_push_devices` and
   `record_push_results` through `rpcOrLog`. The list of calls comes from `pushBookkeeping(result)`
   in `send.ts`, not `deliver.ts`, because the `api` function (`verify_jwt = false`) reaches it
   through `test_delivery.ts` and must not import `isServiceRole`.

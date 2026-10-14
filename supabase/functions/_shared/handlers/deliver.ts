@@ -5,12 +5,14 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isServiceRole } from "../auth.ts";
 import { backoffSeconds } from "../delivery/format.ts";
-import { pushBookkeeping, type SendResult } from "../delivery/send.ts";
+import { PUSH_TTL_SECONDS, pushBookkeeping, type SendResult } from "../delivery/send.ts";
 import type { DeliveryDestination, PendingDelivery } from "../delivery/types.ts";
 
 export const CLAIM_LIMIT = 200;
 export const VISIBILITY_SECONDS = 60;
 export const MAX_AGE_MS = 24 * 60 * 60 * 1000;
+/** A push alert is worth sending only while the push service would still deliver it. */
+export const PUSH_MAX_AGE_MS = PUSH_TTL_SECONDS * 1000;
 
 export interface DeliverSummary {
   claimed: number;
@@ -64,8 +66,9 @@ export async function handleDeliver(
   summary.claimed = rows.length;
 
   // Too old to keep retrying.
-  const cutoff = now.getTime() - MAX_AGE_MS;
-  const expired = rows.filter((r) => new Date(r.created_at).getTime() < cutoff);
+  const maxAge = (r: PendingDelivery) =>
+    r.destination.type === "push" ? PUSH_MAX_AGE_MS : MAX_AGE_MS;
+  const expired = rows.filter((r) => new Date(r.created_at).getTime() < now.getTime() - maxAge(r));
   if (expired.length > 0) {
     await rpcOrLog(db, summary, "mark_deliveries_dropped", {
       p_delivery_ids: expired.map((r) => r.delivery_id),

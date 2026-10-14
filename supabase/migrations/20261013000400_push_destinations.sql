@@ -88,6 +88,7 @@ declare
   v_user uuid := auth.uid();
   v_id uuid;
   v_secret text;
+  v_constraint text;
 begin
   if v_user is null then
     raise exception 'Not signed in.';
@@ -104,7 +105,11 @@ begin
     values (v_user, p_type, trim(p_name), trim(p_url), public.destination_url_display(p_type, p_url), v_secret)
     returning destinations.id into v_id;
   exception when unique_violation then
-    raise exception 'You already have push notifications.';
+    get stacked diagnostics v_constraint = constraint_name;
+    if v_constraint = 'destinations_one_push_per_user' then
+      raise exception 'You already have push notifications.';
+    end if;
+    raise;
   end;
   return query
     select d.id, d.type, d.name, d.url_display, d.health, d.created_at, d.signing_secret
@@ -203,15 +208,17 @@ begin
      or v_auth is null or length(v_auth) <> 16 then
     raise exception 'That browser sent an invalid subscription.';
   end if;
-  if (select count(*) from push_devices p where p.user_id = v_user and p.endpoint <> trim(p_endpoint)) >= 20 then
-    raise exception 'You can turn on notifications on up to 20 devices. Remove one first.';
-  end if;
-
   insert into destinations (user_id, type, name, url, url_display)
   values (v_user, 'push', coalesce(nullif(trim(p_name), ''), 'Push notifications'), null,
           public.destination_url_display('push', null))
   on conflict (user_id) where type = 'push' do nothing;
-  select d.id into v_id from destinations d where d.user_id = v_user and d.type = 'push';
+  -- The lock serializes one account's registrations, so two new browsers at
+  -- once cannot both pass the cap.
+  select d.id into v_id from destinations d where d.user_id = v_user and d.type = 'push' for update;
+
+  if (select count(*) from push_devices p where p.user_id = v_user and p.endpoint <> trim(p_endpoint)) >= 20 then
+    raise exception 'You can turn on notifications on up to 20 devices. Remove one first.';
+  end if;
 
   insert into push_devices as p (user_id, endpoint, p256dh, auth, label)
   values (v_user, trim(p_endpoint), rtrim(p_p256dh, '='), rtrim(p_auth, '='), v_label)

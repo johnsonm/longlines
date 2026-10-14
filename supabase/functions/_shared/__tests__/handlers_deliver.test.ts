@@ -7,6 +7,7 @@ import {
   type DeliverSummary,
   handleDeliver,
   MAX_AGE_MS,
+  PUSH_MAX_AGE_MS,
   VISIBILITY_SECONDS,
 } from "../handlers/deliver.ts";
 import { fakeSupabase, type FakeSupabaseOptions } from "./fake_supabase.ts";
@@ -248,4 +249,21 @@ Deno.test("handleDeliver skips the push bookkeeping when there is nothing to rep
     }));
   assertEquals(calls.rpc.map((c) => c.fn), ["claim_deliveries", "mark_deliveries_failed"]);
   assertEquals(calls.rpc[1]?.args?.["p_error"], "Turn on notifications on a device first.");
+});
+
+Deno.test("handleDeliver drops push deliveries older than the push TTL instead of retrying them", async () => {
+  const p = dest("p", { type: "push", url: null, signing_secret: null, devices: [] });
+  const w = dest("w");
+  const stale = new Date(NOW.getTime() - PUSH_MAX_AGE_MS - 1).toISOString();
+  const { summary, sent, calls } = await run(
+    [row(1, p, { created_at: stale }), row(2, p), row(3, w, { created_at: stale })],
+    allSent,
+  );
+  assertEquals(PUSH_MAX_AGE_MS, 15 * 60 * 1000);
+  assertEquals(summary.dropped, 1);
+  assertEquals(calls.rpc[1], {
+    fn: "mark_deliveries_dropped",
+    args: { p_delivery_ids: [1], p_msg_ids: [10] },
+  });
+  assertEquals(sent, [{ destination: "p", ids: [2] }, { destination: "w", ids: [3] }]);
 });
