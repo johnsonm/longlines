@@ -3,6 +3,10 @@ import {
   backoffSeconds,
   discordMessages,
   embedForSpot,
+  PUSH_NOTIFICATIONS_PER_RUN,
+  pushNotifications,
+  pushPayload,
+  sampleSpot,
   sourceLabel,
   webhookPayloads,
 } from "../delivery/format.ts";
@@ -13,6 +17,7 @@ const spot: DeliverySpot = {
   source: "pota",
   spot_time: "2026-10-05T14:32:08.000Z",
   callsign: "KK4PWJ",
+  base_callsign: "KK4PWJ",
   spotter: "W4ABC",
   frequency_khz: 14062,
   band: "20m",
@@ -114,4 +119,102 @@ Deno.test("sourceLabel names every source and passes an unknown one through", ()
     ["pota", "sotawatch", "rbn", "dxcluster", "other"].map(sourceLabel),
     ["POTA", "SOTAwatch", "RBN", "DX Cluster", "other"],
   );
+});
+
+const call = (callsign: string, id = 0): DeliverySpot => ({
+  ...spot,
+  id,
+  callsign,
+  base_callsign: callsign,
+});
+
+Deno.test("pushNotifications titles a spot with its call and two lines of facts", () => {
+  assertEquals(pushNotifications([spot]), [{
+    title: "KK4PWJ",
+    body: "14062.0 kHz CW (20m)\nUS-2763 · Eno River State Park · POTA",
+    tag: "spot:KK4PWJ",
+    url: "/call/KK4PWJ",
+  }]);
+});
+
+Deno.test("pushNotifications lists only the facts present and links the base call from SQL", () => {
+  const [n] = pushNotifications([{
+    ...spot,
+    source: "sotawatch",
+    callsign: "W4/KK4PWJ/P",
+    base_callsign: "KK4PWJ",
+    pota_reference: null,
+    pota_park_name: null,
+    sota_summit_ref: "W4C/CM-001",
+    mode: null,
+    band: null,
+  }]);
+  assertEquals(n, {
+    title: "W4/KK4PWJ/P",
+    body: "14062.0 kHz\nW4C/CM-001 · SOTAwatch",
+    tag: "spot:W4/KK4PWJ/P",
+    url: "/call/KK4PWJ",
+  });
+  const [rbn] = pushNotifications([{
+    ...call("w1aw"),
+    source: "rbn",
+    pota_reference: null,
+    pota_park_name: null,
+    base_callsign: null,
+  }]);
+  assertEquals(rbn?.tag, "spot:W1AW");
+  assertEquals(rbn?.url, "/call/w1aw");
+  assertEquals(rbn?.body.split("\n")[1], "RBN");
+});
+
+Deno.test("pushNotifications sends at most three spots, then one summary", () => {
+  assertEquals(PUSH_NOTIFICATIONS_PER_RUN, 3);
+  const three = pushNotifications([call("A1A"), call("B1B"), call("C1C")]);
+  assertEquals(three.map((n) => n.tag), ["spot:A1A", "spot:B1B", "spot:C1C"]);
+
+  const four = pushNotifications([call("A1A"), call("B1B"), call("C1C"), call("D1D")]);
+  assertEquals(four.length, 4);
+  assertEquals(four[3], { title: "1 more spot", body: "D1D", tag: "summary", url: "/sources" });
+});
+
+Deno.test("the summary lists the remaining calls in spot order, deduplicated", () => {
+  const rest = (...calls: string[]) =>
+    pushNotifications([call("A1A"), call("B1B"), call("C1C"), ...calls.map((c) => call(c))])[3];
+  assertEquals(rest("D1D", "E1E")?.title, "2 more spots");
+  assertEquals(rest("D1D", "E1E")?.body, "D1D and E1E");
+  assertEquals(rest("D1D", "E1E", "D1D", "F1F")?.title, "4 more spots");
+  assertEquals(rest("D1D", "E1E", "D1D", "F1F")?.body, "D1D, E1E and F1F");
+  assertEquals(rest("D1D", "E1E", "F1F", "G1G")?.body, "D1D, E1E, F1F and 1 other");
+  assertEquals(rest("D1D", "E1E", "F1F", "G1G", "H1H", "G1G")?.body, "D1D, E1E, F1F and 2 others");
+});
+
+Deno.test("a worst-case push payload stays under 3,000 bytes", () => {
+  const long = (n: number) => "X".repeat(n);
+  const worst: DeliverySpot = {
+    ...spot,
+    callsign: long(30),
+    base_callsign: long(30),
+    frequency_khz: 10_000_000.5,
+    mode: long(20),
+    band: long(10),
+    pota_reference: long(40),
+    pota_park_name: "Ä".repeat(300),
+    sota_summit_ref: long(40),
+    source: "dxcluster",
+  };
+  const notifications = pushNotifications(
+    Array.from({ length: 50 }, (_, i) => ({ ...worst, callsign: `${long(25)}${i}` })),
+  );
+  for (const n of notifications) {
+    const bytes = new TextEncoder().encode(pushPayload(n)).length;
+    if (bytes >= 3000) throw new Error(`${n.tag}: ${bytes} bytes`);
+  }
+  assertEquals(JSON.parse(pushPayload(notifications[0]!)), notifications[0]);
+});
+
+Deno.test("the test notification is the sample spot through the same formatter", () => {
+  const [n] = pushNotifications([sampleSpot({ ...delivery(1).destination, name: "Phone" })]);
+  assertEquals(n?.title, "N0CALL");
+  assertEquals(n?.body, "14062.0 kHz CW (20m)\nUS-0000 · Test Park · POTA");
+  assertEquals(n?.url, "/call/N0CALL");
 });

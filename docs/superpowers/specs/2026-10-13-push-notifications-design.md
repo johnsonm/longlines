@@ -41,10 +41,11 @@ this adds none: `deliver` and `send-test` already exist.
 
 ## PR 1: schema and delivery
 
-### Migration `20261013000400_push_destinations.sql`
+### Migration `20261014000100_push_destinations.sql`
 
-Recheck the number across every worktree and remote branch first. On 2026-10-13 the highest
-anywhere is `20261013000300_management_api.sql`.
+Recheck the number across every worktree and remote branch first. It was planned as
+`20261013000400`, then renumbered on 2026-10-14 after `20261014000010`–`000020` (APRS, API
+fixes) merged to main ahead of it; an unmerged branch already uses `20261014000030`.
 
 - **Destinations.**
   - The `destinations.type` check gains `'push'`.
@@ -71,20 +72,26 @@ anywhere is `20261013000300_management_api.sql`.
   - a subdomain of `push.apple.com`
   - a subdomain of `notify.windows.com`
 
-  A suffix test needs the dot: `evilpush.apple.com` must fail. The same list is repeated in
-  `_shared/delivery/urlsafety.ts`, and the worker checks it again before every POST.
+  A suffix test needs the dot: `evilpush.apple.com` must fail. An explicit port or credentials in
+  the URL fail too. The same list is repeated in `_shared/delivery/urlsafety.ts`, and the worker
+  checks it again before every POST.
 - **Client RPCs.** Each is `security definer` with a pinned `search_path`, `revoke all from public`,
   granted to `authenticated` and added to `advisor.test.sql`. Each raises "Not signed in." when
   `auth.uid()` is null.
   - `register_push_device(p_endpoint, p_p256dh, p_auth, p_label, p_name text default null)`:
     - It upserts by endpoint. A device that moves between accounts is reassigned to the caller, and
-      its error fields are cleared.
+      its error fields are cleared. On a move, `created_at` restarts and `last_success_at` is
+      cleared too, so the new owner doesn't see the old owner's history.
     - If the account has no push destination, it creates one named `p_name`, or "Push
       notifications" when that's blank, so turning notifications on takes one step.
     - It returns the destination id.
-    - The label is trimmed and capped at 60 characters. The keys must be base64url: `p256dh` is
-      65 bytes and `auth` is 16 bytes. Otherwise it raises "That browser sent an invalid
-      subscription.".
+    - The label is trimmed and capped at 60 characters; a blank one becomes "This browser". The
+      keys must be base64url (helper `base64url_bytes`): `p256dh` is a 65-byte uncompressed point
+      and `auth` is 16 bytes. Otherwise it raises "That browser sent an invalid subscription.".
+    - An account can have at most 20 devices (approved 2026-10-13). The account's push destination
+      row is locked before the count, so two browsers registering at once can't both pass. A 21st raises "You can turn on
+      notifications on up to 20 devices. Remove one first."; re-registering an existing endpoint
+      at the cap still works.
   - `unregister_push_device(p_endpoint)` deletes the caller's row for that endpoint. It is silent if
     there is none. It runs on sign-out and on "Turn off".
   - `list_push_devices(p_current_endpoint text default null)` returns
@@ -93,7 +100,7 @@ anywhere is `20261013000300_management_api.sql`.
   - `delete_push_device(p_id)` raises "Device not found." when the id isn't the caller's.
 - **Service-role RPC.** `prune_push_devices(p_endpoints text[]) → int` deletes subscriptions that
   came back gone (404/410).
-- **Device status** (*proposed*; the plan has the columns but nothing that writes them).
+- **Device status** (approved 2026-10-13; the plan had the columns but nothing that wrote them).
   `mark_deliveries_*` doesn't know about devices, so per-device status is written by
   `record_push_results(p_ok text[], p_errors jsonb)`, a service-role RPC.
   - `p_ok` holds endpoints to stamp `last_success_at` and clear the error fields.
@@ -105,7 +112,7 @@ anywhere is `20261013000300_management_api.sql`.
   a click opens `/call/<base>` with a base call that came from SQL. Recreate the function from its
   **latest** definition (grep the migrations for every `claim_deliveries`; `…000014_mode_family`
   redefined it).
-- **Management API** (*proposed*). Push is listed like any other destination, with `url_display`
+- **Management API** (approved 2026-10-13). Push is listed like any other destination, with `url_display`
   "Your devices".
   - `POST /destinations` with `{"type": "push", "name"}` works, because `create_destination`
     accepts it. Devices can only be added from a browser.
@@ -153,14 +160,22 @@ Cover:
 - **`send.ts`.** `sendPush(destination, deliveries, options)`. `send.ts` is still the only place
   that calls `fetch` for a destination.
   - Per device, it encrypts and POSTs each notification with `TTL: 900`, `Urgency: high`,
-    `Topic: <tag with ':' stripped>` (Topic is limited to 32 URL-safe base64 characters) and
-    `redirect: "manual"`.
+    `Topic: <tag with ':' stripped>` and `redirect: "manual"`. Topic is limited to 32 URL-safe
+    base64 characters, so any other character (a callsign's `/`) becomes `_` and the result is cut
+    at 32.
   - A 201 or 202 counts as accepted.
   - A 404 or 410 adds the endpoint to `expiredEndpoints`, which isn't a failure.
-  - A 429 sets `retryAfterSeconds`: a rate limit, not a failure.
+  - A 429 sets `retryAfterSeconds`: a rate limit, not a failure. The device's `last_error` says
+    so either way.
   - Any other status, or a network error, is a device error (`Push HTTP <status>`).
-  - The batch is `sent` if at least one device accepted. When every device failed with a non-gone
-    error, the result is `ok: false`, which counts toward `consecutive_failures`.
+  - The batch is `sent` once any device accepted at least one notification. Retrying after that
+    would show that device the same spots again, so a device that took notification 1 and then
+    refused notification 2 is recorded as an error, not retried. When no device took anything and
+    every device failed with a non-gone error, the result is `ok: false`, which counts toward
+    `consecutive_failures`.
+  - The VAPID header is signed once per push-service origin before anything is sent, so a bad
+    key fails the whole send with "Push isn't configured on the server." instead of a device error
+    on every device. `SendOptions.now` pins its clock in tests.
   - With zero devices, or zero left after pruning, the result is `ok: false` with the error
     "Turn on notifications on a device first.". Send test shows that string as is. After 5 runs
     the destination goes `failing`, like any other.
@@ -171,11 +186,16 @@ Cover:
   - `SendResult` gains optional `expiredEndpoints` and `deviceResults` (fed into
     `record_push_results`).
   - `DeliverySpot` gains `base_callsign`.
-- **`handlers/deliver.ts`.** After a push send, it calls `prune_push_devices` and
-  `record_push_results` through `rpcOrLog`.
+- **`handlers/deliver.ts`.** A push delivery older than `TTL` (15 minutes, `PUSH_MAX_AGE_MS`) is
+  dropped instead of retried, so a push service outage doesn't end in a burst of hours-old
+  alerts. Other types keep the 24-hour limit. After a push send, it calls `prune_push_devices` and
+  `record_push_results` through `rpcOrLog`. The list of calls comes from `pushBookkeeping(result)`
+  in `send.ts`, not `deliver.ts`, because the `api` function (`verify_jwt = false`) reaches it
+  through `test_delivery.ts` and must not import `isServiceRole`.
 - **`handlers/test_delivery.ts`.** For a push destination it loads devices with the admin client,
-  as it already selects destinations directly, so Send test reaches every device. `sampleSpot`
-  gains `base_callsign: "N0CALL"`.
+  as it already selects destinations directly, so Send test reaches every device. It runs the
+  same `pushBookkeeping` calls afterwards, so a test also prunes gone devices. `sampleSpot` gains
+  `base_callsign: "N0CALL"`.
 - **VAPID keys** come from Edge Function env:
   - `LONGLINES_VAPID_PUBLIC_KEY` (base64url, uncompressed point)
   - `LONGLINES_VAPID_PRIVATE_KEY` (base64url `d`, or a JWK)
@@ -282,14 +302,17 @@ Cover:
 
 ## Open questions (*proposed*, need a yes)
 
-1. **Device cap.** Should an account be limited to some number of devices, say 20? Each run's
+Brad approved 1, 2, 4 and 5 on 2026-10-13, at the start of PR 1. 3 and 6 are PR 2 and PR 3
+questions and are still open.
+
+1. **Device cap.** *Approved.* Should an account be limited to some number of devices, say 20? Each run's
    requests scale with devices × 4. Proposed: 20, enforced in `register_push_device` with "You can
    turn on notifications on up to 20 devices. Remove one first.".
-2. **Management API.** As described in PR 1: push is visible and can be created, but devices are
+2. **Management API.** *Approved.* As described in PR 1: push is visible and can be created, but devices are
    browser-only.
 3. **`renotify: true`** on replaced notifications.
-4. **Dialog name.** The optional `p_name` on `register_push_device`.
-5. **Device status writes.** `record_push_results`, so the Devices list can show "Last alert" and
+4. **Dialog name.** *Approved.* The optional `p_name` on `register_push_device`.
+5. **Device status writes.** *Approved.* `record_push_results`, so the Devices list can show "Last alert" and
    errors.
 6. **Add without this device.** The dialog's fallback when this browser can't turn notifications
    on. Without it, an iPhone user who hasn't installed the app yet can't add the destination at

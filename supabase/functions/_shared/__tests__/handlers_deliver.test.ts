@@ -7,6 +7,7 @@ import {
   type DeliverSummary,
   handleDeliver,
   MAX_AGE_MS,
+  PUSH_MAX_AGE_MS,
   VISIBILITY_SECONDS,
 } from "../handlers/deliver.ts";
 import { fakeSupabase, type FakeSupabaseOptions } from "./fake_supabase.ts";
@@ -44,6 +45,7 @@ function row(
       source: "pota",
       spot_time: NOW.toISOString(),
       callsign: "W1AW",
+      base_callsign: "W1AW",
       spotter: null,
       frequency_khz: 14062,
       band: "20m",
@@ -207,4 +209,61 @@ Deno.test("handleDeliver accepts the gateway-verified service-role JWT pg_cron s
   const { client } = fakeSupabase({ rpc: { claim_deliveries: { data: [] } } });
   const deps = { serviceRoleKey: "sb_secret_runtime", db: () => client, send: allSent };
   assertEquals((await handleDeliver(authed(cronJwt), deps, NOW)).status, 200);
+});
+
+Deno.test("handleDeliver prunes gone push devices and records device status", async () => {
+  const p = dest("p", { type: "push", url: null, signing_secret: null, devices: [] });
+  const { summary, calls } = await run([row(1, p), row(2, p)], (_d, b) =>
+    Promise.resolve({
+      ok: true,
+      sent: b.length,
+      expiredEndpoints: ["https://fcm.googleapis.com/gone"],
+      deviceResults: {
+        ok: ["https://fcm.googleapis.com/ok"],
+        errors: { "https://fcm.googleapis.com/bad": "Push HTTP 500" },
+      },
+    }));
+  assertEquals(summary.sent, 2);
+  assertEquals(calls.rpc.slice(1), [
+    { fn: "prune_push_devices", args: { p_endpoints: ["https://fcm.googleapis.com/gone"] } },
+    {
+      fn: "record_push_results",
+      args: {
+        p_ok: ["https://fcm.googleapis.com/ok"],
+        p_errors: { "https://fcm.googleapis.com/bad": "Push HTTP 500" },
+      },
+    },
+    { fn: "mark_deliveries_sent", args: { p_delivery_ids: [1, 2], p_msg_ids: [10, 20] } },
+  ]);
+});
+
+Deno.test("handleDeliver skips the push bookkeeping when there is nothing to report", async () => {
+  const p = dest("p", { type: "push", url: null, signing_secret: null, devices: [] });
+  const { calls } = await run([row(1, p)], () =>
+    Promise.resolve({
+      ok: false,
+      sent: 0,
+      error: "Turn on notifications on a device first.",
+      expiredEndpoints: [],
+      deviceResults: { ok: [], errors: {} },
+    }));
+  assertEquals(calls.rpc.map((c) => c.fn), ["claim_deliveries", "mark_deliveries_failed"]);
+  assertEquals(calls.rpc[1]?.args?.["p_error"], "Turn on notifications on a device first.");
+});
+
+Deno.test("handleDeliver drops push deliveries older than the push TTL instead of retrying them", async () => {
+  const p = dest("p", { type: "push", url: null, signing_secret: null, devices: [] });
+  const w = dest("w");
+  const stale = new Date(NOW.getTime() - PUSH_MAX_AGE_MS - 1).toISOString();
+  const { summary, sent, calls } = await run(
+    [row(1, p, { created_at: stale }), row(2, p), row(3, w, { created_at: stale })],
+    allSent,
+  );
+  assertEquals(PUSH_MAX_AGE_MS, 15 * 60 * 1000);
+  assertEquals(summary.dropped, 1);
+  assertEquals(calls.rpc[1], {
+    fn: "mark_deliveries_dropped",
+    args: { p_delivery_ids: [1], p_msg_ids: [10] },
+  });
+  assertEquals(sent, [{ destination: "p", ids: [2] }, { destination: "w", ids: [3] }]);
 });

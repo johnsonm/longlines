@@ -114,6 +114,35 @@ export function assertSafeDestinationUrl(type: "discord" | "webhook", url: strin
   return parsed;
 }
 
+// Browser push services. The same list is validate_push_endpoint() in SQL;
+// change both together. Suffixes keep their leading dot, so
+// evilpush.apple.com does not pass as a push.apple.com subdomain.
+const PUSH_HOSTS = ["fcm.googleapis.com", "updates.push.services.mozilla.com"];
+const PUSH_HOST_SUFFIXES = [".push.apple.com", ".notify.windows.com"];
+
+/**
+ * Throws unless the URL is https on a known push-service host, with no port
+ * or credentials. Push endpoints come from the browser, so this is the SSRF
+ * guard for push delivery.
+ */
+export function assertSafePushEndpoint(url: string): URL {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error("Use a browser push service.");
+  }
+  const host = hostOf(parsed);
+  if (
+    parsed.protocol !== "https:" || parsed.port !== "" || parsed.username !== "" ||
+    parsed.password !== "" ||
+    !(PUSH_HOSTS.includes(host) || PUSH_HOST_SUFFIXES.some((suffix) => host.endsWith(suffix)))
+  ) {
+    throw new Error("Use a browser push service.");
+  }
+  return parsed;
+}
+
 /** Resolves A and AAAA records. Null when the runtime cannot resolve DNS at all. */
 export const defaultResolver: Resolver = async (host) => {
   if (typeof Deno.resolveDns !== "function") return null;

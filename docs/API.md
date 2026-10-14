@@ -60,19 +60,24 @@ Ids are UUIDs. Times are ISO 8601 in UTC.
 
 ## Destinations
 
-A destination is where matching spots go: a Discord channel webhook, or your own HTTPS webhook. See
-[WEBHOOKS.md](WEBHOOKS.md) for the webhook payload and its signature. The API never returns a
-destination's URL, only `url_display`, a masked form.
+A destination is where matching spots go: a Discord channel webhook, your own HTTPS webhook, or
+push notifications to your devices. See [WEBHOOKS.md](WEBHOOKS.md) for the webhook payload and its
+signature. The API never returns a destination's URL, only `url_display`, a masked form.
+
+An account has at most one push destination. It has no URL (`url_display` is "Your devices") and
+reaches every browser where you turned notifications on. Devices can only be added from a browser
+signed in to Long Lines; the API creates, lists, tests and deletes the destination but doesn't
+manage devices.
 
 | Method | Path | Body | Returns |
 |---|---|---|---|
 | GET | `/destinations` | | All your destinations. |
-| POST | `/destinations` | `{"type": "discord" or "webhook", "name", "url"}` | The destination. A webhook also gets `signing_secret`, shown only here. |
+| POST | `/destinations` | `{"type": "discord" or "webhook", "name", "url"}`, or `{"type": "push", "name"}` | The destination. A webhook also gets `signing_secret`, shown only here. A second push destination is a `400`: "You already have push notifications." |
 | GET | `/destinations/{id}` | | The destination. |
-| PATCH | `/destinations/{id}` | `{"name"?, "url"?}` | The destination. The type can't change. A new `url` clears `failing` health and the failure count. |
+| PATCH | `/destinations/{id}` | `{"name"?, "url"?}` | The destination. The type can't change, and a push destination takes no `url`. A new `url` clears `failing` health and the failure count. |
 | DELETE | `/destinations/{id}` | | `{"deleted": true}`, or `409` while a subscription uses it. |
 | POST | `/destinations/{id}/rotate-secret` | | `{"signing_secret"}`, for webhooks. The old secret stops working. |
-| POST | `/destinations/{id}/test` | | `{"ok": true}` once a sample spot is delivered, or `502` with the destination's error. |
+| POST | `/destinations/{id}/test` | | `{"ok": true}` once a sample spot is delivered (for push, to at least one device), or `502` with the destination's error. |
 
 A destination looks like this:
 

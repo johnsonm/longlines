@@ -5,8 +5,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { userFromRequest } from "../auth.ts";
 import { json, preflightResponse } from "../cors.ts";
 import { sampleSpot } from "../delivery/format.ts";
-import type { SendResult } from "../delivery/send.ts";
-import type { DeliveryDestination, PendingDelivery } from "../delivery/types.ts";
+import { pushBookkeeping, type SendResult } from "../delivery/send.ts";
+import type { DeliveryDestination, PendingDelivery, PushDevice } from "../delivery/types.ts";
 
 export interface SendTestDeps {
   admin: () => SupabaseClient;
@@ -61,6 +61,15 @@ export async function sendTestTo(
   if (!data) return json({ error: "Destination not found." }, 404);
 
   const destination = data as DeliveryDestination;
+  if (destination.type === "push") {
+    // One push destination per account, so its devices are the owner's.
+    const devices = await admin
+      .from("push_devices")
+      .select("endpoint, p256dh, auth")
+      .eq("user_id", userId);
+    if (devices.error) return json({ error: "Couldn't load that destination." }, 500);
+    destination.devices = (devices.data ?? []) as PushDevice[];
+  }
   const delivery: PendingDelivery = {
     msg_id: 0,
     delivery_id: 0,
@@ -71,6 +80,10 @@ export async function sendTestTo(
     spot: sampleSpot(destination),
   };
   const result = await send(destination, [delivery]);
+  for (const [fn, args] of pushBookkeeping(result)) {
+    const { error: rpcError } = await admin.rpc(fn, args);
+    if (rpcError) console.error(`send-test: ${fn} failed: ${rpcError.message}`);
+  }
 
   return result.ok ? json({ ok: true }) : json({ error: result.error ?? "Delivery failed." }, 502);
 }

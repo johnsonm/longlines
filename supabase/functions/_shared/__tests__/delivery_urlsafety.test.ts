@@ -1,6 +1,7 @@
 import { assertEquals, assertRejects, assertThrows } from "@std/assert";
 import {
   assertSafeDestinationUrl,
+  assertSafePushEndpoint,
   assertSafeResolvedHost,
   isPrivateIp,
 } from "../delivery/urlsafety.ts";
@@ -83,4 +84,38 @@ Deno.test("assertSafeResolvedHost skips resolution for IP literals already check
     return Promise.resolve([]);
   });
   assertEquals(called, false);
+});
+
+Deno.test("assertSafePushEndpoint accepts the browser push services", () => {
+  for (
+    const url of [
+      "https://fcm.googleapis.com/fcm/send/abc:APA91b",
+      "https://updates.push.services.mozilla.com/wpush/v2/gAAAA",
+      "https://web.push.apple.com/QGuQyavXutnMH",
+      "https://wns2-par02p.notify.windows.com/w/?token=BQYAAA",
+    ]
+  ) {
+    assertEquals(assertSafePushEndpoint(url).href, url);
+  }
+});
+
+Deno.test("assertSafePushEndpoint refuses anything else", () => {
+  for (
+    const url of [
+      "http://fcm.googleapis.com/fcm/send/abc",
+      "https://evilpush.apple.com/x",
+      "https://push.apple.com/x",
+      "https://notify.windows.com/x",
+      "https://fcm.googleapis.com.evil.com/x",
+      "https://evil.com/fcm.googleapis.com",
+      "https://fcm.googleapis.com:8443/fcm/send/abc",
+      "https://user:pw@fcm.googleapis.com/fcm/send/abc",
+      "https://127.0.0.1/x",
+      "https://[::1]/x",
+      "https://localhost/x",
+      "not a url",
+    ]
+  ) {
+    assertThrows(() => assertSafePushEndpoint(url), Error, "Use a browser push service.", url);
+  }
 });

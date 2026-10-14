@@ -6,6 +6,8 @@ export interface DeliverySpot {
   source: string;
   spot_time: string;
   callsign: string;
+  /** From SQL (base_callsign()); profile links use it, never a call worked out here. */
+  base_callsign: string | null;
   spotter: string | null;
   frequency_khz: number;
   band: string | null;
@@ -18,14 +20,24 @@ export interface DeliverySpot {
   sota_summit_ref: string | null;
 }
 
+/** A browser push subscription. The endpoint and keys are capability secrets. */
+export interface PushDevice {
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+}
+
 export interface DeliveryDestination {
   id: string;
-  type: "discord" | "webhook";
+  type: "discord" | "webhook" | "push";
   name: string;
-  url: string;
+  /** Null for push, which fans out to `devices` instead. */
+  url: string | null;
   signing_secret: string | null;
   health: "ok" | "failing" | "paused";
   consecutive_failures: number;
+  /** Push only: every device registered by the destination's owner. */
+  devices?: PushDevice[];
 }
 
 export interface PendingDelivery {
@@ -57,4 +69,12 @@ export interface DiscordMessage {
 
 export interface WebhookPayload {
   deliveries: Array<{ delivery_id: number; subscription_id: string; spot: DeliverySpot }>;
+}
+
+/** One notification as the service worker shows it. */
+export interface PushNotification {
+  title: string;
+  body: string;
+  tag: string;
+  url: string;
 }

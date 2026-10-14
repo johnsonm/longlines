@@ -2,7 +2,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(48);
+select plan(52);
 
 -- ---------------------------------------------------------------------------
 -- Tokens
@@ -147,6 +147,18 @@ select throws_ok(format($$ select pg_temp.call('patch_subscription', '{"id": "%s
   (select id from sub)), 'Pick at least one destination.');
 select throws_ok(format($$ select pg_temp.call('delete_destination', '{"id": "%s"}') $$, (select id from dest)),
   'Remove it from its subscriptions first.');
+
+-- Push: created without a URL, listed as "Your devices", and never given a URL.
+create temp table pushed as
+  select pg_temp.call('create_destination', '{"type": "push", "name": "Phones"}') as j;
+select is((select j ->> 'url_display' from pushed), 'Your devices', 'the API creates a push destination');
+select is((select count(*) from jsonb_array_elements(pg_temp.call('list_destinations')) d
+           where d ->> 'type' = 'push' and d ->> 'url_display' = 'Your devices'), 1::bigint,
+  'push is listed like any other destination');
+select throws_ok(format($$ select pg_temp.call('update_destination', '{"id": "%s", "url": "https://example.com/x"}') $$,
+  (select j ->> 'id' from pushed)), 'Push notifications don''t use a URL.');
+select throws_ok($$ select pg_temp.call('create_destination', '{"type": "push", "name": "Again"}') $$,
+  'You already have push notifications.');
 
 -- Another user's token cannot see or change user 1's rows.
 reset role;
