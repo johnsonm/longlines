@@ -83,10 +83,10 @@ begin
     'maintain-aprs-packets should be scheduled';
 
   -- Archive: the slice RPCs answer, the job is scheduled, the bucket is private.
-  assert (select row_count from public.archive_ndjson('rbn', now() - interval '1 day', now() + interval '1 minute')) >= 1,
-    'archive_ndjson should see the smoke rbn row';
-  assert (select row_count from public.archive_ndjson('aprs', now() - interval '1 day', now() + interval '1 minute')) >= 1,
-    'archive_ndjson should see the smoke aprs packet';
+  assert (select row_count from public.archive_columns('rbn', now() - interval '1 day', now() + interval '1 minute')) >= 1,
+    'archive_columns should see the smoke rbn row';
+  assert (select row_count from public.archive_columns('aprs', now() - interval '1 day', now() + interval '1 minute')) >= 1,
+    'archive_columns should see the smoke aprs packet';
   perform * from public.archive_pending_slices('pota', now(), 10);
   assert exists (select 1 from cron.job where jobname = 'archive-aprs' and schedule = '2-59/5 * * * *'),
     'archive-aprs should run every 5 minutes';

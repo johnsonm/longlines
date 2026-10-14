@@ -1,6 +1,16 @@
 import { assertEquals } from "@std/assert";
 import { handleArchive } from "../handlers/archive.ts";
 import { fakeSupabase } from "./fake_supabase.ts";
+import { ARCHIVE_SCHEMAS } from "../archive.ts";
+import type { Source } from "../types.ts";
+
+/** archive_columns' answer for a one-row slice: every column null but `values`. */
+function oneRow(source: Source, values: Record<string, unknown> = {}) {
+  const columns = Object.fromEntries(
+    ARCHIVE_SCHEMAS[source].map(([name]) => [name, [values[name] ?? null]]),
+  );
+  return { data: [{ row_count: 1, columns }] };
+}
 
 const KEY = "service-key";
 const NOW = new Date("2026-10-11T20:05:00Z");
@@ -30,14 +40,14 @@ Deno.test("handleArchive runs the archive and returns its summary", async () => 
   const { client, calls } = fakeSupabase({
     rpc: {
       archive_pending_slices: (args) => ({ data: args?.["p_source"] === "rbn" ? [slice] : [] }),
-      archive_ndjson: { data: [{ row_count: 1, ndjson: '{"callsign":"K1ABC"}' }] },
+      archive_columns: oneRow("rbn", { callsign: "K1ABC" }),
     },
   });
   const res = await handleArchive(req(KEY), { serviceRoleKey: KEY, db: () => client }, NOW);
   assertEquals(res.status, 200);
   const body = await res.json();
   assertEquals([body.slices, body.rows, body.errors], [1, 1, []]);
-  assertEquals(calls.storage.map((s) => s.path), ["rbn/2026/10/11/1410.ndjson.gz"]);
+  assertEquals(calls.storage.map((s) => s.path), ["rbn/year=2026/month=10/day=11/1410.parquet"]);
 });
 
 Deno.test("handleArchive answers 500 when any slice failed", async () => {
@@ -48,7 +58,7 @@ Deno.test("handleArchive answers 500 when any slice failed", async () => {
   const { client } = fakeSupabase({
     rpc: {
       archive_pending_slices: (args) => ({ data: args?.["p_source"] === "pota" ? [slice] : [] }),
-      archive_ndjson: { data: [{ row_count: 1, ndjson: "{}" }] },
+      archive_columns: oneRow("pota"),
     },
     storageUpload: { error: { message: "storage 503" } },
   });
@@ -77,7 +87,7 @@ Deno.test("handleArchive archives only the sources the body names", async () => 
   const { client, calls } = fakeSupabase({
     rpc: {
       archive_pending_slices: (args) => ({ data: args?.["p_source"] === "aprs" ? [slice] : [] }),
-      archive_ndjson: { data: [{ row_count: 1, ndjson: '{"source_call":"N0CALL"}' }] },
+      archive_columns: oneRow("aprs", { source_call: "N0CALL" }),
     },
   });
   const res = await handleArchive(
@@ -90,7 +100,7 @@ Deno.test("handleArchive archives only the sources the body names", async () => 
     calls.rpc.filter((c) => c.fn === "archive_pending_slices").map((c) => c.args?.["p_source"]),
     ["aprs"],
   );
-  assertEquals(calls.storage.map((s) => s.path), ["aprs/2026/10/11/1755.ndjson.gz"]);
+  assertEquals(calls.storage.map((s) => s.path), ["aprs/year=2026/month=10/day=11/1755.parquet"]);
 });
 
 Deno.test("handleArchive answers 400 for a body it cannot use, before touching the database", async () => {

@@ -152,6 +152,9 @@ export interface ArchiveSlice {
   slice_end: string;
 }
 
+/** A slice's columns from archive_columns: name to values, one per row. */
+export type ArchiveColumns = Record<string, unknown[]>;
+
 /** An archived slice for archive_log. bytes and object_path are null for an empty slice. */
 export interface ArchiveLogEntry extends ArchiveSlice {
   source: Source;
@@ -164,8 +167,11 @@ export interface ArchiveLogEntry extends ArchiveSlice {
 export interface ArchiveDb {
   /** Slices of a source that ended before `before` and are not logged, oldest first. */
   pendingSlices(source: Source, before: Date, limit: number): Promise<ArchiveSlice[]>;
-  /** One slice as NDJSON (no trailing newline) and its row count. */
-  sliceNdjson(source: Source, slice: ArchiveSlice): Promise<{ row_count: number; ndjson: string }>;
+  /** One slice as column arrays in row order (null when empty) and its row count. */
+  sliceColumns(
+    source: Source,
+    slice: ArchiveSlice,
+  ): Promise<{ row_count: number; columns: ArchiveColumns | null }>;
   logArchive(entry: ArchiveLogEntry): Promise<void>;
 }
 

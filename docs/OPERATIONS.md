@@ -496,7 +496,8 @@ a keepalive about every 20 s, so the relay reconnects after 2 minutes of silence
 marks the feed unhealthy after 5.
 
 Size: about 300 bytes a packet with indexes, so roughly 2.5 GB a day at 100 packets a second. The
-database keeps yesterday and today; Storage grows by roughly 0.3 GB a day of gzipped NDJSON.
+database keeps yesterday and today; Storage grows by roughly 0.3 GB a day (measured as gzipped
+NDJSON; not yet re-measured since the archive moved to Parquet).
 
 ```sql
 select pg_size_pretty(sum(pg_total_relation_size(i.inhrelid)))
@@ -525,7 +526,9 @@ slices are archived. APRS-IS has its own job, `archive-aprs`, every five minutes
 delete from archive_log where source = 'rbn' and slice_start = '2026-10-11 14:10+00';
 ```
 
-The next run rewrites the object at the same path.
+The next run rewrites the object at the same path. A slice first archived as NDJSON (before
+2026-10-14) comes back as Parquet at its new path; the old `.ndjson.gz` object stays until it is
+deleted by hand or by the NDJSON migration.
 
 ## Retention
 
@@ -542,14 +545,22 @@ old (`aprs_day_slices` shows why a day stays).
 
 ## Reading the archive
 
-DuckDB reads the files straight from Storage's S3 endpoint:
+DuckDB reads the files straight from Storage's S3 endpoint. The day folders are Hive-style, so
+`year`, `month` and `day` become columns and a filter on them skips the other folders:
 
 ```sql
 install httpfs; load httpfs;
 create secret (type s3, key_id '<S3 access key>', secret '<S3 secret>',
                endpoint '<project-ref>.supabase.co/storage/v1/s3', region '<region>', url_style 'path');
-select spot_type, count(*) from read_json_auto('s3://archive/rbn/2026/10/11/*.ndjson.gz') group by 1;
+select spot_type, count(*)
+from read_parquet('s3://archive/rbn/*/*/*/*.parquet', hive_partitioning = true)
+where year = 2026 and month = 10 and day = 14
+group by 1;
 ```
+
+Slices archived before 2026-10-14 are still gzipped NDJSON in the old layout until the one-off
+migration rewrites them; read those with
+`read_json_auto('s3://archive/rbn/2026/10/11/*.ndjson.gz')`.
 
 S3 access keys are created under Storage settings and can read every bucket, so they belong on an
 operator's machine, never in the web app or the relay.

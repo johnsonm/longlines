@@ -120,18 +120,17 @@ select results_eq(
   format('values (%L::timestamptz, %L::timestamptz), (%L::timestamptz, %L::timestamptz)',
          pg_temp.at(-1, '00:00'), pg_temp.at(-1, '00:05'), pg_temp.at(-1, '00:05'), pg_temp.at(-1, '00:10')),
   'pending APRS slices are five minutes long and start at the first packet''s UTC day');
-select is((select row_count from archive_ndjson('aprs', pg_temp.at(-1, '10:00'), pg_temp.at(-1, '10:05'))), 2,
-  'archive_ndjson counts the slice''s packets, end exclusive');
+select is((select row_count from archive_columns('aprs', pg_temp.at(-1, '10:00'), pg_temp.at(-1, '10:05'))), 2,
+  'archive_columns counts the slice''s packets, end exclusive');
 select is(
-  (select array_agg(l::jsonb ->> 'source_call')
-   from archive_ndjson('aprs', pg_temp.at(-1, '10:00'), pg_temp.at(-1, '10:05')) n,
-        regexp_split_to_table(n.ndjson, E'\n') l),
-  array['N0A', 'N0B'], 'packets are in received_at order');
+  (select n.columns::jsonb -> 'source_call'
+   from archive_columns('aprs', pg_temp.at(-1, '10:00'), pg_temp.at(-1, '10:05')) n),
+  '["N0A", "N0B"]'::jsonb, 'packets are in received_at order');
 select is(
-  (select (select array_agg(k order by k) from jsonb_object_keys(split_part(n.ndjson, E'\n', 1)::jsonb) k)
-   from archive_ndjson('aprs', pg_temp.at(-1, '10:00'), pg_temp.at(-1, '10:05')) n),
-  array['destination', 'igate', 'line', 'packet_type', 'path', 'q_construct', 'received_at', 'source_call'],
-  'an archived packet carries every column but line_md5');
+  (select array(select k from json_object_keys(n.columns) k)
+   from archive_columns('aprs', pg_temp.at(-1, '10:00'), pg_temp.at(-1, '10:05')) n),
+  array['received_at', 'source_call', 'destination', 'path', 'q_construct', 'igate', 'packet_type', 'line'],
+  'an archived slice carries every column but line_md5');
 select ok((select source = 'aprs' from archive_status where source = 'aprs'), 'archive_status lists aprs');
 
 -- Stats rollup (20261014000030).

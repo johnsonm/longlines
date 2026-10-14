@@ -1,8 +1,8 @@
 -- pgTAP: the spot archive (20261011000004): slice lengths, pending slices,
--- NDJSON shape and boundaries, the log, the status view, grants, cron, bucket.
+-- column shape and boundaries, the log, the status view, grants, cron, bucket.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(24);
+select plan(27);
 
 -- Yesterday at hh:mm UTC.
 create or replace function pg_temp.y(p_hm text) returns timestamptz language sql as $$
@@ -42,36 +42,40 @@ select is((select count(*) from archive_pending_slices('rbn', pg_temp.y('11:00')
 select is((select max(slice_start) from archive_pending_slices('rbn', pg_temp.y('10:15'), 1000)), pg_temp.y('10:00'),
   'a slice is pending only once it has ended before the cutoff');
 
--- NDJSON: half-open boundaries, shape, order.
-select is((select row_count from archive_ndjson('rbn', pg_temp.y('10:00'), pg_temp.y('10:10'))), 2,
+-- Columns: half-open boundaries, shape, order.
+select is((select row_count from archive_columns('rbn', pg_temp.y('10:00'), pg_temp.y('10:10'))), 2,
   'a spot on the boundary is in exactly one slice (10:09:59 in, 10:10:00 out)');
-select is((select row_count from archive_ndjson('rbn', pg_temp.y('10:10'), pg_temp.y('10:20'))), 1,
+select is((select row_count from archive_columns('rbn', pg_temp.y('10:10'), pg_temp.y('10:20'))), 1,
   'the 10:10:00 spot is in the next slice');
-select is((select split_part(ndjson, E'\n', 1)::jsonb ->> 'callsign' from archive_ndjson('rbn', pg_temp.y('10:00'), pg_temp.y('10:10'))),
-  'K1AAA', 'lines are ordered by spot_time');
-select is((select array(select k from jsonb_object_keys(split_part(ndjson, E'\n', 1)::jsonb) as k order by k collate "C")
-           from archive_ndjson('rbn', pg_temp.y('10:00'), pg_temp.y('10:10'))),
-  array['band','callsign','frequency_khz','line','mode','mode_family','received_at','snr','speed','speed_unit','spot_time','spot_type','spotter'],
-  'an RBN line carries exactly the specified fields');
-select is((select ndjson from archive_ndjson('rbn', pg_temp.y('10:40'), pg_temp.y('10:50'))), '',
-  'an empty slice has an empty body');
+select is((select columns::jsonb -> 'callsign' from archive_columns('rbn', pg_temp.y('10:00'), pg_temp.y('10:10'))),
+  '["K1AAA", "K1BBB"]'::jsonb, 'columns are in spot_time order');
+select is((select (columns::jsonb -> 'spot_time' ->> 0)::bigint from archive_columns('rbn', pg_temp.y('10:00'), pg_temp.y('10:10'))),
+  (extract(epoch from pg_temp.y('10:03')) * 1000)::bigint, 'timestamps are epoch milliseconds');
+select is((select array(select k from json_object_keys(columns) as k)
+           from archive_columns('rbn', pg_temp.y('10:00'), pg_temp.y('10:10'))),
+  array['spot_time','received_at','spotter','callsign','frequency_khz','band','mode','mode_family','snr','speed','speed_unit','spot_type','line'],
+  'an RBN slice carries exactly the specified columns, in file order');
+select is((select row(row_count, columns::text) from archive_columns('rbn', pg_temp.y('10:40'), pg_temp.y('10:50'))),
+  row(0, null::text), 'an empty slice has no columns');
 
 insert into raw_spots (source, source_spot_id, content_hash, spot_time, callsign, frequency_khz, comment, pota_reference, raw_payload)
 values ('pota', 'arch-1', 'h', pg_temp.y('09:30'), 'W1AW', 14062, '', 'US-0001', '{"upstream":true}');
 select ok(exists (select 1 from archive_pending_slices('pota', pg_temp.y('11:00'), 1000) where slice_start = pg_temp.y('09:00')
                   and slice_end = pg_temp.y('10:00')), 'POTA slices are hourly');
-select ok((select (split_part(ndjson, E'\n', 1)::jsonb ? 'raw_payload') and not (split_part(ndjson, E'\n', 1)::jsonb ? 'id')
-           from archive_ndjson('pota', pg_temp.y('09:00'), pg_temp.y('10:00'))),
-  'a POTA line carries raw_payload and not the internal id');
-select throws_ok($$ select * from archive_ndjson('pskreporter', now(), now()) $$, 'P0001', 'unknown archive source: pskreporter',
+select ok('{"upstream": true}' in (select json_array_elements_text(columns -> 'raw_payload')
+                                   from archive_columns('pota', pg_temp.y('09:00'), pg_temp.y('10:00'))),
+  'a POTA slice carries raw_payload as JSON text');
+select ok((select not (columns::jsonb ? 'id') from archive_columns('pota', pg_temp.y('09:00'), pg_temp.y('10:00'))),
+  'a POTA slice leaves out the internal id');
+select throws_ok($$ select * from archive_columns('pskreporter', now(), now()) $$, 'P0001', 'unknown archive source: pskreporter',
   'an unknown source is rejected');
 
 -- The log.
-select lives_ok(format('select log_archive(%L, %L, %L, 2, 120, %L)', 'rbn', pg_temp.y('10:00'), pg_temp.y('10:10'), 'rbn/x/1000.ndjson.gz'),
+select lives_ok(format('select log_archive(%L, %L, %L, 2, 120, %L)', 'rbn', pg_temp.y('10:00'), pg_temp.y('10:10'), 'rbn/x/1000.parquet'),
   'log_archive records a slice');
 select ok(not exists (select 1 from archive_pending_slices('rbn', pg_temp.y('11:00'), 1000) where slice_start = pg_temp.y('10:00')),
   'a logged slice is no longer pending');
-select lives_ok(format('select log_archive(%L, %L, %L, 3, 150, %L)', 'rbn', pg_temp.y('10:00'), pg_temp.y('10:10'), 'rbn/x/1000.ndjson.gz'),
+select lives_ok(format('select log_archive(%L, %L, %L, 3, 150, %L)', 'rbn', pg_temp.y('10:00'), pg_temp.y('10:10'), 'rbn/x/1000.parquet'),
   'log_archive overwrites on re-archive');
 select is((select row_count from archive_log where source = 'rbn' and slice_start = pg_temp.y('10:00')), 3, 'the newer count wins');
 select throws_ok(format('select log_archive(%L, %L, %L, 5, 10, null)', 'rbn', pg_temp.y('10:20'), pg_temp.y('10:30')),
@@ -79,13 +83,15 @@ select throws_ok(format('select log_archive(%L, %L, %L, 5, 10, null)', 'rbn', pg
 
 -- Status, grants, cron.
 select is((select count(*) from archive_status)::int, 5, 'archive_status has one row per source');
-select ok(not has_function_privilege('authenticated', 'public.archive_ndjson(text, timestamptz, timestamptz)', 'execute')
+select ok(not has_function_privilege('authenticated', 'public.archive_columns(text, timestamptz, timestamptz)', 'execute')
           and not has_function_privilege('authenticated', 'public.log_archive(text, timestamptz, timestamptz, int, int, text)', 'execute')
           and not has_function_privilege('authenticated', 'public.archive_pending_slices(text, timestamptz, int)', 'execute')
           and not has_table_privilege('authenticated', 'public.archive_log', 'select')
           and not has_table_privilege('anon', 'public.archive_status', 'select')
-          and has_function_privilege('service_role', 'public.archive_ndjson(text, timestamptz, timestamptz)', 'execute'),
+          and has_function_privilege('service_role', 'public.archive_columns(text, timestamptz, timestamptz)', 'execute'),
   'the archive objects are service-role only');
+select hasnt_function('public', 'archive_ndjson', array['text', 'timestamptz', 'timestamptz'],
+  'archive_ndjson is gone');
 
 select * from finish();
 rollback;
