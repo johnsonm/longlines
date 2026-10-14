@@ -32,8 +32,8 @@ describe("SourcesPage", () => {
     renderPage(<SourcesPage />);
     expect(screen.getByRole("heading", { level: 1, name: "Sources" })).toBeInTheDocument();
     expect(screen.getByText("Where spots come from. Pick a source to see what it sends and what you can do with it.")).toBeInTheDocument();
-    expect(screen.getByText("High volume sources require a callsign filter")).toBeInTheDocument();
-    expect(screen.getByText(/A subscription to one must include a callsign rule/)).toBeInTheDocument();
+    // The high volume alert lives only on RBN's and APRS-IS's detail pages.
+    expect(screen.queryByText(/callsign filter/)).not.toBeInTheDocument();
     expect(tiles()).toEqual(["Parks on the Air", "SOTA", "Reverse Beacon Network", "DX Cluster", "APRS-IS", "PSK Reporter", "WWFF"]);
     expect(await screen.findByText("Delayed")).toBeInTheDocument(); // SOTA: 600 s > 3 × 30 s
   });
@@ -41,8 +41,8 @@ describe("SourcesPage", () => {
   it("shows each live source's average rate from the snapshot", () => {
     renderPage(<SourcesPage />);
     expect(screen.getByText("36 spots/hour")).toBeInTheDocument();
-    expect(screen.getByText("1,042 spots/min")).toBeInTheDocument();
-    expect(screen.getByText("5,500 spots/min")).toBeInTheDocument();
+    expect(screen.getByText("62,520 spots/hour")).toBeInTheDocument();
+    expect(screen.getByText("330,000 spots/hour")).toBeInTheDocument();
     expect(screen.getByText("56 spots/hour")).toBeInTheDocument();
   });
 

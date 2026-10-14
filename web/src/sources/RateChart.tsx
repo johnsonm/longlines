@@ -1,23 +1,22 @@
 import { Stack, Typography, useTheme } from "@mui/material";
 import { LineChart } from "@mui/x-charts";
-import type { MarkColor, Volume } from "./sources";
-import { formatHour, formatRate, rateUnitShort, type Rates } from "./rates";
+import type { MarkColor } from "./sources";
+import { formatHour, formatRate, RATE_UNIT_SHORT, type Rates } from "./rates";
 
 const DAY_LABEL = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
 
 /** Seven days of hourly rates; the busiest hour is marked in the error colour. */
-export function RateChart({ rates, volume, color }: { rates: Rates; volume: Volume; color: MarkColor }) {
+export function RateChart({ rates, color }: { rates: Rates; color: MarkColor }) {
   const theme = useTheme();
   const hours = rates.hours.map((h) => new Date(h));
   const midnights = hours.filter((d) => d.getUTCHours() === 0);
   const peakIndex = rates.hours.indexOf(rates.peakHour);
-  const unit = rateUnitShort(volume);
   const line = color === "default" ? theme.palette.grey[500] : theme.palette[color].main;
-  const label = (v: number | null) => (v === null ? "" : `${formatRate(v)} ${unit}`);
+  const label = (v: number | null) => (v === null ? "" : `${formatRate(v)} ${RATE_UNIT_SHORT}`);
   return (
     <Stack spacing={1}>
       <Typography variant="subtitle2">
-        Peak {formatRate(rates.peak)} {unit}, {formatHour(rates.peakHour)}
+        Peak {formatRate(rates.peak)} {RATE_UNIT_SHORT}, {formatHour(rates.peakHour)}
       </Typography>
       <LineChart
         height={220}

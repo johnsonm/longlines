@@ -13,7 +13,7 @@ describe("SourceTile", () => {
     expect(screen.getByRole("link", { name: /Reverse Beacon Network/ })).toHaveAttribute("href", "/sources/rbn");
     expect(screen.getByText("Connected")).toBeInTheDocument();
     expect(screen.getByText("High volume")).toBeInTheDocument();
-    expect(screen.getByText("1,042 spots/min")).toBeInTheDocument();
+    expect(screen.getByText("1,042 spots/hour")).toBeInTheDocument();
     expect(screen.getByText("CW and RTTY signals heard by skimmers around the world.")).toBeInTheDocument();
   });
 

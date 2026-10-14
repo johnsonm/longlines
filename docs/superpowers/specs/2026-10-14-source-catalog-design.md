@@ -35,13 +35,13 @@ does not do; every such change is listed under "Copy changes from the mock".
 
 ## Components (`web/src/sources/`)
 
-- **`SourcesPage.tsx`** (rewritten): title and lead, the high volume `Alert` (severity `warning`), a
+- **`SourcesPage.tsx`** (rewritten): title and lead (no volume `Alert`; that is on the detail pages only), a
   small outlined "Search sources" `TextField`, filter `Chip`s All / Connected / Not yet available,
   then a `Grid` of tiles (`size={{ xs: 12, sm: 6, md: 4 }}`). Search matches the tile title, short
   name and tagline, case-insensitive. Filtering is in memory. When nothing matches: "No sources
   match."
 - **`SourceTile.tsx`**: mark, title, tagline, status chip, volume chip, and the seven-day average
-  ("36 spots/hour", "1,042 spots/min"). A live source's tile is a `CardActionArea` linking to
+  ("36 spots/hour", "62,520 spots/hour"). A live source's tile is a `CardActionArea` linking to
   `/sources/<id>`; a planned source's tile is not a link and uses `color="text.secondary"` text.
 - **`SourceDetailPage.tsx`**, top to bottom:
   1. `Breadcrumbs`: "Sources" (link) › title.
@@ -55,7 +55,7 @@ does not do; every such change is listed under "Copy changes from the mock".
   6. APRS-IS has no Schema, Example spot or Recent spots cards; its About text says why.
 - **`RateChart.tsx`**: `@mui/x-charts` `LineChart` (area, the source's mark colour) over the 168
   hourly values, x axis labelled by day ("Oct 8"), the peak marked with a mark in the theme's error
-  colour and the label "Peak 11.8 / min" (or "Peak 88 / hour").
+  colour and the label "Peak 88 / hour".
 - **`rates.ts`**: pure rate maths and formatting (below).
 - **`useIngestHealth.ts`**: `loadIngestHealth` once (catalog) or every 30 s while the browser tab is
   visible (detail page), the pattern today's page uses.
@@ -78,14 +78,14 @@ Each live source has a `statsKey`: `pota`, `sota`, `rbn`, `dx` or `aprs`. Planne
 `sourceRates(hourly, key, volume)` returns `null` when the snapshot has no `key` on its entries
 (written before the `dx` migration), else:
 
-- `series`: the 168 values, per hour for standard volume, per minute (count ÷ 60) for high volume
+- `series`: the 168 values, per hour for every source (high volume included; the buckets are hours)
 - `average`: mean of `series`
 - `peak`, `peakHour`: the largest value and its hour; the earliest hour wins a tie
 - `minimum`: the smallest value
 - `perDay`: total ÷ 7 (used in the volume alert)
 
 `formatRate(n)`: one decimal below 10 ("4.8", "0.4"), whole numbers with thousands separators from
-10 ("36", "1,042"). Units: "spots/hour" / "spots/min" on tiles, "/ hour" / "/ min" on figure cards
+10 ("36", "1,042"). Units: "spots/hour" on tiles, "/ hour" on figure cards
 and the peak label ("36 / hour"). `formatHour(iso)`: "Oct 12, 14:00 UTC", always UTC, because the
 buckets are UTC hours. `formatPerDay(n)`: below a million, two significant figures with separators
 ("4,600"); from a million, one decimal and "million" ("1.5 million").
@@ -145,9 +145,6 @@ example: Record<string, unknown> | null;
 
 - Title: "Sources"
 - Lead: "Where spots come from. Pick a source to see what it sends and what you can do with it."
-- Alert title: "High volume sources require a callsign filter"
-- Alert body: "They send thousands of spots an hour. A subscription to one must include a callsign
-  rule, so it only passes spots for the stations you name."
 - Search label: "Search sources". Chips: "All", "Connected", "Not yet available".
 - Volume chips: "Standard volume", "High volume".
 
@@ -265,7 +262,7 @@ Example spots are static objects in the `WEBHOOKS.md` shape, using the mock's va
 
 | Mock | Ships as | Why |
 | --- | --- | --- |
-| "A connection to one must include a callsign rule" | "A subscription to one …" | No Connections yet |
+| Catalog alert "High volume sources require a callsign filter" | Dropped | The detail pages' volume alerts say it per source |
 | RBN "about 4,600 spots a day … or Long Lines will not let you save it" | Live per-day figure; the matching and save rules as they are | `spot_matches` and `subscriptions_rbn_needs_callsign` |
 | RBN "CW and digital signals", modes "CW, RTTY, PSK" | "CW and RTTY" | The relay reads port 7000 (CW and RTTY) |
 | RBN "It is a firehose, so RBN spots are not shown on the band map." | Dropped | No band map yet |
