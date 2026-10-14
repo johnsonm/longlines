@@ -108,8 +108,8 @@ A subscription says which spots you want and where to send them. Empty lists mea
 | GET | `/subscriptions` | | All your subscriptions. |
 | POST | `/subscriptions` | All the fields above | The subscription. |
 | GET | `/subscriptions/{id}` | | The subscription. |
-| PUT | `/subscriptions/{id}` | All the fields above | The subscription. Lists and `reference` left out become empty; `enabled` and `quiet_minutes` left out keep their values. |
-| PATCH | `/subscriptions/{id}` | Any of the fields above | The subscription. Fields left out, or sent as `null`, keep their values. |
+| PUT | `/subscriptions/{id}` | All the fields above | The subscription. `reference` and every list but `group_ids` left out become empty; `group_ids`, `enabled` and `quiet_minutes` left out keep their values (send `"group_ids": []` to clear the groups). |
+| PATCH | `/subscriptions/{id}` | Any of the fields above | The subscription. Fields left out keep their values, and so do `name`, `reference`, `enabled` and `quiet_minutes` sent as `null`. A list can't be `null`: send `[]` to empty it. |
 | DELETE | `/subscriptions/{id}` | | `{"deleted": true}` |
 | POST | `/subscriptions/{id}/callsigns` | `{"callsigns": [...]}` | `{"callsigns": [...]}`, the full list after adding. |
 | POST | `/subscriptions/{id}/callsigns/remove` | `{"callsigns": [...]}` | `{"callsigns": [...]}`, the full list after removing. |

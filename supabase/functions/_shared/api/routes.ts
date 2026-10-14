@@ -7,9 +7,10 @@ export type Scope = "read" | "write";
 
 export type JsonObject = Record<string, unknown>;
 
-// "integer" is a JSON number that fits Postgres's int: SQL casts it with ::int, which fails on a
-// fraction or overflow with a Postgres message, and JSON.stringify would send Infinity on as null.
-type Scalar = "string" | "boolean" | "integer";
+// "number" is a finite JSON number: JSON.parse reads 1e400 as Infinity, which JSON.stringify would
+// send on as null (left out). Which numbers are allowed is SQL's call (save_subscription names the
+// allowed quiet_minutes), so a fraction or an out-of-range value gets SQL's message, not one here.
+type Scalar = "string" | "boolean" | "number";
 
 export interface Route {
   /** An api_call operation, or "send_test", which the handler runs itself. */
@@ -48,7 +49,7 @@ const write = (
 
 const SUB = {
   arrays: SUBSCRIPTION_ARRAYS,
-  scalars: { name: "string", reference: "string", enabled: "boolean", quiet_minutes: "integer" },
+  scalars: { name: "string", reference: "string", enabled: "boolean", quiet_minutes: "number" },
 } as const;
 const DEST = { scalars: { type: "string", name: "string", url: "string" } } as const;
 const GROUP = { arrays: CALLSIGN_ARRAYS, scalars: { name: "string" } } as const;
@@ -117,13 +118,11 @@ export function matchRoute(method: string, path: string): RouteMatch {
   return allow.length > 0 ? { kind: "method_not_allowed", allow } : { kind: "not_found" };
 }
 
-const isInt4 = (v: unknown) =>
-  Number.isInteger(v) && (v as number) >= -(2 ** 31) && (v as number) < 2 ** 31;
-
-const SCALAR_OK: Readonly<Record<Scalar, (v: unknown) => boolean>> = {
-  string: (v) => typeof v === "string",
-  boolean: (v) => typeof v === "boolean",
-  integer: isInt4,
+/** Each scalar type's test and the phrase its error message uses. */
+const SCALARS: Readonly<Record<Scalar, { test: (v: unknown) => boolean; noun: string }>> = {
+  string: { test: (v) => typeof v === "string", noun: "a string" },
+  boolean: { test: (v) => typeof v === "boolean", noun: "a boolean" },
+  number: { test: (v) => typeof v === "number" && Number.isFinite(v), noun: "a number" },
 };
 
 /** A message for the first body field of the wrong shape, or null when the body is acceptable. */
@@ -145,8 +144,8 @@ export function checkBody(route: Route, body: JsonObject): string | null {
   for (const [key, type] of Object.entries(route.scalars ?? {})) {
     const value = body[key];
     if (value === undefined || value === null) continue;
-    if (SCALAR_OK[type](value)) continue;
-    return `${key} must be ${type === "integer" ? "an integer" : `a ${type}`}.`;
+    if (SCALARS[type].test(value)) continue;
+    return `${key} must be ${SCALARS[type].noun}.`;
   }
   return null;
 }
