@@ -1,10 +1,10 @@
 -- pgTAP: stats_snapshots table, refresh_stats_snapshot() payload shape and
--- numbers, the RBN rollups, window boundaries, the hourly series moving with
--- the hour, pruning to 48 rows, RLS.
+-- numbers, the RBN and APRS rollups, window boundaries, the hourly series
+-- moving with the hour, pruning to 48 rows, RLS.
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(126);
+select plan(146);
 
 -- Start from empty tables so every count below is exact. Both are empty on a
 -- fresh CI database; locally the cron jobs may have filled them. deliveries
@@ -18,6 +18,12 @@ delete from rbn_daily_skimmers;
 delete from rbn_daily_stations;
 delete from rbn_rollup_days;
 delete from rbn_rollup_hours;
+delete from aprs_packets;
+delete from aprs_packet_hours;
+delete from aprs_daily_stations;
+delete from aprs_daily_igates;
+delete from aprs_daily_types;
+delete from aprs_rollup_days;
 
 -- Day k of the window (0 = oldest, 6 = yesterday, 7 = today) at hour h UTC,
 -- derived from the current UTC date so the test is stable at any time of day.
@@ -37,6 +43,14 @@ $$;
 -- Payload of the newest snapshot.
 create or replace function pg_temp.snap() returns jsonb language sql as $$
   select payload from stats_snapshots order by generated_at desc, id desc limit 1;
+$$;
+-- One APRS packet for ingest_aprs_packets (null igate: no q-construct).
+create or replace function pg_temp.aprs(p_time timestamptz, p_call text, p_type text, p_igate text)
+returns jsonb language sql as $$
+  select jsonb_build_object(
+    'received_at', p_time, 'source_call', p_call, 'destination', 'APRS', 'path', 'WIDE1-1',
+    'q_construct', case when p_igate is not null then 'qAR' end, 'igate', p_igate,
+    'packet_type', p_type, 'line', p_call || '>APRS,WIDE1-1:' || p_type);
 $$;
 
 insert into raw_spots (source, source_spot_id, content_hash, spot_time, callsign, spotter, frequency_khz, band, mode, comment, pota_reference, pota_park_name, pota_location, sota_summit_ref, raw_payload)
@@ -89,6 +103,18 @@ from (values
 ) as v(t, sp, cs, f, b);
 -- A rollup left from a day before the window; the refresh deletes it.
 insert into rbn_daily_stations (day, callsign, spots) values ((pg_temp.at_utc(-2, 0) at time zone 'utc')::date, 'OLD1', 1);
+-- APRS-IS, through ingest so aprs_packet_hours counts them. Four in-window packets: K4ABC under two
+-- SSIDs on day 2 at 20 UTC, and N0XYZ and MYANET (no igate) on day 6 at 23 UTC. Today and eight days
+-- ago are out.
+select ingest_aprs_packets(jsonb_build_array(
+  pg_temp.aprs(pg_temp.at_utc(2, 20), 'K4ABC-9', 'position', 'W1ABC-10'),
+  pg_temp.aprs(pg_temp.at_utc(2, 20) + interval '1 minute', 'K4ABC-7', 'position', 'W1ABC-10'),
+  pg_temp.aprs(pg_temp.at_utc(6, 23), 'N0XYZ', 'message', 'W2DEF'),
+  pg_temp.aprs(pg_temp.at_utc(6, 23) + interval '1 minute', 'MYANET', 'status', null),
+  pg_temp.aprs(pg_temp.at_utc(7, 1), 'XX1OUT', 'position', 'W1ABC-10'),
+  pg_temp.aprs(pg_temp.at_utc(-1, 12), 'XX1OUT', 'position', 'W1ABC-10')));
+-- An APRS rollup left from a day before the window; the refresh deletes it.
+insert into aprs_daily_stations (day, base) values ((pg_temp.at_utc(-2, 0) at time zone 'utc')::date, 'OLD1');
 
 -- Ingest stores mode_family from _shared/modes.ts; these rows bypass ingest, so set it the way modes.ts would.
 update raw_spots set mode_family = case
@@ -140,9 +166,9 @@ select is((pg_temp.snap() #>> '{busiestSlot,hour}')::int, 14, 'busiestSlot.hour 
 
 -- daily: seven entries, oldest first, zero-filled.
 select is(jsonb_array_length(pg_temp.snap() -> 'daily'), 7, 'daily has exactly 7 entries');
-select is(pg_temp.snap() -> 'daily' -> 0, jsonb_build_object('day', pg_temp.day_str(0), 'pota', 0, 'sota', 0, 'rbn', 0), 'daily starts at the oldest day and a day without spots is zero-filled');
-select is(pg_temp.snap() -> 'daily' -> 1, jsonb_build_object('day', pg_temp.day_str(1), 'pota', 3, 'sota', 0, 'rbn', 0), 'daily POTA count for day 1');
-select is(pg_temp.snap() -> 'daily' -> 6, jsonb_build_object('day', pg_temp.day_str(6), 'pota', 0, 'sota', 4, 'rbn', 1), 'daily ends yesterday with the SOTA and RBN counts');
+select is(pg_temp.snap() -> 'daily' -> 0, jsonb_build_object('day', pg_temp.day_str(0), 'pota', 0, 'sota', 0, 'rbn', 0, 'aprs', 0), 'daily starts at the oldest day and a day without spots is zero-filled');
+select is(pg_temp.snap() -> 'daily' -> 1, jsonb_build_object('day', pg_temp.day_str(1), 'pota', 3, 'sota', 0, 'rbn', 0, 'aprs', 0), 'daily POTA count for day 1');
+select is(pg_temp.snap() -> 'daily' -> 6, jsonb_build_object('day', pg_temp.day_str(6), 'pota', 0, 'sota', 4, 'rbn', 1, 'aprs', 2), 'daily ends yesterday with the SOTA, RBN and APRS counts');
 
 -- potaByState: 51 keys; the NC/VA park counts once in each; CA-ON is ignored; "US-NC, US-GA" is trimmed.
 select is((select count(*) from jsonb_object_keys(pg_temp.snap() -> 'potaByState')), 51::bigint, 'potaByState has 50 states plus DC');
@@ -196,11 +222,11 @@ select is(pg_temp.snap() #>> '{topReferences,7,reference}', 'W4C/CM-001', 'the e
 -- not counted twice), RBN from rbn_spots through the rollup.
 select is(jsonb_array_length(pg_temp.snap() -> 'hourly'), 168, 'hourly has exactly 168 entries');
 select is(pg_temp.snap() -> 'hourly' -> 0,
-          jsonb_build_object('hour', to_char(pg_temp.at_utc(0, 0) at time zone 'utc', 'YYYY-MM-DD"T"HH24":00:00Z"'), 'pota', 0, 'sota', 0, 'rbn', 0),
+          jsonb_build_object('hour', to_char(pg_temp.at_utc(0, 0) at time zone 'utc', 'YYYY-MM-DD"T"HH24":00:00Z"'), 'pota', 0, 'sota', 0, 'rbn', 0, 'aprs', 0),
           'hourly starts at window_start and an empty hour is zero-filled');
 select is(pg_temp.snap() -> 'hourly' -> 68,
-          jsonb_build_object('hour', to_char(pg_temp.at_utc(2, 20) at time zone 'utc', 'YYYY-MM-DD"T"HH24":00:00Z"'), 'pota', 1, 'sota', 0, 'rbn', 4),
-          'day 2 at 20 UTC: one POTA spot and four RBN spots');
+          jsonb_build_object('hour', to_char(pg_temp.at_utc(2, 20) at time zone 'utc', 'YYYY-MM-DD"T"HH24":00:00Z"'), 'pota', 1, 'sota', 0, 'rbn', 4, 'aprs', 2),
+          'day 2 at 20 UTC: one POTA spot, four RBN spots and two APRS packets');
 select is((pg_temp.snap() #>> '{hourly,167,rbn}')::int, 1, 'hourly ends at 23 UTC yesterday');
 select is((select sum((e ->> 'pota')::int + (e ->> 'sota')::int) from jsonb_array_elements(pg_temp.snap() -> 'hourly') e), 16::bigint,
           'hourly POTA and SOTA add up to totals.spots');
@@ -228,6 +254,27 @@ select is((select count(*) from rbn_daily_stations where callsign like 'K1ABC%')
 select is((select count(*) from rbn_rollup_days), 7::bigint, 'each window day is rolled up');
 select is((select count(*) from rbn_hourly), 168::bigint, 'a rolled-up day has 24 hourly rows, zeros included');
 select is((select count(*) from rbn_daily_stations where callsign = 'OLD1'), 0::bigint, 'rollups older than the window are deleted');
+
+-- aprs: packets from aprs_packet_hours, the rest from the day rollups.
+select is((pg_temp.snap() #>> '{daily,2,aprs}')::int, 2, 'daily APRS counts come from aprs_packet_hours');
+select is((select sum((e ->> 'aprs')::int) from jsonb_array_elements(pg_temp.snap() -> 'hourly') e), 4::bigint,
+          'hourly APRS adds up to aprs.packets');
+select is((pg_temp.snap() #>> '{aprs,packets}')::int, 4, 'aprs.packets counts in-window packets only');
+select is((pg_temp.snap() #>> '{aprs,stations}')::int, 3, 'aprs.stations counts base calls: K4ABC-9 and K4ABC-7 are one');
+select is((pg_temp.snap() #>> '{aprs,igates}')::int, 2, 'aprs.igates counts igates as sent, never a missing one');
+select is(jsonb_array_length(pg_temp.snap() #> '{aprs,types}'), 14, 'aprs.types has every packet type');
+select is(pg_temp.snap() #> '{aprs,types,0}', '{"type":"position","packets":2}'::jsonb, 'the busiest type comes first');
+select is((select string_agg(e ->> 'type', ',' order by o) from jsonb_array_elements(pg_temp.snap() #> '{aprs,types}') with ordinality as t(e, o)),
+          'position,message,status,capabilities,item,mic_e,nmea,object,other,query,telemetry,third_party,user_defined,weather',
+          'types run busiest first, then by name, zero-filled');
+select set_eq(
+  $$select e ->> 'type' from jsonb_array_elements(pg_temp.snap() #> '{aprs,types}') e$$,
+  $$select m[1] from pg_constraint c, regexp_matches(pg_get_constraintdef(c.oid), '''([a-z_]+)''', 'g') as m
+    where c.conrelid = 'aprs_packets'::regclass and c.conname = 'aprs_packets_packet_type_check'$$,
+  'aprs.types lists exactly the packet types aprs_packets allows');
+select is((select count(*) from aprs_rollup_days), 7::bigint, 'each window day is rolled up for APRS');
+select is((select count(*) from aprs_daily_stations where base = 'OLD1'), 0::bigint, 'APRS rollups older than the window are deleted');
+select is((select count(*) from aprs_daily_stations where base = 'XX1OUT'), 0::bigint, 'packets outside the window are not rolled up');
 -- RLS: anyone reads every row (the Stats page is public); nobody writes or refreshes through the API.
 select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
 select is((select count(*) from stats_snapshots), 1::bigint, 'signed-in users can read snapshots');
@@ -239,6 +286,8 @@ select throws_ok('select rollup_rbn_day(current_date)', '42501', null, 'clients 
 select throws_ok('select refresh_stats_snapshot_at(now())', '42501', null, 'clients cannot run the refresh at a pinned time');
 select throws_ok('select rollup_rbn_hours(now(), now())', '42501', null, 'clients cannot run the RBN hour rollup');
 select throws_ok('select count(*) from rbn_rollup_hours', '42501', null, 'clients cannot read the RBN hour markers');
+select throws_ok('select count(*) from aprs_daily_stations', '42501', null, 'clients cannot read the APRS rollup');
+select throws_ok('select rollup_aprs_day(current_date)', '42501', null, 'clients cannot run the APRS rollup');
 reset role;
 
 set local role anon;
@@ -246,6 +295,7 @@ select is((select count(*) from stats_snapshots), 1::bigint, 'anon can read snap
 select throws_ok($$ insert into stats_snapshots (window_start, window_end, payload) values (now(), now(), '{}') $$, '42501', null, 'anon cannot insert snapshots');
 select throws_ok('select refresh_stats_snapshot()', '42501', null, 'anon cannot run the refresh');
 select throws_ok('select count(*) from rbn_daily_skimmers', '42501', null, 'anon cannot read the RBN rollup');
+select throws_ok('select count(*) from aprs_daily_types', '42501', null, 'anon cannot read the APRS rollup');
 reset role;
 
 -- Window boundaries: exactly window_end is out, exactly window_start is in.
@@ -287,6 +337,20 @@ select ok((select rolled_at from rbn_rollup_days where day = (pg_temp.at_utc(5, 
 select is((select count(*) from rbn_hourly), 168::bigint, 're-rolling a day replaces its hourly rows');
 select is(jsonb_array_length(pg_temp.snap() #> '{rbn,topStations}'), 4, 'a rollup recounts the most heard stations (LATE2 joins)');
 
+-- Late APRS packets. Day 5 was rolled up long after it ended, day 6 five minutes after: only day 6 is
+-- rolled up again. Packets count straight away either way, through aprs_packet_hours.
+select ingest_aprs_packets(jsonb_build_array(
+  pg_temp.aprs(pg_temp.at_utc(5, 12), 'LATE1', 'weather', 'W1ABC-10'),
+  pg_temp.aprs(pg_temp.at_utc(6, 23), 'LATE2', 'weather', 'W3GHI')));
+update aprs_rollup_days set rolled_at = pg_temp.at_utc(6, 3) where day = (pg_temp.at_utc(5, 0) at time zone 'utc')::date;
+update aprs_rollup_days set rolled_at = pg_temp.at_utc(7, 0) + interval '5 minutes' where day = (pg_temp.at_utc(6, 0) at time zone 'utc')::date;
+select lives_ok('select pg_temp.refresh()', 'refresh runs after late APRS packets');
+select is((pg_temp.snap() #>> '{aprs,packets}')::int, 6, 'late packets count at once through aprs_packet_hours');
+select is((pg_temp.snap() #>> '{aprs,stations}')::int, 4, 'a day rolled up within an hour of its end is rolled up again (LATE2); a final day is not (LATE1)');
+select is((pg_temp.snap() #>> '{aprs,igates}')::int, 3, 'the re-rolled day adds its igate');
+select is((select (e ->> 'packets')::int from jsonb_array_elements(pg_temp.snap() #> '{aprs,types}') e where e ->> 'type' = 'weather'), 1,
+          'the re-rolled day updates its type counts');
+
 -- The hourly series ends at the last complete hour. At 02:10 UTC today it runs from 02:00 seven days
 -- ago through 01:00 today: b1 (00:00) and x1 and an RBN spot (01:00) are in it. Every other figure keeps
 -- window_end.
@@ -295,11 +359,11 @@ select is(jsonb_array_length(pg_temp.snap() -> 'hourly'), 168, 'the moved hourly
 select is(pg_temp.snap() #>> '{hourly,0,hour}', to_char(pg_temp.at_utc(0, 2) at time zone 'utc', 'YYYY-MM-DD"T"HH24":00:00Z"'),
           'hourly starts 168 hours before the last complete hour');
 select is(pg_temp.snap() -> 'hourly' -> 166,
-          jsonb_build_object('hour', to_char(pg_temp.at_utc(7, 0) at time zone 'utc', 'YYYY-MM-DD"T"HH24":00:00Z"'), 'pota', 1, 'sota', 0, 'rbn', 0),
+          jsonb_build_object('hour', to_char(pg_temp.at_utc(7, 0) at time zone 'utc', 'YYYY-MM-DD"T"HH24":00:00Z"'), 'pota', 1, 'sota', 0, 'rbn', 0, 'aprs', 0),
           'hourly includes 00:00 UTC today');
 select is(pg_temp.snap() -> 'hourly' -> 167,
-          jsonb_build_object('hour', to_char(pg_temp.at_utc(7, 1) at time zone 'utc', 'YYYY-MM-DD"T"HH24":00:00Z"'), 'pota', 1, 'sota', 0, 'rbn', 1),
-          'hourly ends at 01:00 UTC today, with its RBN spot');
+          jsonb_build_object('hour', to_char(pg_temp.at_utc(7, 1) at time zone 'utc', 'YYYY-MM-DD"T"HH24":00:00Z"'), 'pota', 1, 'sota', 0, 'rbn', 1, 'aprs', 1),
+          'hourly ends at 01:00 UTC today, with its RBN spot and APRS packet');
 select is((pg_temp.snap() #>> '{totals,spots}')::int, 17, 'totals still end at window_end');
 select is((select window_end from stats_snapshots order by generated_at desc, id desc limit 1), pg_temp.at_utc(7, 0),
           'window_end stays 00:00 UTC today');

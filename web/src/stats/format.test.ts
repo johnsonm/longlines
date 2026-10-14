@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { compact, dayLabel, fillOpacity, fmt, hasData, hourLabel, midnightTicks, slotLabel, topStates, updatedCaption, weekday } from "./format";
-import type { LatestStats, StatsPayload } from "./types";
+import { aprsTypeLabel, compact, dayLabel, fillOpacity, fmt, hasData, hourLabel, midnightTicks, slotLabel, topStates, updatedCaption, weekday } from "./format";
+import type { AprsPacketType, LatestStats, StatsPayload } from "./types";
 
 const payload = (spots: number): StatsPayload => ({
   totals: {
@@ -20,6 +20,21 @@ const payload = (spots: number): StatsPayload => ({
   topReferences: [],
   hourly: [],
   rbn: { spots: 0, skimmers: 0, bands: [], topStations: [] },
+  aprs: { packets: 0, stations: 0, igates: 0, types: [] },
+});
+
+describe("aprsTypeLabel", () => {
+  it("names every packet type", () => {
+    expect(aprsTypeLabel("position")).toBe("Position");
+    expect(aprsTypeLabel("mic_e")).toBe("Mic-E");
+    expect(aprsTypeLabel("nmea")).toBe("NMEA");
+    expect(aprsTypeLabel("third_party")).toBe("Third party");
+    expect(aprsTypeLabel("user_defined")).toBe("User defined");
+  });
+
+  it("shows a type it does not know as sent", () => {
+    expect(aprsTypeLabel("beacon" as AprsPacketType)).toBe("beacon");
+  });
 });
 
 describe("fmt", () => {
