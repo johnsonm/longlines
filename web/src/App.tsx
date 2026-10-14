@@ -150,7 +150,7 @@ function SignedIn({ page }: { page: Page }) {
 
   return (
     <AppShell destinationsFailing={dests.some((d) => d.health === "failing")}>
-      {page === "sources" && <SourcesPage prefs={prefs} />}
+      {page === "sources" && <SourcesPage />}
       {page === "subscriptions" && (
         <SubscriptionsPage subs={subs} dests={dests} loading={loading} reload={reload} prefs={prefs} fullScreen={mobile} />
       )}

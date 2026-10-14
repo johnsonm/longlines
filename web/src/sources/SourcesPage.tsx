@@ -1,114 +1,64 @@
-import { useEffect, useState } from "react";
-import { Alert, Box, Card, CardContent, Chip, Divider, Grid, LinearProgress, Paper, Stack, Tab, Tabs, Typography } from "@mui/material";
+import { useMemo, useState } from "react";
+import { Alert, AlertTitle, Box, Chip, Grid, Stack, TextField, Typography } from "@mui/material";
 import { PageTitle } from "../layout/PageTitle";
-import { loadIngestHealth, loadRecentSpots, type IngestHealth, type RecentSpot } from "../lib/api";
-import { relativeAge, type TimePrefs } from "../lib/time";
-import { errorText } from "../app/hooks";
-import { LIVE_SOURCES, SOURCES } from "./sources";
-import { SpotsTable } from "./SpotsTable";
+import { useStats } from "../stats/useStats";
+import { SOURCES, type SourceInfo } from "./sources";
+import { sourceStatus } from "./status";
+import { sourceRates } from "./rates";
+import { SourceTile } from "./SourceTile";
+import { useIngestHealth } from "./useIngestHealth";
 
-const REFRESH_MS = 30_000;
+type Filter = "all" | "connected" | "planned";
+const FILTERS: [Filter, string][] = [["all", "All"], ["connected", "Connected"], ["planned", "Not yet available"]];
 
-export function SourcesPage({ prefs }: { prefs: TimePrefs }) {
-  const [tab, setTab] = useState("pota");
-  const [health, setHealth] = useState<IngestHealth[]>([]);
-  const [spots, setSpots] = useState<RecentSpot[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+/** Search covers the tile title, short name and tagline, ignoring case and surrounding spaces. */
+function matches(s: SourceInfo, query: string, filter: Filter): boolean {
+  if (filter === "connected" && s.status !== "live") return false;
+  if (filter === "planned" && s.status !== "planned") return false;
+  const q = query.trim().toLowerCase();
+  return q === "" || [s.title, s.name, s.tagline].some((t) => t.toLowerCase().includes(q));
+}
 
-  // Load the chosen source's spots, then refresh every 30 seconds while the
-  // browser tab is visible. A response for a source no longer shown is dropped.
-  useEffect(() => {
-    let current = true;
-    const refresh = async () => {
-      try {
-        const [h, s] = await Promise.all([loadIngestHealth(), loadRecentSpots(tab)]);
-        if (!current) return;
-        setHealth(h);
-        setSpots(s);
-        setError(null);
-      } catch (err) {
-        if (current) setError(errorText(err, "Couldn't load sources."));
-      } finally {
-        if (current) setLoading(false);
-      }
-    };
-    void refresh();
-    const tick = () => {
-      if (document.visibilityState === "visible") void refresh();
-    };
-    const timer = setInterval(tick, REFRESH_MS);
-    document.addEventListener("visibilitychange", tick);
-    return () => {
-      current = false;
-      clearInterval(timer);
-      document.removeEventListener("visibilitychange", tick);
-    };
-  }, [tab]);
-
-  const chooseTab = (source: string) => {
-    setTab(source);
-    setLoading(true);
-  };
+export function SourcesPage() {
+  const { health, error } = useIngestHealth(null);
+  const { stats } = useStats();
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState<Filter>("all");
+  const shown = useMemo(() => SOURCES.filter((s) => matches(s, query, filter)), [query, filter]);
+  const hourly = stats?.payload.hourly ?? [];
 
   return (
     <Stack spacing={3}>
       <Box>
         <PageTitle>Sources</PageTitle>
-        <Typography color="text.secondary">
-          Long Lines connects to each network once and shares that feed with every subscription, so upstream servers only ever see a single client.
-        </Typography>
+        <Typography color="text.secondary">Where spots come from. Pick a source to see what it sends and what you can do with it.</Typography>
       </Box>
+      <Alert severity="warning">
+        <AlertTitle>High volume sources require a callsign filter</AlertTitle>
+        They send thousands of spots an hour. A subscription to one must include a callsign rule, so it only passes spots for the stations you name.
+      </Alert>
       {error && <Alert severity="error">{error}</Alert>}
-      <Grid container spacing={2}>
-        {SOURCES.map((s) => {
-          const h = health.find((x) => x.source === s.id);
-          const age = h?.seconds_since_last_success ?? null;
-          const delayed = s.pollSeconds !== null && (age === null || age > 3 * s.pollSeconds);
-          return (
-            <Grid size={{ xs: 12, sm: 6, md: 4 }} key={s.id}>
-              <Card variant="outlined" sx={{ height: "100%" }}>
-                <CardContent>
-                  <Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "center", mb: 1 }}>
-                    <Typography variant="h6">{s.name}</Typography>
-                    {s.status === "live"
-                      ? (delayed
-                        ? <Chip size="small" color="warning" label="Delayed" />
-                        : <Chip size="small" color="success" label="Connected" />)
-                      : <Chip size="small" variant="outlined" label="Not yet available" />}
-                  </Stack>
-                  <Typography variant="body2" color="text.secondary" gutterBottom>{s.full}. {s.desc}.</Typography>
-                  {s.status === "live" ? (
-                    <Stack direction="row" spacing={3} useFlexGap sx={{ flexWrap: "wrap", mt: 2 }}>
-                      <Box>
-                        <Typography variant="h5">{h ? Number(h.spots_last_hour ?? 0) : "–"}</Typography>
-                        <Typography variant="caption" color="text.secondary">spots in the last hour</Typography>
-                      </Box>
-                      <Box>
-                        <Typography variant="h5">{h ? relativeAge(age) : "–"}</Typography>
-                        <Typography variant="caption" color="text.secondary">last fetch, {s.interval}</Typography>
-                      </Box>
-                    </Stack>
-                  ) : (
-                    <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>Needs a persistent connection worker. Planned for phase 2.</Typography>
-                  )}
-                </CardContent>
-              </Card>
-            </Grid>
-          );
-        })}
-      </Grid>
-      <Paper variant="outlined">
-        <Box sx={{ px: 2, pt: 2 }}>
-          <Typography variant="h6">Recent spots</Typography>
-          <Typography variant="body2" color="text.secondary">Everything ingested, before any subscription filters.</Typography>
-        </Box>
-        <Tabs value={tab} onChange={(_e, v: string) => chooseTab(v)} variant="scrollable" sx={{ px: 1 }}>
-          {LIVE_SOURCES.map((s) => <Tab key={s.id} value={s.id} label={s.name} />)}
-        </Tabs>
-        <Divider />
-        {loading ? <LinearProgress /> : <SpotsTable spots={spots} dense prefs={prefs} />}
-      </Paper>
+      <Stack direction={{ xs: "column", sm: "row" }} spacing={2} useFlexGap sx={{ alignItems: { sm: "center" }, flexWrap: "wrap" }}>
+        <TextField size="small" label="Search sources" value={query} onChange={(e) => setQuery(e.target.value)} sx={{ minWidth: 220, maxWidth: 420, flexGrow: 1 }} />
+        <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap" }}>
+          {FILTERS.map(([value, label]) => (
+            <Chip key={value} label={label} onClick={() => setFilter(value)} aria-pressed={filter === value}
+              color={filter === value ? "primary" : "default"} variant={filter === value ? "filled" : "outlined"} />
+          ))}
+        </Stack>
+      </Stack>
+      {shown.length === 0
+        ? <Typography color="text.secondary">No sources match.</Typography>
+        : (
+          <Grid container spacing={2} data-testid="source-grid">
+            {shown.map((s) => (
+              <Grid key={s.id} size={{ xs: 12, sm: 6, md: 4 }}>
+                <SourceTile source={s} status={sourceStatus(s, health)}
+                  rates={s.statsKey ? sourceRates(hourly, s.statsKey, s.volume) : null} />
+              </Grid>
+            ))}
+          </Grid>
+        )}
     </Stack>
   );
 }

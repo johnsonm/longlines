@@ -25,7 +25,7 @@ vi.mock("./auth/CheckEmailPage", () => ({ CheckEmailPage: () => <p>check-email p
 vi.mock("./auth/ResetPasswordPage", () => ({ ResetPasswordPage: () => <p>reset page</p> }));
 vi.mock("./auth/SetPasswordPage", () => ({ SetPasswordPage: () => <p>set-password page</p> }));
 vi.mock("./sources/SourcesPage", () => ({
-  SourcesPage: ({ prefs }: { prefs: { utcTimes: boolean; timezone: string } }) => <p>sources page {prefs.timezone}</p>,
+  SourcesPage: () => <p>sources page</p>,
 }));
 vi.mock("./destinations/DestinationsPage", () => ({
   DestinationsPage: ({ dests, loading }: { dests: Destination[]; loading: boolean }) => (
@@ -92,12 +92,12 @@ describe("App routing", () => {
 
   it("sends signed-in users from sign in to Sources", async () => {
     renderAt("/signin");
-    expect(await screen.findByText("sources page Asia/Tokyo")).toBeInTheDocument();
+    expect(await screen.findByText("sources page")).toBeInTheDocument();
   });
 
   it("redirects unknown paths to Sources", async () => {
     renderAt("/nope");
-    expect(await screen.findByText("sources page Asia/Tokyo")).toBeInTheDocument();
+    expect(await screen.findByText("sources page")).toBeInTheDocument();
   });
 
   it.each([
@@ -178,7 +178,7 @@ describe("App routing", () => {
   it("marks Destinations in the nav when one is failing", async () => {
     vi.mocked(loadDestinations).mockResolvedValue([{ ...DEST, health: "failing" }]);
     const { container } = renderAt("/sources");
-    await screen.findByText("sources page Asia/Tokyo");
+    await screen.findByText("sources page");
     await waitFor(() => expect(container.querySelector(".MuiBadge-dot:not(.MuiBadge-invisible)")).not.toBeNull());
   });
 });
@@ -198,7 +198,7 @@ describe("welcome tour", () => {
     const start = vi.fn();
     vi.mocked(useTour).mockReturnValue({ active: false, destinationId: null, start, report: vi.fn() });
     renderAt("/sources");
-    await screen.findByText("sources page Asia/Tokyo");
+    await screen.findByText("sources page");
     expect(start).not.toHaveBeenCalled();
   });
 
@@ -209,7 +209,7 @@ describe("welcome tour", () => {
     const start = vi.fn();
     vi.mocked(useTour).mockReturnValue({ active: false, destinationId: null, start, report: vi.fn() });
     renderAt("/sources");
-    await screen.findByText("sources page Asia/Tokyo");
+    await screen.findByText("sources page");
     await act(() => Promise.resolve());
     expect(start).not.toHaveBeenCalled();
   });
