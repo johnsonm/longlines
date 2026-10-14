@@ -18,7 +18,7 @@ export const PAYLOAD: StatsPayload = {
   peakHour: 14,
   busiestSlot: { day: "2026-10-03", hour: 15 },
   daily: ["2026-09-29", "2026-09-30", "2026-10-01", "2026-10-02", "2026-10-03", "2026-10-04", "2026-10-05"].map((day, i) => ({
-    day, pota: 1000 + i, sota: 300 + i, rbn: 24000, aprs: 250000,
+    day, pota: 1000 + i, sota: 300 + i, rbn: 24000, aprs: 250000, dx: 40,
   })),
   potaByState: { NC: 900, CA: 700, TX: 0 },
   sotaAssociations: [{ code: "W4C", spots: 120 }, { code: "W7A", spots: 90 }],
@@ -32,7 +32,7 @@ export const PAYLOAD: StatsPayload = {
   ],
   hourly: Array.from({ length: 168 }, (_, i) => ({
     hour: new Date(Date.UTC(2026, 8, 29) + i * 3_600_000).toISOString().replace(".000", ""),
-    pota: 50, sota: 10, rbn: 1000, aprs: 10000,
+    pota: 50, sota: 10, rbn: 1000, aprs: 10000, dx: 2,
   })),
   rbn: {
     spots: 168000, skimmers: 312,
