@@ -161,6 +161,18 @@ relay on pushes to main; nothing else deploys automatically.
   `data-tour` attributes, call `useTour().report(...)` and read `useTour().active`; never drive
   Joyride from a page.
 
+## Source catalog rules
+
+- `/sources` is a catalog and `/sources/:id` a detail page per live source. Their copy lives in
+  `web/src/sources/sources.ts` and follows Page 2 of Brad's design canvas, as amended by
+  `docs/superpowers/specs/2026-10-14-source-catalog-design.md`; it says "subscription", never
+  "connection", until Connections ship.
+- Rates come only from the stats snapshot's `hourly` series through `useStats()` (`rates.ts`);
+  never poll the snapshot or add a rates RPC. A new source with rates needs a key in
+  `refresh_stats_snapshot_at`'s `daily`/`hourly`, the `StatsPayload` type and its pgTAP test.
+- The Schema and Example spot cards describe the delivered spot (`DeliverySpot`, `docs/WEBHOOKS.md`).
+  A field added to the delivered spot goes in `COMMON_FIELDS` (or a source's own fields) too.
+
 ## Testing
 
 - Both suites gate at 80% in CI. The Deno gate (`scripts/check-coverage.ts`) checks

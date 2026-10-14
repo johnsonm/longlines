@@ -20,3 +20,6 @@ export function sourceStatus(source: SourceInfo, health: IngestHealth[] | null):
   const age = health.find((h) => h.source === source.id)?.seconds_since_last_success ?? null;
   return age === null || age > 3 * source.pollSeconds ? "delayed" : "connected";
 }
+
+/** Chip colours for a status, shared by tiles and detail pages. */
+export const STATUS_COLOR = { connected: "success", delayed: "warning", planned: "default" } as const;
