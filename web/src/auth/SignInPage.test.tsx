@@ -72,7 +72,7 @@ describe("SignInPage: sign in", () => {
 
   it("links to the public stats page", async () => {
     const { user } = renderPage(<SignInPage />, { route: "/signin" });
-    await user.click(screen.getByRole("button", { name: "View stats" }));
+    await user.click(screen.getByRole("button", { name: "View recent activity" }));
     expect(where()).toHaveTextContent("/stats");
   });
 

@@ -116,6 +116,12 @@ describe("PublicShell", () => {
     expect(JSON.parse(where.dataset.state ?? "null")).toEqual({ from: "/stats" });
   });
 
+  it("keeps the original page when Sign in is clicked on the sign-in page", async () => {
+    const { user } = renderPage(<PublicShell><p>public body</p></PublicShell>, { route: "/signin", state: { from: "/groups" } });
+    await user.click(screen.getByRole("button", { name: "Sign in" }));
+    expect(JSON.parse(screen.getByTestId("location").dataset.state ?? "null")).toEqual({ from: "/groups" });
+  });
+
   it.each([["Lookup", "/lookup"], ["Stats", "/stats"]])("links to %s", async (name, path) => {
     const { user } = renderPage(<PublicShell><p>public body</p></PublicShell>, { route: "/call/KK4PWJ" });
     await user.click(screen.getByRole("button", { name }));

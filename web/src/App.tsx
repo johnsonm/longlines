@@ -53,7 +53,7 @@ function Toast() {
 function Router() {
   return (
     <Routes>
-      <Route path="/signin" element={<PublicOnly><SignInPage /></PublicOnly>} />
+      <Route path="/signin" element={<PublicOnly><PublicShell><SignInPage /></PublicShell></PublicOnly>} />
       <Route path="/check-email" element={<CheckEmailPage />} />
       <Route path="/reset-password" element={<ResetPasswordPage />} />
       <Route path="/set-password" element={<SetPasswordPage />} />

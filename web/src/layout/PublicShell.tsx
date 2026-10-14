@@ -15,7 +15,7 @@ export function PublicShell({ children }: { children: ReactNode }) {
   const links = [
     { label: "Stats", icon: <InsightsIcon />, go: () => void navigate("/stats") },
     { label: "Lookup", icon: <PersonSearchIcon />, go: () => void navigate("/lookup") },
-    { label: "Sign in", icon: <LoginIcon />, go: () => void navigate("/signin", { state: { from: location.pathname } }) },
+    { label: "Sign in", icon: <LoginIcon />, go: () => void navigate("/signin", { state: location.pathname === "/signin" ? location.state : { from: location.pathname } }) },
   ];
   return (
     <Box>
