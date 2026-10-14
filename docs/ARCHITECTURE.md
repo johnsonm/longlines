@@ -794,8 +794,8 @@ place of typed calls (spec `docs/superpowers/specs/2026-10-13-callsign-groups-de
 ```mermaid
 flowchart LR
   GP[Groups page] -- "normalize_group_callsigns, save_callsign_group" --> G[(callsign_groups, callsign_group_members)]
-  SD[Subscription dialog] -- "save_subscription(group_ids)" --> S[(subscriptions.group_ids)]
-  SD -- "preview_subscription → count, spots, station_count" --> PV[spot_matches]
+  SD[Subscription editor] -- "save_subscription(group_ids)" --> S[(subscriptions.group_ids)]
+  SD -- "preview_subscription → count, spots, station_count, window_size" --> PV[spot_matches]
   M[match_pending_spots] --> PV
   PV -- group_matches --> G
   R[ingest-rbn] -- watched_among --> G
@@ -825,9 +825,32 @@ flowchart LR
 - **Preview.** `preview_subscription` keeps only the caller's own group ids (compared as text,
   so a malformed id is ignored too), so it cannot probe another user's groups. It also returns
   `station_count`, the distinct base calls across the typed calls and those groups' members, which
-  the dialog shows as "Matches N stations from your groups and callsigns.".
-- **The web.** The Groups page (`web/src/groups/`) edits whole lists. The Subscriptions page loads
-  `list_callsign_groups` once per visit for the group chips on each card and the dialog's
-  "Callsign groups" picker. TypeScript never resolves membership or counts stations; both come
-  from SQL. If the list fails to load, the chips and picker are hidden and a saved subscription
-  keeps its groups.
+  the editor shows as "Matches N stations from your groups and callsigns.".
+- **The web.** The Groups page (`web/src/groups/`) edits whole lists. The Subscriptions page and
+  the editor each load `list_callsign_groups` once per visit, for the group names on each card and
+  the editor's "Callsign group" rule. TypeScript never resolves membership or counts stations; both
+  come from SQL. If the list fails to load, the cards leave the group rule out, the editor's rule
+  can't be edited, and a saved subscription keeps its groups.
+
+## Subscription builder
+
+A subscription is built as one source, a filter and zero or more destinations
+(`web/src/subscriptions/`). The picker dialog on `/subscriptions` chooses the source, then
+`/subscriptions/new?source=<id>` and `/subscriptions/<id>` are full pages with three steps and a
+preview beside them. A source page's Create subscription button goes straight to the editor.
+
+- **Same columns.** The filter's rule rows (Callsign, Callsign group, Band, Mode, and Park,
+  summit, or location on POTA and SOTAwatch) each edit one existing column, so a field appears at
+  most once and rules always combine with "all": `spot_matches` ANDs the columns and ORs the
+  values inside one. Nothing about matching changed.
+- **One source** is a web rule: new subscriptions save `sources` with one entry. Older
+  subscriptions with several, or none ("any source"), open with their sources listed and keep
+  them on save. The API still accepts any list.
+- **Zero destinations.** `save_subscription` accepts an empty list (`20261014000300`). Such a
+  subscription matches as before and `match_pending_spots` makes no deliveries for it.
+- **Preview window.** `preview_subscription` samples the last 200 spots of the filter's sources
+  from the last 24 hours, not of every source, and returns `window_size` so the page can say
+  "7 of the last 42 POTA spots would pass". The cards show the same figure for each subscription.
+- **RBN** still needs typed calls or a group (the `subscriptions_rbn_needs_callsign` trigger); the
+  editor starts an RBN subscription with an empty Callsign rule and keeps Save disabled until it
+  has a call or a group.

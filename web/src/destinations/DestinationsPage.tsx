@@ -1,6 +1,6 @@
 import { useState } from "react";
 import {
-  Alert, Box, Button, Chip, Divider, IconButton, LinearProgress, List, ListItem, ListItemText, Paper, Stack, Tooltip, Typography,
+  Alert, Box, Button, Divider, IconButton, LinearProgress, List, ListItem, ListItemText, Paper, Stack, Tooltip, Typography,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteIcon from "@mui/icons-material/Delete";
@@ -11,6 +11,7 @@ import {
 import { errorText, useNotify } from "../app/hooks";
 import { useTour } from "../tour/hooks";
 import { DestinationDialog, SecretDialog } from "./DestinationDialog";
+import { HealthChip } from "./HealthChip";
 import { typeLabel } from "./types";
 
 interface Props {
@@ -87,11 +88,7 @@ export function DestinationsPage({ dests, subs, loading, reload }: Props) {
                     primary={
                       <Stack direction="row" spacing={1} useFlexGap sx={{ alignItems: "center", flexWrap: "wrap" }}>
                         <Typography component="span">{d.name}</Typography>
-                        {d.health === "failing"
-                          ? <Chip size="small" color="error" label="Failing" />
-                          : d.health === "paused"
-                          ? <Chip size="small" variant="outlined" label="Paused" />
-                          : <Chip size="small" color="success" variant="outlined" label="Healthy" />}
+                        <HealthChip health={d.health} />
                       </Stack>
                     }
                     secondary={

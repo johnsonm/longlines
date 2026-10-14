@@ -44,6 +44,7 @@ export function TourProvider({ children }: { children: ReactNode }) {
   const theme = useTheme();
   const step = STEPS[state.index];
   const route = state.active ? step?.route : undefined;
+  const leadsTo = state.active ? step?.leadsTo : undefined;
   // Set while the tour itself is navigating to a step's page, so that move isn't mistaken for the user leaving.
   const pendingRoute = useRef<string | null>(null);
   // The step-entry effect must run only when the step changes, never on navigation: `navigate`
@@ -71,9 +72,11 @@ export function TourProvider({ children }: { children: ReactNode }) {
       return;
     }
     if (pendingRoute.current === route) return;
+    // The step's own action goes there; its event follows and moves the tour on.
+    if (location.pathname === leadsTo) return;
     dispatch({ type: "end" });
     if (session) notify(TOUR_ENDED_TOAST);
-  }, [location.pathname, route, notify, session]);
+  }, [location.pathname, route, leadsTo, notify, session]);
 
   // While an MUI Dialog is open its Modal marks every other child of <body> aria-hidden, which
   // includes Joyride's portal, so the form steps' tooltips would be hidden from assistive

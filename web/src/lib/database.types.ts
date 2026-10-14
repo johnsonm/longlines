@@ -999,7 +999,7 @@ isOneToOne: false
                            },
 "preview_subscription":
 { Args: { "filter": Json }; Returns: {
-              "count": number,"spots": Json,"station_count": number
+              "count": number,"spots": Json,"station_count": number,"window_size": number
             }[]
                            },
 "prune_callsign_lookups":

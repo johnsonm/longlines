@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { appValue, tourValue, wrap } from "../test/render";
 import { LocationProbe } from "../test/LocationProbe";
 import { setMobile } from "../test/media";
-import { loadIngestHealth, loadRecentSpots, type IngestHealth, type RecentSpot } from "../lib/api";
+import { loadIngestHealth, loadRecentSpots, type IngestHealth, type RecentSpot, type SubscriptionWithLinks } from "../lib/api";
 import { useStats } from "../stats/useStats";
 import type { LatestStats } from "../stats/types";
 import { SourceDetailPage } from "./SourceDetailPage";
@@ -28,12 +29,12 @@ const spot = {
 } as RecentSpot;
 
 // renderPage mounts its element at one exact route, so this mounts the real /sources/:id route instead.
-function open(path: string) {
+function open(path: string, subs: SubscriptionWithLinks[] = []) {
   return render(
     wrap(
       <MemoryRouter initialEntries={[path]}>
         <Routes>
-          <Route path="/sources/:id" element={<SourceDetailPage prefs={UTC} />} />
+          <Route path="/sources/:id" element={<SourceDetailPage prefs={UTC} subs={subs} />} />
           <Route path="/sources" element={<p>catalog</p>} />
         </Routes>
         <LocationProbe />
@@ -86,6 +87,27 @@ describe("SourceDetailPage", () => {
     expect(screen.getByText(/"pota_reference": "US-2763"/)).toBeInTheDocument();
     expect(screen.getByText("Standard volume")).toBeInTheDocument();
     expect(screen.getByText("pota.app")).toBeInTheDocument(); // Run by > Website
+  });
+
+  it("creates a subscription from the source and lists the ones that use it", async () => {
+    const user = userEvent.setup();
+    open("/sources/pota", [
+      { id: "s1", name: "NC parks", sources: ["pota"] }, { id: "s2", name: "Summits", sources: ["sotawatch"] },
+    ] as SubscriptionWithLinks[]);
+    expect(screen.getByRole("link", { name: "NC parks" })).toHaveAttribute("href", "/subscriptions/s1");
+    expect(screen.queryByRole("link", { name: "Summits" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("link", { name: "Create subscription" }));
+    expect(screen.getByTestId("location")).toHaveTextContent("/subscriptions/new");
+    expect(screen.getByTestId("location")).toHaveAttribute("data-search", "?source=pota");
+  });
+
+  it("says when no subscription uses the source, and offers none on APRS-IS", () => {
+    const { unmount } = open("/sources/sotawatch");
+    expect(screen.getByText("None yet.")).toBeInTheDocument();
+    unmount();
+    open("/sources/aprs");
+    expect(screen.queryByText("Your subscriptions")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Create subscription" })).not.toBeInTheDocument();
   });
 
   it("shows a delayed source", async () => {

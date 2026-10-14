@@ -332,11 +332,11 @@ describe("subscriptions", () => {
   });
 
   it("previewSubscription normalizes the RPC row", async () => {
-    fake.rpcs.set("preview_subscription", { data: [{ count: "7", spots: [{ id: 1 }], station_count: "12" }] });
-    expect(await api.previewSubscription(input)).toEqual({ count: 7, spots: [{ id: 1 }], station_count: 12 });
+    fake.rpcs.set("preview_subscription", { data: [{ count: "7", spots: [{ id: 1 }], station_count: "12", window_size: "42" }] });
+    expect(await api.previewSubscription(input)).toEqual({ count: 7, spots: [{ id: 1 }], station_count: 12, window_size: 42 });
     expect(fake.client.rpc).toHaveBeenCalledWith("preview_subscription", { filter: input });
     fake.rpcs.set("preview_subscription", { data: [] });
-    expect(await api.previewSubscription(input)).toEqual({ count: 0, spots: [], station_count: 0 });
+    expect(await api.previewSubscription(input)).toEqual({ count: 0, spots: [], station_count: 0, window_size: 0 });
     fake.rpcs.set("preview_subscription", { error: boom });
     await expect(api.previewSubscription(input)).rejects.toThrow("boom");
   });

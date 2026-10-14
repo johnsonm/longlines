@@ -35,7 +35,7 @@ select is((select array_agg(destination_id) from subscription_destinations), arr
 -- Validation.
 select throws_ok(format($f$ select save_subscription('{"name":"x","destinations":["%s"]}') $f$, (select id from dz)),
   'P0001', 'Destination not found.', 'cannot link another user''s destination');
-select throws_ok($$ select save_subscription('{"name":"x","destinations":[]}') $$, 'P0001', 'Pick at least one destination.', 'needs a destination');
+select ok((select save_subscription('{"name":"No destinations yet","destinations":[]}')) is not null, 'saves with no destinations');
 select throws_ok(format($f$ select save_subscription('{"name":" ","destinations":["%s"]}') $f$, (select id from db)),
   'P0001', 'Give the subscription a name.', 'needs a name');
 select throws_ok(format($f$ select save_subscription('{"name":"x","quiet_minutes":7,"destinations":["%s"]}') $f$, (select id from db)),

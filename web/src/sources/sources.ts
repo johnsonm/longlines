@@ -156,7 +156,7 @@ export const SOURCES: SourceInfo[] = [
     ],
     showsUp: [
       "Callsign profile: last heard, activity",
-      "Subscription filters: pick DX Cluster under Sources, then Bands, Modes, Callsigns, Callsign groups",
+      "Subscription filters: Bands, Modes, Callsigns, Callsign groups",
       "Not in Stats",
     ],
     schema: deliveredSchema("dxcluster", { mode: { description: "From the comment, else the band plan.", derived: true } }),

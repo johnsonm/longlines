@@ -46,7 +46,7 @@ Errors return `{"error": "<message>"}` with one of these statuses:
 
 | Status | Meaning |
 |---|---|
-| 400 | The request was invalid. The message says why, for example "Pick at least one destination." |
+| 400 | The request was invalid. The message says why, for example "Give the subscription a name." |
 | 401 | The token is missing, malformed, unknown, revoked or expired. |
 | 403 | A read-only token tried to change something. |
 | 404 | No such route, or the subscription, destination or group isn't yours. |
@@ -106,7 +106,7 @@ A subscription says which spots you want and where to send them. Empty lists mea
 | `group_ids` | UUIDs | Callsign groups whose members count as callsigns. |
 | `reference` | string | A park or summit reference to look for, such as `US-1234`. |
 | `quiet_minutes` | integer | 0, 5, 10, 30 or 60. Defaults to 10. |
-| `destinations` | UUIDs | Required, at least one. |
+| `destinations` | UUIDs | Zero or more. With none, the subscription matches but delivers nothing. |
 
 | Method | Path | Body | Returns |
 |---|---|---|---|
