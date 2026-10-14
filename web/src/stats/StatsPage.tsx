@@ -10,7 +10,7 @@ import { Link as RouterLink } from "react-router";
 import { PageTitle } from "../layout/PageTitle";
 import { lookupPath } from "../profile/format";
 import { ChartCard, GRID, Kpi } from "./parts";
-import { compact, dayLabel, fmt, hasData, hourLabel, midnightTicks, slotLabel, topStates, updatedCaption, weekday } from "./format";
+import { aprsTypeLabel, compact, dayLabel, fmt, hasData, hourLabel, midnightTicks, slotLabel, topStates, updatedCaption, weekday } from "./format";
 import { stateName } from "./stateShapes";
 import type { StatsPayload } from "./types";
 import { UsStateMap } from "./UsStateMap";
@@ -44,6 +44,8 @@ const RBN_STATION_COLUMNS: GridColDef[] = [
 // A snapshot written before RBN figures existed renders zeros for them (the newest row keeps its
 // old shape until the next hourly refresh).
 const NO_RBN: StatsPayload["rbn"] = { spots: 0, skimmers: 0, bands: [], topStations: [] };
+// Likewise for APRS-IS figures (20261014000030).
+const NO_APRS: StatsPayload["aprs"] = { packets: 0, stations: 0, igates: 0, types: [] };
 const MINUTES_PER_WEEK = 7 * 24 * 60;
 
 const REFERENCE_COLUMNS: GridColDef[] = [
@@ -87,11 +89,12 @@ function EmptyState() {
 function Dashboard({ payload }: { payload: StatsPayload }) {
   const theme = useTheme();
   const mobile = useMediaQuery(theme.breakpoints.down("sm"));
-  // Color follows the source everywhere on the page: POTA is primary, SOTA is secondary, RBN is warning.
-  // The hourly total belongs to no source and keeps the chart's default color.
+  // Color follows the source everywhere on the page: POTA is primary, SOTA is secondary, RBN is warning,
+  // APRS is success. The hourly total belongs to no source and keeps the chart's default color.
   const pota = theme.palette.primary.main;
   const sota = theme.palette.secondary.main;
   const rbnColor = theme.palette.warning.main;
+  const aprsColor = theme.palette.success.main;
   const weekdays = payload.daily.map((d) => weekday(d.day));
   const bands = payload.bands.map((b) => b.band);
   const busiest = topStates(payload.potaByState);
@@ -100,16 +103,18 @@ function Dashboard({ payload }: { payload: StatsPayload }) {
   const count = (v: number | null | undefined) => fmt(v ?? 0);
   const axis = (v: unknown) => compact(Number(v));
   const rbn = payload.rbn ?? NO_RBN;
+  const aprs = payload.aprs ?? NO_APRS;
   const hourly = payload.hourly ?? [];
   const hours = hourly.map((h) => new Date(h.hour));
-  const hourTotals = hourly.map((h) => h.pota + h.sota + h.rbn);
+  const hourTotals = hourly.map((h) => h.pota + h.sota + h.rbn + (h.aprs ?? 0));
   // Midnight ticks; every other day on phones so the labels do not collide.
   const midnights = midnightTicks(hours, mobile);
-  const processed = payload.totals.spots + rbn.spots;
-  const perDay: [string, number[], string][] = [
-    ["RBN", payload.daily.map((d) => d.rbn ?? 0), rbnColor],
-    ["POTA", payload.daily.map((d) => d.pota), pota],
-    ["SOTA", payload.daily.map((d) => d.sota), sota],
+  const processed = payload.totals.spots + rbn.spots + aprs.packets;
+  const perDay: [string, number[], string, string][] = [
+    ["RBN", payload.daily.map((d) => d.rbn ?? 0), rbnColor, "spots"],
+    ["APRS", payload.daily.map((d) => d.aprs ?? 0), aprsColor, "packets"],
+    ["POTA", payload.daily.map((d) => d.pota), pota, "spots"],
+    ["SOTA", payload.daily.map((d) => d.sota), sota, "spots"],
   ];
   const rbnBands = bands.map((band) => rbn.bands.find((b) => b.band === band)?.spots ?? 0);
   const perBand: [string, string, number[], string][] = [
@@ -128,7 +133,7 @@ function Dashboard({ payload }: { payload: StatsPayload }) {
           <Kpi
             label="Spots processed"
             value={fmt(processed)}
-            detail={`${fmt(rbn.spots)} RBN, ${fmt(payload.totals.potaSpots)} POTA, ${fmt(payload.totals.sotaSpots)} SOTA`}
+            detail={`${fmt(rbn.spots)} RBN, ${fmt(aprs.packets)} APRS, ${fmt(payload.totals.potaSpots)} POTA, ${fmt(payload.totals.sotaSpots)} SOTA`}
           />
         </Grid>
         <Grid size={{ xs: 6, md: 3 }}>
@@ -191,13 +196,13 @@ function Dashboard({ payload }: { payload: StatsPayload }) {
       <Box>
         <Typography variant="h6" gutterBottom>Spots per day</Typography>
         <Typography variant="body2" color="text.secondary">
-          One chart per source. RBN runs about 100 times the volume of POTA, so they don't share a scale.
+          One chart per source. RBN and APRS run 100 times the volume of POTA or more, so they don't share a scale.
         </Typography>
       </Box>
       <Grid container spacing={2}>
-        {perDay.map(([label, data, color]) => (
-          <Grid key={label} size={{ xs: 12, md: 4 }}>
-            <ChartCard title={label} subheader={`${fmt(data.reduce((sum, n) => sum + n, 0))} spots`}>
+        {perDay.map(([label, data, color, unit]) => (
+          <Grid key={label} size={{ xs: 12, sm: 6, md: 3 }}>
+            <ChartCard title={label} subheader={`${fmt(data.reduce((sum, n) => sum + n, 0))} ${unit}`}>
               <LineChart
                 height={200}
                 hideLegend
@@ -307,6 +312,34 @@ function Dashboard({ payload }: { payload: StatsPayload }) {
           {...GRID}
           rows={rbn.topStations.map((r, id) => ({ id, ...r, base: r.callsign }))}
           columns={RBN_STATION_COLUMNS}
+        />
+      </ChartCard>
+
+      <Box>
+        <Typography variant="h6" gutterBottom>APRS-IS</Typography>
+        <Typography variant="body2" color="text.secondary">
+          Every packet on the APRS-IS full feed. Packets aren't spots and never trigger alerts.
+        </Typography>
+      </Box>
+      <Grid container spacing={2}>
+        <Grid size={{ xs: 12, sm: 4 }}>
+          <Kpi label="APRS packets" value={fmt(aprs.packets)} detail="Every packet on the full feed" />
+        </Grid>
+        <Grid size={{ xs: 12, sm: 4 }}>
+          <Kpi label="Stations heard" value={fmt(aprs.stations)} detail="Unique callsigns that sent a packet, SSIDs combined" />
+        </Grid>
+        <Grid size={{ xs: 12, sm: 4 }}>
+          <Kpi label="Igates" value={fmt(aprs.igates)} detail="Unique gateways that passed a packet to APRS-IS" />
+        </Grid>
+      </Grid>
+      <ChartCard title="Packet types" subheader="What APRS stations sent">
+        <BarChart
+          height={380}
+          hideLegend
+          layout="horizontal"
+          yAxis={[{ scaleType: "band", data: aprs.types.map((t) => aprsTypeLabel(t.type)), width: 96 }]}
+          xAxis={[{ valueFormatter: axis }]}
+          series={[{ label: "Packets", data: aprs.types.map((t) => t.packets), color: aprsColor, valueFormatter: count }]}
         />
       </ChartCard>
     </>

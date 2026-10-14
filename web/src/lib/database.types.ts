@@ -55,6 +55,45 @@ isOneToOne: false
                   Relationships: [
                     
                   ]
+                },"aprs_daily_igates": {
+                  Row: {
+                    "day": string,"igate": string
+                  }
+                  Insert: {
+                    "day": string,"igate": string
+                  }
+                  Update: {
+                    "day"?: string,"igate"?: string
+                  }
+                  Relationships: [
+                    
+                  ]
+                },"aprs_daily_stations": {
+                  Row: {
+                    "base": string,"day": string
+                  }
+                  Insert: {
+                    "base": string,"day": string
+                  }
+                  Update: {
+                    "base"?: string,"day"?: string
+                  }
+                  Relationships: [
+                    
+                  ]
+                },"aprs_daily_types": {
+                  Row: {
+                    "day": string,"packet_type": string,"packets": number
+                  }
+                  Insert: {
+                    "day": string,"packet_type": string,"packets": number
+                  }
+                  Update: {
+                    "day"?: string,"packet_type"?: string,"packets"?: number
+                  }
+                  Relationships: [
+                    
+                  ]
                 },"aprs_packet_hours": {
                   Row: {
                     "hour_start": string,"packets": number
@@ -77,6 +116,19 @@ isOneToOne: false
                   }
                   Update: {
                     "destination"?: string,"igate"?: string | null,"line"?: string,"line_md5"?: string,"packet_type"?: string,"path"?: string,"q_construct"?: string | null,"received_at"?: string,"source_call"?: string
+                  }
+                  Relationships: [
+                    
+                  ]
+                },"aprs_rollup_days": {
+                  Row: {
+                    "day": string,"rolled_at": string
+                  }
+                  Insert: {
+                    "day": string,"rolled_at": string
+                  }
+                  Update: {
+                    "day"?: string,"rolled_at"?: string
                   }
                   Relationships: [
                     
@@ -963,6 +1015,9 @@ isOneToOne: false
                            },
 "retire_rbn_day":
 { Args: { "p_day": string }; Returns: undefined
+                           },
+"rollup_aprs_day":
+{ Args: { "p_day": string }; Returns: boolean
                            },
 "rollup_callsign_day":
 { Args: { "p_day": string,"p_without_rbn"?: boolean }; Returns: number

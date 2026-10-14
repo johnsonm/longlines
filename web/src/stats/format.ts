@@ -1,7 +1,7 @@
 // Pure presentation helpers for the Stats page. Everything here is testable
 // in node: no React, no supabase-js.
 
-import type { LatestStats } from "./types";
+import type { AprsPacketType, LatestStats } from "./types";
 
 export const fmt = (n: number): string => n.toLocaleString("en-US");
 
@@ -74,3 +74,12 @@ export function fillOpacity(value: number, max: number): number {
   if (value <= 0 || max <= 0) return 0;
   return 0.12 + 0.88 * (value / max);
 }
+
+const APRS_TYPE_LABELS: Record<AprsPacketType, string> = {
+  position: "Position", mic_e: "Mic-E", object: "Object", item: "Item", message: "Message",
+  status: "Status", weather: "Weather", telemetry: "Telemetry", nmea: "NMEA", third_party: "Third party",
+  capabilities: "Capabilities", query: "Query", user_defined: "User defined", other: "Other",
+};
+
+/** Packet type as the Stats page names it; a type added in SQL first shows as sent. */
+export const aprsTypeLabel = (type: AprsPacketType): string => APRS_TYPE_LABELS[type] ?? type;

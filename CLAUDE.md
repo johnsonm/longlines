@@ -106,7 +106,8 @@ relay on pushes to main; nothing else deploys automatically.
   `select` only. It is the one table `anon` may read: the Stats page (`/stats`) is public and
   renders in `PublicShell` when signed out, `AppShell` when signed in. RBN figures come from the
   `rollup_rbn_day` tables (today's hours from `rollup_rbn_hours`), never from `rbn_spots` directly: the refresh runs hourly and the
-  firehose is ~1.5M rows a day. The payload shape is `StatsPayload` in `web/src/stats/types.ts` and is pinned by
+  firehose is ~1.5M rows a day. APRS figures come from `aprs_packet_hours` and the `aprs_daily_*`
+  tables, never `aprs_packets`. The payload shape is `StatsPayload` in `web/src/stats/types.ts` and is pinned by
   `supabase/tests/stats_snapshot.test.sql`; change the SQL, the type and the test together.
   A trigger on `stats_snapshots` (`stats_snapshots_drop_hidden`) removes calls in
   `hidden_callsigns` from `topActivators` and `rbn.topStations`, so a top list can hold fewer than eight.
@@ -198,7 +199,9 @@ relay on pushes to main; nothing else deploys automatically.
   receive-only login and no filter; never add one. It is plain TCP (`telnet: false`,
   `TcpLineDecoder`), not telnet. Packets go only to `aprs_packets` (partitions from
   `create_aprs_packets_partition`, kept two days, retired by `maintain_aprs_packets` once archived);
-  never send them to `raw_spots`, matching, `spot_stream` or the rollups. `raw_spots`' source check
+  never send them to `raw_spots`, matching, `spot_stream` or the callsign rollups. The Stats refresh
+  rolls them up per day (`rollup_aprs_day` into `aprs_daily_*`), and `maintain_aprs_packets` keeps a
+  day in the Stats window until that rollup is final; older days drop without it. `raw_spots`' source check
   leaves `aprs` out on purpose. Its archive runs in its own cron job (`archive-aprs`, body
   `{"sources": ["aprs"]}`); keep it out of `ARCHIVE_ORDER`.
 - The relay also runs the weekly FCC license load (`relay/licenses.ts`, `relay/zip.ts`): it reads

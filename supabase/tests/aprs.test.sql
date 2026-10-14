@@ -1,13 +1,18 @@
 -- pgTAP: APRS-IS (20261014000010). aprs_packets partitions and dedup, the
 -- bulk-insert RPC and its hourly counts, the Sources page row, five-minute
--- archive slices, retention after two days, grants and the cron jobs.
+-- archive slices, the Stats rollup and its retention guard (20261014000030),
+-- retention after two days, grants and the cron jobs.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(39);
+select plan(55);
 
 delete from aprs_packets;
 delete from aprs_packet_hours;
 delete from archive_log where source = 'aprs';
+delete from aprs_daily_stations;
+delete from aprs_daily_igates;
+delete from aprs_daily_types;
+delete from aprs_rollup_days;
 
 create or replace function pg_temp.d(p_offset int) returns date language sql as $$
   select (now() at time zone 'utc')::date + p_offset;
@@ -21,6 +26,11 @@ returns jsonb language sql as $$
     'received_at', p_time, 'source_call', p_call, 'destination', 'APRS', 'path', 'WIDE1-1',
     'q_construct', 'qAR', 'igate', 'W1ABC-10', 'packet_type', 'status',
     'line', p_call || '>APRS,WIDE1-1,qAR,W1ABC-10:' || p_info);
+$$;
+-- A packet of a given type through a given igate (null: no q-construct, no igate).
+create or replace function pg_temp.typed(p_time timestamptz, p_call text, p_type text, p_igate text)
+returns jsonb language sql as $$
+  select pg_temp.pkt(p_time, p_call) || jsonb_build_object('packet_type', p_type, 'igate', p_igate);
 $$;
 create or replace function pg_temp.partition(p_offset int) returns regclass language sql as $$
   select to_regclass('partitions.aprs_packets_' || to_char(pg_temp.d(p_offset), 'YYYYMMDD'));
@@ -124,23 +134,79 @@ select is(
   'an archived packet carries every column but line_md5');
 select ok((select source = 'aprs' from archive_status where source = 'aprs'), 'archive_status lists aprs');
 
+-- Stats rollup (20261014000030).
+delete from aprs_packets;
+delete from aprs_packet_hours;
+select ingest_aprs_packets(jsonb_build_array(
+  pg_temp.typed(pg_temp.at(-1, '10:00'), 'K4ABC-9', 'position', 'W1ABC-10'),
+  pg_temp.typed(pg_temp.at(-1, '10:01'), 'K4ABC-7', 'position', 'W1ABC-10'),
+  pg_temp.typed(pg_temp.at(-1, '10:02'), 'k4abc-5', 'mic_e', 'W2DEF'),
+  pg_temp.typed(pg_temp.at(-1, '10:03'), 'N0XYZ', 'message', 'W2DEF'),
+  pg_temp.typed(pg_temp.at(-1, '10:04'), 'MYANET', 'status', null),
+  pg_temp.typed(pg_temp.at(-1, '11:04'), 'MYANET', 'status', null)));
+select is(rollup_aprs_day(pg_temp.d(-1)), true, 'rollup_aprs_day rolls up a whole day');
+select results_eq(
+  format('select base from aprs_daily_stations where day = %L order by 1', pg_temp.d(-1)),
+  $$values ('K4ABC'), ('MYANET'), ('N0XYZ')$$,
+  'stations are base calls: SSIDs and lower case fold into one');
+select results_eq(
+  format('select igate from aprs_daily_igates where day = %L order by 1', pg_temp.d(-1)),
+  $$values ('W1ABC-10'), ('W2DEF')$$,
+  'igates are counted as sent; a packet without one adds none');
+select results_eq(
+  format('select packet_type, packets from aprs_daily_types where day = %L order by 1', pg_temp.d(-1)),
+  $$values ('message', 1::bigint), ('mic_e', 1::bigint), ('position', 2::bigint), ('status', 2::bigint)$$,
+  'packets are counted per type');
+select ok((select rolled_at = now() from aprs_rollup_days where day = pg_temp.d(-1)), 'the rolled day gets a marker');
+
+-- A late packet: rolling up again adds it without duplicating anything.
+select ingest_aprs_packets(jsonb_build_array(pg_temp.typed(pg_temp.at(-1, '23:59'), 'W9NEW', 'position', 'W1ABC-10')));
+select is(rollup_aprs_day(pg_temp.d(-1)), true, 'a day can be rolled up again');
+select is((select count(*) from aprs_daily_stations where day = pg_temp.d(-1))::int, 4, 'the late station joins');
+select results_eq(
+  format('select count(*)::int, sum(packets) filter (where packet_type = ''position'')::int from aprs_daily_types where day = %L', pg_temp.d(-1)),
+  'values (4, 3)', 'a re-roll replaces the type counts');
+
+-- A day missing packets that its hourly counts have (retired, say) is refused and left alone.
+select ingest_aprs_packets(jsonb_build_array(
+  pg_temp.typed(pg_temp.at(-2, '10:00'), 'A9', 'position', 'W1ABC-10'),
+  pg_temp.typed(pg_temp.at(-2, '11:00'), 'B9', 'position', 'W1ABC-10')));
+delete from aprs_packets where source_call = 'B9';
+select is(rollup_aprs_day(pg_temp.d(-2)), false, 'rollup_aprs_day refuses a day missing packets');
+select ok(not exists (select 1 from aprs_rollup_days where day = pg_temp.d(-2))
+          and not exists (select 1 from aprs_daily_stations where day = pg_temp.d(-2)),
+  'a refused day gets no marker and no rows');
+-- Its own statement: the marker is not visible to the statement that wrote it.
+select rollup_aprs_day(pg_temp.d(-9));
+select ok(exists (select 1 from aprs_rollup_days where day = pg_temp.d(-9)), 'a day without packets rolls up as empty');
+
 -- Retention.
 delete from aprs_packets;
+delete from aprs_packet_hours;
+delete from aprs_rollup_days;
 delete from archive_log where source = 'aprs';
--- Day -2: archived with matching counts.          -> dropped
--- Day -3: one slice logged with the wrong count.  -> kept, that log row deleted
--- Day -4: never archived.                         -> kept
--- Day -6: rows only in the default partition, archived -> rows deleted
--- Day -1: archived but recent.                    -> kept
-select create_aprs_packets_partition(pg_temp.d(o)) from unnest(array[-4, -3, -2, -1]) as o;
+-- Day -2: archived with matching counts, rolled up.               -> dropped
+-- Day -3: one slice logged with the wrong count.                  -> kept, that log row deleted
+-- Day -4: never archived.                                         -> kept
+-- Day -5: archived, rolled up within an hour of its end.          -> kept
+-- Day -6: rows only in the default partition, archived, rolled up -> rows deleted
+-- Day -7: archived, never rolled up for Stats.                    -> kept
+-- Day -9: archived, never rolled up, older than the Stats window  -> dropped
+-- Day -1: archived but recent.                                    -> kept
+select create_aprs_packets_partition(pg_temp.d(o)) from unnest(array[-9, -7, -5, -4, -3, -2, -1]) as o;
 select ingest_aprs_packets(jsonb_build_array(
   pg_temp.pkt(pg_temp.at(-2, '10:01'), 'A1'), pg_temp.pkt(pg_temp.at(-2, '10:02'), 'A2'),
   pg_temp.pkt(pg_temp.at(-3, '11:01'), 'B1'), pg_temp.pkt(pg_temp.at(-3, '11:02'), 'B2'),
   pg_temp.pkt(pg_temp.at(-4, '12:00'), 'C1'),
+  pg_temp.pkt(pg_temp.at(-5, '09:00'), 'F1'),
   pg_temp.pkt(pg_temp.at(-6, '13:00'), 'D1'),
+  pg_temp.pkt(pg_temp.at(-7, '08:00'), 'G1'),
+  pg_temp.pkt(pg_temp.at(-9, '08:00'), 'H1'),
   pg_temp.pkt(pg_temp.at(-1, '14:00'), 'E1')));
-select pg_temp.archive_day(o) from unnest(array[-1, -2, -3, -6]) as o;
+select pg_temp.archive_day(o) from unnest(array[-1, -2, -3, -5, -6, -7, -9]) as o;
 select log_archive('aprs', pg_temp.at(-3, '11:00'), pg_temp.at(-3, '11:05'), 1, 100, 'aprs/test');
+select rollup_aprs_day(pg_temp.d(o)) from unnest(array[-2, -3, -5, -6]) as o;
+update aprs_rollup_days set rolled_at = pg_temp.at(-4, '00:30') where day = pg_temp.d(-5);
 
 select is((select count(*) from aprs_day_slices(pg_temp.d(-2)))::int, 288, 'a day has 288 five-minute slices');
 select lives_ok('select maintain_aprs_packets()', 'maintain_aprs_packets runs the retention step');
@@ -153,6 +219,9 @@ select ok(pg_temp.partition(-4) is not null, 'a day never archived is kept');
 select is((select count(*) from aprs_packets where source_call = 'D1')::int, 0,
   'default-partition rows of an archived day are deleted');
 select ok(pg_temp.partition(-1) is not null, 'yesterday is kept even when archived');
+select ok(pg_temp.partition(-5) is not null, 'a day rolled up within an hour of its end is kept');
+select ok(pg_temp.partition(-7) is not null, 'a day the Stats rollup never saw is kept');
+select ok(pg_temp.partition(-9) is null, 'a day older than the Stats window is dropped without a rollup');
 
 -- Grants and jobs.
 select ok(not has_table_privilege('authenticated', 'aprs_packets', 'select')
@@ -166,6 +235,15 @@ select ok(not has_function_privilege('authenticated', 'public.ingest_aprs_packet
           and not has_function_privilege('authenticated', 'public.aprs_day_archived(date)', 'execute')
           and not has_function_privilege('authenticated', 'public.aprs_day_slices(date)', 'execute'),
   'APRS functions are not callable by clients');
+select ok(not has_table_privilege('authenticated', 'aprs_daily_stations', 'select')
+          and not has_table_privilege('authenticated', 'aprs_daily_igates', 'select')
+          and not has_table_privilege('authenticated', 'aprs_daily_types', 'select')
+          and not has_table_privilege('authenticated', 'aprs_rollup_days', 'select')
+          and not has_table_privilege('anon', 'aprs_daily_stations', 'select'),
+  'clients cannot read the APRS Stats rollups');
+select ok(not has_function_privilege('authenticated', 'public.rollup_aprs_day(date)', 'execute')
+          and not has_function_privilege('anon', 'public.rollup_aprs_day(date)', 'execute'),
+  'clients cannot run the APRS Stats rollup');
 select results_eq(
   'select jobname::text, schedule::text from cron.job where jobname in (''archive-aprs'', ''maintain-aprs-packets'') order by 1',
   $$values ('archive-aprs', '2-59/5 * * * *'), ('maintain-aprs-packets', '45 3 * * *')$$,

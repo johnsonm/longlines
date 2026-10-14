@@ -18,7 +18,7 @@ export const PAYLOAD: StatsPayload = {
   peakHour: 14,
   busiestSlot: { day: "2026-10-03", hour: 15 },
   daily: ["2026-09-29", "2026-09-30", "2026-10-01", "2026-10-02", "2026-10-03", "2026-10-04", "2026-10-05"].map((day, i) => ({
-    day, pota: 1000 + i, sota: 300 + i, rbn: 24000,
+    day, pota: 1000 + i, sota: 300 + i, rbn: 24000, aprs: 250000,
   })),
   potaByState: { NC: 900, CA: 700, TX: 0 },
   sotaAssociations: [{ code: "W4C", spots: 120 }, { code: "W7A", spots: 90 }],
@@ -32,12 +32,16 @@ export const PAYLOAD: StatsPayload = {
   ],
   hourly: Array.from({ length: 168 }, (_, i) => ({
     hour: new Date(Date.UTC(2026, 8, 29) + i * 3_600_000).toISOString().replace(".000", ""),
-    pota: 50, sota: 10, rbn: 1000,
+    pota: 50, sota: 10, rbn: 1000, aprs: 10000,
   })),
   rbn: {
     spots: 168000, skimmers: 312,
     bands: [{ band: "40m", spots: 50000 }, { band: "20m", spots: 70000 }],
     topStations: [{ callsign: "K3LR", spots: 18420, skimmers: 214 }, { callsign: "DL1ABC", spots: 14870, skimmers: 176 }],
+  },
+  aprs: {
+    packets: 1750000, stations: 41234, igates: 9876,
+    types: [{ type: "position", packets: 1000000 }, { type: "mic_e", packets: 500000 }, { type: "weather", packets: 250000 }],
   },
 };
 
@@ -70,8 +74,8 @@ describe("StatsPage", () => {
     vi.mocked(useStats).mockReturnValue({ stats: STATS, loading: false, error: null });
     renderPage(<StatsPage />);
     expect(screen.getByText("All times UTC. Updated hourly, last at 13:00 UTC Oct 5.")).toBeInTheDocument();
-    expect(screen.getByText("180,345")).toBeInTheDocument();
-    expect(screen.getByText("168,000 RBN, 10,000 POTA, 2,345 SOTA")).toBeInTheDocument();
+    expect(screen.getByText("1,930,345")).toBeInTheDocument();
+    expect(screen.getByText("168,000 RBN, 1,750,000 APRS, 10,000 POTA, 2,345 SOTA")).toBeInTheDocument();
     expect(screen.getByText("1,200 POTA, 300 SOTA")).toBeInTheDocument();
     expect(screen.getByText("4,000 POTA, 321 SOTA")).toBeInTheDocument();
     expect(screen.getByText("14:00")).toBeInTheDocument();
@@ -83,16 +87,17 @@ describe("StatsPage", () => {
     expect(screen.getByText("Most active activators")).toBeInTheDocument();
   });
 
-  it("shows ingest volume across all three sources", () => {
+  it("shows ingest volume across every source", () => {
     vi.mocked(useStats).mockReturnValue({ stats: STATS, loading: false, error: null });
     renderPage(<StatsPage />);
-    // 180,345 spots over 10,080 minutes; every hour of the fixture is 50 + 10 + 1,000.
-    expect(screen.getByText("18/min")).toBeInTheDocument();
-    expect(screen.getByText("Peak hour: 1,060 spots")).toBeInTheDocument();
+    // 1,930,345 spots and packets over 10,080 minutes; every hour of the fixture is 50 + 10 + 1,000 + 10,000.
+    expect(screen.getByText("192/min")).toBeInTheDocument();
+    expect(screen.getByText("Peak hour: 11,060 spots")).toBeInTheDocument();
     expect(screen.getByText("312")).toBeInTheDocument();
     expect(screen.getByText("Spots processed per hour")).toBeInTheDocument();
     // One per-day chart per source; the RBN subheader sums its seven days.
     expect(screen.getByText("168,000 spots")).toBeInTheDocument();
+    expect(screen.getByText("1,750,000 packets")).toBeInTheDocument();
     expect(screen.getByText("RBN bands")).toBeInTheDocument();
     expect(screen.getByText("Most heard on RBN")).toBeInTheDocument();
     expect(screen.getByText("K3LR")).toBeInTheDocument();
@@ -133,18 +138,50 @@ describe("StatsPage", () => {
     const stats = { ...STATS, payload: { ...PAYLOAD, totals } } as unknown as LatestStats;
     vi.mocked(useStats).mockReturnValue({ stats, loading: false, error: null });
     renderPage(<StatsPage />);
-    expect(screen.getByText("180,345")).toBeInTheDocument();
+    expect(screen.getByText("1,930,345")).toBeInTheDocument();
     expect(screen.getAllByText("0 POTA, 0 SOTA")).toHaveLength(2);
   });
 
   it("renders a snapshot written before RBN figures and the hourly series existed", () => {
-    const { hourly: _hourly, rbn: _rbn, ...old } = PAYLOAD;
-    const stats = { ...STATS, payload: { ...old, daily: PAYLOAD.daily.map(({ rbn: _r, ...d }) => d) } } as unknown as LatestStats;
+    const { hourly: _hourly, rbn: _rbn, aprs: _aprs, ...old } = PAYLOAD;
+    const daily = PAYLOAD.daily.map(({ rbn: _r, aprs: _a, ...d }) => d);
+    const stats = { ...STATS, payload: { ...old, daily } } as unknown as LatestStats;
     vi.mocked(useStats).mockReturnValue({ stats, loading: false, error: null });
     renderPage(<StatsPage />);
     expect(screen.getByText("12,345")).toBeInTheDocument();
-    expect(screen.getByText("0 RBN, 10,000 POTA, 2,345 SOTA")).toBeInTheDocument();
+    expect(screen.getByText("0 RBN, 0 APRS, 10,000 POTA, 2,345 SOTA")).toBeInTheDocument();
     expect(screen.getByText("Peak hour: 0 spots")).toBeInTheDocument();
     expect(screen.queryByText("Spots processed per hour")).not.toBeInTheDocument();
+  });
+
+  it("shows the APRS-IS section", () => {
+    vi.mocked(useStats).mockReturnValue({ stats: STATS, loading: false, error: null });
+    renderPage(<StatsPage />);
+    expect(screen.getByText("APRS-IS")).toBeInTheDocument();
+    expect(screen.getByText("Every packet on the APRS-IS full feed. Packets aren't spots and never trigger alerts.")).toBeInTheDocument();
+    expect(screen.getByText("APRS packets")).toBeInTheDocument();
+    expect(screen.getByText("1,750,000")).toBeInTheDocument();
+    expect(screen.getByText("Stations heard")).toBeInTheDocument();
+    expect(screen.getByText("41,234")).toBeInTheDocument();
+    expect(screen.getByText("Unique callsigns that sent a packet, SSIDs combined")).toBeInTheDocument();
+    expect(screen.getByText("Igates")).toBeInTheDocument();
+    expect(screen.getByText("9,876")).toBeInTheDocument();
+    expect(screen.getByText("Packet types")).toBeInTheDocument();
+    expect(screen.getByText("What APRS stations sent")).toBeInTheDocument();
+    expect(screen.getByText(/RBN and APRS run 100 times the volume of POTA or more/)).toBeInTheDocument();
+  });
+
+  it("renders a snapshot written before APRS figures existed", () => {
+    const { aprs: _aprs, ...old } = PAYLOAD;
+    const daily = PAYLOAD.daily.map(({ aprs: _a, ...d }) => d);
+    const hourly = PAYLOAD.hourly.map(({ aprs: _a, ...h }) => h);
+    const stats = { ...STATS, payload: { ...old, daily, hourly } } as unknown as LatestStats;
+    vi.mocked(useStats).mockReturnValue({ stats, loading: false, error: null });
+    renderPage(<StatsPage />);
+    expect(screen.getByText("180,345")).toBeInTheDocument();
+    expect(screen.getByText("168,000 RBN, 0 APRS, 10,000 POTA, 2,345 SOTA")).toBeInTheDocument();
+    expect(screen.getByText("Peak hour: 1,060 spots")).toBeInTheDocument();
+    expect(screen.getByText("0 packets")).toBeInTheDocument();
+    expect(screen.getByText("APRS packets")).toBeInTheDocument();
   });
 });
