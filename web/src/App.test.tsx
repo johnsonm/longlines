@@ -27,6 +27,9 @@ vi.mock("./auth/SetPasswordPage", () => ({ SetPasswordPage: () => <p>set-passwor
 vi.mock("./sources/SourcesPage", () => ({
   SourcesPage: () => <p>sources page</p>,
 }));
+vi.mock("./sources/SourceDetailPage", () => ({
+  SourceDetailPage: ({ prefs }: { prefs: { timezone: string } }) => <p>source page {prefs.timezone}</p>,
+}));
 vi.mock("./destinations/DestinationsPage", () => ({
   DestinationsPage: ({ dests, loading }: { dests: Destination[]; loading: boolean }) => (
     <p>destinations page {loading ? "loading" : dests.map((d) => d.name).join(",")}</p>
@@ -76,6 +79,11 @@ describe("App routing", () => {
     session(null);
     renderAt("/destinations");
     expect(await screen.findByText("sign-in page")).toBeInTheDocument();
+  });
+
+  it("renders a source's detail page at /sources/:id", async () => {
+    renderAt("/sources/rbn");
+    expect(await screen.findByText("source page Asia/Tokyo")).toBeInTheDocument();
   });
 
   it("shows progress while the session is loading", () => {

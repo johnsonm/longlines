@@ -2,11 +2,9 @@ import { Card, CardActionArea, CardContent, Chip, Stack, Typography } from "@mui
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import { Link } from "react-router";
 import type { SourceInfo } from "./sources";
-import { STATUS_LABEL, type SourceStatus } from "./status";
+import { STATUS_COLOR, STATUS_LABEL, type SourceStatus } from "./status";
 import { formatRate, rateUnit, type Rates } from "./rates";
 import { SourceMark } from "./SourceMark";
-
-const STATUS_COLOR = { connected: "success", delayed: "warning", planned: "default" } as const;
 
 export function SourceTile({ source, status, rates }: { source: SourceInfo; status: SourceStatus; rates: Rates | null }) {
   const live = source.status === "live";

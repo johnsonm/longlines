@@ -12,6 +12,7 @@ import { SetPasswordPage } from "./auth/SetPasswordPage";
 import { AppShell } from "./layout/AppShell";
 import { PublicShell } from "./layout/PublicShell";
 import { SourcesPage } from "./sources/SourcesPage";
+import { SourceDetailPage } from "./sources/SourceDetailPage";
 import { DestinationsPage } from "./destinations/DestinationsPage";
 import { SubscriptionsPage } from "./subscriptions/SubscriptionsPage";
 import { GroupsPage } from "./groups/GroupsPage";
@@ -58,6 +59,7 @@ function Router() {
       <Route path="/reset-password" element={<ResetPasswordPage />} />
       <Route path="/set-password" element={<SetPasswordPage />} />
       <Route path="/sources" element={<RequireAuth page="sources" />} />
+      <Route path="/sources/:id" element={<RequireAuth page="source" />} />
       <Route path="/subscriptions" element={<RequireAuth page="subscriptions" />} />
       <Route path="/groups" element={<RequireAuth page="groups" />} />
       <Route path="/destinations" element={<RequireAuth page="destinations" />} />
@@ -79,7 +81,7 @@ function PublicOnly({ children }: { children: ReactNode }) {
   return children;
 }
 
-type Page = "sources" | "subscriptions" | "groups" | "destinations" | "stats" | "lookup" | "call" | "account" | "api-tokens";
+type Page = "sources" | "source" | "subscriptions" | "groups" | "destinations" | "stats" | "lookup" | "call" | "account" | "api-tokens";
 type PublicPage = "stats" | "lookup" | "call";
 
 // Signed-out visitors read profiles in UTC.
@@ -151,6 +153,7 @@ function SignedIn({ page }: { page: Page }) {
   return (
     <AppShell destinationsFailing={dests.some((d) => d.health === "failing")}>
       {page === "sources" && <SourcesPage />}
+      {page === "source" && <SourceDetailPage prefs={prefs} />}
       {page === "subscriptions" && (
         <SubscriptionsPage subs={subs} dests={dests} loading={loading} reload={reload} prefs={prefs} fullScreen={mobile} />
       )}

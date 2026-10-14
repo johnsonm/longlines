@@ -28,7 +28,7 @@ export function Kpi({ label, value, detail }: { label: string; value: string; de
   );
 }
 
-export function ChartCard({ title, subheader, children }: { title: string; subheader: string; children: ReactNode }) {
+export function ChartCard({ title, subheader, children }: { title: string; subheader?: string; children: ReactNode }) {
   return (
     <Card variant="outlined" sx={{ height: "100%" }}>
       <CardHeader title={title} subheader={subheader} slotProps={{ title: { variant: "h6" } }} />
