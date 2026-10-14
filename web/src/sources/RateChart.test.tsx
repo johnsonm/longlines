@@ -14,6 +14,13 @@ describe("RateChart", () => {
     expect(screen.getByText("Peak 12 / min, Oct 12, 05:00 UTC")).toBeInTheDocument();
   });
 
+  it("marks the peak with a circle, the dot the copy promises", () => {
+    const { container } = renderPage(<RateChart rates={rates} volume="high" color="warning" />);
+    const marks = container.querySelectorAll(".MuiLineChart-mark");
+    expect(marks).toHaveLength(1);
+    expect(marks[0]?.getAttribute("d")).not.toBe("M-4,-4h8v8h-8Z");
+  });
+
   it("uses per-hour units for a standard source", () => {
     renderPage(<RateChart rates={{ ...rates, peak: 88 }} volume="standard" color="primary" />);
     expect(screen.getByText(/^Peak 88 \/ hour,/)).toBeInTheDocument();

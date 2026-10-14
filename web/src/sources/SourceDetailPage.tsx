@@ -18,6 +18,9 @@ import { SourceMark } from "./SourceMark";
 import { useIngestHealth } from "./useIngestHealth";
 
 const NO_RATES = "No rates yet. They appear after the next hourly stats refresh.";
+// Three columns leave Description a sliver at phone width, so the type moves under the field name.
+const TYPE_COLUMN = { xs: "none", sm: "table-cell" };
+const TYPE_UNDER_FIELD = { xs: "block", sm: "none" };
 
 /** RBN and APRS-IS only; the per-day sentence is left out until there are rates. */
 function volumeAlert(source: SourceInfo, rates: Rates | null): { title: string; body: string } | null {
@@ -88,7 +91,7 @@ export function SourceDetailPage({ prefs }: { prefs: TimePrefs }) {
         <Typography color="text.primary">{source.title}</Typography>
       </Breadcrumbs>
 
-      <Stack direction={{ xs: "column", sm: "row" }} spacing={2} useFlexGap sx={{ alignItems: { sm: "flex-start" } }}>
+      <Stack direction={{ xs: "column", sm: "row" }} spacing={2} useFlexGap sx={{ alignItems: "flex-start" }}>
         <SourceMark source={source} size="large" />
         <Box sx={{ flexGrow: 1 }}>
           <PageTitle>{source.title}</PageTitle>
@@ -140,7 +143,7 @@ export function SourceDetailPage({ prefs }: { prefs: TimePrefs }) {
                     <TableHead>
                       <TableRow>
                         <TableCell>Field</TableCell>
-                        <TableCell>Type</TableCell>
+                        <TableCell sx={{ display: TYPE_COLUMN }}>Type</TableCell>
                         <TableCell>Description</TableCell>
                       </TableRow>
                     </TableHead>
@@ -148,12 +151,13 @@ export function SourceDetailPage({ prefs }: { prefs: TimePrefs }) {
                       {source.schema.map((f) => (
                         <TableRow key={f.name}>
                           <TableCell>
-                            <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
+                            <Stack direction="row" spacing={1} useFlexGap sx={{ alignItems: "center", flexWrap: "wrap" }}>
                               <Mono>{f.name}</Mono>
                               {f.derived && <Chip size="small" variant="outlined" label="Derived" />}
                             </Stack>
+                            <Typography variant="caption" color="text.secondary" sx={{ display: TYPE_UNDER_FIELD }}>{f.type}</Typography>
                           </TableCell>
-                          <TableCell>{f.type}</TableCell>
+                          <TableCell sx={{ display: TYPE_COLUMN }}>{f.type}</TableCell>
                           <TableCell>{f.description}</TableCell>
                         </TableRow>
                       ))}

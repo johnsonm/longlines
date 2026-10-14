@@ -32,7 +32,8 @@ export function RateChart({ rates, volume, color }: { rates: Rates; volume: Volu
         yAxis={[{ min: 0, width: 48 }]}
         series={[
           { label: "Rate", data: rates.series, area: true, showMark: false, color: line, valueFormatter: label },
-          { label: "Peak", data: rates.series.map((v, i) => (i === peakIndex ? v : null)), showMark: true, color: theme.palette.error.main, valueFormatter: label },
+          // The copy promises a red dot; x-charts gives each series its own shape (circle, square, ...).
+          { label: "Peak", data: rates.series.map((v, i) => (i === peakIndex ? v : null)), showMark: true, shape: "circle", color: theme.palette.error.main, valueFormatter: label },
         ]}
       />
     </Stack>
