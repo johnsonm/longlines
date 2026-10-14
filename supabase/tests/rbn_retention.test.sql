@@ -105,7 +105,7 @@ insert into callsign_rollup_days (day, rolled_at) values (pg_temp.d(-9), now()) 
 select log_archive('rbn', p.slice_start, p.slice_end, n.row_count,
                    case when n.row_count > 0 then 100 end, case when n.row_count > 0 then 'rbn/test' end)
 from archive_pending_slices('rbn', now() - interval '2 hours', 100000) p,
-     lateral archive_ndjson('rbn', p.slice_start, p.slice_end) n;
+     lateral archive_columns('rbn', p.slice_start, p.slice_end) n;
 select maintain_rbn_spots();
 select ok(pg_temp.partition(-9) is null, 'a first day archived only through archive_pending_slices is retired');
 

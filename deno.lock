@@ -3,7 +3,9 @@
   "specifiers": {
     "jsr:@std/assert@1": "1.0.19",
     "jsr:@std/internal@^1.0.12": "1.0.14",
-    "npm:@supabase/supabase-js@2": "2.117.2"
+    "npm:@supabase/supabase-js@2": "2.117.2",
+    "npm:hyparquet-writer@0.16.10": "0.16.10",
+    "npm:hyparquet@1.31.1": "1.31.1"
   },
   "jsr": {
     "@std/assert@1.0.19": {
@@ -62,6 +64,15 @@
         "@supabase/storage-js"
       ]
     },
+    "hyparquet-writer@0.16.10": {
+      "integrity": "sha512-53fpiA57kdJ2V7X97/VSAzHr8rb8Z2cr126T1pTL9TapZNOP/wNJqFh+jc7dRwwg9TpVMYeRNDMb+r5oiLqwjg==",
+      "dependencies": [
+        "hyparquet"
+      ]
+    },
+    "hyparquet@1.31.1": {
+      "integrity": "sha512-tF9580Xb+41+Eb+mH0av1k7m1PWl+PSKrX66Yd7UOZ760cwEXP9/enwHRMSCeVncaubRI8XPb3v580/ujYKK5w=="
+    },
     "iceberg-js@0.8.1": {
       "integrity": "sha512-1dhVQZXhcHje7798IVM+xoo/1ZdVfzOMIc8/rgVSijRK38EDqOJoGula9N/8ZI5RD8QTxNQtK/Gozpr+qUqRRA=="
     },
@@ -72,7 +83,9 @@
   "workspace": {
     "dependencies": [
       "jsr:@std/assert@1",
-      "npm:@supabase/supabase-js@2"
+      "npm:@supabase/supabase-js@2",
+      "npm:hyparquet-writer@0.16.10",
+      "npm:hyparquet@1.31.1"
     ]
   }
 }

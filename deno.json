@@ -5,7 +5,9 @@
   },
   "imports": {
     "@supabase/supabase-js": "npm:@supabase/supabase-js@2",
-    "@std/assert": "jsr:@std/assert@1"
+    "@std/assert": "jsr:@std/assert@1",
+    "hyparquet-writer": "npm:hyparquet-writer@0.16.10",
+    "hyparquet": "npm:hyparquet@1.31.1"
   },
   "tasks": {
     "test": "deno test -P supabase/functions/_shared/__tests__/ relay/__tests__/",
