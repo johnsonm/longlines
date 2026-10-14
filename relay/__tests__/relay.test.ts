@@ -1,6 +1,6 @@
 import { assertEquals } from "@std/assert";
 import type { RelayConfig } from "../config.ts";
-import { dxclusterFeed, type Feed, RBN_FEED } from "../feeds.ts";
+import { aprsFeed, dxclusterFeed, type Feed, RBN_FEED } from "../feeds.ts";
 import type { RelayLine } from "../functions.ts";
 import { startRelay } from "../relay.ts";
 
@@ -175,4 +175,63 @@ Deno.test("startRelay runs the DX Cluster feed with its own idle timeout and for
     "/functions/v1/ingest-dxcluster",
   ]);
   assertEquals(functions.pushes[1]!.lines.map((l) => l.line), [human]);
+});
+
+Deno.test("startRelay holds the APRS-IS feed: logs in after the banner and forwards packets, not comments", async () => {
+  const listener = Deno.listen({ hostname: "127.0.0.1", port: 0 });
+  const logins: string[] = [];
+  const held: Deno.Conn[] = [];
+  const packet = "N0CALL-7>APRS,qAR,W1ABC-10:!4237.14N/07120.83W>Café 73";
+  const served = (async () => {
+    for await (const conn of listener) {
+      held.push(conn);
+      await conn.write(enc("# aprsc 2.1.19-g730c5c0\r\n"));
+      const buf = new Uint8Array(128);
+      const n = await conn.read(buf);
+      logins.push(new TextDecoder().decode(buf.subarray(0, n ?? 0)));
+      await conn.write(enc(`# logresp N0CALL-LL unverified, server T2TEST\r\n${packet}\r\n`));
+      await conn.write(enc("# 14 Oct 2026 15:56:00 GMT T2TEST\r\n"));
+    }
+  })().catch(() => {});
+  const functions = fakeFunctions();
+  const feed: Feed = {
+    ...aprsFeed((name) => name === "APRS_LOGIN_CALL" ? "n0call-ll" : undefined)!,
+    host: "127.0.0.1",
+    port: (listener.addr as Deno.NetAddr).port,
+  };
+  const relay = startRelay(
+    {
+      functionsUrl: functions.url,
+      relaySecret: "s",
+      loginCall: "RELAYCALL",
+      healthPort: 0,
+      licenseZipUrl: null,
+    },
+    [feed],
+    { hostname: "127.0.0.1", log: () => {} },
+  );
+  const health = async () =>
+    (await (await fetch(`http://127.0.0.1:${relay.addr.port}/healthz`)).json()).feeds[0];
+
+  await waitFor("the packet", async () => (await health()).buffered === 1);
+  await relay.shutdown();
+  await relay.done;
+  listener.close();
+  for (const c of held) {
+    try {
+      c.close();
+    } catch {
+      // The relay closed its end first.
+    }
+  }
+  await served;
+  await functions.server.shutdown();
+
+  // The feed's own call, not RELAY_LOGIN_CALL, and no filter command.
+  assertEquals(logins, ["user N0CALL-LL pass -1 vers LongLines 0.1\r\n"]);
+  assertEquals(functions.pushes.map((p) => p.path), [
+    "/functions/v1/ingest-aprs",
+    "/functions/v1/ingest-aprs",
+  ]);
+  assertEquals(functions.pushes[1]!.lines.map((l) => l.line), [packet]);
 });

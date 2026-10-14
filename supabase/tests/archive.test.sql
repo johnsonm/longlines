@@ -78,7 +78,7 @@ select throws_ok(format('select log_archive(%L, %L, %L, 5, 10, null)', 'rbn', pg
   '23514', null, 'a slice with rows must name its object');
 
 -- Status, grants, cron.
-select is((select count(*) from archive_status)::int, 4, 'archive_status has one row per source');
+select is((select count(*) from archive_status)::int, 5, 'archive_status has one row per source');
 select ok(not has_function_privilege('authenticated', 'public.archive_ndjson(text, timestamptz, timestamptz)', 'execute')
           and not has_function_privilege('authenticated', 'public.log_archive(text, timestamptz, timestamptz, int, int, text)', 'execute')
           and not has_function_privilege('authenticated', 'public.archive_pending_slices(text, timestamptz, int)', 'execute')

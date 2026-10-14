@@ -1,12 +1,14 @@
-// The archive worker, called by pg_cron every 10 minutes with the service-role
-// key (Vault). Runs runArchive over the slice RPCs and the archive bucket and
-// returns its summary; 500 when any slice failed, so the failure shows up in
-// net._http_response.
+// The archive worker, called by pg_cron with the service-role key (Vault):
+// every 10 minutes for the default sources, and every 5 minutes with
+// {"sources": ["aprs"]} for APRS-IS. Runs runArchive over the slice RPCs and
+// the archive bucket and returns its summary; 500 when any slice failed, so the
+// failure shows up in net._http_response.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { runArchive } from "../archive.ts";
+import { archiveSources, runArchive } from "../archive.ts";
 import { isServiceRole } from "../auth.ts";
 import { createArchiveDb, createArchiveStore } from "../db.ts";
+import type { Source } from "../types.ts";
 
 export interface ArchiveDeps {
   serviceRoleKey: string | undefined;
@@ -22,8 +24,21 @@ export async function handleArchive(
   if (!isServiceRole(req, deps.serviceRoleKey)) {
     return Response.json({ error: "Forbidden" }, { status: 403 });
   }
+  let sources: readonly Source[];
+  try {
+    const text = await req.text();
+    sources = archiveSources(text.trim() === "" ? undefined : JSON.parse(text));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return Response.json({ error: `Bad request: ${message}` }, { status: 400 });
+  }
   const client = deps.db();
-  const summary = await runArchive(createArchiveDb(client), createArchiveStore(client), now);
+  const summary = await runArchive(
+    createArchiveDb(client),
+    createArchiveStore(client),
+    now,
+    sources,
+  );
   console.log(JSON.stringify(summary));
   return Response.json(summary, { status: summary.errors.length > 0 ? 500 : 200 });
 }

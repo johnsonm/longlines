@@ -369,6 +369,9 @@ flowchart LR
   F -- "runIngest(watched lines)" --> RPC[(ingest_spots)]
   R -- "POST human spot lines" --> FD[ingest-dxcluster]
   FD -- "runIngest(every line)" --> RPC
+  APRS[rotate.aprs2.net:10152, full feed] -- "one TCP session" --> R
+  R -- "POST every packet line" --> FA[ingest-aprs]
+  FA -- "rpc ingest_aprs_packets" --> AP[(aprs_packets)]
 ```
 
 The Reverse Beacon Network only offers a persistent telnet stream. Edge Functions cannot hold one,
@@ -448,23 +451,60 @@ in with `RELAY_LOGIN_CALL` and forwards every line `parseDxLine` (`_shared/dxclu
 - **Quiet hours.** Human spots can pause for minutes, so this feed reconnects after 15 minutes
   without data (RBN: 5) and `/healthz` marks it unhealthy after 20 (RBN: 10).
 
+## APRS-IS
+
+The third feed is the APRS-IS full feed: port 10152 on `rotate.aprs2.net` (overridable with
+`APRS_HOST`/`APRS_PORT`), every packet the network carries with no server-side filter. The full
+feed is deliberate; never add a filter to the login. It runs at roughly 50-150 packets a second,
+4-13 million a day.
+
+- **Off until configured.** `aprsFeed` returns no feed until `APRS_LOGIN_CALL` is set. APRS-IS
+  drops an older connection that logs in with the same call-SSID, so the relay's login must be one
+  no other client uses (`aprsLoginCall` checks the shape: at most nine characters).
+- **Plain TCP.** APRS-IS is not telnet: `TcpLineDecoder` (`relay/telnet.ts`) decodes UTF-8 and has
+  no IAC handling. There is no prompt; the server sends a `# aprsc ...` banner line, and the relay
+  answers with `user <call> pass -1 vers LongLines 0.1` (passcode -1 is receive-only). Servers send a
+  `#` keepalive about every 20 s, so the feed reconnects after 2 minutes of silence and `/healthz`
+  marks it unhealthy after 5. The forwarder buffers up to 150,000 lines (about 25 minutes).
+- **Packets, not spots.** `ingest-aprs` runs `runAprsPush` (`_shared/aprs.ts`): every line
+  `parseAprsLine` accepts goes to `aprs_packets` through `ingest_aprs_packets`, unparseable lines
+  to `ingest_failures`, and `ingest_state` records the batch. Nothing reaches `raw_spots`, the
+  matcher, `spot_stream`, the rollups or Stats, and `raw_spots`' source check does not allow
+  `aprs`. The Sources page shows the feed's health; it is not a subscription source.
+- **What is parsed.** The header (source, destination, digipeater path, the q-construct the
+  server added and the igate after it) and the packet type from the data type identifier
+  (`position`, `mic_e`, `object`, `item`, `message`, `status`, `weather`, `telemetry`, `nmea`,
+  `third_party`, `capabilities`, `query`, `user_defined`, `other`). Positions, weather and
+  telemetry are not decoded; the line is stored exactly as received for that.
+- **Storage.** `aprs_packets` is partitioned by UTC day on `received_at` (packets mostly carry no
+  time of their own), like `rbn_spots`: partitions in the `partitions` schema, created by
+  `create_aprs_packets_partition` from `maintain_aprs_packets()` (daily, 03:45 UTC). Dedup is
+  `unique (received_at, line_md5)`, so a retried batch inserts nothing. `aprs_packet_hours` keeps
+  packets per hour indefinitely; the Sources page reads its 24-hour figure there instead of
+  counting millions of rows.
+- **Two days.** `maintain_aprs_packets()` drops a day once it is two days old and every
+  five-minute slice is archived with a matching count, so the database holds yesterday and today
+  (about 5 GB at 8 million packets a day).
+
 # The spot archive
 
 ```mermaid
 flowchart LR
   CRON[pg_cron every 10 min] -- "service-role key" --> A[archive function]
+  CRONA[pg_cron every 5 min: sources aprs] -- "service-role key" --> A
   A -- "rpc archive_pending_slices" --> P[(due slices)]
-  A -- "rpc archive_ndjson" --> N[(rbn_spots / raw_spots)]
+  A -- "rpc archive_ndjson" --> N[(rbn_spots / aprs_packets / raw_spots)]
   A -- "gzip, upload" --> S[[Storage bucket: archive]]
   A -- "rpc log_archive" --> L[(archive_log)]
   M[maintain_rbn_spots daily] -- "rbn_day_archived, retire_rbn_day" --> N
+  MA[maintain_aprs_packets daily] -- "aprs_day_archived, retire_aprs_day" --> N
 ```
 
 Every spot of every source is kept for analytics as gzipped NDJSON in a private Storage bucket,
 `archive` (spec `docs/superpowers/specs/2026-10-11-rbn-firehose-archive-design.md` and its
 measurement amendment).
 
-- **Slices.** RBN is archived in 10-minute slices, POTA, SOTAwatch and DX Cluster hourly. The length lives only
+- **Slices.** APRS-IS is archived in 5-minute slices, RBN in 10-minute slices, POTA, SOTAwatch and DX Cluster hourly. The length lives only
   in `archive_slice_minutes(source)`; slices are aligned with `date_bin` and half-open
   (`[start, end)`). Objects are `<source>/YYYY/MM/DD/HHMM.ndjson.gz`.
 - **Postgres does the heavy lifting.** `archive_pending_slices` returns the slices that ended two
@@ -474,14 +514,19 @@ measurement amendment).
 - **Runs.** pg_cron calls `archive` every 10 minutes with the service-role key (Vault), like the
   ingest jobs. A run takes POTA, then SOTAwatch, then DX Cluster, then RBN, oldest first, and
   starts no new slice once it has archived 60,000 rows, so a backlog clears about six times faster
-  than real time without risking the CPU limit.
+  than real time without risking the CPU limit. APRS-IS is not in that list: at ~100 packets a
+  second it alone fills the budget. A second job, `archive-aprs`, calls `archive` every five
+  minutes (two minutes off the 10-minute grid) with `{"sources": ["aprs"]}`; two 30,000-packet
+  slices a run measured at about 0.2 s of CPU, and a backlog clears at about twice real time. The
+  function answers 400 to a body naming an unknown source.
 - **Logged only when stored.** A slice gets its `archive_log` row (count, bytes, path) only after
   the upload succeeds; a failure leaves it pending for the next run. Empty slices are logged with
   `row_count = 0` and no object, so a gap in `archive_log` always means "not archived".
 - **Lines.** RBN: `spot_time, received_at, spotter, callsign, frequency_khz, band, mode,
   mode_family, snr, speed, speed_unit, spot_type, line`. POTA, SOTAwatch and DX Cluster: every
   `raw_spots` column except `id`, including the upstream `raw_payload`. Watched RBN rows in
-  `raw_spots` are not archived from there.
+  `raw_spots` are not archived from there. APRS-IS: `received_at, source_call, destination, path,
+  q_construct, igate, packet_type, line`.
 - **Retention.** `maintain_rbn_spots()` (03:35 UTC, off the archive's 10-minute grid) retires RBN
   days older than seven that `callsign_rollup_days` records (callsign profiles keep per-station
   totals from every day), and any archived day older than 14 so a missing rollup cannot stop
@@ -491,7 +536,9 @@ measurement amendment).
   and gives up after 5 s. The day's partition and any default-partition rows go only when all
   144 slices are logged with the database's count (`rbn_day_slices`). A mismatched slice loses its
   log row, so the next run re-archives it and the day is retried the next night. `raw_spots` is
-  never pruned.
+  never pruned. `maintain_aprs_packets()` (03:45 UTC) does the same for `aprs_packets` with 288
+  five-minute slices a day, retiring a day once it is two days old; nothing rolls APRS up, so there
+  is no rollup condition.
 
 # Countries (cty.dat)
 

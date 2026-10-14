@@ -438,6 +438,10 @@ verify_jwt = false
 [functions.ingest-dxcluster]
 verify_jwt = false
 
+# ingest-aprs is called by the same relay with the same secret.
+[functions.ingest-aprs]
+verify_jwt = false
+
 # load-licenses is called by the same relay with the same secret for the weekly
 # FCC license load (_shared/handlers/load_licenses.ts).
 [functions.load-licenses]

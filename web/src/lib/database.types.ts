@@ -55,6 +55,32 @@ isOneToOne: false
                   Relationships: [
                     
                   ]
+                },"aprs_packet_hours": {
+                  Row: {
+                    "hour_start": string,"packets": number
+                  }
+                  Insert: {
+                    "hour_start": string,"packets": number
+                  }
+                  Update: {
+                    "hour_start"?: string,"packets"?: number
+                  }
+                  Relationships: [
+                    
+                  ]
+                },"aprs_packets": {
+                  Row: {
+                    "destination": string,"igate": string | null,"line": string,"line_md5": string,"packet_type": string,"path": string,"q_construct": string | null,"received_at": string,"source_call": string
+                  }
+                  Insert: {
+                    "destination": string,"igate"?: string | null,"line": string,"line_md5": string,"packet_type": string,"path": string,"q_construct"?: string | null,"received_at": string,"source_call": string
+                  }
+                  Update: {
+                    "destination"?: string,"igate"?: string | null,"line"?: string,"line_md5"?: string,"packet_type"?: string,"path"?: string,"q_construct"?: string | null,"received_at"?: string,"source_call"?: string
+                  }
+                  Relationships: [
+                    
+                  ]
                 },"archive_log": {
                   Row: {
                     "archived_at": string,"bytes": number | null,"object_path": string | null,"row_count": number,"slice_end": string,"slice_start": string,"source": string
@@ -661,6 +687,14 @@ isOneToOne: false
 "api_subscription_json":
 { Args: { "s": Database["public"]["Tables"]["subscriptions"]["Row"] }; Returns: Json
                            },
+"aprs_day_archived":
+{ Args: { "p_day": string }; Returns: boolean
+                           },
+"aprs_day_slices":
+{ Args: { "p_day": string }; Returns: {
+              "archived_rows": number,"db_rows": number,"slice_start": string
+            }[]
+                           },
 "archive_ndjson":
 { Args: { "p_from": string,"p_source": string,"p_to": string }; Returns: {
               "ndjson": string,"row_count": number
@@ -711,6 +745,9 @@ isOneToOne: false
 { Args: { "p_lifetime_days"?: number,"p_name": string,"p_scope": string }; Returns: {
               "created_at": string,"expires_at": string,"id": string,"lifetime_days": number,"name": string,"scope": string,"token": string,"token_prefix": string
             }[]
+                           },
+"create_aprs_packets_partition":
+{ Args: { "p_day": string }; Returns: undefined
                            },
 "create_destination":
 { Args: { "p_name": string,"p_type": string,"p_url": string }; Returns: {
@@ -769,6 +806,9 @@ isOneToOne: false
                            },
 "group_matches":
 { Args: { "p_base": string,"p_group_ids": (string)[] }; Returns: boolean
+                           },
+"ingest_aprs_packets":
+{ Args: { "p_rows": Json }; Returns: number
                            },
 "ingest_rbn_spots":
 { Args: { "p_rows": Json }; Returns: number
@@ -845,6 +885,9 @@ isOneToOne: false
 "log_archive":
 { Args: { "p_bytes": number,"p_object_path": string,"p_row_count": number,"p_slice_end": string,"p_slice_start": string,"p_source": string }; Returns: undefined
                            },
+"maintain_aprs_packets":
+{ Args: Record<PropertyKey, never>; Returns: undefined
+                           },
 "maintain_rbn_spots":
 { Args: Record<PropertyKey, never>; Returns: undefined
                            },
@@ -914,6 +957,9 @@ isOneToOne: false
                            },
 "refresh_stats_snapshot_at":
 { Args: { "p_now": string }; Returns: undefined
+                           },
+"retire_aprs_day":
+{ Args: { "p_day": string }; Returns: undefined
                            },
 "retire_rbn_day":
 { Args: { "p_day": string }; Returns: undefined
