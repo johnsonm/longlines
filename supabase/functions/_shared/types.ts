@@ -175,7 +175,7 @@ export interface ArchiveDb {
   logArchive(entry: ArchiveLogEntry): Promise<void>;
 }
 
-/** Where archive objects go. Implemented by db.ts over the private `archive` bucket. */
+/** Where archive objects go. Implemented by archive_store.ts over an S3-compatible bucket (B2 hosted). */
 export interface ArchiveStore {
   /** Writes the object, replacing one already at that path. */
   upload(path: string, bytes: Uint8Array): Promise<void>;

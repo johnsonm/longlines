@@ -496,7 +496,7 @@ a keepalive about every 20 s, so the relay reconnects after 2 minutes of silence
 marks the feed unhealthy after 5.
 
 Size: about 300 bytes a packet with indexes, so roughly 2.5 GB a day at 100 packets a second. The
-database keeps yesterday and today; Storage grows by roughly 0.3 GB a day (measured as gzipped
+database keeps yesterday and today; the B2 archive grows by roughly 0.3 GB a day (measured as gzipped
 NDJSON; not yet re-measured since the archive moved to Parquet).
 
 ```sql
@@ -506,7 +506,96 @@ from pg_inherits i where i.inhparent = 'public.aprs_packets'::regclass;
 
 # Spot archive
 
-How it works is in `docs/ARCHITECTURE.md` ("The spot archive").
+How it works is in `docs/ARCHITECTURE.md` ("The spot archive"). The files live in a private
+Backblaze B2 bucket, written through B2's S3-compatible API.
+
+## Setup (Backblaze B2)
+
+1. Create a private bucket (B2 console or `b2 bucket create <bucket> allPrivate`). Its
+   endpoint is on the bucket page, e.g. `s3.us-west-004.backblazeb2.com`; the region is the
+   middle part (`us-west-004`).
+2. Create an application key restricted to that bucket with only `writeFiles` (the worker only
+   PUTs; overwriting a re-archived slice needs nothing more). A master key does not work with
+   the S3 API.
+
+   ```sh
+   b2 key create --bucket <bucket> longlines-archive-writer writeFiles
+   ```
+
+3. Set the five function secrets and redeploy `archive`:
+
+   ```sh
+   supabase secrets set \
+     LONGLINES_ARCHIVE_S3_ENDPOINT=https://s3.<region>.backblazeb2.com \
+     LONGLINES_ARCHIVE_S3_REGION=<region> \
+     LONGLINES_ARCHIVE_S3_BUCKET=<bucket> \
+     LONGLINES_ARCHIVE_S3_ACCESS_KEY_ID=<keyID> \
+     LONGLINES_ARCHIVE_S3_SECRET_ACCESS_KEY=<applicationKey>
+   supabase functions deploy archive
+   ```
+
+Until all five are set, every run answers 500 naming the missing ones and slices stay pending;
+nothing is lost, and RBN and APRS-IS days stay in the database until their slices are archived.
+To rotate the key, create a new one, set the two key secrets, then delete the old key.
+
+Locally, `archive` writes to the stack's own Storage through its S3 endpoint (the `archive`
+bucket the migrations create). Put these in `supabase/functions/.env`, with the key and secret
+`supabase status` prints as the S3 access key:
+
+```sh
+LONGLINES_ARCHIVE_S3_ENDPOINT=http://kong:8000/storage/v1/s3   # as seen from the functions container
+LONGLINES_ARCHIVE_S3_REGION=local
+LONGLINES_ARCHIVE_S3_BUCKET=archive
+LONGLINES_ARCHIVE_S3_ACCESS_KEY_ID=<S3 access key>
+LONGLINES_ARCHIVE_S3_SECRET_ACCESS_KEY=<S3 secret key>
+```
+
+Plain http is accepted only for `127.0.0.1`, `localhost`, `kong` and `host.docker.internal`.
+
+## Moving the Storage archive to B2 (one-off, 2026-10)
+
+Slices archived before the switch are in the Supabase Storage bucket `archive`. Object keys are
+the same in both places, so `archive_log.object_path` needs no change. After the deploy above
+(new slices then go only to B2), copy the old objects with rclone from an operator's machine:
+
+```sh
+# ~/.config/rclone/rclone.conf
+[supabase]
+type = s3
+provider = Other
+endpoint = https://<project-ref>.supabase.co/storage/v1/s3
+region = <project region>
+access_key_id = <Storage S3 access key>
+secret_access_key = <Storage S3 secret>
+force_path_style = true
+
+[b2]
+type = s3
+provider = Other
+endpoint = https://s3.<region>.backblazeb2.com
+region = <region>
+access_key_id = <a B2 key with listFiles, readFiles and writeFiles on the bucket>
+secret_access_key = <its applicationKey>
+force_path_style = true
+```
+
+```sh
+rclone copy supabase:archive b2:<bucket> --ignore-existing --checksum --progress
+rclone check supabase:archive b2:<bucket> --one-way     # every Storage object is in B2
+```
+
+`--ignore-existing` keeps any slice the new worker has already rewritten in B2. The migration key
+needs more than `writeFiles`, so delete it afterwards. Once `rclone check` is clean, check the
+log against B2 and then delete the Storage bucket (Storage settings, or empty it and delete it
+in the dashboard; SQL cannot delete Storage objects), and delete the Storage S3 access key:
+
+```sql
+select source, count(*), sum(bytes) from archive_log where object_path is not null group by 1;
+```
+
+```sh
+rclone size b2:<bucket>    # object count matches the log's total (plus any old .ndjson.gz)
+```
 
 ## Is it keeping up?
 
@@ -545,25 +634,28 @@ old (`aprs_day_slices` shows why a day stays).
 
 ## Reading the archive
 
-DuckDB reads the files straight from Storage's S3 endpoint. The day folders are Hive-style, so
-`year`, `month` and `day` become columns and a filter on them skips the other folders:
+DuckDB reads the files straight from B2's S3 endpoint. The day folders are Hive-style, so
+`year`, `month` and `day` become columns and a filter on them skips the other folders. Use a
+separate read-only key (`b2 key create --bucket <bucket> longlines-archive-reader listFiles,readFiles`),
+never the worker's:
 
 ```sql
 install httpfs; load httpfs;
-create secret (type s3, key_id '<S3 access key>', secret '<S3 secret>',
-               endpoint '<project-ref>.supabase.co/storage/v1/s3', region '<region>', url_style 'path');
+create secret (type s3, key_id '<keyID>', secret '<applicationKey>',
+               endpoint 's3.<region>.backblazeb2.com', region '<region>', url_style 'path');
 select spot_type, count(*)
-from read_parquet('s3://archive/rbn/*/*/*/*.parquet', hive_partitioning = true)
+from read_parquet('s3://<bucket>/rbn/*/*/*/*.parquet', hive_partitioning = true)
 where year = 2026 and month = 10 and day = 14
 group by 1;
 ```
 
 Slices archived before 2026-10-14 are still gzipped NDJSON in the old layout until the one-off
 migration rewrites them; read those with
-`read_json_auto('s3://archive/rbn/2026/10/11/*.ndjson.gz')`.
+`read_json_auto('s3://<bucket>/rbn/2026/10/11/*.ndjson.gz')`.
 
-S3 access keys are created under Storage settings and can read every bucket, so they belong on an
-operator's machine, never in the web app or the relay.
+B2 keys belong on an operator's machine or in the `archive` function's secrets, never in the web
+app or the relay. Downloads are free up to three times the stored size a month; a full-history
+scan from outside B2 counts against that.
 
 # Countries (cty.dat)
 
