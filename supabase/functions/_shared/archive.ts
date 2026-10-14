@@ -8,8 +8,14 @@
 
 import type { ArchiveDb, ArchiveSlice, ArchiveStore, Source } from "./types.ts";
 
-/** The small sources first, so an RBN backlog never starves them. */
+/**
+ * The sources a run takes when the request names none: the small sources first,
+ * so an RBN backlog never starves them. APRS-IS is not here: at ~100 packets/s
+ * it alone would fill the row budget, so its own cron job (archive-aprs) names it.
+ */
 export const ARCHIVE_ORDER: readonly Source[] = ["pota", "sotawatch", "dxcluster", "rbn"];
+/** Every source a request may name. */
+export const ARCHIVE_SOURCES: readonly Source[] = [...ARCHIVE_ORDER, "aprs"];
 /** Only slices that ended this long ago are archived, so late relay batches land first. */
 export const LAG_MS = 2 * 60 * 60 * 1000;
 /** A run starts no new slice once it has archived this many rows. */
@@ -23,6 +29,28 @@ export interface ArchiveSummary {
   empty: number;
   errors: string[];
   duration_ms: number;
+}
+
+/**
+ * The sources a request body asks for: `{"sources": [...]}`, or ARCHIVE_ORDER
+ * when the body is empty or names none. Throws on anything else.
+ */
+export function archiveSources(body: unknown): readonly Source[] {
+  if (body === null || body === undefined) return ARCHIVE_ORDER;
+  if (typeof body !== "object" || Array.isArray(body)) {
+    throw new Error("expected a JSON object");
+  }
+  const sources = (body as Record<string, unknown>)["sources"];
+  if (sources === undefined) return ARCHIVE_ORDER;
+  if (!Array.isArray(sources) || sources.length === 0) {
+    throw new Error('"sources" must be a non-empty array');
+  }
+  for (const s of sources) {
+    if (!ARCHIVE_SOURCES.includes(s as Source)) {
+      throw new Error(`unknown archive source: ${JSON.stringify(s)}`);
+    }
+  }
+  return sources as Source[];
 }
 
 function errorMessage(error: unknown): string {
@@ -46,6 +74,7 @@ export async function runArchive(
   db: ArchiveDb,
   store: ArchiveStore,
   now: Date = new Date(),
+  sources: readonly Source[] = ARCHIVE_ORDER,
 ): Promise<ArchiveSummary> {
   const started = performance.now();
   const summary: ArchiveSummary = {
@@ -58,7 +87,7 @@ export async function runArchive(
   };
   const before = new Date(now.getTime() - LAG_MS);
 
-  sources: for (const source of ARCHIVE_ORDER) {
+  sources: for (const source of sources) {
     let slices: ArchiveSlice[];
     try {
       slices = await db.pendingSlices(source, before, MAX_SLICES_PER_SOURCE);

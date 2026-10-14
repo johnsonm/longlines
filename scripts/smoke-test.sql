@@ -21,7 +21,7 @@ begin
 
   -- ingest_state is seeded.
   select count(*) into n from ingest_state;
-  assert n = 4, format('expected 4 ingest_state rows, found %s', n);
+  assert n = 5, format('expected 5 ingest_state rows, found %s', n);
 
   -- ingest_spots inserts, dedups and enqueues.
   select count(*) into first_pass from public.ingest_spots('[
@@ -60,7 +60,7 @@ begin
 
   -- Health view reads.
   select count(*) into n from ingest_health;
-  assert n = 4, 'ingest_health should have one row per source';
+  assert n = 5, 'ingest_health should have one row per source';
 
   -- rbn_spots: the bulk RPC inserts (dedup is covered in rbn_spots.test.sql).
   assert public.ingest_rbn_spots(jsonb_build_array(jsonb_build_object(
@@ -71,10 +71,25 @@ begin
   assert exists (select 1 from cron.job where jobname = 'maintain-rbn-spots'),
     'maintain-rbn-spots should be scheduled';
 
+  -- aprs_packets: the bulk RPC inserts and counts the hour (dedup is covered in aprs.test.sql).
+  assert public.ingest_aprs_packets(jsonb_build_array(jsonb_build_object(
+    'received_at', now(), 'source_call', 'N0SMK', 'destination', 'APRS', 'path', '',
+    'q_construct', 'qAC', 'igate', 'T2TEST', 'packet_type', 'status',
+    'line', 'N0SMK>APRS,qAC,T2TEST:>smoke'))) = 1,
+    'ingest_aprs_packets should insert one row';
+  assert (select spots_last_hour from ingest_health where source = 'aprs') >= 1,
+    'ingest_health should count the smoke aprs packet';
+  assert exists (select 1 from cron.job where jobname = 'maintain-aprs-packets'),
+    'maintain-aprs-packets should be scheduled';
+
   -- Archive: the slice RPCs answer, the job is scheduled, the bucket is private.
   assert (select row_count from public.archive_ndjson('rbn', now() - interval '1 day', now() + interval '1 minute')) >= 1,
     'archive_ndjson should see the smoke rbn row';
+  assert (select row_count from public.archive_ndjson('aprs', now() - interval '1 day', now() + interval '1 minute')) >= 1,
+    'archive_ndjson should see the smoke aprs packet';
   perform * from public.archive_pending_slices('pota', now(), 10);
+  assert exists (select 1 from cron.job where jobname = 'archive-aprs' and schedule = '2-59/5 * * * *'),
+    'archive-aprs should run every 5 minutes';
   assert exists (select 1 from cron.job where jobname = 'archive-spots' and schedule = '*/10 * * * *'),
     'archive-spots should run every 10 minutes';
   assert to_regclass('storage.buckets') is null

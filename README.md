@@ -33,6 +33,7 @@ on Fly.io that holds the telnet stream from the Reverse Beacon Network.
 ```
 POTA / SOTAwatch ──► ingest functions ──► raw_spots + spot_events queue
 RBN telnet ──► relay (Fly.io) ──► ingest-rbn ──┘
+APRS-IS ──► relay ──► ingest-aprs ──► aprs_packets (stored and archived, not matched)
                                                    │
                                    match_pending_spots (SQL, every minute)
                                                    │
@@ -57,7 +58,10 @@ minute so source health shows the relay is alive. `ingest-rbn` stores every spot
 subscription on to matching, through the same orchestrator as the pulled sources. The relay
 authenticates with a shared secret and never holds
 a Supabase key. An RBN spot only matches subscriptions that name callsigns, so a broad "any
-source, 20m CW" subscription is not flooded with other people's watchlist hits. See
+source, 20m CW" subscription is not flooded with other people's watchlist hits. The relay also holds the
+APRS-IS full feed: every packet on the network goes into `aprs_packets` (about two days in the
+database, everything in the Storage archive) for later analysis. APRS packets are not spots and
+never reach matching. See
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) ("Streaming sources: the relay").
 
 **Match.** `match_pending_spots()` is a Postgres function on a one-minute cron, also poked after

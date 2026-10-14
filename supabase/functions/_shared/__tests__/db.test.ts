@@ -1,5 +1,6 @@
 import { assertEquals, assertRejects, assertThrows } from "@std/assert";
 import {
+  createAprsDb,
   createArchiveDb,
   createArchiveStore,
   createIngestDb,
@@ -7,7 +8,7 @@ import {
   createServiceClient,
   createWatchlistDb,
 } from "../db.ts";
-import type { NormalizedSpot, RbnSpotRow } from "../types.ts";
+import type { AprsPacketRow, NormalizedSpot, RbnSpotRow } from "../types.ts";
 import { fakeSupabase } from "./fake_supabase.ts";
 
 const boom = { error: { message: "boom" } };
@@ -130,6 +131,24 @@ Deno.test("ingestRbnSpots treats a non-number as 0 and throws on error", async (
     () => createRbnDb(b.client).ingestRbnSpots([]),
     Error,
     "ingest_rbn_spots failed: boom",
+  );
+});
+
+Deno.test("ingestAprsPackets sends the batch to the RPC and returns the inserted count", async () => {
+  const { client, calls } = fakeSupabase({ rpc: { ingest_aprs_packets: { data: 3 } } });
+  const rows = [{ source_call: "N0CALL" }] as unknown as AprsPacketRow[];
+  assertEquals(await createAprsDb(client).ingestAprsPackets(rows), 3);
+  assertEquals(calls.rpc, [{ fn: "ingest_aprs_packets", args: { p_rows: rows } }]);
+});
+
+Deno.test("ingestAprsPackets treats a non-number as 0 and throws on error", async () => {
+  const a = fakeSupabase({ rpc: { ingest_aprs_packets: { data: null } } });
+  assertEquals(await createAprsDb(a.client).ingestAprsPackets([]), 0);
+  const b = fakeSupabase({ rpc: { ingest_aprs_packets: boom } });
+  await assertRejects(
+    () => createAprsDb(b.client).ingestAprsPackets([]),
+    Error,
+    "ingest_aprs_packets failed: boom",
   );
 });
 
