@@ -298,8 +298,11 @@ Example spots are static objects in the `WEBHOOKS.md` shape, using the mock's va
 
 ## Delivery
 
-One branch, `source-catalog`, one PR. The migration is applied to the hosted project by the GitHub
-integration on merge, and the web deploys through Vercel. Nothing changes in `relay/` or the Edge
+Three PRs, each safe to merge alone (Brad prefers several smaller PRs): the `dx` migration
+(`source-catalog`), the pure catalog data, status and rates modules (`source-catalog-data`), and the
+two pages with the CLAUDE.md rules (`source-catalog-pages`); the plan's "Branches and PRs" has the
+details. The migration is applied to the hosted project by the GitHub integration on merge, and the
+web deploys through Vercel. Nothing changes in `relay/` or the Edge
 Functions.
 
 CLAUDE.md gains a short "Source catalog rules" section: catalog copy lives in `sources.ts` and

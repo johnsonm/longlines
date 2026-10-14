@@ -10,23 +10,42 @@
 
 **Spec:** `docs/superpowers/specs/2026-10-14-source-catalog-design.md` (read it before any part; the copy tables there are authoritative).
 
-## How to run this plan: five prompts
+## How to run this plan: five prompts, three PRs
 
 The work is split into five parts so each runs in a fresh session with a small context. Run them
-in order; each ends with a commit on branch `source-catalog`. Paste the part's **Prompt** block into a new
-Claude Code session opened in `/Users/bradbazemore/Dev/longlines-source-catalog`.
+in order; each ends with a commit. Paste the part's **Prompt** block into a new Claude Code session
+opened in `/Users/bradbazemore/Dev/longlines-source-catalog`.
 
-| Part | Tasks | Produces |
-| --- | --- | --- |
-| 1 | Task 1 | Migration `20261014000200_stats_dxcluster.sql`, `dx` in `StatsPayload`, pgTAP |
-| 2 | Tasks 2–3 | `sources.ts` catalog fields, `status.ts`, `rates.ts` (pure, node tests) |
-| 3 | Tasks 4–5 | `useVisibleInterval.ts`, `useIngestHealth.ts`, `SourceMark.tsx`, `SourceTile.tsx`, catalog `SourcesPage.tsx` |
-| 4 | Tasks 6–7 | `RateChart.tsx`, `SourceDetailPage.tsx`, `/sources/:id` route |
-| 5 | Task 8 | CLAUDE.md rules, full gates, PR |
+| Part | Tasks | Produces | Branch | PR |
+| --- | --- | --- | --- | --- |
+| 1 | Task 1 | Migration `20261014000200_stats_dxcluster.sql`, `dx` in `StatsPayload`, pgTAP | `source-catalog` | A: #161 |
+| 2 | Tasks 2–3 | `sources.ts` catalog fields, `status.ts`, `rates.ts` (pure, node tests) | `source-catalog-data` | B |
+| 3 | Tasks 4–5 | `useVisibleInterval.ts`, `useIngestHealth.ts`, `SourceMark.tsx`, `SourceTile.tsx`, catalog `SourcesPage.tsx` | `source-catalog-pages` | C (draft) |
+| 4 | Tasks 6–7 | `RateChart.tsx`, `SourceDetailPage.tsx`, `/sources/:id` route | `source-catalog-pages` | C (draft) |
+| 5 | Task 8 | CLAUDE.md rules, full gates | `source-catalog-pages` | C (ready) |
+
+### Branches and PRs
+
+Brad wants several reviewable PRs, not one. Each PR must be safe to merge on its own, so Parts 3–5
+share PR C: Part 3 alone would drop the recent-spots table from `/sources` and link tiles to
+`/sources/:id`, which only Part 4 adds.
+
+- **Starting a part on a new branch (Parts 2 and 3):** `git fetch origin`. If the previous PR is
+  merged into `origin/main`, branch from `origin/main`; otherwise branch from the previous PR's
+  branch (stacked). Use `git switch -c <branch> <start>` in this worktree; never `git checkout` an
+  existing branch another session may hold.
+- **Pushing:** always `git push -u origin <branch>` with the branch named; never a bare `git push`
+  (the worktree's first branch once tracked `origin/main`).
+- **Opening the PR:** `gh pr create --base <base>`, where `<base>` is `main` or, when stacked, the
+  previous PR's branch. The repo deletes branches on merge, so GitHub retargets a stacked PR to
+  `main` when its base merges. Part 3 opens PR C as a draft (`--draft`); Parts 4 and 5 push to it;
+  Part 5 marks it ready (`gh pr ready`) after every gate passes.
+- **PR text** follows the PR A pattern: what the PR does, what's still to come, testing with real
+  numbers, and that merging applies any migration to the hosted project.
 
 ## Global Constraints
 
-- Work only in the worktree `/Users/bradbazemore/Dev/longlines-source-catalog`, branch `source-catalog`. Never `supabase db push`, `functions deploy`, `fly deploy`.
+- Work only in the worktree `/Users/bradbazemore/Dev/longlines-source-catalog`, on the part's branch (see "Branches and PRs"). Never `supabase db push`, `functions deploy`, `fly deploy`.
 - Another session may share the local Supabase stack: run `supabase db reset` before `supabase test db`.
 - Commit messages end with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 - `web/src/lib/api.ts` stays the only module that touches supabase-js; no change to it is needed.
@@ -211,10 +230,11 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ```
 Implement Part 2 (Tasks 2 and 3) of docs/superpowers/plans/2026-10-14-source-catalog.md in this
-worktree (/Users/bradbazemore/Dev/longlines-source-catalog, branch source-catalog). Part 1 is
-committed. Read the plan's header, Global Constraints and Part 2, and the spec's "SourceInfo
-additions", "Copy" and "Data" sections. Use superpowers:executing-plans with TDD. Stop after the
-Task 3 commit with a short report.
+worktree (/Users/bradbazemore/Dev/longlines-source-catalog). Part 1 is in PR #161. Read the plan's
+header (including "Branches and PRs"), Global Constraints and Part 2, and the spec's "SourceInfo
+additions", "Copy" and "Data" sections. Start branch source-catalog-data as "Branches and PRs" says.
+Use superpowers:executing-plans with TDD. After the Task 3 commit, run cd web && npm run coverage &&
+npm run build && npm run lint, push, open PR B, and stop with a short report and the PR URL.
 ```
 
 ### Task 2: `SourceInfo` catalog fields and `status.ts`
@@ -780,10 +800,12 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ```
 Implement Part 3 (Tasks 4 and 5) of docs/superpowers/plans/2026-10-14-source-catalog.md in this
-worktree (/Users/bradbazemore/Dev/longlines-source-catalog, branch source-catalog). Parts 1-2 are
-committed. Read the plan's header, Global Constraints and Part 3, the spec's "Components" and
+worktree (/Users/bradbazemore/Dev/longlines-source-catalog). Part 2 is in PR B. Read the plan's
+header (including "Branches and PRs"), Global Constraints and Part 3, the spec's "Components" and
 "Copy > Catalog" sections, and web/src/sources/sources.ts, status.ts and rates.ts for the interfaces.
-Use superpowers:executing-plans with TDD. Stop after the Task 5 commit with a short report.
+Start branch source-catalog-pages as "Branches and PRs" says. Use superpowers:executing-plans with
+TDD. After the Task 5 commit, push and open PR C as a draft (the pages, Parts 3-5), and stop with a
+short report and the PR URL.
 ```
 
 ### Task 4: polling hooks, `SourceMark` and `SourceTile`
@@ -1292,11 +1314,12 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ```
 Implement Part 4 (Tasks 6 and 7) of docs/superpowers/plans/2026-10-14-source-catalog.md in this
-worktree (/Users/bradbazemore/Dev/longlines-source-catalog, branch source-catalog). Parts 1-3 are
-committed. Read the plan's header, Global Constraints and Part 4, the spec's "Components",
+worktree (/Users/bradbazemore/Dev/longlines-source-catalog, branch source-catalog-pages). Part 3 is
+in draft PR C. Read the plan's header (including "Branches and PRs"), Global Constraints and
+Part 4, the spec's "Components",
 "Data > Rates/States" and "Copy" sections (volume alerts, cards), and web/src/sources/*.ts(x) for
-the interfaces. Use superpowers:executing-plans with TDD. Stop after the Task 7 commit with a
-short report.
+the interfaces. Use superpowers:executing-plans with TDD. After the Task 7 commit, push to PR C and
+stop with a short report.
 ```
 
 ### Task 6: `RateChart`
@@ -1630,18 +1653,19 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ---
 
-# Part 5: rules, gates and the PR
+# Part 5: rules, gates and PR C ready
 
 **Prompt:**
 
 ```
 Implement Part 5 (Task 8) of docs/superpowers/plans/2026-10-14-source-catalog.md in this worktree
-(/Users/bradbazemore/Dev/longlines-source-catalog, branch source-catalog). Parts 1-4 are committed.
-Read the plan's header, Global Constraints and Part 5. Use superpowers:verification-before-completion.
-Push the branch and open the PR only after every gate passes; report the PR URL.
+(/Users/bradbazemore/Dev/longlines-source-catalog, branch source-catalog-pages). Parts 3-4 are in
+draft PR C. Read the plan's header (including "Branches and PRs"), Global Constraints and Part 5.
+Use superpowers:verification-before-completion. Push, update PR C's description and mark it ready
+only after every gate passes; report the PR URL.
 ```
 
-### Task 8: CLAUDE.md, full gates, PR
+### Task 8: CLAUDE.md, full gates, PR C ready
 
 **Files:**
 - Modify: `CLAUDE.md` (new section after "Web app rules")
@@ -1679,28 +1703,35 @@ Expected: everything passes. `npm run test:all` runs every CI check against the 
 
 Run `cd web && npm run dev:full`, sign in locally (see the memory "Local browser walkthrough" if Playwright is needed), open `/sources`, `/sources/rbn`, `/sources/pota`, `/sources/aprs` at desktop and 390 px widths. Check: tiles in order, search and chips, the RBN alert, the chart with a red peak dot, schema table, example JSON, recent spots, no horizontal scroll on a phone. Fix anything broken and commit.
 
-- [ ] **Step 4: Commit, push, open the PR**
+- [ ] **Step 4: Commit, push, mark PR C ready**
 
 ```bash
 git add CLAUDE.md
 git commit -m "CLAUDE.md: source catalog rules
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
-git push -u origin source-catalog
-gh pr create --title "Source catalog: tiles and a detail page per source" --body "$(cat <<'EOF'
-Builds Page 2 of the design canvas (Source catalog).
+git push -u origin source-catalog-pages
+gh pr edit source-catalog-pages --title "Source catalog: tiles and a detail page per source" --body "$(cat <<'EOF'
+Builds Page 2 of the design canvas (Source catalog). The last of three PRs: #161 added `dx` to the stats snapshot, #<B> the catalog data, status and rates modules these pages use.
 
 - `/sources` is now a catalog: search, All / Connected / Not yet available, one tile per source with status, volume and its 7-day average rate.
 - `/sources/:id` per live source: volume alert, average / peak / minimum / busiest hour, a 7-day rate chart, the delivered-spot schema and an example, about, run by, where it shows up, and the recent spots table that used to sit on the Sources page.
-- Migration `20261014000200_stats_dxcluster.sql` adds `dx` (DX Cluster spots) to the snapshot's `daily` and `hourly`; nothing else in the snapshot changes and the Stats page does not show it.
+- CLAUDE.md gains "Source catalog rules".
 
 Spec: `docs/superpowers/specs/2026-10-14-source-catalog-design.md`. Copy differs from the mock where the mock describes things Long Lines doesn't do; the spec lists every change.
 
-After merge the integration applies the migration; DX Cluster rates appear after the next hourly stats refresh.
+## Testing
+
+<the gate results from Step 2 with real counts, and what Step 3 checked in the browser>
+
+No migration; nothing changes in `relay/` or the Edge Functions.
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 EOF
 )"
+gh pr ready source-catalog-pages
 ```
 
-Expected: the PR URL. CI runs on the PR; the Supabase preview seeds and refreshes stats.
+Fill in `#<B>` (`gh pr list --head source-catalog-data --state all`) and the Testing section before running it.
+
+Expected: `gh pr ready` confirms; report the PR URL. CI runs on the PR.
