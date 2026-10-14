@@ -1,6 +1,6 @@
 import { assertEquals } from "@std/assert";
 import { runIngest } from "../ingest.ts";
-import { createRbnPushDb, ingestHandler, pushIngestHandler } from "../serve.ts";
+import { createAprsPushDb, createRbnPushDb, ingestHandler, pushIngestHandler } from "../serve.ts";
 import { fakeSupabase } from "./fake_supabase.ts";
 import type { IngestDb, SourceAdapter } from "../types.ts";
 
@@ -127,6 +127,15 @@ Deno.test("pushIngestHandler refuses GET now that the relay no longer reads a wa
 Deno.test("createRbnPushDb combines the ingest, watchlist and rbn_spots surfaces", () => {
   const db = createRbnPushDb(fakeSupabase().client);
   for (const method of ["ingestSpots", "recordSuccess", "watchedAmong", "ingestRbnSpots"]) {
+    assertEquals(typeof (db as unknown as Record<string, unknown>)[method], "function", method);
+  }
+});
+
+Deno.test("createAprsPushDb combines the ingest-state and aprs_packets surfaces", () => {
+  const db = createAprsPushDb(fakeSupabase().client);
+  for (
+    const method of ["recordSpotFailures", "recordSuccess", "recordFailure", "ingestAprsPackets"]
+  ) {
     assertEquals(typeof (db as unknown as Record<string, unknown>)[method], "function", method);
   }
 });

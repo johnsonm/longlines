@@ -74,7 +74,7 @@ manage devices.
 | GET | `/destinations` | | All your destinations. |
 | POST | `/destinations` | `{"type": "discord" or "webhook", "name", "url"}`, or `{"type": "push", "name"}` | The destination. A webhook also gets `signing_secret`, shown only here. A second push destination is a `400`: "You already have push notifications." |
 | GET | `/destinations/{id}` | | The destination. |
-| PATCH | `/destinations/{id}` | `{"name"?, "url"?}` | The destination. The type can't change, and a push destination takes no `url`. |
+| PATCH | `/destinations/{id}` | `{"name"?, "url"?}` | The destination. The type can't change, and a push destination takes no `url`. A new `url` clears `failing` health and the failure count. |
 | DELETE | `/destinations/{id}` | | `{"deleted": true}`, or `409` while a subscription uses it. |
 | POST | `/destinations/{id}/rotate-secret` | | `{"signing_secret"}`, for webhooks. The old secret stops working. |
 | POST | `/destinations/{id}/test` | | `{"ok": true}` once a sample spot is delivered (for push, to at least one device), or `502` with the destination's error. |
@@ -105,7 +105,7 @@ A subscription says which spots you want and where to send them. Empty lists mea
 | `callsigns` | strings | Exact calls. Uppercased for you. RBN spots only match subscriptions that name callsigns. |
 | `group_ids` | UUIDs | Callsign groups whose members count as callsigns. |
 | `reference` | string | A park or summit reference to look for, such as `US-1234`. |
-| `quiet_minutes` | number | 0, 5, 10, 30 or 60. Defaults to 10. |
+| `quiet_minutes` | integer | 0, 5, 10, 30 or 60. Defaults to 10. |
 | `destinations` | UUIDs | Required, at least one. |
 
 | Method | Path | Body | Returns |
@@ -113,8 +113,8 @@ A subscription says which spots you want and where to send them. Empty lists mea
 | GET | `/subscriptions` | | All your subscriptions. |
 | POST | `/subscriptions` | All the fields above | The subscription. |
 | GET | `/subscriptions/{id}` | | The subscription. |
-| PUT | `/subscriptions/{id}` | All the fields above | The subscription. Lists and `reference` left out become empty; `enabled` and `quiet_minutes` left out keep their values. |
-| PATCH | `/subscriptions/{id}` | Any of the fields above | The subscription. Fields left out keep their values. |
+| PUT | `/subscriptions/{id}` | All the fields above | The subscription. `reference` and every list but `group_ids` left out become empty; `group_ids`, `enabled` and `quiet_minutes` left out keep their values (send `"group_ids": []` to clear the groups). |
+| PATCH | `/subscriptions/{id}` | Any of the fields above | The subscription. Fields left out keep their values, and so do `name`, `reference`, `enabled` and `quiet_minutes` sent as `null`. A list can't be `null`: send `[]` to empty it. |
 | DELETE | `/subscriptions/{id}` | | `{"deleted": true}` |
 | POST | `/subscriptions/{id}/callsigns` | `{"callsigns": [...]}` | `{"callsigns": [...]}`, the full list after adding. |
 | POST | `/subscriptions/{id}/callsigns/remove` | `{"callsigns": [...]}` | `{"callsigns": [...]}`, the full list after removing. |
@@ -138,7 +138,7 @@ callsign refuses the whole request with `400` and "Not a callsign: …", and not
 | GET | `/groups` | | All your groups. |
 | POST | `/groups` | `{"name", "callsigns"?: [...]}` | The group. Names are unique per account, ignoring case. |
 | GET | `/groups/{id}` | | The group. |
-| PATCH | `/groups/{id}` | `{"name"?, "callsigns"?: [...]}` | The group. A `callsigns` list replaces the whole member list. |
+| PATCH | `/groups/{id}` | `{"name"?, "callsigns"?: [...]}` | The group. A `callsigns` list replaces the whole member list. A `name` left out, or sent as `null`, stays. |
 | DELETE | `/groups/{id}` | | `{"deleted": true}`, or `409` while a subscription uses it. |
 | POST | `/groups/{id}/members` | `{"callsigns": [...]}` | The group, after adding. Calls already in the group are skipped. |
 | POST | `/groups/{id}/members/remove` | `{"callsigns": [...]}` | The group, after removing. Calls not in the group are ignored. |

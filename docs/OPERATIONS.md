@@ -314,10 +314,11 @@ supabase gen types typescript --local > web/src/lib/database.types.ts
 
 The generated file is committed; CI type-checks the app against it.
 
-# Relay (RBN, DX Cluster)
+# Relay (RBN, DX Cluster, APRS-IS)
 
-The relay in `relay/` runs on Fly.io as app `longlines-relay`. It holds one telnet session per feed:
-RBN (`ingest-rbn`) and DX Cluster (`ingest-dxcluster`). Design notes are in `docs/ARCHITECTURE.md`
+The relay in `relay/` runs on Fly.io as app `longlines-relay`. It holds one session per feed:
+RBN (`ingest-rbn`), DX Cluster (`ingest-dxcluster`) and, once `APRS_LOGIN_CALL` is set, APRS-IS
+(`ingest-aprs`). Design notes are in `docs/ARCHITECTURE.md`
 ("Streaming sources: the relay").
 
 ## First deploy
@@ -420,7 +421,8 @@ LONGLINES_RELAY_SECRET=<same value> RELAY_LOGIN_CALL=<callsign> \
 deno run --allow-net --allow-env relay/main.ts
 ```
 
-This opens real connections to RBN and the DX Cluster node; stop it when done. In Docker, use
+This opens real connections to RBN and the DX Cluster node (and APRS-IS if `APRS_LOGIN_CALL` is
+set); stop it when done. In Docker, use
 `http://host.docker.internal:54321/functions/v1`.
 
 ## DX Cluster
@@ -456,6 +458,51 @@ A subscription receives DX Cluster spots only when its sources list DX Cluster; 
 not include it. If a DX spot is missing, check the subscription's sources first, then
 `ingest_failures where source = 'dxcluster'`, then the relay logs (`[dxcluster]`).
 
+## APRS-IS
+
+The third feed: the APRS-IS full feed, every packet on the network, from `rotate.aprs2.net:10152`.
+It is off until `APRS_LOGIN_CALL` is set. Pick a call-SSID that no other APRS client of yours uses
+(APRS-IS drops the older of two connections with the same login), at most nine characters:
+
+```sh
+fly secrets set APRS_LOGIN_CALL=<CALL-SSID>              # restarts the machine; the feed starts
+fly secrets set APRS_HOST=noam.aprs2.net APRS_PORT=10152  # optional: another server
+fly secrets unset APRS_LOGIN_CALL                         # turns the feed off again
+```
+
+The login is receive-only (passcode -1) with no filter. Never add one: the full feed is the point.
+
+First deploy, in this order: merge (the Supabase GitHub integration applies
+`20261014000010_aprs_source` and Fly redeploys the relay with the feed still off), then
+`supabase functions deploy ingest-aprs` (the integration does not deploy a new function), then
+`fly secrets set APRS_LOGIN_CALL=...`. Setting the secret before the function exists makes every
+push fail with 404; the forwarder keeps up to 150,000 lines (about 25 minutes) and retries.
+
+Is it running?
+
+```sql
+select * from ingest_health where source = 'aprs';
+select received_at, source_call, packet_type, line from aprs_packets
+where received_at > now() - interval '5 minutes' order by received_at desc limit 20;
+select packet_type, count(*) from aprs_packets
+where received_at > now() - interval '1 hour' group by 1 order by 2 desc;
+select hour_start, packets from aprs_packet_hours order by hour_start desc limit 24;
+```
+
+`spots_last_hour` here counts packets: expect a few hundred thousand. The relay's ten-minute stats
+log (`[aprs] ... lines, ... spots, ... pushed, ... buffered, ... dropped`) gives the rate as the relay
+sees it; `dropped` above 0 means Supabase was unreachable for longer than the buffer. APRS-IS sends
+a keepalive about every 20 s, so the relay reconnects after 2 minutes of silence and `/healthz`
+marks the feed unhealthy after 5.
+
+Size: about 300 bytes a packet with indexes, so roughly 2.5 GB a day at 100 packets a second. The
+database keeps yesterday and today; Storage grows by roughly 0.3 GB a day of gzipped NDJSON.
+
+```sql
+select pg_size_pretty(sum(pg_total_relation_size(i.inhrelid)))
+from pg_inherits i where i.inhparent = 'public.aprs_packets'::regclass;
+```
+
 # Spot archive
 
 How it works is in `docs/ARCHITECTURE.md` ("The spot archive").
@@ -468,8 +515,9 @@ select status_code, content::text from net._http_response order by created desc 
 ```
 
 A growing `pending_slices` means runs are failing; the `archive` function's responses (500 with an
-`errors` list) say why. Nothing is lost meanwhile: retention drops no RBN day until its slices are
-archived.
+`errors` list) say why. Nothing is lost meanwhile: retention drops no RBN or APRS-IS day until its
+slices are archived. APRS-IS has its own job, `archive-aprs`, every five minutes; its
+`pending_slices` can sit a little higher than the others' because each run takes two slices.
 
 ## Re-archive a slice
 
@@ -488,6 +536,9 @@ is still in the database:
 ```sql
 select * from rbn_day_slices('2026-10-01') where archived_rows is distinct from db_rows;
 ```
+
+`maintain_aprs_packets()` does the same for APRS-IS at 03:45 UTC, dropping days that are two days
+old (`aprs_day_slices` shows why a day stays).
 
 ## Reading the archive
 

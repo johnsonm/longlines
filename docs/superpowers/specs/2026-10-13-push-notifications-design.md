@@ -41,10 +41,11 @@ this adds none: `deliver` and `send-test` already exist.
 
 ## PR 1: schema and delivery
 
-### Migration `20261013000400_push_destinations.sql`
+### Migration `20261014000100_push_destinations.sql`
 
-Recheck the number across every worktree and remote branch first. On 2026-10-13 the highest
-anywhere is `20261013000300_management_api.sql`.
+Recheck the number across every worktree and remote branch first. It was planned as
+`20261013000400`, then renumbered on 2026-10-14 after `20261014000010`–`000020` (APRS, API
+fixes) merged to main ahead of it; an unmerged branch already uses `20261014000030`.
 
 - **Destinations.**
   - The `destinations.type` check gains `'push'`.

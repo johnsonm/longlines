@@ -172,7 +172,9 @@ A callsign filter value matches a spot whose callsign is that value or whose bas
 (`base_callsign()`, below): `KK4PWJ` catches `KK4PWJ/P` and `W4/KK4PWJ`, while `KK4PWJ/P` catches
 only `/P`. `raw_spots.base_callsign` is a stored generated column with its own index. The rule is
 `callsign_matches()` (and `source_matches()` for sources), shared by `spot_matches` and the RBN
-watchlist `watched_among`, so the two cannot drift apart.
+watchlist `watched_among`, so the two cannot drift apart. A subscription can also name callsign
+groups (`group_ids`); the callsign filter is the union of the typed calls and the groups' members
+(see "Callsign groups" below).
 
 A mode filter value matches either `raw_spots.mode` or `raw_spots.mode_family` (`cw`, `phone`,
 `digital`). The family is derived at ingest by `supabase/functions/_shared/modes.ts`, the only
@@ -201,7 +203,7 @@ not block the cascade.
   are the client path. Supabase's security linter flags definer views in an exposed schema, so
   don't turn either back into one.
 - Their own `profiles`, `destinations` (safe columns), `subscriptions` and
-  links, through RLS.
+  links, `callsign_groups` and `callsign_group_members`, through RLS.
 - `stats_snapshots`: hourly jsonb summaries of the last 7 complete UTC days, written only by
   cron (`refresh_stats_snapshot`). Anyone can read every row, signed in or not: the Stats page
   is public and the payload is aggregated from already-public spot feeds.
@@ -367,6 +369,9 @@ flowchart LR
   F -- "runIngest(watched lines)" --> RPC[(ingest_spots)]
   R -- "POST human spot lines" --> FD[ingest-dxcluster]
   FD -- "runIngest(every line)" --> RPC
+  APRS[rotate.aprs2.net:10152, full feed] -- "one TCP session" --> R
+  R -- "POST every packet line" --> FA[ingest-aprs]
+  FA -- "rpc ingest_aprs_packets" --> AP[(aprs_packets)]
 ```
 
 The Reverse Beacon Network only offers a persistent telnet stream. Edge Functions cannot hold one,
@@ -446,23 +451,60 @@ in with `RELAY_LOGIN_CALL` and forwards every line `parseDxLine` (`_shared/dxclu
 - **Quiet hours.** Human spots can pause for minutes, so this feed reconnects after 15 minutes
   without data (RBN: 5) and `/healthz` marks it unhealthy after 20 (RBN: 10).
 
+## APRS-IS
+
+The third feed is the APRS-IS full feed: port 10152 on `rotate.aprs2.net` (overridable with
+`APRS_HOST`/`APRS_PORT`), every packet the network carries with no server-side filter. The full
+feed is deliberate; never add a filter to the login. It runs at roughly 50-150 packets a second,
+4-13 million a day.
+
+- **Off until configured.** `aprsFeed` returns no feed until `APRS_LOGIN_CALL` is set. APRS-IS
+  drops an older connection that logs in with the same call-SSID, so the relay's login must be one
+  no other client uses (`aprsLoginCall` checks the shape: at most nine characters).
+- **Plain TCP.** APRS-IS is not telnet: `TcpLineDecoder` (`relay/telnet.ts`) decodes UTF-8 and has
+  no IAC handling. There is no prompt; the server sends a `# aprsc ...` banner line, and the relay
+  answers with `user <call> pass -1 vers LongLines 0.1` (passcode -1 is receive-only). Servers send a
+  `#` keepalive about every 20 s, so the feed reconnects after 2 minutes of silence and `/healthz`
+  marks it unhealthy after 5. The forwarder buffers up to 150,000 lines (about 25 minutes).
+- **Packets, not spots.** `ingest-aprs` runs `runAprsPush` (`_shared/aprs.ts`): every line
+  `parseAprsLine` accepts goes to `aprs_packets` through `ingest_aprs_packets`, unparseable lines
+  to `ingest_failures`, and `ingest_state` records the batch. Nothing reaches `raw_spots`, the
+  matcher, `spot_stream`, the rollups or Stats, and `raw_spots`' source check does not allow
+  `aprs`. The Sources page shows the feed's health; it is not a subscription source.
+- **What is parsed.** The header (source, destination, digipeater path, the q-construct the
+  server added and the igate after it) and the packet type from the data type identifier
+  (`position`, `mic_e`, `object`, `item`, `message`, `status`, `weather`, `telemetry`, `nmea`,
+  `third_party`, `capabilities`, `query`, `user_defined`, `other`). Positions, weather and
+  telemetry are not decoded; the line is stored exactly as received for that.
+- **Storage.** `aprs_packets` is partitioned by UTC day on `received_at` (packets mostly carry no
+  time of their own), like `rbn_spots`: partitions in the `partitions` schema, created by
+  `create_aprs_packets_partition` from `maintain_aprs_packets()` (daily, 03:45 UTC). Dedup is
+  `unique (received_at, line_md5)`, so a retried batch inserts nothing. `aprs_packet_hours` keeps
+  packets per hour indefinitely; the Sources page reads its 24-hour figure there instead of
+  counting millions of rows.
+- **Two days.** `maintain_aprs_packets()` drops a day once it is two days old and every
+  five-minute slice is archived with a matching count, so the database holds yesterday and today
+  (about 5 GB at 8 million packets a day).
+
 # The spot archive
 
 ```mermaid
 flowchart LR
   CRON[pg_cron every 10 min] -- "service-role key" --> A[archive function]
+  CRONA[pg_cron every 5 min: sources aprs] -- "service-role key" --> A
   A -- "rpc archive_pending_slices" --> P[(due slices)]
-  A -- "rpc archive_ndjson" --> N[(rbn_spots / raw_spots)]
+  A -- "rpc archive_ndjson" --> N[(rbn_spots / aprs_packets / raw_spots)]
   A -- "gzip, upload" --> S[[Storage bucket: archive]]
   A -- "rpc log_archive" --> L[(archive_log)]
   M[maintain_rbn_spots daily] -- "rbn_day_archived, retire_rbn_day" --> N
+  MA[maintain_aprs_packets daily] -- "aprs_day_archived, retire_aprs_day" --> N
 ```
 
 Every spot of every source is kept for analytics as gzipped NDJSON in a private Storage bucket,
 `archive` (spec `docs/superpowers/specs/2026-10-11-rbn-firehose-archive-design.md` and its
 measurement amendment).
 
-- **Slices.** RBN is archived in 10-minute slices, POTA, SOTAwatch and DX Cluster hourly. The length lives only
+- **Slices.** APRS-IS is archived in 5-minute slices, RBN in 10-minute slices, POTA, SOTAwatch and DX Cluster hourly. The length lives only
   in `archive_slice_minutes(source)`; slices are aligned with `date_bin` and half-open
   (`[start, end)`). Objects are `<source>/YYYY/MM/DD/HHMM.ndjson.gz`.
 - **Postgres does the heavy lifting.** `archive_pending_slices` returns the slices that ended two
@@ -472,14 +514,19 @@ measurement amendment).
 - **Runs.** pg_cron calls `archive` every 10 minutes with the service-role key (Vault), like the
   ingest jobs. A run takes POTA, then SOTAwatch, then DX Cluster, then RBN, oldest first, and
   starts no new slice once it has archived 60,000 rows, so a backlog clears about six times faster
-  than real time without risking the CPU limit.
+  than real time without risking the CPU limit. APRS-IS is not in that list: at ~100 packets a
+  second it alone fills the budget. A second job, `archive-aprs`, calls `archive` every five
+  minutes (two minutes off the 10-minute grid) with `{"sources": ["aprs"]}`; two 30,000-packet
+  slices a run measured at about 0.2 s of CPU, and a backlog clears at about twice real time. The
+  function answers 400 to a body naming an unknown source.
 - **Logged only when stored.** A slice gets its `archive_log` row (count, bytes, path) only after
   the upload succeeds; a failure leaves it pending for the next run. Empty slices are logged with
   `row_count = 0` and no object, so a gap in `archive_log` always means "not archived".
 - **Lines.** RBN: `spot_time, received_at, spotter, callsign, frequency_khz, band, mode,
   mode_family, snr, speed, speed_unit, spot_type, line`. POTA, SOTAwatch and DX Cluster: every
   `raw_spots` column except `id`, including the upstream `raw_payload`. Watched RBN rows in
-  `raw_spots` are not archived from there.
+  `raw_spots` are not archived from there. APRS-IS: `received_at, source_call, destination, path,
+  q_construct, igate, packet_type, line`.
 - **Retention.** `maintain_rbn_spots()` (03:35 UTC, off the archive's 10-minute grid) retires RBN
   days older than seven that `callsign_rollup_days` records (callsign profiles keep per-station
   totals from every day), and any archived day older than 14 so a missing rollup cannot stop
@@ -489,7 +536,9 @@ measurement amendment).
   and gives up after 5 s. The day's partition and any default-partition rows go only when all
   144 slices are logged with the database's count (`rbn_day_slices`). A mismatched slice loses its
   log row, so the next run re-archives it and the day is retried the next night. `raw_spots` is
-  never pruned.
+  never pruned. `maintain_aprs_packets()` (03:45 UTC) does the same for `aprs_packets` with 288
+  five-minute slices a day, retiring a day once it is two days old; nothing rolls APRS up, so there
+  is no rollup condition.
 
 # Countries (cty.dat)
 
@@ -718,3 +767,49 @@ host-matched rewrite in `web/vercel.json` to `/functions/v1/api/v1/...`.
 - **Errors.** SQL raises user-facing messages. `_shared/api/errors.ts` maps "... not found." to
   404, "Remove it from its subscriptions first." to 409, other raised messages and Postgres data
   and integrity errors to 400, and everything else to a logged 500.
+
+# Callsign groups
+
+A group is a named list of up to 1,000 callsigns, such as a club roster, that subscriptions use in
+place of typed calls (spec `docs/superpowers/specs/2026-10-13-callsign-groups-design.md`).
+
+```mermaid
+flowchart LR
+  GP[Groups page] -- "normalize_group_callsigns, save_callsign_group" --> G[(callsign_groups, callsign_group_members)]
+  SD[Subscription dialog] -- "save_subscription(group_ids)" --> S[(subscriptions.group_ids)]
+  SD -- "preview_subscription → count, spots, station_count" --> PV[spot_matches]
+  M[match_pending_spots] --> PV
+  PV -- group_matches --> G
+  R[ingest-rbn] -- watched_among --> G
+```
+
+- **Storage.** `callsign_groups` (name unique per account, case-insensitively) and
+  `callsign_group_members(group_id, callsign)`, indexed `(callsign, group_id)` for the matcher.
+  Members are base calls (`base_callsign()`, a check constraint), so `KK4PWJ` catches `KK4PWJ/P`;
+  a group cannot target only `/P`, though a typed callsign still can. Clients read their own rows
+  through RLS and write only through `save_callsign_group(payload)`, which validates the name,
+  normalises the calls with `normalize_group_callsigns` (the Groups page shows its output, so the
+  chips are what will be stored), refuses more than 1,000 and replaces the members by diff in one
+  transaction. `list_callsign_groups()` returns every group with its members, counts and
+  `on_air` (members spotted in `raw_spots` in the last 30 minutes, and the newest such spot).
+- **Subscriptions.** `subscriptions.group_ids uuid[]` is an array rather than a join table, so
+  the preview can match an unsaved row built from the dialog, like the other filters.
+  `save_subscription` refuses an id the caller doesn't own ("Group not found."), and an update
+  without a `group_ids` key keeps the groups. `delete_callsign_group` refuses a group any
+  subscription still uses ("Remove it from its subscriptions first."). Edits are live: a changed
+  group changes every subscription that names it, with no re-save.
+- **Matching.** `spot_matches` checks groups last, through `group_matches(group_ids, base)`, an
+  `exists` probe of the member index with the spot's base call, so a call in two groups is one
+  match and one delivery. The callsign filter is off only when there are no typed calls and no
+  groups; a subscription whose groups are all empty matches nothing, never "any station". An RBN
+  spot needs typed calls or a group, and `watched_among` adds group members to the RBN watchlist,
+  starting from the member index.
+- **Preview.** `preview_subscription` keeps only the caller's own group ids (compared as text,
+  so a malformed id is ignored too), so it cannot probe another user's groups. It also returns
+  `station_count`, the distinct base calls across the typed calls and those groups' members, which
+  the dialog shows as "Matches N stations from your groups and callsigns.".
+- **The web.** The Groups page (`web/src/groups/`) edits whole lists. The Subscriptions page loads
+  `list_callsign_groups` once per visit for the group chips on each card and the dialog's
+  "Callsign groups" picker. TypeScript never resolves membership or counts stations; both come
+  from SQL. If the list fails to load, the chips and picker are hidden and a saved subscription
+  keeps its groups.

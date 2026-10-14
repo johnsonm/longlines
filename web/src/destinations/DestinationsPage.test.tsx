@@ -89,6 +89,11 @@ describe("DestinationsPage", () => {
     expect(within(dialog).getByText("Signing secret for Dest a")).toBeInTheDocument();
     expect(within(dialog).getByLabelText("Signing secret")).toHaveValue("whsec_rotated");
     await user.click(within(dialog).getByLabelText("Signing secret"));
+    // Only Done closes it: the secret can't be shown again.
+    await user.keyboard("{Escape}");
+    await user.click(document.querySelector(".MuiBackdrop-root:not(.MuiBackdrop-invisible)")!);
+    expect(screen.getByLabelText("Signing secret")).toHaveValue("whsec_rotated");
+    expect(tour.report).not.toHaveBeenCalledWith("secret-dismissed");
     await user.click(within(dialog).getByRole("button", { name: "Done" }));
     expect(tour.report).toHaveBeenCalledWith("secret-dismissed");
   });

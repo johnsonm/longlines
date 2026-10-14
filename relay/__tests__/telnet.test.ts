@@ -5,6 +5,7 @@ import {
   nextDelay,
   runTelnet,
   type SessionStatus,
+  TcpLineDecoder,
   TelnetDecoder,
 } from "../telnet.ts";
 
@@ -226,4 +227,66 @@ Deno.test("runTelnet stops without logging when the signal aborts during a faile
     sleep: () => Promise.reject(new Error("must not sleep after abort")),
   });
   assertEquals(logs, []);
+});
+
+Deno.test("TcpLineDecoder decodes UTF-8 split across reads and drops CR and NUL", () => {
+  const d = new TcpLineDecoder();
+  const bytes = enc("Café ✓\r\n");
+  // Split inside the three-byte check mark.
+  assertEquals(d.push(bytes.subarray(0, 8)), []);
+  assertEquals(d.pending, "Café ");
+  assertEquals(d.push(bytes.subarray(8)), ["Café ✓"]);
+  assertEquals(d.push(new Uint8Array([...enc("a\r"), 0, ...enc("b\nc")])), ["ab"]);
+  assertEquals(d.pending, "c");
+});
+
+Deno.test("TcpLineDecoder treats 0xFF as data, not telnet IAC", () => {
+  const d = new TcpLineDecoder();
+  assertEquals(d.push(new Uint8Array([...enc("x"), 255, 251, 1, ...enc("y\n")])), [
+    "x\uFFFD\uFFFD\u0001y",
+  ]);
+});
+
+Deno.test("runTelnet over plain TCP logs in with loginLine when a completed line matches the prompt", async () => {
+  // An APRS-IS server: a banner line, then it waits for the login line.
+  const listener = Deno.listen({ hostname: "127.0.0.1", port: 0 });
+  const logins: string[] = [];
+  const served = (async () => {
+    for await (const conn of listener) {
+      await conn.write(enc("# aprsc 2.1.19-g730c5c0\r\n"));
+      const buf = new Uint8Array(128);
+      const n = await conn.read(buf);
+      logins.push(new TextDecoder().decode(buf.subarray(0, n ?? 0)));
+      await conn.write(enc("# logresp N0CALL-LL unverified\r\nN0CALL>APRS:>Café\r\n"));
+      conn.close();
+    }
+  })().catch(() => {});
+  const controller = new AbortController();
+  const lines: string[] = [];
+
+  await runTelnet({
+    host: "127.0.0.1",
+    port: (listener.addr as Deno.NetAddr).port,
+    loginCall: "N0CALL-LL",
+    loginLine: "user N0CALL-LL pass -1 vers LongLines 0.1",
+    loginPrompt: /^# /,
+    telnet: false,
+    onLine: (line) => lines.push(line),
+    status: { connected: false, lastDataAt: null, connects: 0 },
+    signal: controller.signal,
+    log: () => {},
+    sleep: () => {
+      controller.abort();
+      return Promise.resolve();
+    },
+  });
+  listener.close();
+  await served;
+
+  assertEquals(logins, ["user N0CALL-LL pass -1 vers LongLines 0.1\r\n"]);
+  assertEquals(lines, [
+    "# aprsc 2.1.19-g730c5c0",
+    "# logresp N0CALL-LL unverified",
+    "N0CALL>APRS:>Café",
+  ]);
 });

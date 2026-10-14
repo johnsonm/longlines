@@ -1,5 +1,13 @@
-import { assertEquals } from "@std/assert";
-import { gzip, LAG_MS, MAX_ROWS_PER_RUN, objectPath, runArchive } from "../archive.ts";
+import { assertEquals, assertThrows } from "@std/assert";
+import {
+  ARCHIVE_ORDER,
+  archiveSources,
+  gzip,
+  LAG_MS,
+  MAX_ROWS_PER_RUN,
+  objectPath,
+  runArchive,
+} from "../archive.ts";
 import type { ArchiveDb, ArchiveLogEntry, ArchiveSlice, ArchiveStore, Source } from "../types.ts";
 
 const NOW = new Date("2026-10-11T20:05:00Z");
@@ -60,6 +68,33 @@ function fakes(
 Deno.test("objectPath names the object by source and UTC slice start", () => {
   assertEquals(objectPath("rbn", "2026-10-11T14:10:00+00:00"), "rbn/2026/10/11/1410.ndjson.gz");
   assertEquals(objectPath("pota", "2026-01-02T03:00:00.000Z"), "pota/2026/01/02/0300.ndjson.gz");
+});
+
+Deno.test("objectPath names APRS-IS slices by their five-minute start", () => {
+  assertEquals(objectPath("aprs", "2026-10-14T15:55:00+00:00"), "aprs/2026/10/14/1555.ndjson.gz");
+});
+
+Deno.test("archiveSources defaults to every source but APRS-IS and takes a list from the body", () => {
+  assertEquals(archiveSources(undefined), ARCHIVE_ORDER);
+  assertEquals(archiveSources(null), ARCHIVE_ORDER);
+  assertEquals(archiveSources({}), ARCHIVE_ORDER);
+  assertEquals(ARCHIVE_ORDER.includes("aprs"), false);
+  assertEquals(archiveSources({ sources: ["aprs"] }), ["aprs"]);
+  assertEquals(archiveSources({ sources: ["rbn", "pota"] }), ["rbn", "pota"]);
+  assertThrows(() => archiveSources({ sources: [] }), Error, "non-empty");
+  assertThrows(() => archiveSources({ sources: "aprs" }), Error, "non-empty");
+  assertThrows(() => archiveSources({ sources: ["aprs", "pskreporter"] }), Error, "pskreporter");
+  assertThrows(() => archiveSources([]), Error, "JSON object");
+  assertThrows(() => archiveSources("aprs"), Error, "JSON object");
+});
+
+Deno.test("runArchive takes only the sources it is given", async () => {
+  const start = "2026-10-11T17:00:00Z";
+  const { db, store, calls } = fakes({ pending: { aprs: [slice(start, 5)] } });
+  const summary = await runArchive(db, store, NOW, ["aprs"]);
+  assertEquals(calls.pending.map(([s]) => s), ["aprs"]);
+  assertEquals(calls.uploads.map((u) => u.path), ["aprs/2026/10/11/1700.ndjson.gz"]);
+  assertEquals([summary.slices, summary.rows], [1, 2]);
 });
 
 Deno.test("gzip round-trips text", async () => {

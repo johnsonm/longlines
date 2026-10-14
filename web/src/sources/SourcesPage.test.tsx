@@ -21,7 +21,7 @@ const health = (source: string, age: number | null, lastHour = 12) =>
   ({ source, seconds_since_last_success: age, spots_last_hour: lastHour }) as IngestHealth;
 
 beforeEach(() => {
-  vi.mocked(loadIngestHealth).mockReset().mockResolvedValue([health("pota", 20), health("sotawatch", 600), health("rbn", 30, 3), health("dxcluster", 40, 5)]);
+  vi.mocked(loadIngestHealth).mockReset().mockResolvedValue([health("pota", 20), health("sotawatch", 600), health("rbn", 30, 3), health("dxcluster", 40, 5), health("aprs", 50, 6123)]);
   vi.mocked(loadRecentSpots).mockReset().mockImplementation(async (source) => ({
     pota: [spot(1)],
     sotawatch: [spot(2, { source: "sotawatch", pota_reference: null, sota_summit_ref: "W4C/CM-001", mode: null })],
@@ -37,7 +37,7 @@ afterEach(() => {
 describe("SourcesPage", () => {
   it("shows live source health and planned sources", async () => {
     renderPage(<SourcesPage prefs={UTC} />);
-    expect(await screen.findAllByText("Connected")).toHaveLength(3);
+    expect(await screen.findAllByText("Connected")).toHaveLength(4);
     expect(screen.getByText("Delayed")).toBeInTheDocument();
     expect(screen.getAllByText("Not yet available")).toHaveLength(2);
     expect(screen.getByText("20s ago")).toBeInTheDocument();
@@ -47,14 +47,22 @@ describe("SourcesPage", () => {
   it("marks a live source with no health row as delayed", async () => {
     vi.mocked(loadIngestHealth).mockResolvedValue([]);
     renderPage(<SourcesPage prefs={UTC} />);
-    expect(await screen.findAllByText("Delayed")).toHaveLength(4);
+    expect(await screen.findAllByText("Delayed")).toHaveLength(5);
     expect(screen.getAllByText("–").length).toBeGreaterThan(0);
+  });
+
+  it("shows APRS-IS health with its packet count", async () => {
+    renderPage(<SourcesPage prefs={UTC} />);
+    expect(await screen.findByText("APRS-IS")).toBeInTheDocument();
+    expect(screen.getByText("Automatic Packet Reporting System. Every packet on the worldwide APRS-IS feed.")).toBeInTheDocument();
+    expect(screen.getByText("6123")).toBeInTheDocument();
   });
 
   it("opens on POTA's newest spots, with one tab per live source", async () => {
     renderPage(<SourcesPage prefs={UTC} />);
     expect(await screen.findByText("W1AW")).toBeInTheDocument();
     expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["POTA", "SOTAwatch", "RBN", "DX Cluster"]);
+    expect(screen.queryByRole("tab", { name: "APRS-IS" })).not.toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "POTA" })).toHaveAttribute("aria-selected", "true");
     expect(loadRecentSpots).toHaveBeenCalledWith("pota");
     expect(screen.queryByText("W2AW")).not.toBeInTheDocument();

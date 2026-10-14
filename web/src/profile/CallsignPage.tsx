@@ -135,7 +135,7 @@ function Header({ profile, account }: { profile: CallsignProfile; account?: Aler
       const name = `${callsign} on the air`;
       await saveSubscription({
         name, enabled: true, quiet_minutes: 30, destinations: [dest.id],
-        sources: [], bands: [], modes: [], callsigns: [callsign], reference: "",
+        sources: [], bands: [], modes: [], callsigns: [callsign], reference: "", group_ids: [],
       });
       await account.reload();
       notify(`Created ${name}`);

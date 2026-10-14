@@ -2,12 +2,19 @@
 // summary as JSON, or a 500 whose body and log line carry the error.
 //
 // Pulled sources (POTA, SOTAwatch) are invoked by pg_cron with the service-role
-// key. Pushed sources (RBN, DX Cluster) are invoked by the relay, which holds
+// key. Pushed sources (RBN, DX Cluster, APRS-IS) are invoked by the relay, which holds
 // only the relay secret, with POST batches of lines.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { secretsMatch } from "./auth.ts";
-import { createIngestDb, createRbnDb, createServiceClient, createWatchlistDb } from "./db.ts";
+import type { AprsPushDb } from "./aprs.ts";
+import {
+  createAprsDb,
+  createIngestDb,
+  createRbnDb,
+  createServiceClient,
+  createWatchlistDb,
+} from "./db.ts";
 import { runIngest } from "./ingest.ts";
 import type { RbnPushDb } from "./rbn_push.ts";
 import type { IngestDb, IngestSummary, Source, SourceAdapter } from "./types.ts";
@@ -80,6 +87,11 @@ export function pushIngestHandler<D>(
 /** The database ingest-rbn needs: raw_spots, the watchlist and rbn_spots. */
 export function createRbnPushDb(client: SupabaseClient): RbnPushDb {
   return { ...createIngestDb(client), ...createWatchlistDb(client), ...createRbnDb(client) };
+}
+
+/** The database ingest-aprs needs: aprs_packets, ingest_failures and ingest_state. */
+export function createAprsPushDb(client: SupabaseClient): AprsPushDb {
+  return { ...createIngestDb(client), ...createAprsDb(client) };
 }
 
 /** Serve a pushed source; makeDb builds only the database surface its run needs. */

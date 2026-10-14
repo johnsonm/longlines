@@ -1,4 +1,4 @@
--- pgTAP: push destinations and devices (20261013000400_push_destinations).
+-- pgTAP: push destinations and devices (20261014000100_push_destinations).
 -- Endpoint allowlist, one push destination per account, device registration,
 -- the client RPCs, service-role-only storage, and what claim_deliveries hands
 -- the worker.

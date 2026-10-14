@@ -7,6 +7,11 @@ export type Scope = "read" | "write";
 
 export type JsonObject = Record<string, unknown>;
 
+// "number" is a finite JSON number: JSON.parse reads 1e400 as Infinity, which JSON.stringify would
+// send on as null (left out). Which numbers are allowed is SQL's call (save_subscription names the
+// allowed quiet_minutes), so a fraction or an out-of-range value gets SQL's message, not one here.
+type Scalar = "string" | "boolean" | "number";
+
 export interface Route {
   /** An api_call operation, or "send_test", which the handler runs itself. */
   op: string;
@@ -15,6 +20,10 @@ export interface Route {
   input: "none" | "fields" | "body";
   /** Keys that, when present in the body, must be arrays of strings. */
   arrays?: readonly string[];
+  /** Scalar keys and their JSON type. Null is allowed: SQL reads it as left out. */
+  scalars?: Readonly<Record<string, Scalar>>;
+  /** Keys the body must have. Without them an add or remove would do nothing and still succeed. */
+  required?: readonly string[];
   /** 201 for creates, 200 otherwise. */
   status: 200 | 201;
 }
@@ -35,19 +44,24 @@ const read = (op: string): Route => ({ op, scope: "read", input: "none", status:
 const write = (
   op: string,
   input: Route["input"] = "none",
-  more: Partial<Pick<Route, "arrays" | "status">> = {},
+  more: Partial<Pick<Route, "arrays" | "scalars" | "required" | "status">> = {},
 ): Route => ({ op, scope: "write", input, status: 200, ...more });
 
-const SUB = { arrays: SUBSCRIPTION_ARRAYS };
-const CALLS = { arrays: CALLSIGN_ARRAYS };
+const SUB = {
+  arrays: SUBSCRIPTION_ARRAYS,
+  scalars: { name: "string", reference: "string", enabled: "boolean", quiet_minutes: "number" },
+} as const;
+const DEST = { scalars: { type: "string", name: "string", url: "string" } } as const;
+const GROUP = { arrays: CALLSIGN_ARRAYS, scalars: { name: "string" } } as const;
+const CALLS = { arrays: CALLSIGN_ARRAYS, required: CALLSIGN_ARRAYS };
 const CREATED = { status: 201 } as const;
 
 // deno-fmt-ignore
 export const ROUTES: ReadonlyArray<readonly [string, string, Route]> = [
   ["GET",    "/v1/destinations",                   read("list_destinations")],
-  ["POST",   "/v1/destinations",                   write("create_destination", "fields", CREATED)],
+  ["POST",   "/v1/destinations",                   write("create_destination", "fields", { ...DEST, ...CREATED })],
   ["GET",    "/v1/destinations/:id",               read("get_destination")],
-  ["PATCH",  "/v1/destinations/:id",               write("update_destination", "fields")],
+  ["PATCH",  "/v1/destinations/:id",               write("update_destination", "fields", DEST)],
   ["DELETE", "/v1/destinations/:id",               write("delete_destination")],
   ["POST",   "/v1/destinations/:id/rotate-secret", write("rotate_signing_secret")],
   ["POST",   "/v1/destinations/:id/test",          write("send_test")],
@@ -62,9 +76,9 @@ export const ROUTES: ReadonlyArray<readonly [string, string, Route]> = [
   ["POST",   "/v1/subscriptions/:id/callsigns/remove", write("remove_subscription_callsigns", "fields", CALLS)],
 
   ["GET",    "/v1/groups",                         read("list_groups")],
-  ["POST",   "/v1/groups",                         write("create_group", "fields", { ...CALLS, ...CREATED })],
+  ["POST",   "/v1/groups",                         write("create_group", "fields", { ...GROUP, ...CREATED })],
   ["GET",    "/v1/groups/:id",                     read("get_group")],
-  ["PATCH",  "/v1/groups/:id",                     write("update_group", "fields", CALLS)],
+  ["PATCH",  "/v1/groups/:id",                     write("update_group", "fields", GROUP)],
   ["DELETE", "/v1/groups/:id",                     write("delete_group")],
   ["POST",   "/v1/groups/:id/members",             write("add_group_members", "fields", CALLS)],
   ["POST",   "/v1/groups/:id/members/remove",      write("remove_group_members", "fields", CALLS)],
@@ -104,17 +118,34 @@ export function matchRoute(method: string, path: string): RouteMatch {
   return allow.length > 0 ? { kind: "method_not_allowed", allow } : { kind: "not_found" };
 }
 
+/** Each scalar type's test and the phrase its error message uses. */
+const SCALARS: Readonly<Record<Scalar, { test: (v: unknown) => boolean; noun: string }>> = {
+  string: { test: (v) => typeof v === "string", noun: "a string" },
+  boolean: { test: (v) => typeof v === "boolean", noun: "a boolean" },
+  number: { test: (v) => typeof v === "number" && Number.isFinite(v), noun: "a number" },
+};
+
 /** A message for the first body field of the wrong shape, or null when the body is acceptable. */
 export function checkBody(route: Route, body: JsonObject): string | null {
+  for (const key of route.required ?? []) {
+    if (body[key] === undefined) return `${key} is required.`;
+  }
+  // A null list is refused: SQL would fail on it with a Postgres message rather than read it as empty.
   for (const key of route.arrays ?? []) {
     const value = body[key];
-    if (value === undefined || value === null) continue;
+    if (value === undefined) continue;
     if (!Array.isArray(value) || !value.every((v) => typeof v === "string")) {
       return `${key} must be a list of strings.`;
     }
     if (value.length > MAX_LIST_ITEMS) {
       return `${key} can hold at most ${MAX_LIST_ITEMS.toLocaleString("en-US")} items per request.`;
     }
+  }
+  for (const [key, type] of Object.entries(route.scalars ?? {})) {
+    const value = body[key];
+    if (value === undefined || value === null) continue;
+    if (SCALARS[type].test(value)) continue;
+    return `${key} must be ${SCALARS[type].noun}.`;
   }
   return null;
 }

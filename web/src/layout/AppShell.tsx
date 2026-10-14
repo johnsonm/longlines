@@ -1,11 +1,12 @@
 import { useState, type FormEvent, type ReactNode } from "react";
 import {
-  AppBar, Avatar, Badge, Box, Button, Container, Divider, Drawer, IconButton, InputBase, List, ListItem,
+  AppBar, Avatar, Badge, Box, Button, Container, Divider, Drawer, IconButton, InputBase, List,
   ListItemButton, ListItemIcon, ListItemText, Menu, MenuItem, Paper, Toolbar, Typography, useMediaQuery, useTheme,
 } from "@mui/material";
 import MenuIcon from "@mui/icons-material/Menu";
 import SensorsIcon from "@mui/icons-material/Sensors";
 import FilterListIcon from "@mui/icons-material/FilterList";
+import GroupsIcon from "@mui/icons-material/Groups";
 import SendIcon from "@mui/icons-material/Send";
 import InsightsIcon from "@mui/icons-material/Insights";
 import PersonSearchIcon from "@mui/icons-material/PersonSearch";
@@ -21,6 +22,7 @@ import { lookupPath } from "../profile/format";
 const NAV = [
   { id: "sources", label: "Sources", icon: <SensorsIcon /> },
   { id: "subscriptions", label: "Subscriptions", icon: <FilterListIcon /> },
+  { id: "groups", label: "Groups", icon: <GroupsIcon /> },
   { id: "destinations", label: "Destinations", icon: <SendIcon /> },
   { id: "stats", label: "Stats", icon: <InsightsIcon /> },
   { id: "lookup", label: "Callsign lookup", icon: <PersonSearchIcon /> },
@@ -77,10 +79,6 @@ export function AppShell({ children, destinationsFailing }: { children: ReactNod
             <ListItemText primary={n.label} />
           </ListItemButton>
         ))}
-      </List>
-      <Divider />
-      <List dense>
-        <ListItem><ListItemText primary="Groups" secondary="Coming later" /></ListItem>
       </List>
     </Box>
   );

@@ -6,18 +6,22 @@ export interface SourceInfo {
   interval: string;
   pollSeconds: number | null;
   desc: string;
+  /** False for a feed that is stored but never matched (APRS-IS): no subscription option, no recent-spots tab. */
+  alerts: boolean;
 }
 
 export const SOURCES: SourceInfo[] = [
-  { id: "pota", name: "POTA", full: "Parks on the Air", status: "live", interval: "every 60s", pollSeconds: 60, desc: "Activator spots from api.pota.app" },
-  { id: "sotawatch", name: "SOTAwatch", full: "Summits on the Air", status: "live", interval: "every 30s", pollSeconds: 30, desc: "Summit activation spots from SOTAwatch" },
-  { id: "rbn", name: "RBN", full: "Reverse Beacon Network", status: "live", interval: "streaming", pollSeconds: 60, desc: "CW and digital skimmer spots" },
-  { id: "dxcluster", name: "DX Cluster", full: "DXSpider network", status: "live", interval: "streaming", pollSeconds: 60, desc: "Human-entered DX spots" },
-  { id: "pskreporter", name: "PSK Reporter", full: "PSK Reporter", status: "planned", interval: "streaming", pollSeconds: null, desc: "FT8, FT4 and other digital mode reports" },
-  { id: "wwff", name: "WWFF", full: "World Wide Flora & Fauna", status: "planned", interval: "streaming", pollSeconds: null, desc: "WWFF reference activations" },
+  { id: "pota", name: "POTA", full: "Parks on the Air", status: "live", interval: "every 60s", pollSeconds: 60, desc: "Activator spots from api.pota.app", alerts: true },
+  { id: "sotawatch", name: "SOTAwatch", full: "Summits on the Air", status: "live", interval: "every 30s", pollSeconds: 30, desc: "Summit activation spots from SOTAwatch", alerts: true },
+  { id: "rbn", name: "RBN", full: "Reverse Beacon Network", status: "live", interval: "streaming", pollSeconds: 60, desc: "CW and digital skimmer spots", alerts: true },
+  { id: "dxcluster", name: "DX Cluster", full: "DXSpider network", status: "live", interval: "streaming", pollSeconds: 60, desc: "Human-entered DX spots", alerts: true },
+  { id: "aprs", name: "APRS-IS", full: "Automatic Packet Reporting System", status: "live", interval: "streaming", pollSeconds: 60, desc: "Every packet on the worldwide APRS-IS feed", alerts: false },
+  { id: "pskreporter", name: "PSK Reporter", full: "PSK Reporter", status: "planned", interval: "streaming", pollSeconds: null, desc: "FT8, FT4 and other digital mode reports", alerts: true },
+  { id: "wwff", name: "WWFF", full: "World Wide Flora & Fauna", status: "planned", interval: "streaming", pollSeconds: null, desc: "WWFF reference activations", alerts: true },
 ];
 
-export const LIVE_SOURCES = SOURCES.filter((s) => s.status === "live");
+/** Sources a subscription can pick and the recent-spots tabs show: live and alerting. */
+export const LIVE_SOURCES = SOURCES.filter((s) => s.status === "live" && s.alerts);
 
 export function sourceName(id: string): string {
   return SOURCES.find((s) => s.id === id)?.name ?? id;

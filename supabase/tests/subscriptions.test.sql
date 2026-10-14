@@ -39,7 +39,7 @@ select throws_ok($$ select save_subscription('{"name":"x","destinations":[]}') $
 select throws_ok(format($f$ select save_subscription('{"name":" ","destinations":["%s"]}') $f$, (select id from db)),
   'P0001', 'Give the subscription a name.', 'needs a name');
 select throws_ok(format($f$ select save_subscription('{"name":"x","quiet_minutes":7,"destinations":["%s"]}') $f$, (select id from db)),
-  '23514', null, 'quiet_minutes must be one of the allowed values');
+  'P0001', 'quiet_minutes must be 0, 5, 10, 30 or 60.', 'quiet_minutes must be one of the allowed values');
 
 -- A destination in use cannot be deleted.
 select throws_ok(format('delete from destinations where id = %L', (select id from db)), '23503', null, 'destination in use is protected');

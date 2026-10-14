@@ -1,6 +1,7 @@
-// One long-lived telnet session per feed: connect, answer the login prompt,
-// hand every complete line to the caller, and reconnect politely when the
-// connection drops or goes quiet.
+// One long-lived session per feed: connect, answer the login prompt, hand
+// every complete line to the caller, and reconnect politely when the
+// connection drops or goes quiet. Telnet feeds (RBN, DX Cluster) go through
+// TelnetDecoder; plain TCP line feeds (APRS-IS) through TcpLineDecoder.
 
 /** The slice of Deno.Conn the session uses, so tests can substitute a fake. */
 export interface Conn {
@@ -15,12 +16,20 @@ const SE = 240;
 const WILL = 251;
 const DONT = 254;
 
+/** Turns the bytes of one connection into text lines. */
+export interface LineDecoder {
+  /** Feed one read; returns the lines it completed. */
+  push(bytes: Uint8Array): string[];
+  /** Text received after the last newline. */
+  readonly pending: string;
+}
+
 /**
  * Turns telnet bytes into text lines. Strips IAC command sequences (including
  * ones split across reads), drops CR, splits on LF. Text after the last LF is
  * kept as `pending` so a prompt without a newline can be recognised.
  */
-export class TelnetDecoder {
+export class TelnetDecoder implements LineDecoder {
   #text = "";
   #state: "data" | "iac" | "option" | "sub" | "sub-iac" = "data";
   #decoder = new TextDecoder("latin1");
@@ -70,6 +79,29 @@ export class TelnetDecoder {
   }
 }
 
+/**
+ * Turns plain TCP bytes into text lines: UTF-8 (a character split across reads
+ * is kept until it completes; invalid bytes become U+FFFD), CR and NUL dropped,
+ * split on LF. No telnet command processing, so 0xFF is never special.
+ */
+export class TcpLineDecoder implements LineDecoder {
+  #text = "";
+  #decoder = new TextDecoder("utf-8");
+
+  push(bytes: Uint8Array): string[] {
+    this.#text += this.#decoder.decode(bytes, { stream: true })
+      .replaceAll("\r", "")
+      .replaceAll("\0", "");
+    const parts = this.#text.split("\n");
+    this.#text = parts.pop() ?? "";
+    return parts;
+  }
+
+  get pending(): string {
+    return this.#text;
+  }
+}
+
 export interface Backoff {
   /** First delay after a failed or short session. Never below 30 s (politeness). */
   minMs: number;
@@ -109,8 +141,12 @@ export interface TelnetOptions {
   host: string;
   port: number;
   loginCall: string;
-  /** Matches the login prompt in text that has no newline yet. */
+  /** Sent (with CRLF) once the prompt appears; loginCall when unset. */
+  loginLine?: string;
+  /** Matches the login prompt: in text that has no newline yet, or in a completed line. */
   loginPrompt: RegExp;
+  /** Telnet framing (IAC, latin1); false for a plain TCP line feed in UTF-8. Default true. */
+  telnet?: boolean;
   onLine: (line: string, receivedAt: Date) => void;
   status: SessionStatus;
   signal: AbortSignal;
@@ -165,7 +201,7 @@ async function runSession(opts: Required<TelnetOptions>): Promise<void> {
   opts.status.connected = true;
   opts.status.connects += 1;
   opts.log(`connected to ${opts.host}:${opts.port}`);
-  const decoder = new TelnetDecoder();
+  const decoder: LineDecoder = opts.telnet ? new TelnetDecoder() : new TcpLineDecoder();
   const buf = new Uint8Array(16 * 1024);
   let loggedIn = false;
   try {
@@ -177,9 +213,13 @@ async function runSession(opts: Required<TelnetOptions>): Promise<void> {
       }
       const receivedAt = opts.now();
       opts.status.lastDataAt = receivedAt;
-      for (const line of decoder.push(buf.subarray(0, n))) opts.onLine(line, receivedAt);
-      if (!loggedIn && opts.loginPrompt.test(decoder.pending)) {
-        await conn.write(new TextEncoder().encode(`${opts.loginCall}\r\n`));
+      const lines = decoder.push(buf.subarray(0, n));
+      for (const line of lines) opts.onLine(line, receivedAt);
+      if (
+        !loggedIn &&
+        (opts.loginPrompt.test(decoder.pending) || lines.some((l) => opts.loginPrompt.test(l)))
+      ) {
+        await conn.write(new TextEncoder().encode(`${opts.loginLine}\r\n`));
         loggedIn = true;
       }
     }
@@ -203,6 +243,8 @@ export async function runTelnet(options: TelnetOptions): Promise<void> {
     now: () => new Date(),
     log: (message) => console.log(message),
     ...options,
+    telnet: options.telnet ?? true,
+    loginLine: options.loginLine ?? options.loginCall,
   };
   let delay: number | null = null;
   while (!opts.signal.aborted) {

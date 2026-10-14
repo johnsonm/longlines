@@ -2,7 +2,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(42);
+select plan(52);
 
 -- ---------------------------------------------------------------------------
 -- Tokens
@@ -115,6 +115,34 @@ select is(pg_temp.call('update_group', jsonb_build_object('id', (select id from 
 select is(pg_temp.call('patch_subscription', jsonb_build_object('id', (select id from sub),
   'body', '{"quiet_minutes": 30}'::jsonb)) -> 'callsigns', '["K4ABC", "KN4XYZ"]'::jsonb,
   'a patch keeps the fields it does not name');
+-- Set a reference first, in its own statement, so the null patch below has something to keep.
+select pg_temp.call('patch_subscription', jsonb_build_object('id', (select id from sub),
+  'body', '{"reference": "US-1234"}'::jsonb));
+create temp table nulled as
+  select pg_temp.call('patch_subscription', jsonb_build_object('id', (select id from sub),
+    'body', '{"name": null, "reference": null, "enabled": null, "quiet_minutes": null, "callsigns": ["w1aw"]}'::jsonb)) as s;
+grant all on nulled to authenticated;
+select is((select s ->> 'reference' from nulled), 'US-1234', 'a null reference in a patch keeps the stored one');
+select ok((select s ->> 'name' <> '' from nulled), 'a null name in a patch keeps the stored one');
+select is((select s -> 'callsigns' from nulled), '["W1AW"]'::jsonb,
+  'a patch that mixes nulls with a list still applies the list');
+create temp table renamed as
+  select pg_temp.call('update_group', jsonb_build_object('id', (select id from grp), 'name', null,
+    'callsigns', '["kn4xyz", "w1aw"]'::jsonb)) as g;
+grant all on renamed to authenticated;
+select is((select g ->> 'name' from renamed), 'Club', 'a null group name counts as left out');
+select is((select g -> 'callsigns' from renamed), '["KN4XYZ", "W1AW"]'::jsonb,
+  'the members in the same patch still change');
+select throws_ok(format($$ select pg_temp.call('patch_subscription', '{"id": "%s", "body": {"quiet_minutes": 7}}') $$,
+  (select id from sub)), 'quiet_minutes must be 0, 5, 10, 30 or 60.');
+select throws_ok(format($$ select pg_temp.call('patch_subscription', '{"id": "%s", "body": {"quiet_minutes": 3000000000}}') $$,
+  (select id from sub)), 'quiet_minutes must be 0, 5, 10, 30 or 60.');
+select throws_ok(format($$ select pg_temp.call('patch_subscription', '{"id": "%s", "body": {"quiet_minutes": 7.5}}') $$,
+  (select id from sub)), 'quiet_minutes must be 0, 5, 10, 30 or 60.');
+select throws_ok(format($$ select pg_temp.call('patch_subscription', '{"id": "%s", "body": {"quiet_minutes": "soon"}}') $$,
+  (select id from sub)), 'quiet_minutes must be 0, 5, 10, 30 or 60.');
+select is(pg_temp.call('patch_subscription', jsonb_build_object('id', (select id from sub),
+  'body', '{"quiet_minutes": 60.0}'::jsonb)) -> 'quiet_minutes', '60'::jsonb, 'an allowed value written as 60.0 is accepted');
 select throws_ok(format($$ select pg_temp.call('patch_subscription', '{"id": "%s", "body": {"destinations": []}}') $$,
   (select id from sub)), 'Pick at least one destination.');
 select throws_ok(format($$ select pg_temp.call('delete_destination', '{"id": "%s"}') $$, (select id from dest)),

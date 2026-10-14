@@ -1,9 +1,9 @@
 -- pgTAP: spot_matches predicate, match_pending_spots, quiet window,
--- cross-subscription dedup, preview_subscription.
+-- cross-subscription dedup, preview_subscription, callsign groups.
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(33);
+select plan(47);
 
 -- Drain anything already queued so counts below are exact.
 select pgmq.purge_queue('spot_events');
@@ -94,6 +94,71 @@ select is(match_pending_spots(), 2, 'after the window both subscriptions match, 
 select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
 select is((select count from preview_subscription('{"sources":["pota"],"reference":"us-nc"}')), 5::bigint, 'preview counts matching recent spots');
 select is((select jsonb_array_length(spots) from preview_subscription('{"sources":["pota"],"reference":"us-nc"}')), 5, 'preview returns the matching spots');
+
+-- Callsign groups. Members are base calls; groups merge without duplicates, an
+-- empty group matches nothing, and preview ignores another user's groups.
+select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
+create temp table dg as select * from create_destination('webhook', 'Groups hook', 'https://hooks.example.com/g');
+create temp table grp as
+select save_callsign_group('{"name":"Club","callsigns":["KK4PWJ","N4GRP"]}') as club,
+       save_callsign_group('{"name":"Friends","callsigns":["N4GRP","K4MIX"]}') as friends,
+       save_callsign_group('{"name":"Empty","callsigns":[]}') as empty;
+reset role;
+select pg_temp.as_user('22222222-2222-2222-2222-222222222222');
+create temp table other_grp as select save_callsign_group('{"name":"Other","callsigns":["W9OTH"]}') as id;
+reset role;
+
+create or replace function pg_temp.gsub(p_calls text[], p_groups uuid[], p_sources text[] default '{}')
+returns subscriptions language sql as $$
+  select (gen_random_uuid(), '11111111-1111-1111-1111-111111111111', 'x', true, p_sources, '{}'::text[], '{}'::text[], p_calls, '', 0, now(), now(), p_groups)::subscriptions;
+$$;
+
+select ok(spot_matches(pg_temp.gsub('{}', array[(select club from grp)]), pg_temp.spot('pota','N4GRP','20m','ssb',null,null,null)), 'a group member matches');
+select ok(spot_matches(pg_temp.gsub('{}', array[(select club from grp)]), pg_temp.spot('pota','KK4PWJ/P','20m','ssb',null,null,null)), 'a KK4PWJ/P spot matches a KK4PWJ member');
+select ok(not spot_matches(pg_temp.gsub('{}', array[(select club from grp)]), pg_temp.spot('pota','W1AW','20m','ssb',null,null,null)), 'a non-member does not match');
+select ok(not spot_matches(pg_temp.gsub('{}', array[(select empty from grp)]), pg_temp.spot('pota','W1AW','20m','ssb',null,null,null)), 'an empty group with no typed calls matches nothing');
+select ok(spot_matches(pg_temp.gsub('{W1AW}', array[(select club from grp)]), pg_temp.spot('pota','W1AW','20m','ssb',null,null,null))
+          and spot_matches(pg_temp.gsub('{W1AW}', array[(select club from grp)]), pg_temp.spot('pota','N4GRP','20m','ssb',null,null,null))
+          and not spot_matches(pg_temp.gsub('{W1AW}', array[(select club from grp)]), pg_temp.spot('pota','N0NE','20m','ssb',null,null,null)),
+  'typed calls and groups together match their union');
+select ok(spot_matches(pg_temp.gsub('{}', array[(select club from grp)], '{rbn}'), pg_temp.spot('rbn','N4GRP','20m','cw',null,null,null,'cw')),
+  'an RBN spot matches a subscription that names its station through a group');
+
+select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
+create temp table gsubs as
+select save_subscription(jsonb_build_object('name','Two groups','sources',array['pota'],'quiet_minutes',0,
+         'group_ids',array[(select club from grp),(select friends from grp)],'destinations',array[(select id from dg)])) as two,
+       save_subscription(jsonb_build_object('name','Empty group','sources',array['pota'],'quiet_minutes',0,
+         'group_ids',array[(select empty from grp)],'destinations',array[(select id from dg)])) as empty;
+reset role;
+
+select count(*) from ingest_spots(jsonb_build_array(
+  jsonb_build_object('source','pota','source_spot_id','g1','content_hash','g1','spot_time',now(),'callsign','N4GRP','frequency_khz',18140,'band','17m','mode','ssb','comment','','raw_payload','{}'::jsonb),
+  jsonb_build_object('source','pota','source_spot_id','g2','content_hash','g2','spot_time',now(),'callsign','KK4PWJ/P','frequency_khz',18140,'band','17m','mode','ssb','comment','','raw_payload','{}'::jsonb),
+  jsonb_build_object('source','pota','source_spot_id','g3','content_hash','g3','spot_time',now(),'callsign','W9OTH','frequency_khz',18140,'band','17m','mode','ssb','comment','','raw_payload','{}'::jsonb)));
+select match_pending_spots();
+select is((select array_agg(r.callsign order by r.callsign) from deliveries d join raw_spots r on r.id = d.spot_id
+           where d.subscription_id = (select two from gsubs)), array['KK4PWJ/P', 'N4GRP'],
+  'two groups merge: N4GRP, in both, is delivered once, and KK4PWJ/P comes through the KK4PWJ member');
+select is((select count(*) from raw_spots r join subscriptions s on s.id = (select two from gsubs) and spot_matches(s, r)
+           where r.source_spot_id = 'g1'), 1::bigint, 'a call in two groups gives the matcher one candidate row');
+select is((select count(*) from deliveries where subscription_id = (select empty from gsubs)), 0::bigint,
+  'a subscription whose only group is empty gets nothing');
+
+select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
+select is((select array(select distinct x ->> 'callsign' from jsonb_array_elements(p.spots) x order by 1)
+           from preview_subscription(jsonb_build_object('group_ids', array[(select club from grp), (select friends from grp)])) p),
+  array['KK4PWJ', 'KK4PWJ/P', 'N4GRP'], 'preview matches through groups');
+select is((select array(select distinct x ->> 'callsign' from jsonb_array_elements(p.spots) x order by 1)
+           from preview_subscription(jsonb_build_object('callsigns', array['N4DXX'], 'group_ids', array[(select id from other_grp)])) p),
+  array['N4DXX'], 'preview ignores another user''s group id');
+select is((select station_count from preview_subscription(jsonb_build_object('callsigns', array['KK4PWJ/P', 'w1aw'],
+             'group_ids', array[(select club from grp), (select friends from grp), (select id from other_grp)]))),
+  4::bigint, 'station_count: distinct base calls across typed calls and own groups, not another user''s');
+select is((select station_count from preview_subscription('{}')), 0::bigint, 'station_count is 0 with no calls or groups');
+select is((select station_count from preview_subscription('{"group_ids":["not-a-uuid"]}')), 0::bigint,
+  'a malformed group id is ignored like another user''s');
+reset role;
 
 select * from finish();
 rollback;

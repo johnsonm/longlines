@@ -1,7 +1,8 @@
+import type { AprsPacketType } from "./aprs.ts";
 import type { ModeFamily } from "./modes.ts";
 import type { LicenseLoad, UlsCounts, UlsKind, UlsRow } from "./uls.ts";
 
-export type Source = "pota" | "sotawatch" | "rbn" | "dxcluster";
+export type Source = "pota" | "sotawatch" | "rbn" | "dxcluster" | "aprs";
 
 /** A JSON object as received from an upstream feed. Fields are validated at use. */
 export type JsonObject = Record<string, unknown>;
@@ -49,6 +50,21 @@ export interface RbnSpotRow {
   line: string;
 }
 
+/**
+ * One row for aprs_packets, every APRS-IS packet the relay forwards. Keys match
+ * the columns so the batch can be passed straight to the ingest_aprs_packets RPC.
+ */
+export interface AprsPacketRow {
+  received_at: string; // ISO 8601 UTC
+  source_call: string;
+  destination: string;
+  path: string;
+  q_construct: string | null;
+  igate: string | null;
+  packet_type: AprsPacketType;
+  line: string;
+}
+
 /** Why a well-formed upstream spot was intentionally not stored. */
 export type SkipReason = "too_old" | "test_comment" | "not_normal";
 
@@ -79,7 +95,7 @@ export interface IngestSummary {
   inserted: number;
   skipped: Record<SkipReason, number>;
   failed: number;
-  /** Rows written to rbn_spots by a push (RBN only). */
+  /** Rows written to rbn_spots or aprs_packets by a push (RBN and APRS only). */
   stored?: number;
   /** Deliveries created by the matcher, or null when it did not run. */
   matched: number | null;
@@ -122,6 +138,12 @@ export interface WatchlistDb {
 export interface RbnDb {
   /** Inserts the batch, skipping spots already stored; returns rows inserted. */
   ingestRbnSpots(rows: RbnSpotRow[]): Promise<number>;
+}
+
+/** Bulk storage of every APRS-IS packet. Implemented by db.ts over ingest_aprs_packets. */
+export interface AprsDb {
+  /** Inserts the batch, skipping packets already stored; returns rows inserted. */
+  ingestAprsPackets(rows: AprsPacketRow[]): Promise<number>;
 }
 
 /** One archive slice, [slice_start, slice_end), as ISO 8601 strings from Postgres. */

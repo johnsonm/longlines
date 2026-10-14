@@ -124,7 +124,8 @@ relay on pushes to main; nothing else deploys automatically.
 - Matching lives in SQL (`spot_matches`, `match_pending_spots`); never re-implement the predicate in
   TypeScript. The preview RPC and the matcher must stay on the same function.
 - A DX Cluster spot matches only subscriptions whose `sources` lists `dxcluster`; an empty sources
-  list ("any source") does not include it. The rule lives in `source_matches`. RBN spots match only subscriptions that name callsigns.
+  list ("any source") does not include it. The rule lives in `source_matches`. RBN spots match only subscriptions that name callsigns,
+  typed or through a callsign group.
 - The worker (`supabase/functions/deliver`) only talks to the database through the
   `claim_deliveries` / `mark_deliveries_*` / `delay_deliveries` RPCs so delivery rows, queue
   messages and destination health change atomically.
@@ -186,12 +187,20 @@ relay on pushes to main; nothing else deploys automatically.
   migration that indexes `rbn_spots` partition by partition first takes
   `lock table rbn_spots in share update exclusive mode`, so `maintain_rbn_spots` cannot add or drop a
   partition mid-build; that lock does not block inserts. `spot_matches` lets an RBN spot match only
-  subscriptions that name callsigns; keep that guard if the predicate changes.
+  subscriptions that name callsigns, typed or through a group (`callsigns` or `group_ids` non-empty);
+  keep that guard if the predicate changes, and keep `watched_among` on the same rule.
 - Be polite: exactly one machine (`fly scale count 1`), reconnect backoff never below 30 s, no
   tests that connect to RBN. Tests use the captured fixture or a local TCP server.
 - Merges to main deploy the relay through Fly's GitHub integration (set up in the Fly dashboard,
   not in this repo); a merge that changes `relay/` or `_shared/*.ts` ships to production. Never run
   `fly deploy` or `fly secrets set` yourself unless asked.
+- APRS-IS (`aprsFeed`, off until `APRS_LOGIN_CALL` is set) is the full feed on port 10152 with a
+  receive-only login and no filter; never add one. It is plain TCP (`telnet: false`,
+  `TcpLineDecoder`), not telnet. Packets go only to `aprs_packets` (partitions from
+  `create_aprs_packets_partition`, kept two days, retired by `maintain_aprs_packets` once archived);
+  never send them to `raw_spots`, matching, `spot_stream` or the rollups. `raw_spots`' source check
+  leaves `aprs` out on purpose. Its archive runs in its own cron job (`archive-aprs`, body
+  `{"sources": ["aprs"]}`); keep it out of `ARCHIVE_ORDER`.
 - The relay also runs the weekly FCC license load (`relay/licenses.ts`, `relay/zip.ts`): it reads
   `l_amat.zip` by HTTP Range and stages HD/EN/AM rows through `load-licenses`. Record parsing is
   `_shared/uls.ts`; the join and the swap into `callsign_licenses` are SQL
@@ -201,7 +210,7 @@ relay on pushes to main; nothing else deploys automatically.
 
 ## Archive rules
 
-- Slice length lives only in `archive_slice_minutes(source)` (RBN 10 minutes, others 60). NDJSON is
+- Slice length lives only in `archive_slice_minutes(source)` (APRS-IS 5 minutes, RBN 10, others 60). NDJSON is
   built in SQL (`archive_ndjson`), never in TypeScript; the `archive` function only gzips, uploads
   and logs.
 - A slice is logged in `archive_log` only after its upload succeeds. Nothing leaves `rbn_spots`
@@ -245,6 +254,23 @@ relay on pushes to main; nothing else deploys automatically.
   `topActivators[].base` in the Stats payload, `rbn.topStations` ranked by base call, the
   profile's own `callsign`. The web never works out a base call. A link built from a call as typed
   (`lookupPath`) works only because the profile page swaps it for the base the profile returns.
+
+## Callsign group rules
+
+- Membership is live: a subscription stores `group_ids`, never a copy of the calls, so editing a
+  group changes every subscription that uses it. Never copy members into `subscriptions.callsigns`.
+- Members are base calls (`base_callsign()`, enforced by a check constraint), at most 1,000 per
+  group. `save_callsign_group` is the only write path and `normalize_group_callsigns` the only
+  normaliser; the web never works out a base call or enforces the cap itself.
+- The callsign filter is off only when `callsigns` and `group_ids` are both empty. A subscription
+  whose groups are all empty matches nothing; never let it fall back to "any station".
+- `delete_callsign_group` refuses a group any subscription uses, as with destinations; keep the
+  guard and keep Delete disabled in the UI while `subscription_count > 0`.
+- `preview_subscription` keeps only the caller's own group ids before matching and counting, so it
+  cannot probe another user's groups. Keep that filter on any RPC that takes group ids.
+- Membership and station counts are resolved only in SQL (`group_matches`, `watched_among`,
+  `station_count` from the preview). The web shows group names and SQL's numbers and never tests
+  a call against a group's members.
 
 ## Management API rules
 

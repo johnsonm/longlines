@@ -82,7 +82,8 @@ export function DestinationDialog({ open, onClose, onCreated }: { open: boolean;
 export function SecretDialog({ secret, name, onClose }: { secret: string | null; name: string; onClose: () => void }) {
   const { active: tourActive } = useTour();
   return (
-    <Dialog open={secret !== null} onClose={onClose} fullWidth maxWidth="sm" disableEnforceFocus={tourActive}>
+    // No onClose on the Dialog: a backdrop click or Escape would lose the secret before it's copied.
+    <Dialog open={secret !== null} fullWidth maxWidth="sm" disableEnforceFocus={tourActive}>
       <DialogTitle>Signing secret for {name}</DialogTitle>
       <DialogContent dividers data-tour="signing-secret">
         <Alert severity="warning" sx={{ mb: 2 }}>Copy it now. This is the only time it's shown.</Alert>

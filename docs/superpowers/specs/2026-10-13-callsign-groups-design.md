@@ -3,9 +3,9 @@
 Date: 2026-10-13. Status: **Section 1 (schema and RPCs) approved and built in PR #129.** Brad
 then supplied UI mocks (`callsign-groups-mocks/`). They overrode four things: a cap of 1,000 per
 group, members stored as base calls, whole-list saves, and "on the air now". Those changes are
-approved and are Section 1b. Sections 2–4 are proposals revised to follow the mocks. Before
-implementing one of them, its PR's chat presents it to Brad and gets a yes. If the design
-changes, update this file in that PR.
+approved and are Section 1b. Sections 2–4 were proposals revised to follow the mocks; all three
+are now approved and built (Section 4 in PR 4). If the design changes, update this file in the PR
+that changes it.
 
 **The mocks are authoritative for layout and copy on the Groups page, the group dialog and the
 subscription dialog.** Ignore anything else in them that doesn't match the current app: the
@@ -193,9 +193,31 @@ every worktree. `20261013000200` belongs to another branch.
   
   Regenerate `database.types.ts`.
 
-## Section 2: Matching (proposed; PR 2)
+## Section 2: Matching (approved; PR 2)
 
-Migration `20261013000220_callsign_group_matching.sql`. Recheck the number.
+Migration `20261013000330_callsign_group_matching.sql` (220 was passed by #130's 300 and the
+review fixes' 310 and 320 before PR 2 started).
+
+*As built,* with Brad's approval, it differs from the proposal below in these ways:
+
+- `spot_matches` checks groups last, as `cardinality(sub.group_ids) > 0 and group_matches(…)`.
+  `group_matches` has a subquery, so Postgres never inlines it. A subscription without groups
+  never calls it, and the source, band, mode and reference checks run first. `spot_matches` still
+  calls only functions, so it stays inlinable and on the unpinned-helper list. `group_matches` is
+  pinned and runs as invoker: its callers are definer functions.
+- `station_count` counts distinct **base** calls. Typed `W1AW/P` plus a `W1AW` member is one
+  station.
+- Preview compares group ids as text (`g.id::text = any (…)`). A malformed id is ignored like
+  another user's id, rather than raising a uuid cast error.
+- In `watched_among`, the group arm materializes the batch's member rows first: one index probe
+  per distinct base call, then a hashed check against the groups that enabled subscriptions
+  accepting the source use. Left to the planner, it probed once per (call, watched group) pair.
+  There's no GIN index on `group_ids`, because nothing searches subscriptions by group.
+- Performance check, local stack, 1M members, 300 subscriptions (250 with groups):
+  `match_pending_spots` takes about 0.42 s per 500-spot batch (11 ms with the group
+  subscriptions disabled), `watched_among` 70–85 ms for 1,000 calls, and preview about 5 ms. The
+  matcher's cost is one `group_matches` call (about 6 µs) per surviving (subscription, spot)
+  pair, so it grows with the number of group subscriptions.
 
 - New helper: `group_matches(p_group_ids uuid[], p_base text) returns boolean`, `stable`, with a
   pinned search path. It returns `cardinality(p_group_ids) > 0 and exists (select 1 from
@@ -233,11 +255,13 @@ Migration `20261013000220_callsign_group_matching.sql`. Recheck the number.
   - a `KK4PWJ/P` spot matching through a `KK4PWJ` member
   - another user's group id being ignored in preview, including in `station_count`
 
-## Section 3: Groups page (proposed; PR 3)
+## Section 3: Groups page (approved; PR 3)
 
 Build it to the mocks: `groups-page.png`, `new-group.png` and `edit-group.png`. The copy comes
-from the Copy section below. Strings the mocks don't show are marked *proposed*: show them to
-Brad and get a yes before using them.
+from the Copy section below. The strings the mocks don't show were approved and are in the Copy
+section. *As built:* chips are alphabetical, as `list_callsign_groups` returns them (the mock's
+order is just sample data). `SubscriptionInput` gains an optional `group_ids` for Get alerts;
+PR 4 makes the dialog edit it.
 
 - **Route and nav.** `/groups` (RequireAuth). A **Groups** nav item with a people icon goes
   between Subscriptions and Destinations.
@@ -295,21 +319,21 @@ Brad and get a yes before using them.
   
   Meet the 80% gate.
 
-## Section 4: Groups in subscriptions (proposed; PR 4)
+## Section 4: Groups in subscriptions (approved; PR 4)
 
 Build it to `subscription-dialog.png`.
 
 - **Callsigns** stays where it is. When any group is selected, its helper text becomes "Added to
-  the groups below.". With no groups selected it keeps "Leave empty to match any station." (the
-  *proposed* rule; confirm with Brad).
+  the groups below.". With no groups selected it keeps "Leave empty to match any station." (approved).
 - A **Callsign groups** multi-select (an autocomplete over `list_callsign_groups`, chips of group
   names) goes directly below Callsigns. When there are typed calls or selected groups, its helper
   reads "Matches N stations from your groups and callsigns.", with N from the preview's
-  `station_count`. With no groups in the account, the field is replaced by a link to `/groups`
-  (*proposed* copy).
+  `station_count`. With no groups in the account, the field is replaced by a line linking to `/groups`
+  (approved copy below). Following the link closes the dialog like any nav click; there is no
+  discard prompt.
 - `SubscriptionInput` gains `group_ids`. Also update `blankSub`, `toInput` and the preview
   payload, which adds `group_ids` to the memoised JSON key.
-- `filterChips` shows each group's name as a chip. Names come from the groups list that `api.ts`
+- `filterChips` shows one "Group: {name}" chip per group, after the callsigns chip. Names come from the groups list that `api.ts`
   already loads. Never resolve membership in TypeScript.
 - Docs: add a "Callsign group rules" section to CLAUDE.md covering:
   - live membership
@@ -340,6 +364,12 @@ above is added here once Brad approves it.
 - On-air chip: {N} on the air now
 - Latest spot: {CALL} {kHz} kHz {MODE} / {band} · {Source} · {reference} · {age} ago
 - Actions: Get alerts · Edit · Delete
+- Empty (approved): No groups yet. / button Create your first group
+- Delete has no confirmation, as on Destinations and Subscriptions. Disabled tooltip: Remove it
+  from its subscriptions first
+- Toasts (approved): Created {name} · Saved changes · Deleted {name}. Get alerts reuses the
+  profile's: Created {name} on the air · You already have {name}. · Add a destination to start
+  getting alerts.
 
 **Group dialog**
 - Titles: New group / Edit group
@@ -348,6 +378,16 @@ above is added here once Brad approves it.
 - Tabs: Type · Paste · Import CSV
 - Type tab field: Callsign (placeholder KK4PWJ), button Add
 - Type tab helper: Press Enter to add. Spaces or commas add several at once.
+- Paste tab (approved): field Callsigns (multi-line, placeholder KK4PWJ, N4DXX, AB4RD), helper
+  Separate them with commas, spaces or new lines., button Add
+- Import CSV tab (approved): button Choose file; helper One callsign per row. Long Lines uses the
+  column headed Call or Callsign, or the first column if there isn't one.; after parsing
+  "{file}: using the {Header} column. Found {N} callsigns, skipped {M}." (or "using the first
+  column"), then button Add; "No callsigns found in {file}."; "Couldn't read that file."
+- Rejected values (approved, under the tab): Not callsigns, so not added: {CALL}, {CALL}, …
+  (past 20, it ends "and {N} more")
+- Limit refusal (approved, under the tab, nothing added): That would make {N} callsigns. A group
+  can hold up to 1,000.
 - Panel heading: {N} callsigns
 - Panel button: Remove all
 - Panel helper: Portable suffixes like /P are removed, so KK4PWJ also matches KK4PWJ/P. Up to 1,000 per group.
@@ -358,6 +398,13 @@ above is added here once Brad approves it.
 - Callsigns helper, groups selected: Added to the groups below.
 - Field: Callsign groups
 - Groups helper: Matches {N} stations from your groups and callsigns.
+- Callsigns helper, no groups selected (approved): Leave empty to match any station.
+- Groups helper (approved): singular "Matches 1 station from your groups and callsigns."; no
+  helper with no typed calls and no groups; the last {N} stays while a new preview loads.
+- No groups in the account (approved, replaces the field): No callsign groups yet. Create a group
+  to watch a club roster or an award list. ("Create a group" links to /groups.)
+- Subscription card chip (approved): Group: {name}, one per group, after the callsigns chip.
+  Left out when the groups list doesn't load.
 
 **Errors (from the RPCs)**
 - Give the group a name.
@@ -372,7 +419,7 @@ above is added here once Brad approves it.
 1. #129, schema and RPCs (branch `callsign-groups`). Merged 2026-10-13.
 2. PR 1b, the changes from the mocks (branch `callsign-groups-ui-fixes`). This
    revision of the spec and the mock images are committed there.
-3. PR 2, matching. Starts after PR 1b merges.
+3. PR 2, matching (branch `callsign-group-matching`). Starts after PR 1b merges.
 4. PR 3, the Groups page. Also needs only PR 1b, so it can run alongside PR 2. Don't run pgTAP
    in two chats at once: the local stack is shared.
 5. PR 4, groups in subscriptions. Needs PRs 2 and 3.
