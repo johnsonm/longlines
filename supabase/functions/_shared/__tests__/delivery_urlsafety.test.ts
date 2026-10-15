@@ -3,6 +3,7 @@ import {
   assertSafeDestinationUrl,
   assertSafePushEndpoint,
   assertSafeResolvedHost,
+  isDeniedHostname,
   isPrivateIp,
 } from "../delivery/urlsafety.ts";
 
@@ -54,6 +55,68 @@ Deno.test("assertSafeDestinationUrl applies the same rules as the database", () 
   assertThrows(() => assertSafeDestinationUrl("webhook", "https://[::1]/x"));
   assertThrows(() => assertSafeDestinationUrl("webhook", "ftp://example.com/x"));
   assertThrows(() => assertSafeDestinationUrl("webhook", "not a url"));
+});
+
+Deno.test("isPrivateIp pins Fly's 6PN and the cloud metadata address", () => {
+  // fdaa::/16 is Fly's private network; it sits inside fc00::/7.
+  assertEquals(isPrivateIp("fdaa::1"), true);
+  assertEquals(isPrivateIp("fdaa:0:1::3"), true);
+  assertEquals(isPrivateIp("fdaa::3"), true);
+  assertEquals(isPrivateIp("169.254.169.254"), true);
+});
+
+Deno.test("assertSafeDestinationUrl refuses private-only name suffixes (same list as SQL)", () => {
+  for (
+    const url of [
+      "https://api.internal/spots",
+      "https://longlines-relay.internal/spots",
+      "https://api.flycast/spots",
+      "https://printer.local/spots",
+      "https://box.localdomain/spots",
+      "https://nas.home.arpa/spots",
+      "https://1.0.0.10.in-addr.arpa/spots",
+      "https://API.INTERNAL/spots",
+      "https://api.internal./spots",
+      "https://api.internal:8443/spots",
+    ]
+  ) {
+    assertThrows(() => assertSafeDestinationUrl("webhook", url), Error, "not allowed", url);
+  }
+  // Only the suffix is denied; the words may appear elsewhere in a name.
+  for (
+    const url of [
+      "https://internal.example.com/spots",
+      "https://flycast.example.com/spots",
+      "https://local.example.com/spots",
+      "https://arpa.example.com/spots",
+      "https://api.internal.example.com/spots",
+      "https://notinternal.example.com/spots",
+    ]
+  ) {
+    assertEquals(assertSafeDestinationUrl("webhook", url).href, url);
+  }
+});
+
+Deno.test("isDeniedHostname covers localhost and every denied suffix", () => {
+  for (
+    const host of [
+      "localhost",
+      "a.localhost",
+      "a.internal",
+      "a.flycast",
+      "a.local",
+      "a.localdomain",
+      "a.home.arpa",
+      "a.arpa",
+    ]
+  ) {
+    assertEquals(isDeniedHostname(host), true, host);
+  }
+  for (
+    const host of ["example.com", "internal", "localhost.example.com", "a.internal.example.com"]
+  ) {
+    assertEquals(isDeniedHostname(host), false, host);
+  }
 });
 
 Deno.test("assertSafeResolvedHost refuses hosts that resolve to private addresses (DNS rebinding)", async () => {

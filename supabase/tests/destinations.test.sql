@@ -2,7 +2,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(28);
+select plan(38);
 
 select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
 
@@ -34,13 +34,24 @@ select throws_ok($$ select create_destination('webhook', 'x', 'https://169.254.1
 select throws_ok($$ select create_destination('webhook', 'x', 'https://100.64.0.1/spots') $$, 'P0001', 'That address is not allowed.', 'rejects CGNAT');
 select throws_ok($$ select create_destination('webhook', 'x', 'https://[::1]/spots') $$, 'P0001', 'That address is not allowed.', 'rejects IPv6 loopback');
 select throws_ok($$ select create_destination('webhook', 'x', 'https://[fd12::1]/spots') $$, 'P0001', 'That address is not allowed.', 'rejects IPv6 ULA');
+-- Private-only name suffixes (20261015000300); the same list is in urlsafety.ts.
+select throws_ok($$ select create_destination('webhook', 'x', 'https://api.internal/spots') $$, 'P0001', 'That address is not allowed.', 'rejects .internal (Fly 6PN)');
+select throws_ok($$ select create_destination('webhook', 'x', 'https://api.flycast/spots') $$, 'P0001', 'That address is not allowed.', 'rejects .flycast');
+select throws_ok($$ select create_destination('webhook', 'x', 'https://printer.local/spots') $$, 'P0001', 'That address is not allowed.', 'rejects .local');
+select throws_ok($$ select create_destination('webhook', 'x', 'https://box.localdomain/spots') $$, 'P0001', 'That address is not allowed.', 'rejects .localdomain');
+select throws_ok($$ select create_destination('webhook', 'x', 'https://nas.home.arpa/spots') $$, 'P0001', 'That address is not allowed.', 'rejects .home.arpa');
+select throws_ok($$ select create_destination('webhook', 'x', 'https://1.0.0.10.in-addr.arpa/spots') $$, 'P0001', 'That address is not allowed.', 'rejects .arpa');
+select throws_ok($$ select create_destination('webhook', 'x', 'https://API.Internal:8443/spots') $$, 'P0001', 'That address is not allowed.', 'suffix check ignores case and port');
+select throws_ok($$ select create_destination('webhook', 'x', 'https://api.internal./spots') $$, 'P0001', 'That address is not allowed.', 'a trailing dot does not evade the suffix check');
+select throws_ok($$ select create_destination('webhook', 'x', 'https://[fdaa:0:1::3]/spots') $$, 'P0001', 'That address is not allowed.', 'rejects fdaa::/16 (Fly 6PN)');
+select lives_ok($$ select create_destination('webhook', 'x', 'https://internal.example.com/spots') $$, 'a denied word inside a public name is fine');
 select throws_ok($$ select create_destination('webhook', 'x', 'not a url') $$, 'P0001', 'Use an https URL.', 'rejects garbage');
 select throws_ok($$ select create_destination('email', 'x', 'https://example.com') $$, 'P0001', 'Unknown destination type.', 'rejects unknown type');
 
 -- Secrets are not readable through the table, even by the owner.
 select throws_ok($$ select url from destinations $$, '42501', null, 'url column is not selectable');
 select throws_ok($$ select signing_secret from destinations $$, '42501', null, 'signing_secret column is not selectable');
-select is((select count(*) from destinations), 3::bigint, 'owner sees their destinations through allowed columns');
+select is((select count(*) from destinations), 4::bigint, 'owner sees their destinations through allowed columns');
 select throws_ok($$ insert into destinations (user_id, type, name, url, url_display) values (auth.uid(), 'webhook', 'x', 'https://e.com', 'e') $$,
   '42501', null, 'direct insert is not allowed');
 
