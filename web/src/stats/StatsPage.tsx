@@ -94,10 +94,11 @@ function EmptyState() {
 function Dashboard({ payload }: { payload: StatsPayload }) {
   const theme = useTheme();
   const mobile = useMediaQuery(theme.breakpoints.down("sm"));
-  // Color follows the source everywhere on the page: POTA is primary, SOTA is secondary, RBN is warning,
-  // APRS is success. The hourly total belongs to no source and keeps the chart's default color.
+  // Color follows the source everywhere on the page: POTA is primary, SOTA is secondary, WWFF is info,
+  // RBN is warning, APRS is success. The hourly total belongs to no source and keeps the chart's default color.
   const pota = theme.palette.primary.main;
   const sota = theme.palette.secondary.main;
+  const wwff = theme.palette.info.main;
   const rbnColor = theme.palette.warning.main;
   const aprsColor = theme.palette.success.main;
   const weekdays = payload.daily.map((d) => weekday(d.day));
@@ -111,9 +112,11 @@ function Dashboard({ payload }: { payload: StatsPayload }) {
   const axis = (v: unknown) => compact(Number(v));
   const rbn = payload.rbn ?? NO_RBN;
   const aprs = payload.aprs ?? NO_APRS;
+  // WWFF keys are missing from a snapshot written before 20261015000400.
+  const wwffPrograms = payload.wwffPrograms ?? [];
   const hourly = payload.hourly ?? [];
   const hours = hourly.map((h) => new Date(h.hour));
-  const hourTotals = hourly.map((h) => h.pota + h.sota + h.rbn + (h.aprs ?? 0));
+  const hourTotals = hourly.map((h) => h.pota + h.sota + (h.wwff ?? 0) + h.rbn + (h.aprs ?? 0));
   // Midnight ticks; every other day on phones so the labels do not collide.
   const midnights = midnightTicks(hours, mobile);
   const processed = payload.totals.spots + rbn.spots + aprs.packets;
@@ -122,17 +125,19 @@ function Dashboard({ payload }: { payload: StatsPayload }) {
     ["APRS", payload.daily.map((d) => d.aprs ?? 0), aprsColor, "packets"],
     ["POTA", payload.daily.map((d) => d.pota), pota, "spots"],
     ["SOTA", payload.daily.map((d) => d.sota), sota, "spots"],
+    ["WWFF", payload.daily.map((d) => d.wwff ?? 0), wwff, "spots"],
   ];
   const rbnBands = bands.map((band) => rbn.bands.find((b) => b.band === band)?.spots ?? 0);
   const perBand: [string, string, number[], string][] = [
     ["RBN bands", "Where skimmers are hearing stations", rbnBands, rbnColor],
     ["POTA bands", "Where park activators are operating", payload.bands.map((b) => b.pota), pota],
     ["SOTA bands", "Where summit activators are operating", payload.bands.map((b) => b.sota), sota],
+    ["WWFF bands", "Where WWFF activators are operating", payload.bands.map((b) => b.wwff ?? 0), wwff],
   ];
 
   return (
     <>
-      {/* The first row is volume (every source); the second is POTA and SOTA activity. Spots, activations
+      {/* The first row is volume (every source); the second is POTA, SOTA and WWFF activity. Spots, activations
           and chasers are different counts of the same week: a spot is one report, an activation is one
           callsign at one reference on one UTC day, and a chaser is one spotter who is not the activator. */}
       <Grid container spacing={2}>
@@ -140,7 +145,7 @@ function Dashboard({ payload }: { payload: StatsPayload }) {
           <Kpi
             label="Spots processed"
             value={fmt(processed)}
-            detail={`${fmt(rbn.spots)} RBN, ${fmt(aprs.packets)} APRS, ${fmt(payload.totals.potaSpots)} POTA, ${fmt(payload.totals.sotaSpots)} SOTA`}
+            detail={`${fmt(rbn.spots)} RBN, ${fmt(aprs.packets)} APRS, ${fmt(payload.totals.potaSpots)} POTA, ${fmt(payload.totals.sotaSpots)} SOTA, ${count(payload.totals.wwffSpots)} WWFF`}
           />
         </Grid>
         <Grid size={{ xs: 6, md: 3 }}>
@@ -155,7 +160,7 @@ function Dashboard({ payload }: { payload: StatsPayload }) {
         </Grid>
         <Grid size={{ xs: 6, md: 3 }}>
           <Kpi
-            label="Peak POTA/SOTA hour"
+            label="Peak POTA/SOTA/WWFF hour"
             value={hourLabel(payload.peakHour)}
             detail={`Busiest slot: ${weekday(payload.busiestSlot.day)} ${hourLabel(payload.busiestSlot.hour)}`}
           />
@@ -164,21 +169,21 @@ function Dashboard({ payload }: { payload: StatsPayload }) {
           <Kpi
             label="Activations"
             value={count(payload.totals.activations)}
-            detail={`${count(payload.totals.potaActivations)} POTA, ${count(payload.totals.sotaActivations)} SOTA`}
+            detail={`${count(payload.totals.potaActivations)} POTA, ${count(payload.totals.sotaActivations)} SOTA, ${count(payload.totals.wwffActivations)} WWFF`}
           />
         </Grid>
         <Grid size={{ xs: 6, md: 3 }}>
           <Kpi
             label="Chasers"
             value={count(payload.totals.chasers)}
-            detail={`${count(payload.totals.potaChasers)} POTA, ${count(payload.totals.sotaChasers)} SOTA`}
+            detail={`${count(payload.totals.potaChasers)} POTA, ${count(payload.totals.sotaChasers)} SOTA, ${count(payload.totals.wwffChasers)} WWFF`}
           />
         </Grid>
         <Grid size={{ xs: 6, md: 3 }}>
-          <Kpi label="Activators" value={fmt(payload.totals.activators)} detail="Unique POTA and SOTA callsigns" />
+          <Kpi label="Activators" value={fmt(payload.totals.activators)} detail="Unique POTA, SOTA and WWFF callsigns" />
         </Grid>
         <Grid size={{ xs: 6, md: 3 }}>
-          <Kpi label="Parks and summits" value={fmt(payload.totals.references)} detail="Unique references activated" />
+          <Kpi label="Parks, summits and WWFF" value={fmt(payload.totals.references)} detail="Unique references activated" />
         </Grid>
       </Grid>
 
@@ -208,7 +213,7 @@ function Dashboard({ payload }: { payload: StatsPayload }) {
       </Box>
       <Grid container spacing={2}>
         {perDay.map(([label, data, color, unit]) => (
-          <Grid key={label} size={{ xs: 12, sm: 6, md: 3 }}>
+          <Grid key={label} size={{ xs: 12, sm: 6, md: 4 }}>
             <ChartCard title={label} subheader={`${fmt(data.reduce((sum, n) => sum + n, 0))} ${unit}`}>
               <LineChart
                 height={200}
@@ -246,7 +251,7 @@ function Dashboard({ payload }: { payload: StatsPayload }) {
 
       <ChartCard
         title="Activity by country"
-        subheader="POTA, SOTA, DX Cluster and RBN spots by the country of the station on the air. Darker means more activity."
+        subheader="POTA, SOTA, WWFF, DX Cluster and RBN spots by the country of the station on the air. Darker means more activity."
       >
         <Grid container spacing={3} sx={{ alignItems: "center" }}>
           <Grid size={{ xs: 12, md: 8 }}>
@@ -271,7 +276,7 @@ function Dashboard({ payload }: { payload: StatsPayload }) {
 
       <Grid container spacing={2}>
         {perBand.map(([title, subheader, data, color]) => (
-          <Grid key={title} size={{ xs: 12, md: 4 }}>
+          <Grid key={title} size={{ xs: 12, md: 6 }}>
             <ChartCard title={title} subheader={subheader}>
               <BarChart
                 height={260}
@@ -286,7 +291,7 @@ function Dashboard({ payload }: { payload: StatsPayload }) {
       </Grid>
 
       <Grid container spacing={2}>
-        <Grid size={{ xs: 12, md: 6 }}>
+        <Grid size={{ xs: 12, md: 4 }}>
           <ChartCard title="Top SOTA associations" subheader="Associations with the most summit spots">
             <BarChart
               height={340}
@@ -298,8 +303,20 @@ function Dashboard({ payload }: { payload: StatsPayload }) {
             />
           </ChartCard>
         </Grid>
-        <Grid size={{ xs: 12, md: 6 }}>
-          <ChartCard title="Modes" subheader="Share of POTA and SOTA spots">
+        <Grid size={{ xs: 12, md: 4 }}>
+          <ChartCard title="Top WWFF programs" subheader="Programs with the most WWFF spots">
+            <BarChart
+              height={340}
+              hideLegend
+              layout="horizontal"
+              yAxis={[{ scaleType: "band", data: wwffPrograms.map((p) => p.code), width: 56 }]}
+              xAxis={[{ valueFormatter: axis }]}
+              series={[{ label: "Spots", data: wwffPrograms.map((p) => p.spots), color: wwff, valueFormatter: count }]}
+            />
+          </ChartCard>
+        </Grid>
+        <Grid size={{ xs: 12, md: 4 }}>
+          <ChartCard title="Modes" subheader="Share of POTA, SOTA and WWFF spots">
             <PieChart
               height={340}
               series={[{
@@ -317,7 +334,7 @@ function Dashboard({ payload }: { payload: StatsPayload }) {
 
       <Grid container spacing={2}>
         <Grid size={{ xs: 12, md: 6 }}>
-          <ChartCard title="Most active activators" subheader="By number of parks and summits activated">
+          <ChartCard title="Most active activators" subheader="By number of parks, summits and WWFF references activated">
             <DataGrid
               {...GRID}
               // A snapshot written before 20261012000090 has no base; its profile redirects to the base call.
@@ -328,7 +345,7 @@ function Dashboard({ payload }: { payload: StatsPayload }) {
           </ChartCard>
         </Grid>
         <Grid size={{ xs: 12, md: 6 }}>
-          <ChartCard title="Most spotted parks and summits" subheader="Hunters found these most often">
+          <ChartCard title="Most spotted parks, summits and WWFF references" subheader="Hunters found these most often">
             <DataGrid
               {...GRID}
               rows={payload.topReferences.map((r, id) => ({ id, ...r, name: r.name ?? "" }))}

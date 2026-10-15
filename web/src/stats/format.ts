@@ -84,12 +84,12 @@ export function logFillOpacity(value: number, max: number): number {
   return fillOpacity(Math.log1p(Math.max(0, value)), Math.log1p(Math.max(0, max)));
 }
 
-/** A country's spots from every source. */
-export const countryTotal = (c: CountrySpots): number => c.pota + c.sota + c.dx + c.rbn;
+/** A country's spots from every source. A snapshot written before 20261015000400 has no wwff. */
+export const countryTotal = (c: CountrySpots): number => c.pota + c.sota + (c.wwff ?? 0) + c.dx + c.rbn;
 
 /** Per-source detail for a country, in the order of the Spots processed figure. */
 export function countryDetail(c: CountrySpots): string {
-  return `${fmt(c.rbn)} RBN, ${fmt(c.dx)} DX Cluster, ${fmt(c.pota)} POTA, ${fmt(c.sota)} SOTA`;
+  return `${fmt(c.rbn)} RBN, ${fmt(c.dx)} DX Cluster, ${fmt(c.pota)} POTA, ${fmt(c.sota)} SOTA, ${fmt(c.wwff ?? 0)} WWFF`;
 }
 
 const APRS_TYPE_LABELS: Record<AprsPacketType, string> = {

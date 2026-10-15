@@ -161,7 +161,7 @@ describe("CallsignPage profile", () => {
     expect(screen.getByText("Since Oct 5, 2026")).toBeInTheDocument();
     expect(screen.getByText("12 countries")).toBeInTheDocument();
     expect(screen.getByText("3 continents")).toBeInTheDocument();
-    expect(screen.getByText("3 parks, 2 summits")).toBeInTheDocument();
+    expect(screen.getByText("3 parks, 2 summits, 1 WWFF reference")).toBeInTheDocument();
     expect(screen.getByText("From the FCC Universal Licensing System. Refreshed weekly.")).toBeInTheDocument();
     expect(screen.getByText("Mar 1, 2036")).toBeInTheDocument();
     expect(screen.getByText("NC")).toBeInTheDocument();
@@ -203,6 +203,7 @@ describe("CallsignPage profile", () => {
     expect(screen.getByText("Spots per month, since Long Lines started")).toBeInTheDocument();
     expect(screen.getByRole("img", { name: "Map of days spotted by state" })).toBeInTheDocument();
     expect(screen.getByText("Pisgah National Forest")).toBeInTheDocument();
+    expect(screen.getByText("T.M. Goodwin")).toBeInTheDocument();
     expect(screen.getByText("Germany")).toBeInTheDocument();
     expect(screen.getByText("W3LPL")).toBeInTheDocument();
     expect(screen.getByText("31 dB")).toBeInTheDocument();
@@ -229,8 +230,8 @@ describe("CallsignPage profile", () => {
     }));
     profileIs({ ...FULL, heard: { ...HEARD, references } });
     renderAt("/call/KK4PWJ");
-    expect(screen.getByText("Days at parks/summits")).toBeInTheDocument();
-    expect(screen.getByText("Parks and summits, most recent first")).toBeInTheDocument();
+    expect(screen.getByText("Days at parks/summits/WWFF")).toBeInTheDocument();
+    expect(screen.getByText("Parks, summits and WWFF references, most recent first")).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "Days" })).toBeInTheDocument();
     expect(screen.getByText("US-1009")).toBeInTheDocument();
     expect(screen.queryByText("US-1010")).not.toBeInTheDocument();
@@ -240,7 +241,7 @@ describe("CallsignPage profile", () => {
     profileIs({ ...FULL, heard: { ...HEARD, references: [], activations: [], activationsByLocation: {} } });
     renderAt("/call/KK4PWJ");
     expect(screen.queryByText("Where they've been spotted")).not.toBeInTheDocument();
-    expect(screen.getByText("0 parks, 0 summits")).toBeInTheDocument();
+    expect(screen.getByText("0 parks, 0 summits, 0 WWFF references")).toBeInTheDocument();
   });
 
   it("renders on phones", () => {

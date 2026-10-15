@@ -30,8 +30,8 @@ describe("SourceTile", () => {
   });
 
   it("does not link a planned source", () => {
-    renderPage(<SourceTile source={SOURCES.find((s) => s.id === "wwff")!} status="planned" rates={null} />);
-    expect(screen.getByText("WWFF")).toBeInTheDocument();
+    renderPage(<SourceTile source={SOURCES.find((s) => s.id === "pskreporter")!} status="planned" rates={null} />);
+    expect(screen.getByText("PSK Reporter")).toBeInTheDocument();
     expect(screen.getByText("Not yet available")).toBeInTheDocument();
     expect(screen.queryByRole("link")).not.toBeInTheDocument();
   });

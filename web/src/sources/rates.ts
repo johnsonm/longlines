@@ -20,7 +20,7 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
 
 /**
  * Null when the snapshot predates the source's key (DX Cluster before
- * 20261014000200) or has no hours, so the page shows "no rates yet" rather than zeros.
+ * 20261014000200, WWFF before 20261015000400) or has no hours, so the page shows "no rates yet" rather than zeros.
  */
 export function sourceRates(hourly: readonly Hour[], key: StatsKey): Rates | null {
   const first = hourly[0];

@@ -121,9 +121,9 @@ export function noLicenseMessage(usPrefix: boolean): string {
 
 const PROGRAM_NOUNS: Record<string, [string, string]> = { POTA: ["park", "parks"], SOTA: ["summit", "summits"] };
 
-/** The "Days at parks/summits" KPI's detail: "3 parks, 2 summits". Programs without a noun read "1 WWFF reference". */
+/** The "Days at parks/summits/WWFF" KPI's detail: "3 parks, 2 summits, 1 WWFF reference". Programs without a noun read "N <program> references". */
 export function activationsDetail(activations: HeardProfile["activations"]): string {
-  const counts = new Map<string, number>([["POTA", 0], ["SOTA", 0]]);
+  const counts = new Map<string, number>([["POTA", 0], ["SOTA", 0], ["WWFF", 0]]);
   for (const a of activations) counts.set(a.program, a.references);
   return [...counts]
     .map(([program, n]) => {
@@ -184,6 +184,8 @@ export function spotRows(spots: ProfileSpot[]): RecentSpot[] {
     pota_park_name: null,
     pota_location: null,
     sota_summit_ref: null,
+    wwff_reference: null,
+    wwff_reference_name: null,
     source: s.source,
     spotter: s.spotter,
     comment: null,

@@ -219,7 +219,7 @@ describe("edit subscription", () => {
     expect(screen.getAllByRole("option")).toHaveLength(6);
     await user.click(await screen.findByRole("option", { name: "Park, summit, or location" }));
     await user.type(screen.getByPlaceholderText("US-NC, W4C/, US-0817"), "US-NC");
-    expect(screen.getByText("Matches POTA references and locations, and SOTA summit codes.")).toBeInTheDocument();
+    expect(screen.getByText("Matches POTA references and locations, SOTA summit codes and WWFF references.")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Delete Callsign rule" }));
     await user.click(screen.getByRole("combobox", { name: "Repeat spots for the same station" }));

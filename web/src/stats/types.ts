@@ -1,9 +1,9 @@
 // Shape of stats_snapshots.payload. It is produced by refresh_stats_snapshot()
-// in supabase/migrations/20261015000100_stats_countries.sql and pinned by
+// in supabase/migrations/20261015000400_wwff_source.sql and pinned by
 // supabase/tests/stats_snapshot.test.sql; change both together.
 
 export type ModeLabel = "CW" | "SSB" | "FT8/FT4" | "FM" | "Other";
-export type Program = "POTA" | "SOTA";
+export type Program = "POTA" | "SOTA" | "WWFF";
 // aprs_packets.packet_type's check constraint (20261014000010).
 export type AprsPacketType =
   | "position" | "mic_e" | "object" | "item" | "message" | "status" | "weather"
@@ -11,21 +11,22 @@ export type AprsPacketType =
 
 export type StatsPayload = {
   totals: {
-    spots: number; potaSpots: number; sotaSpots: number; // one per raw_spots row (re-spots count)
-    activations: number; potaActivations: number; sotaActivations: number; // distinct (callsign, reference, UTC day)
-    chasers: number; potaChasers: number; sotaChasers: number; // distinct spotters, self-spots excluded
+    spots: number; potaSpots: number; sotaSpots: number; wwffSpots: number; // one per raw_spots row (re-spots count)
+    activations: number; potaActivations: number; sotaActivations: number; wwffActivations: number; // distinct (callsign, reference, UTC day)
+    chasers: number; potaChasers: number; sotaChasers: number; wwffChasers: number; // distinct spotters, self-spots excluded
     activators: number; references: number;
   };
   peakHour: number; // 0-23 UTC
   busiestSlot: { day: string; hour: number }; // day is YYYY-MM-DD
-  daily: { day: string; pota: number; sota: number; rbn: number; aprs: number; dx: number }[]; // exactly 7, oldest first, zero-filled
-  hourly: { hour: string; pota: number; sota: number; rbn: number; aprs: number; dx: number }[]; // exactly 168, oldest first, zero-filled, ending at the last complete hour; hour is ISO UTC
+  daily: { day: string; pota: number; sota: number; wwff: number; rbn: number; aprs: number; dx: number }[]; // exactly 7, oldest first, zero-filled
+  hourly: { hour: string; pota: number; sota: number; wwff: number; rbn: number; aprs: number; dx: number }[]; // exactly 168, oldest first, zero-filled, ending at the last complete hour; hour is ISO UTC
   potaByState: Record<string, number>; // 50 states + DC, zero-filled
   // Spots per country of the station on the air (cty.dat entity of the call as spotted, as ISO 3166-1
   // alpha-2): every country with a spot, by total desc then code. RBN is the firehose; APRS is left out.
   countries: CountrySpots[];
   sotaAssociations: { code: string; spots: number }[]; // top 10
-  bands: { band: string; pota: number; sota: number }[]; // fixed order 160m … 2m
+  wwffPrograms: { code: string; spots: number }[]; // top 10, keyed on the reference prefix before "-" (KFF, ONFF)
+  bands: { band: string; pota: number; sota: number; wwff: number }[]; // fixed order 160m … 2m
   modes: { label: ModeLabel; percent: number }[]; // integers, sum to 100
   // callsign as spotted (KK4PWJ/P); base is its base call, the profile the page links to. Top 8.
   topActivators: { callsign: string; base: string; references: number; activations: number; spots: number; topBand: string | null }[];
@@ -48,6 +49,6 @@ export type StatsPayload = {
   };
 };
 
-export type CountrySpots = { code: string; pota: number; sota: number; dx: number; rbn: number };
+export type CountrySpots = { code: string; pota: number; sota: number; wwff: number; dx: number; rbn: number };
 
 export type LatestStats = { payload: StatsPayload; generatedAt: string };
