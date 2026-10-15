@@ -800,6 +800,44 @@ host-matched rewrite in `web/vercel.json` to `/functions/v1/api/v1/...`.
   404, "Remove it from its subscriptions first." to 409, other raised messages and Postgres data
   and integrity errors to 400, and everything else to a logged 500.
 
+# Band map
+
+```mermaid
+flowchart LR
+  B[browser, signed in or not] -- "GET, every 30 s while visible" --> F[band-map function]
+  F -- "cached_band_map" --> C[(band_map_cache, one row, 30 s)]
+  C -- "stale: rebuild under an advisory lock" --> S["band_map_snapshot()"]
+  S -- "last 5 minutes, POTA, SOTAwatch, DX Cluster" --> R[(raw_spots)]
+```
+
+`/band-map` shows who is on the air now: one strip per band, frequency across, one lane per
+source. It is public, like Stats and profiles.
+
+- **One shared result.** Every visitor polls, so nobody's request queries `raw_spots` directly.
+  `band_map_snapshot()` builds the payload, and `band_map_cache` holds it in one row.
+  `cached_band_map()` serves that row while it is under 30 seconds old. Once it is older, the
+  function takes a transaction-scoped advisory lock, checks again, rebuilds and upserts. Requests
+  that arrive together wait for the first one's commit and then serve its row, so a crowd costs
+  at most one `band_map_snapshot()` every 30 seconds. There is no cron job: an idle site rebuilds
+  nothing. The payload goes out with `Cache-Control: public, max-age=15`.
+- **What shows.** POTA, SOTAwatch and DX Cluster spots only. RBN is a skimmer firehose that would
+  bury the human spots (RBN still shows on profiles), and APRS-IS never reaches `raw_spots`. A
+  station appears once per band, at its latest spot there, keyed by `base_callsign`, so
+  `KK4PWJ/P` and `KK4PWJ` are one dot. Hidden calls never show. `raw_payload` never leaves the
+  table. The shape is `BandMapPayload` in `web/src/bandmap/types.ts`, pinned by
+  `supabase/tests/band_map.test.sql`.
+- **The index.** The window reads `raw_spots_spot_time_idx`. Five minutes is a few hundred rows
+  at most, so the source filter runs on those rows and needs no index of its own.
+- **The function.** `band-map` (`_shared/handlers/band_map.ts`) is `verify_jwt = false` with no
+  caller check, so it must never import `isServiceRole`. It has no rate limit: a request is one
+  read of a one-row table.
+- **The page.** Each band is a MUI X `ScatterChart`. The x axis is frequency, and y is a fixed
+  lane per source: DX Cluster at the bottom, POTA in the middle, SOTA on top. Segment edges are
+  `ChartsReferenceLine`s. The band plan (`web/src/lib/bandplan.ts`) is for display only. A click
+  takes the nearest dot through the chart's Voronoi handler. A station alone within the crowd
+  tolerance (band width / 140, or / 45 on a phone) opens `/call/<base>`. When it isn't alone, a
+  menu lists everyone there. The source chips filter in the browser and never refetch.
+
 # Callsign groups
 
 A group is a named list of up to 1,000 callsigns, such as a club roster, that subscriptions use in

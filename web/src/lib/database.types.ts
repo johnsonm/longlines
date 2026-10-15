@@ -146,6 +146,19 @@ isOneToOne: false
                   Relationships: [
                     
                   ]
+                },"band_map_cache": {
+                  Row: {
+                    "generated_at": string,"id": boolean,"payload": NonNullable<Json>
+                  }
+                  Insert: {
+                    "generated_at": string,"id"?: boolean,"payload": NonNullable<Json>
+                  }
+                  Update: {
+                    "generated_at"?: string,"id"?: boolean,"payload"?: NonNullable<Json>
+                  }
+                  Relationships: [
+
+                  ]
                 },"callsign_activity": {
                   Row: {
                     "band": string | null,"base": string,"grain": string,"hours": (number)[],"mode_bucket": string,"period": string,"role": string,"source": string,"spots": number
@@ -783,11 +796,17 @@ isOneToOne: false
               "error": string,"rollup_day": string,"spots": number
             }[]
                            },
+"band_map_snapshot":
+{ Args: Record<PropertyKey, never>; Returns: Json
+                           },
 "base_callsign":
 { Args: { "p_call": string }; Returns: string
                            },
 "base64url_bytes":
 { Args: { "p_text": string }; Returns: string
+                           },
+"cached_band_map":
+{ Args: Record<PropertyKey, never>; Returns: Json
                            },
 "cached_callsign_profile":
 { Args: { "p_callsign": string }; Returns: Json

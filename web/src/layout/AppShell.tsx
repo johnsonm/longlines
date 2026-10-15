@@ -5,6 +5,7 @@ import {
 } from "@mui/material";
 import MenuIcon from "@mui/icons-material/Menu";
 import SensorsIcon from "@mui/icons-material/Sensors";
+import GraphicEqIcon from "@mui/icons-material/GraphicEq";
 import FilterListIcon from "@mui/icons-material/FilterList";
 import GroupsIcon from "@mui/icons-material/Groups";
 import SendIcon from "@mui/icons-material/Send";
@@ -19,6 +20,7 @@ import { lookupPath } from "../profile/format";
 
 const NAV = [
   { id: "sources", label: "Sources", icon: <SensorsIcon /> },
+  { id: "band-map", label: "Band map", icon: <GraphicEqIcon /> },
   { id: "subscriptions", label: "Subscriptions", icon: <FilterListIcon /> },
   { id: "groups", label: "Groups", icon: <GroupsIcon /> },
   { id: "destinations", label: "Destinations", icon: <SendIcon /> },

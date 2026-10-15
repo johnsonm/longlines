@@ -18,6 +18,7 @@ import { SubscriptionsPage } from "./subscriptions/SubscriptionsPage";
 import { SubscriptionEditorPage } from "./subscriptions/SubscriptionEditorPage";
 import { GroupsPage } from "./groups/GroupsPage";
 import { StatsPage } from "./stats/StatsPage";
+import { BandMapPage } from "./bandmap/BandMapPage";
 import { ApiTokensPage } from "./tokens/ApiTokensPage";
 import { AccountPage } from "./account/AccountPage";
 import { LookupPage } from "./profile/LookupPage";
@@ -62,6 +63,7 @@ function Router() {
       <Route path="/subscriptions/:id" element={<RequireAuth page="subscription" />} />
       <Route path="/groups" element={<RequireAuth page="groups" />} />
       <Route path="/destinations" element={<RequireAuth page="destinations" />} />
+      <Route path="/band-map" element={<PublicRoute page="band-map" />} />
       <Route path="/stats" element={<PublicRoute page="stats" />} />
       <Route path="/lookup" element={<PublicRoute page="lookup" />} />
       <Route path="/call/*" element={<PublicRoute page="call" />} />
@@ -80,19 +82,20 @@ function PublicOnly({ children }: { children: ReactNode }) {
   return children;
 }
 
-type Page = "sources" | "source" | "subscriptions" | "subscription-new" | "subscription" | "groups" | "destinations" | "stats" | "lookup" | "call" | "account" | "api-tokens";
-type PublicPage = "stats" | "lookup" | "call";
+type Page = "sources" | "source" | "band-map" | "subscriptions" | "subscription-new" | "subscription" | "groups" | "destinations" | "stats" | "lookup" | "call" | "account" | "api-tokens";
+type PublicPage = "band-map" | "stats" | "lookup" | "call";
 
 // Signed-out visitors read profiles in UTC.
 const UTC: TimePrefs = { utcTimes: true, timezone: "UTC" };
 
-/** Stats and callsign profiles are public: signed-in users see them inside the app, everyone else in the public shell. */
+/** The band map, Stats and callsign profiles are public: signed-in users see them inside the app, everyone else in the public shell. */
 function PublicRoute({ page }: { page: PublicPage }) {
   const { session, sessionLoading } = useApp();
   if (sessionLoading) return <LinearProgress />;
   if (session) return <RequireAuth page={page} />;
   return (
     <PublicShell>
+      {page === "band-map" && <BandMapPage />}
       {page === "stats" && <StatsPage />}
       {page === "lookup" && <LookupPage />}
       {page === "call" && <CallsignPage prefs={UTC} />}
@@ -146,6 +149,7 @@ function SignedIn({ page }: { page: Page }) {
     <AppShell destinationsFailing={dests.some((d) => d.health === "failing")}>
       {page === "sources" && <SourcesPage />}
       {page === "source" && <SourceDetailPage prefs={prefs} subs={subs} />}
+      {page === "band-map" && <BandMapPage />}
       {page === "subscriptions" && (
         <SubscriptionsPage subs={subs} dests={dests} loading={loading} reload={reload} mobile={mobile} />
       )}
