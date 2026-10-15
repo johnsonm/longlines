@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { AppBar, Box, Button, Container, IconButton, Toolbar, Typography, useMediaQuery, useTheme } from "@mui/material";
+import GraphicEqIcon from "@mui/icons-material/GraphicEq";
 import InsightsIcon from "@mui/icons-material/Insights";
 import LoginIcon from "@mui/icons-material/Login";
 import PersonSearchIcon from "@mui/icons-material/PersonSearch";
@@ -13,6 +14,7 @@ export function PublicShell({ children }: { children: ReactNode }) {
   // Below md the bar's links are icons only.
   const mobile = useMediaQuery(theme.breakpoints.down("md"));
   const links = [
+    { label: "Band map", icon: <GraphicEqIcon />, go: () => void navigate("/band-map") },
     { label: "Stats", icon: <InsightsIcon />, go: () => void navigate("/stats") },
     { label: "Lookup", icon: <PersonSearchIcon />, go: () => void navigate("/lookup") },
     { label: "Sign in", icon: <LoginIcon />, go: () => void navigate("/signin", { state: location.pathname === "/signin" ? location.state : { from: location.pathname } }) },
