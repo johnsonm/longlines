@@ -149,7 +149,7 @@ export function SubscriptionsPage({ subs, dests, loading, reload, mobile }: Prop
       {loading && <LinearProgress />}
       <Grid container spacing={2}>
         {subs.map((s) => {
-          const rules = ruleSummaries(toInput(s), groups);
+          const rules = ruleSummaries(toInput(s).rules, groups);
           const hits = hitsText(s, previews[s.id]);
           return (
             <Grid size={{ xs: 12, md: 6 }} key={s.id}>
@@ -167,9 +167,9 @@ export function SubscriptionsPage({ subs, dests, loading, reload, mobile }: Prop
                     {rules.length > 0 && (
                       <Stack direction="row" spacing={1} useFlexGap sx={{ alignItems: "center", flexWrap: "wrap" }}>
                         {rules.map((r, i) => [
-                          i > 0 && <Typography key={`and-${r.label}`} variant="body2" color="text.secondary">and</Typography>,
-                          <Typography key={r.label} variant="body2" color="text.secondary">{r.label}</Typography>,
-                          ...r.values.map((v) => <Chip key={`${r.label}-${v}`} size="small" variant="outlined" label={v} />),
+                          r.join && <Typography key={`join-${i}`} variant="body2" color="text.secondary">{r.join}</Typography>,
+                          <Typography key={`label-${i}`} variant="body2" color="text.secondary">{r.label}</Typography>,
+                          ...r.values.map((v) => <Chip key={`value-${i}-${v}`} size="small" variant="outlined" label={v} />),
                         ])}
                       </Stack>
                     )}

@@ -11,6 +11,7 @@ import { DataGrid, type GridColDef } from "@mui/x-data-grid";
 import { Navigate, useLocation, useNavigate, useParams } from "react-router";
 import { errorText, useApp } from "../app/hooks";
 import { ApiError, loadDestinations, loadSubscriptions, saveSubscription } from "../lib/api";
+import { hasPositiveRule, toInput } from "../subscriptions/model";
 import type { TimePrefs } from "../lib/time";
 import { PageTitle } from "../layout/PageTitle";
 import { SpotsTable } from "../sources/SpotsTable";
@@ -119,7 +120,7 @@ function Header({ profile, account }: { profile: CallsignProfile; account?: Aler
     try {
       // Read fresh rather than from the app's copy, which may not have loaded yet.
       const [dests, subs] = await Promise.all([loadDestinations(), loadSubscriptions()]);
-      const existing = subs.find((s) => s.callsigns.includes(callsign));
+      const existing = subs.find((s) => hasPositiveRule(toInput(s).rules, "callsign", callsign));
       if (existing) {
         notify(`You already have ${existing.name}.`);
         void navigate("/subscriptions");
@@ -135,7 +136,7 @@ function Header({ profile, account }: { profile: CallsignProfile; account?: Aler
       const name = `${callsign} on the air`;
       await saveSubscription({
         name, enabled: true, quiet_minutes: 30, destinations: [dest.id],
-        sources: [], bands: [], modes: [], callsigns: [callsign], reference: "", group_ids: [],
+        sources: [], rules: [[{ field: "callsign", op: "is", values: [callsign] }]],
       });
       await account.reload();
       notify(`Created ${name}`);

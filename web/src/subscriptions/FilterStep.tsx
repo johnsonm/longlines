@@ -8,13 +8,16 @@ import { Link as RouterLink } from "react-router";
 import type { SubscriptionInput } from "../lib/api";
 import type { CallsignGroup } from "../groups/types";
 import { BANDS, MODES, modeLabel, type SourceInfo } from "../sources/sources";
-import { clearField, fieldInfo, fieldsFor, needsCallsign, QUIET_OPTIONS, type RuleField } from "./model";
+import {
+  fieldInfo, fieldsFor, MAX_RULES, needsCallsign, newRow, opLabel, QUIET_OPTIONS, rowInvalid, rulesOf, withField,
+  type Join, type RuleField, type RuleOp, type RuleRow,
+} from "./model";
 
 interface Props {
   sub: SubscriptionInput;
   setSub: (s: SubscriptionInput) => void;
-  rules: RuleField[];
-  setRules: (r: RuleField[]) => void;
+  rows: RuleRow[];
+  setRows: (r: RuleRow[]) => void;
   /** null while loading or when loading failed: the group rule is shown but can't be edited. */
   groups: CallsignGroup[] | null;
   /** The source's spots per day, for the high volume warning; null until the stats load. */
@@ -25,33 +28,32 @@ interface Props {
   mobile: boolean;
 }
 
-export function FilterStep({ sub, setSub, rules, setRules, groups, perDay, source, stationCount, mobile }: Props) {
+export function FilterStep({ sub, setSub, rows, setRows, groups, perDay, source, stationCount, mobile }: Props) {
   const available = fieldsFor(sub.sources);
-  const unused = available.filter((f) => !rules.includes(f));
-  const missingCall = needsCallsign(sub);
+  const rules = rulesOf(rows);
+  const missingCall = needsCallsign(sub.sources, rules);
+  const joins = rows.slice(1).map((r) => r.join);
+  const mixed = joins.includes("and") && joins.includes("or");
+  const heading = mixed ? "Pass spots that match these rules"
+    : joins.includes("or") ? "Pass spots that match any of these rules" : "Pass spots that match all of these rules";
 
-  const changeField = (i: number, next: RuleField) => {
-    const old = rules[i];
-    if (old) setSub(clearField(sub, old));
-    setRules(rules.map((r, j) => (j === i ? next : r)));
-  };
-
+  const update = (i: number, row: RuleRow) => setRows(rows.map((r, j) => (j === i ? row : r)));
   const removeRule = (i: number) => {
-    const old = rules[i];
-    if (old) setSub(clearField(sub, old));
-    setRules(rules.filter((_, j) => j !== i));
+    // The new first row has nothing before it to join.
+    setRows(rows.filter((_, j) => j !== i).map((r, j) => (j === 0 ? { ...r, join: "and" } : r)));
   };
-
-  const addRule = () => {
-    const next = unused[0];
-    if (next) setRules([...rules, next]);
-  };
+  const addRule = () => setRows([...rows, newRow(available, rows, rows.at(-1)?.join ?? "and")]);
 
   const stations = stationCount ?? 0;
-  const helper = (field: RuleField): ReactNode => {
-    switch (field) {
+  const helper = (row: RuleRow): ReactNode => {
+    switch (row.field) {
       case "callsign":
-        return missingCall ? "High volume source: at least one callsign or group is required." : "Type a call and press Enter.";
+        if (missingCall) {
+          return rules.length > 1
+            ? "High volume source: each Or needs a callsign or group rule."
+            : "High volume source: at least one callsign or group is required.";
+        }
+        return "Type a call and press Enter.";
       case "group":
         if (groups === null) return "Couldn't load your groups.";
         if (groups.length === 0) {
@@ -64,48 +66,58 @@ export function FilterStep({ sub, setSub, rules, setRules, groups, perDay, sourc
         return "SOTAwatch reports every digital mode as DATA. Choose Any digital to include those spots.";
       case "reference":
         return "Matches POTA references and locations, and SOTA summit codes.";
+      case "frequency":
+        return rowInvalid(row) ? "Enter a frequency in kHz, such as 14074." : "";
     }
   };
 
-  const values = (field: RuleField): ReactNode => {
+  const valuesInput = (row: RuleRow, i: number): ReactNode => {
     const label = "Values";
-    switch (field) {
+    const set = (values: string[]) => update(i, { ...row, values });
+    switch (row.field) {
       case "callsign":
         return (
           <Autocomplete
-            multiple freeSolo options={[] as string[]} value={sub.callsigns}
-            onChange={(_e, v) => setSub({ ...sub, callsigns: v.map((x) => x.toUpperCase().trim()).filter(Boolean) })}
-            renderInput={(p) => <TextField {...p} label={label} placeholder="Type a call" error={missingCall} />}
+            multiple freeSolo options={[] as string[]} value={row.values}
+            onChange={(_e, v) => set(v.map((x) => x.toUpperCase().trim()).filter(Boolean))}
+            renderInput={(p) => <TextField {...p} label={label} placeholder="Type a call" error={missingCall && row.op === "is"} />}
           />
         );
       case "group":
         return (
           <Autocomplete
             multiple disabled={groups === null} options={groups ?? []} getOptionLabel={(g) => g.name} isOptionEqualToValue={(a, b) => a.id === b.id}
-            value={(groups ?? []).filter((g) => sub.group_ids.includes(g.id))}
-            onChange={(_e, v) => setSub({ ...sub, group_ids: v.map((g) => g.id) })}
+            value={(groups ?? []).filter((g) => row.values.includes(g.id))}
+            onChange={(_e, v) => set(v.map((g) => g.id))}
             renderInput={(p) => <TextField {...p} label={label} />}
           />
         );
       case "band":
         return (
           <Autocomplete
-            multiple options={BANDS} value={sub.bands} onChange={(_e, v) => setSub({ ...sub, bands: v })}
+            multiple options={BANDS} value={row.values} onChange={(_e, v) => set(v)}
             renderInput={(p) => <TextField {...p} label={label} />}
           />
         );
       case "mode":
         return (
           <Autocomplete
-            multiple options={MODES} value={sub.modes} onChange={(_e, v) => setSub({ ...sub, modes: v })} getOptionLabel={modeLabel}
+            multiple options={MODES} value={row.values} onChange={(_e, v) => set(v)} getOptionLabel={modeLabel}
             renderInput={(p) => <TextField {...p} label={label} />}
           />
         );
       case "reference":
         return (
           <TextField
-            label={label} value={sub.reference} onChange={(e) => setSub({ ...sub, reference: e.target.value })}
+            label={label} value={row.values[0] ?? ""} onChange={(e) => set([e.target.value])}
             placeholder="US-NC, W4C/, US-0817" fullWidth
+          />
+        );
+      case "frequency":
+        return (
+          <TextField
+            label="kHz" value={row.values[0] ?? ""} onChange={(e) => set([e.target.value])}
+            placeholder="14074" error={rowInvalid(row)} fullWidth slotProps={{ htmlInput: { inputMode: "decimal" } }}
           />
         );
     }
@@ -120,47 +132,71 @@ export function FilterStep({ sub, setSub, rules, setRules, groups, perDay, sourc
           {perDay && ` Without one it would pass about ${perDay} spots a day.`}
         </Alert>
       )}
-      {rules.length > 0 && <Typography>Pass spots that match all of these rules</Typography>}
-      {rules.map((field, i) => {
-        const f = fieldInfo(field);
+      {rows.length > 0 && (
+        <Box>
+          <Typography>{heading}</Typography>
+          {mixed && (
+            <Typography variant="caption" color="text.secondary">
+              And comes before Or: a spot passes when it matches every rule between two Ors.
+            </Typography>
+          )}
+        </Box>
+      )}
+      {rows.map((row, i) => {
+        const f = fieldInfo(row.field);
+        const join = i === 0 ? null : (
+          <FormControl fullWidth>
+            <InputLabel id={`join-${row.key}`}>Join</InputLabel>
+            <Select labelId={`join-${row.key}`} label="Join" value={row.join} onChange={(e) => update(i, { ...row, join: e.target.value as Join })}>
+              <MenuItem value="and">And</MenuItem>
+              <MenuItem value="or">Or</MenuItem>
+            </Select>
+          </FormControl>
+        );
         const fieldSelect = (
           <FormControl fullWidth>
-            <InputLabel id={`field-${i}`}>Field</InputLabel>
-            <Select labelId={`field-${i}`} label="Field" value={field} onChange={(e) => changeField(i, e.target.value as RuleField)}>
-              {available.filter((a) => a === field || !rules.includes(a)).map((a) => (
-                <MenuItem key={a} value={a}>{fieldInfo(a).label}</MenuItem>
-              ))}
+            <InputLabel id={`field-${row.key}`}>Field</InputLabel>
+            <Select labelId={`field-${row.key}`} label="Field" value={row.field} onChange={(e) => update(i, withField(row, e.target.value as RuleField))}>
+              {available.map((a) => <MenuItem key={a} value={a}>{fieldInfo(a).label}</MenuItem>)}
             </Select>
           </FormControl>
         );
         const condition = (
-          <TextField label="Condition" value={f.condition} fullWidth slotProps={{ input: { readOnly: true } }} />
+          <FormControl fullWidth>
+            <InputLabel id={`op-${row.key}`}>Condition</InputLabel>
+            <Select labelId={`op-${row.key}`} label="Condition" value={row.op} onChange={(e) => update(i, { ...row, op: e.target.value as RuleOp })}>
+              {f.ops.map((op) => <MenuItem key={op} value={op}>{opLabel(row.field, op)}</MenuItem>)}
+            </Select>
+          </FormControl>
         );
         const del = (
           <IconButton aria-label={`Delete ${f.label} rule`} onClick={() => removeRule(i)}><DeleteIcon /></IconButton>
         );
-        const help = helper(field);
+        const help = helper(row);
+        const helpError = (row.field === "callsign" && missingCall) || rowInvalid(row);
         return (
-          <Box key={field}>
+          <Box key={row.key}>
             {mobile ? (
               <Stack spacing={1.5}>
+                {join && <Box sx={{ width: 120 }}>{join}</Box>}
                 <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
                   {fieldSelect}
                   {del}
                 </Stack>
                 {condition}
-                {values(field)}
+                {valuesInput(row, i)}
               </Stack>
             ) : (
               <Stack direction="row" spacing={1} sx={{ alignItems: "flex-start" }}>
-                <Box sx={{ flex: "0 0 200px" }}>{fieldSelect}</Box>
-                <Box sx={{ flex: "0 0 110px" }}>{condition}</Box>
-                <Box sx={{ flexGrow: 1, minWidth: 0 }}>{values(field)}</Box>
+                <Box sx={{ flex: "0 0 96px" }}>{join}</Box>
+                <Box sx={{ flex: "0 0 190px" }}>{fieldSelect}</Box>
+                <Box sx={{ flex: "0 0 170px" }}>{condition}</Box>
+                <Box sx={{ flexGrow: 1, minWidth: 0 }}>{valuesInput(row, i)}</Box>
                 <Box sx={{ pt: 1 }}>{del}</Box>
               </Stack>
             )}
             {help && (
-              <Typography variant="caption" color={field === "callsign" && missingCall ? "error" : "text.secondary"} sx={{ display: "block", mt: 0.5, ml: mobile ? 0 : "326px" }}>
+              <Typography variant="caption" color={helpError ? "error" : "text.secondary"} sx={{ display: "block", mt: 0.5, ml: mobile ? 0 : "480px" }}>
                 {help}
               </Typography>
             )}
@@ -168,7 +204,7 @@ export function FilterStep({ sub, setSub, rules, setRules, groups, perDay, sourc
         );
       })}
       <Box>
-        <Button size="small" startIcon={<AddIcon />} onClick={addRule} disabled={unused.length === 0}>Add rule</Button>
+        <Button size="small" startIcon={<AddIcon />} onClick={addRule} disabled={rows.length >= MAX_RULES}>Add rule</Button>
       </Box>
       <FormControl fullWidth>
         <InputLabel id="quiet">Repeat spots for the same station</InputLabel>

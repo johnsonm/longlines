@@ -25,10 +25,15 @@ function dest(id: string, name: string, overrides: Partial<Destination> = {}): D
 
 function sub(overrides: Partial<SubscriptionWithLinks> = {}): SubscriptionWithLinks {
   return {
-    id: "s1", user_id: "u1", name: "NC parks", enabled: true, sources: ["pota"], bands: ["20m"], modes: ["cw"], callsigns: [],
-    reference: "US-NC", quiet_minutes: 10, group_ids: [], created_at: "2026-10-01T00:00:00Z", updated_at: "2026-10-01T00:00:00Z",
+    id: "s1", user_id: "u1", name: "NC parks", enabled: true, sources: ["pota"],
+    rules: [[rule("band", "is", "20m"), rule("mode", "is", "cw"), rule("reference", "contains", "US-NC")]],
+    quiet_minutes: 10, group_ids: [], created_at: "2026-10-01T00:00:00Z", updated_at: "2026-10-01T00:00:00Z",
     destinations: ["d1"], ...overrides,
   } as SubscriptionWithLinks;
+}
+
+function rule(field: string, op: string, ...values: (string | number)[]) {
+  return { field, op, values };
 }
 
 function group(id: string, name: string): CallsignGroup {
@@ -64,14 +69,20 @@ describe("SubscriptionsPage", () => {
   it("shows each subscription's source, rules, destinations and recent passes", async () => {
     render([
       sub({ destinations: ["d1", "d2"] }),
-      sub({ id: "s2", name: "Anything", enabled: false, destinations: [], sources: ["rbn"], bands: [], modes: [], reference: "", callsigns: ["W1AW"], quiet_minutes: 0 }),
+      sub({
+        id: "s2", name: "Anything", enabled: false, destinations: [], sources: ["rbn"], quiet_minutes: 0,
+        rules: [[rule("callsign", "is", "W1AW")], [rule("callsign", "is", "K1ABC"), rule("frequency", "lt", 7100)]],
+      }),
     ]);
     expect(screen.getByText("NC parks")).toBeInTheDocument();
     expect(screen.getByText("Parks on the Air")).toBeInTheDocument();
     expect(screen.getByText("Band is")).toBeInTheDocument();
     expect(screen.getByText("Park, summit, or location contains")).toBeInTheDocument();
     expect(screen.getByText("US-NC")).toBeInTheDocument();
-    expect(screen.getAllByText("and")).toHaveLength(2);
+    expect(screen.getAllByText("and")).toHaveLength(3);
+    expect(screen.getAllByText("or")).toHaveLength(1);
+    expect(screen.getByText("Frequency (kHz) is less than")).toBeInTheDocument();
+    expect(screen.getByText("7100")).toBeInTheDocument();
     expect(screen.getByText("Shack")).toBeInTheDocument();
     expect(screen.getByText("Club")).toBeInTheDocument();
     expect(screen.getByText("No destinations")).toBeInTheDocument();
@@ -81,7 +92,7 @@ describe("SubscriptionsPage", () => {
   });
 
   it("names the group rule once the groups load, and lists older subscriptions' sources", async () => {
-    render([sub({ sources: [], group_ids: ["g2"], bands: [], modes: [], reference: "" }), sub({ id: "s2", sources: ["pota", "sotawatch"] })]);
+    render([sub({ sources: [], group_ids: ["g2"], rules: [[rule("group", "is", "g2")]] }), sub({ id: "s2", sources: ["pota", "sotawatch"] })]);
     expect(await screen.findByText("RARS members")).toBeInTheDocument();
     expect(screen.getByText("Callsign group is in")).toBeInTheDocument();
     expect(screen.getByText("All sources")).toBeInTheDocument();

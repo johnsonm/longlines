@@ -308,8 +308,8 @@ describe("subscriptions", () => {
   });
 
   const input = {
-    name: "NC", enabled: true, sources: [], bands: [], modes: [], callsigns: [], reference: "", quiet_minutes: 0, destinations: ["d1"],
-    group_ids: ["g1"],
+    name: "NC", enabled: true, sources: [], quiet_minutes: 0, destinations: ["d1"],
+    rules: [[{ field: "group" as const, op: "is" as const, values: ["g1"] }]],
   };
 
   it("save, delete and enable go through their RPCs and table", async () => {

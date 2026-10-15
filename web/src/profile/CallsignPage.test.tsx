@@ -275,7 +275,7 @@ describe("Get alerts", () => {
     await waitFor(() => expect(where()).toHaveTextContent("/subscriptions"));
     expect(saveSubscription).toHaveBeenCalledWith({
       name: "KK4PWJ on the air", enabled: true, quiet_minutes: 30, destinations: ["d1"],
-      sources: [], bands: [], modes: [], callsigns: ["KK4PWJ"], reference: "", group_ids: [],
+      sources: [], rules: [[{ field: "callsign", op: "is", values: ["KK4PWJ"] }]],
     });
     expect(alerts.reload).toHaveBeenCalled();
     expect(app.notify).toHaveBeenCalledWith("Created KK4PWJ on the air");
@@ -283,7 +283,7 @@ describe("Get alerts", () => {
 
   it("opens Subscriptions instead of creating a second subscription for the same call", async () => {
     vi.mocked(loadSubscriptions).mockResolvedValue([
-      { id: "s9", name: "Pisgah regulars", callsigns: ["W1AW", "KK4PWJ"] } as SubscriptionWithLinks,
+      { id: "s9", name: "Pisgah regulars", rules: [[{ field: "callsign", op: "is", values: ["W1AW", "KK4PWJ"] }]] } as unknown as SubscriptionWithLinks,
     ]);
     const { user, app, where } = renderAt("/call/KK4PWJ", { account: account() });
     await user.click(screen.getByRole("button", { name: "Get alerts" }));
@@ -293,7 +293,9 @@ describe("Get alerts", () => {
   });
 
   it("does not count a subscription to a portable form as covering the base call", async () => {
-    vi.mocked(loadSubscriptions).mockResolvedValue([{ id: "s9", name: "Portable", callsigns: ["KK4PWJ/P"] } as SubscriptionWithLinks]);
+    vi.mocked(loadSubscriptions).mockResolvedValue([
+      { id: "s9", name: "Portable", rules: [[{ field: "callsign", op: "is", values: ["KK4PWJ/P"] }]] } as unknown as SubscriptionWithLinks,
+    ]);
     const { user } = renderAt("/call/KK4PWJ", { account: account() });
     await user.click(screen.getByRole("button", { name: "Get alerts" }));
     await waitFor(() => expect(saveSubscription).toHaveBeenCalled());

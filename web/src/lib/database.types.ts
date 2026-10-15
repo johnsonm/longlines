@@ -683,13 +683,13 @@ isOneToOne: false
                   ]
                 },"subscriptions": {
                   Row: {
-                    "bands": (string)[],"callsigns": (string)[],"created_at": string,"enabled": boolean,"group_ids": (string)[],"id": string,"modes": (string)[],"name": string,"quiet_minutes": number,"reference": string,"sources": (string)[],"updated_at": string,"user_id": string
+                    "created_at": string,"enabled": boolean,"group_ids": (string)[],"id": string,"name": string,"quiet_minutes": number,"rules": NonNullable<Json>,"sources": (string)[],"updated_at": string,"user_id": string
                   }
                   Insert: {
-                    "bands"?: (string)[],"callsigns"?: (string)[],"created_at"?: string,"enabled"?: boolean,"group_ids"?: (string)[],"id"?: string,"modes"?: (string)[],"name": string,"quiet_minutes"?: number,"reference"?: string,"sources"?: (string)[],"updated_at"?: string,"user_id": string
+                    "created_at"?: string,"enabled"?: boolean,"group_ids"?: (string)[],"id"?: string,"name": string,"quiet_minutes"?: number,"rules"?: NonNullable<Json>,"sources"?: (string)[],"updated_at"?: string,"user_id": string
                   }
                   Update: {
-                    "bands"?: (string)[],"callsigns"?: (string)[],"created_at"?: string,"enabled"?: boolean,"group_ids"?: (string)[],"id"?: string,"modes"?: (string)[],"name"?: string,"quiet_minutes"?: number,"reference"?: string,"sources"?: (string)[],"updated_at"?: string,"user_id"?: string
+                    "created_at"?: string,"enabled"?: boolean,"group_ids"?: (string)[],"id"?: string,"name"?: string,"quiet_minutes"?: number,"rules"?: NonNullable<Json>,"sources"?: (string)[],"updated_at"?: string,"user_id"?: string
                   }
                   Relationships: [
                     
@@ -851,9 +851,6 @@ isOneToOne: false
 "edit_group_callsigns":
 { Args: { "p_add": Json,"p_id": string,"p_remove": Json }; Returns: undefined
                            },
-"edit_subscription_callsigns":
-{ Args: { "p_add": Json,"p_id": string,"p_remove": Json }; Returns: (string)[]
-                           },
 "email_for_identifier":
 { Args: { "p_identifier": string }; Returns: string
                            },
@@ -988,6 +985,9 @@ isOneToOne: false
 "normalize_group_callsigns":
 { Args: { "p_calls": (string)[] }; Returns: Json
                            },
+"normalize_subscription_rules":
+{ Args: { "p_rules": Json,"p_strict": boolean,"p_user": string }; Returns: Json
+                           },
 "parse_https_url":
 { Args: { "p_url": string }; Returns: (string)[]
                            },
@@ -1068,6 +1068,12 @@ isOneToOne: false
                            },
 "rotate_signing_secret":
 { Args: { "p_destination_id": string }; Returns: string
+                           },
+"rule_matches":
+{ Args: { "p_rule": Json,"spot": Database["public"]['Tables']["raw_spots"]['Row'] }; Returns: boolean
+                           },
+"rules_name_stations":
+{ Args: { "p_rules": Json }; Returns: boolean
                            },
 "run_housekeeping":
 { Args: Record<PropertyKey, never>; Returns: undefined
