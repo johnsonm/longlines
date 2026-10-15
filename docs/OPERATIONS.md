@@ -73,6 +73,7 @@ select cron.alter_job(job_id := jobid, active := false) from cron.job where jobn
 select cron.alter_job(job_id := jobid, active := true) from cron.job where jobname = 'ingest-pota';
 ```
 
+The pulled sources' jobs are `ingest-pota`, `ingest-sotawatch` and `ingest-wwff`.
 `cron.unschedule('ingest-pota')` removes the job entirely; re-running the cron migration
 recreates it.
 
@@ -503,6 +504,45 @@ NDJSON; not yet re-measured since the archive moved to Parquet).
 select pg_size_pretty(sum(pg_total_relation_size(i.inhrelid)))
 from pg_inherits i where i.inhparent = 'public.aprs_packets'::regclass;
 ```
+
+# WWFF
+
+World Wide Flora & Fauna spots, polled from `https://spots.wwff.co/static/spots.json` by the
+`ingest-wwff` function. The `ingest-wwff` cron job calls it every minute (the feed is served with
+`max-age=60`), and spots land in `raw_spots` like POTA's, with the reference in `wwff_reference`
+and its name in `wwff_reference_name`. There is no relay side.
+
+First deploy, in this order: merge (the Supabase GitHub integration applies
+`20261015001000_wwff_source`; the cron job then calls `ingest-wwff`, which answers 404 until the
+next step), then deploy the new function and redeploy the two whose shared code changed. The
+integration does not deploy a new function:
+
+```sh
+supabase functions deploy ingest-wwff
+supabase functions deploy deliver    # Discord "WWFF" and "Reserve" fields, push text
+supabase functions deploy archive    # wwff in the run order, two new Parquet columns
+```
+
+Is it running?
+
+```sql
+select * from ingest_health where source = 'wwff';
+select spot_time, callsign, wwff_reference, wwff_reference_name, frequency_khz, mode, comment
+from raw_spots where source = 'wwff' order by spot_time desc limit 20;
+select * from archive_status where source = 'wwff';
+```
+
+`last_success_at` advances every minute. The feed holds only the latest spot per activator, so
+`spots_last_hour` runs well below POTA's, and an hour with none is normal at night in the busy
+regions. To pause it, turn
+the cron job off as for the other pulled sources ("Temporarily disable a source", with
+`jobname = 'ingest-wwff'`); `npm run invoke:wwff` runs it once against the local stack.
+
+A subscription receives WWFF spots only when its sources list WWFF; "any source" does not include
+it, as with DX Cluster, because many US `KFF` references are POTA activations too. If a WWFF spot
+is missing, check the subscription's sources first, then
+`ingest_failures where source = 'wwff'`. Callsign profiles pick WWFF up for today at once and for
+days rolled up after the deploy; earlier days are never rolled up again.
 
 # Spot archive
 

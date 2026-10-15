@@ -83,9 +83,11 @@ describe("rows and rules", () => {
     expect(opLabel("reference", "not_contains")).toBe("does not contain");
   });
 
-  it("offers park and summit references only on POTA and SOTAwatch", () => {
+  it("offers references only on POTA, SOTAwatch and WWFF", () => {
     expect(fieldsFor(["pota"])).toContain("reference");
     expect(fieldsFor(["sotawatch"])).toContain("reference");
+    expect(fieldsFor(["wwff"])).toContain("reference");
+    expect(fieldsFor(["dxcluster", "wwff"])).toContain("reference");
     expect(fieldsFor([])).toContain("reference");
     expect(fieldsFor(["rbn"])).toEqual(["callsign", "group", "band", "mode", "frequency"]);
   });
@@ -130,7 +132,8 @@ describe("sources", () => {
   it("lets new subscriptions start only from live alerting sources", () => {
     expect(pickableSource("dxcluster")?.id).toBe("dxcluster");
     expect(pickableSource("aprs")).toBeNull();
-    expect(pickableSource("wwff")).toBeNull();
+    expect(pickableSource("wwff")?.id).toBe("wwff");
+    expect(pickableSource("pskreporter")).toBeNull();
     expect(pickableSource(null)).toBeNull();
   });
 

@@ -124,6 +124,8 @@ export const sotawatch: SourceAdapter = {
         pota_park_name: null,
         pota_location: null,
         sota_summit_ref: optionalString(raw["summitCode"])?.trim().toUpperCase() ?? null,
+        wwff_reference: null,
+        wwff_reference_name: null,
         raw_payload: raw,
       },
     };

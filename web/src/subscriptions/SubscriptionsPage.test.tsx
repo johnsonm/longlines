@@ -155,8 +155,9 @@ describe("Pick your source", () => {
     // RBN, and PSK Reporter while it is planned.
     expect(within(dialog).getAllByText("High volume. Needs a callsign filter")).toHaveLength(2);
     expect(within(dialog).queryByText("APRS-IS")).not.toBeInTheDocument();
-    expect(within(dialog).getByRole("radio", { name: /WWFF/ })).toBeDisabled();
-    expect(within(dialog).getAllByText("Not yet available")).toHaveLength(2);
+    expect(within(dialog).getByRole("radio", { name: /PSK Reporter/ })).toBeDisabled();
+    expect(within(dialog).getByRole("radio", { name: /WWFF/ })).toBeEnabled();
+    expect(within(dialog).getAllByText("Not yet available")).toHaveLength(1);
     expect(within(dialog).getByRole("radio", { name: /Parks on the Air/ })).toBeChecked();
 
     await user.click(within(dialog).getByRole("radio", { name: /Reverse Beacon Network/ }));

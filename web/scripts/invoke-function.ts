@@ -7,7 +7,7 @@
 // never put this in a loop.
 import { fail, localStatus } from "./local-stack.ts";
 
-const FUNCTIONS = ["ingest-pota", "ingest-sotawatch", "deliver"];
+const FUNCTIONS = ["ingest-pota", "ingest-sotawatch", "ingest-wwff", "deliver"];
 
 const name = process.argv[2] ?? "";
 if (!FUNCTIONS.includes(name)) {
