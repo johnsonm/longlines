@@ -19,7 +19,7 @@ import { useTour } from "../tour/hooks";
 import { sourceName, type SourceInfo } from "../sources/sources";
 import { spotReference } from "../sources/spots";
 import { SourceMark } from "../sources/SourceMark";
-import { formatPerDay, formatRate, rateUnit, sourceRates } from "../sources/rates";
+import { formatPerDay, formatRate, RATE_UNIT, sourceRates } from "../sources/rates";
 import { useStats } from "../stats/useStats";
 import { HealthChip } from "../destinations/HealthChip";
 import { typeLabel } from "../destinations/types";
@@ -101,7 +101,7 @@ function Editor({ initial, dests, reload, prefs, mobile }: EditorProps) {
   const { stats } = useStats();
 
   const source = singleSource(sub.sources);
-  const rates = source?.statsKey && stats ? sourceRates(stats.payload.hourly, source.statsKey, source.volume) : null;
+  const rates = source?.statsKey && stats ? sourceRates(stats.payload.hourly, source.statsKey) : null;
   const missingCall = needsCallsign(sub);
 
   useEffect(() => {
@@ -214,7 +214,7 @@ function Editor({ initial, dests, reload, prefs, mobile }: EditorProps) {
 
             <Box>
               <Step n={1} title="Source" subheader="Where spots come from">
-                <SourceStep sources={sub.sources} source={source} average={rates ? `${formatRate(rates.average)} ${rateUnit(source?.volume ?? "standard")} on average` : null} />
+                <SourceStep sources={sub.sources} source={source} average={rates ? `${formatRate(rates.average)} ${RATE_UNIT} on average` : null} />
               </Step>
               <Arrow />
               <Step n={2} title="Filter" subheader={source?.volume === "high" ? "Required for this source" : "Optional. Leave it empty to pass every spot"}>

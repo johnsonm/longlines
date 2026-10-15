@@ -3,7 +3,7 @@ import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import { Link } from "react-router";
 import type { SourceInfo } from "./sources";
 import { STATUS_COLOR, STATUS_LABEL, type SourceStatus } from "./status";
-import { formatRate, rateUnit, type Rates } from "./rates";
+import { formatRate, RATE_UNIT, type Rates } from "./rates";
 import { SourceMark } from "./SourceMark";
 
 export function SourceTile({ source, status, rates }: { source: SourceInfo; status: SourceStatus; rates: Rates | null }) {
@@ -24,7 +24,7 @@ export function SourceTile({ source, status, rates }: { source: SourceInfo; stat
         <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
           <Chip size="small" variant="outlined" color={source.volume === "high" ? "warning" : "default"}
             label={source.volume === "high" ? "High volume" : "Standard volume"} />
-          {rates && <Typography variant="body2" color="text.secondary">{formatRate(rates.average)} {rateUnit(source.volume)}</Typography>}
+          {rates && <Typography variant="body2" color="text.secondary">{formatRate(rates.average)} {RATE_UNIT}</Typography>}
           {live && <ChevronRightIcon color="action" sx={{ ml: "auto" }} aria-hidden />}
         </Stack>
       </Stack>

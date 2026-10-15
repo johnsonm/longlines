@@ -13,7 +13,7 @@ import { ChartCard } from "../stats/parts";
 import { useStats } from "../stats/useStats";
 import { findLiveSource, type SourceInfo } from "./sources";
 import { STATUS_COLOR, STATUS_LABEL, sourceStatus } from "./status";
-import { formatHour, formatPerDay, formatRate, rateUnitShort, sourceRates, type Rates } from "./rates";
+import { formatHour, formatPerDay, formatRate, RATE_UNIT_SHORT, sourceRates, type Rates } from "./rates";
 import { RateChart } from "./RateChart";
 import { RecentSpotsCard } from "./RecentSpotsCard";
 import { SourceMark } from "./SourceMark";
@@ -74,12 +74,11 @@ export function SourceDetailPage({ prefs, subs }: { prefs: TimePrefs; subs: Subs
   const { stats, loading, error: statsError } = useStats();
   if (!source) return <Navigate to="/sources" replace />;
 
-  const rates = source.statsKey && stats ? sourceRates(stats.payload.hourly, source.statsKey, source.volume) : null;
+  const rates = source.statsKey && stats ? sourceRates(stats.payload.hourly, source.statsKey) : null;
   const status = sourceStatus(source, health);
   const using = subs.filter((s) => s.sources.includes(source.id));
   const alert = volumeAlert(source, rates);
-  const unit = rateUnitShort(source.volume);
-  const rate = (n: number | undefined) => (n === undefined ? "–" : `${formatRate(n)} ${unit}`);
+  const rate = (n: number | undefined) => (n === undefined ? "–" : `${formatRate(n)} ${RATE_UNIT_SHORT}`);
   const figures: [string, string][] = [
     ["Average, 7 days", rate(rates?.average)],
     ["Peak, 7 days", rate(rates?.peak)],
@@ -143,7 +142,7 @@ export function SourceDetailPage({ prefs, subs }: { prefs: TimePrefs; subs: Subs
                 : statsError
                   ? <Alert severity="error">Couldn't load rates.</Alert>
                   : rates
-                    ? <RateChart rates={rates} volume={source.volume} color={source.markColor} />
+                    ? <RateChart rates={rates} color={source.markColor} />
                     : <Typography color="text.secondary">{NO_RATES}</Typography>}
             </ChartCard>
             {source.schema && (

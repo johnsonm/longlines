@@ -65,10 +65,9 @@ describe("SourceDetailPage", () => {
     expect(screen.getByText("High volume source: a callsign filter is required")).toBeInTheDocument();
     // (167 × 192 + 708) / 7 = 4,681.7 → "4,700"
     expect(screen.getByText(/^Reverse Beacon Network sends about 4,700 spots a day\./)).toBeInTheDocument();
-    // 708 / 60 = 11.8, and formatRate gives whole numbers from 10.
-    expect(screen.getByText("Peak 12 / min, Oct 12, 05:00 UTC")).toBeInTheDocument();
+    expect(screen.getByText("Peak 708 / hour, Oct 12, 05:00 UTC")).toBeInTheDocument();
     expect(screen.getByText("Oct 12, 05:00 UTC")).toBeInTheDocument(); // Busiest moment card
-    expect(screen.getByText("12 / min")).toBeInTheDocument(); // Peak, 7 days
+    expect(screen.getByText("708 / hour")).toBeInTheDocument(); // Peak, 7 days
     expect(screen.getByText("Callsign of the skimmer that heard the signal.")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Visit reversebeacon.net/ })).toHaveAttribute("href", "https://reversebeacon.net");
     expect(screen.getByText("High volume")).toBeInTheDocument();

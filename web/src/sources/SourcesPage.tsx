@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Alert, AlertTitle, Box, Chip, Grid, Stack, TextField, Typography } from "@mui/material";
+import { Alert, Box, Chip, Grid, Stack, TextField, Typography } from "@mui/material";
 import { PageTitle } from "../layout/PageTitle";
 import { useStats } from "../stats/useStats";
 import { SOURCES, type SourceInfo } from "./sources";
@@ -33,10 +33,6 @@ export function SourcesPage() {
         <PageTitle>Sources</PageTitle>
         <Typography color="text.secondary">Where spots come from. Pick a source to see what it sends and what you can do with it.</Typography>
       </Box>
-      <Alert severity="warning">
-        <AlertTitle>High volume sources require a callsign filter</AlertTitle>
-        They send thousands of spots an hour. A subscription to one must include a callsign rule, so it only passes spots for the stations you name.
-      </Alert>
       {error && <Alert severity="error">{error}</Alert>}
       <Stack direction={{ xs: "column", sm: "row" }} spacing={2} useFlexGap sx={{ alignItems: { sm: "center" }, flexWrap: "wrap" }}>
         <TextField size="small" label="Search sources" value={query} onChange={(e) => setQuery(e.target.value)} sx={{ minWidth: 220, maxWidth: 420, flexGrow: 1 }} />
@@ -54,7 +50,7 @@ export function SourcesPage() {
             {shown.map((s) => (
               <Grid key={s.id} size={{ xs: 12, sm: 6, md: 4 }}>
                 <SourceTile source={s} status={sourceStatus(s, health)}
-                  rates={s.statsKey ? sourceRates(hourly, s.statsKey, s.volume) : null} />
+                  rates={s.statsKey ? sourceRates(hourly, s.statsKey) : null} />
               </Grid>
             ))}
           </Grid>

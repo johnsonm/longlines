@@ -6,7 +6,7 @@ import { useStats } from "../stats/useStats";
 import { useTour } from "../tour/hooks";
 import { LIVE_SOURCES, SOURCES, type SourceInfo } from "../sources/sources";
 import { SourceMark } from "../sources/SourceMark";
-import { formatRate, rateUnitShort, sourceRates } from "../sources/rates";
+import { formatRate, RATE_UNIT_SHORT, sourceRates } from "../sources/rates";
 
 // Planned sources that will alert are listed, disabled, so people can see what is coming.
 const PLANNED = SOURCES.filter((s) => s.status === "planned" && s.alerts);
@@ -28,8 +28,8 @@ export function SourcePickerDialog({ open, fullScreen, onClose, onContinue }: Pr
   const { active: tourActive } = useTour();
 
   const rate = (s: SourceInfo): string | null => {
-    const rates = s.statsKey && stats ? sourceRates(stats.payload.hourly, s.statsKey, s.volume) : null;
-    return rates ? `${formatRate(rates.average)} ${rateUnitShort(s.volume)}` : null;
+    const rates = s.statsKey && stats ? sourceRates(stats.payload.hourly, s.statsKey) : null;
+    return rates ? `${formatRate(rates.average)} ${RATE_UNIT_SHORT}` : null;
   };
 
   const row = (s: SourceInfo, live: boolean) => (
