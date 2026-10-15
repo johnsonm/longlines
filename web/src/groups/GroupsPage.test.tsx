@@ -120,27 +120,29 @@ describe("GroupsPage", () => {
         sources: [], rules: [[{ field: "group", op: "is", values: ["a"] }]],
       });
       expect(reload).toHaveBeenCalled();
-      await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/subscriptions"));
+      await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/subscriptions/s1"));
     });
 
-    it("opens Subscriptions when one already uses the group", async () => {
+    it("opens the subscription that already uses the group", async () => {
       vi.mocked(loadDestinations).mockResolvedValue([dest("good", "ok")]);
       vi.mocked(loadSubscriptions).mockResolvedValue([sub("Club alerts", ["a"])]);
       const { user, app } = render([group("a")]);
       await user.click(await screen.findByRole("button", { name: "Get alerts" }));
       await waitFor(() => expect(app.notify).toHaveBeenCalledWith("You already have Club alerts."));
       expect(saveSubscription).not.toHaveBeenCalled();
-      await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/subscriptions"));
+      // The fixture's id is its name.
+      await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/subscriptions/Club"));
     });
 
-    it("sends you to Destinations without a healthy one", async () => {
+    it("creates it without a destination when none is healthy and opens its editor", async () => {
       vi.mocked(loadDestinations).mockResolvedValue([dest("paused", "paused")]);
       vi.mocked(loadSubscriptions).mockResolvedValue([]);
-      const { user, app } = render([group("a")]);
+      vi.mocked(saveSubscription).mockResolvedValue("s1");
+      const { user, app } = render([group("a", { name: "RARS" })]);
       await user.click(await screen.findByRole("button", { name: "Get alerts" }));
-      await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Add a destination to start getting alerts."));
-      expect(saveSubscription).not.toHaveBeenCalled();
-      await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/destinations"));
+      await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Created RARS on the air"));
+      expect(saveSubscription).toHaveBeenCalledWith(expect.objectContaining({ destinations: [] }));
+      await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/subscriptions/s1"));
     });
 
     it("reports a failed save", async () => {

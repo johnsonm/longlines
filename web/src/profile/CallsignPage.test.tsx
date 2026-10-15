@@ -323,12 +323,12 @@ describe("Get alerts", () => {
     expect(JSON.parse(where().dataset.state ?? "null")).toEqual({ from: "/call/KK4PWJ" });
   });
 
-  it("creates the subscription to the first healthy destination and opens Subscriptions", async () => {
+  it("creates the subscription to the first healthy destination and opens its editor", async () => {
     vi.mocked(loadDestinations).mockResolvedValue([{ ...DEST, id: "bad", health: "failing" }, DEST]);
     const alerts = account();
     const { user, app, where } = renderAt("/call/KK4PWJ", { account: alerts });
     await user.click(screen.getByRole("button", { name: "Get alerts for KK4PWJ" }));
-    await waitFor(() => expect(where()).toHaveTextContent("/subscriptions"));
+    await waitFor(() => expect(where()).toHaveTextContent("/subscriptions/s1"));
     expect(saveSubscription).toHaveBeenCalledWith({
       name: "KK4PWJ on the air", enabled: true, quiet_minutes: 30, destinations: ["d1"],
       sources: [], rules: [[{ field: "callsign", op: "is", values: ["KK4PWJ"] }]],
@@ -337,13 +337,13 @@ describe("Get alerts", () => {
     expect(app.notify).toHaveBeenCalledWith("Created KK4PWJ on the air");
   });
 
-  it("opens Subscriptions instead of creating a second subscription for the same call", async () => {
+  it("opens the existing subscription instead of creating a second one for the same call", async () => {
     vi.mocked(loadSubscriptions).mockResolvedValue([
       { id: "s9", name: "Pisgah regulars", rules: [[{ field: "callsign", op: "is", values: ["W1AW", "KK4PWJ"] }]] } as unknown as SubscriptionWithLinks,
     ]);
     const { user, app, where } = renderAt("/call/KK4PWJ", { account: account() });
     await user.click(screen.getByRole("button", { name: "Get alerts for KK4PWJ" }));
-    await waitFor(() => expect(where()).toHaveTextContent("/subscriptions"));
+    await waitFor(() => expect(where()).toHaveTextContent("/subscriptions/s9"));
     expect(app.notify).toHaveBeenCalledWith("You already have Pisgah regulars.");
     expect(saveSubscription).not.toHaveBeenCalled();
   });
@@ -360,13 +360,13 @@ describe("Get alerts", () => {
   it.each([
     ["no destinations", []],
     ["only paused or failing ones", [{ ...DEST, health: "paused" }, { ...DEST, id: "d2", health: "failing" }]],
-  ])("sends a user with %s to add one", async (_label, dests) => {
+  ])("creates it without a destination for a user with %s and opens its editor", async (_label, dests) => {
     vi.mocked(loadDestinations).mockResolvedValue(dests as Destination[]);
     const { user, app, where } = renderAt("/call/KK4PWJ", { account: account() });
     await user.click(screen.getByRole("button", { name: "Get alerts for KK4PWJ" }));
-    await waitFor(() => expect(where()).toHaveTextContent("/destinations"));
-    expect(app.notify).toHaveBeenCalledWith("Add a destination to start getting alerts.");
-    expect(saveSubscription).not.toHaveBeenCalled();
+    await waitFor(() => expect(where()).toHaveTextContent("/subscriptions/s1"));
+    expect(saveSubscription).toHaveBeenCalledWith(expect.objectContaining({ destinations: [] }));
+    expect(app.notify).toHaveBeenCalledWith("Created KK4PWJ on the air");
   });
 
   it("reads destinations at the click, not from a list that may not have loaded", async () => {
