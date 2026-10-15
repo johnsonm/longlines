@@ -121,9 +121,9 @@ PR 2 is safe to merge alone. PR 3 is safe to merge alone: existing push destinat
 
 **Files:** `docs/superpowers/specs/2026-10-13-push-notifications-design.md`, `CLAUDE.md`.
 
-- [ ] Add a section "Amendment, 2026-10-15: page 5" at the top of the spec, after Status: the model change (decision 1), the schema in Task 3 in prose, the decisions above with Brad's answers, and the Copy section of this plan (page 5 strings with substitutions). Mark the original "PR 3: push UI" section superseded and the spec's open questions 3 and 6 closed (`renotify` is now the Sound and vibration switch; "Add without this device" is replaced by the editor, which saves with zero devices and shows "No devices yet").
-- [ ] CLAUDE.md "Push rules": replace the first bullet (one push destination per account) with: many per account; devices belong to the account (`push_devices`) and destinations pick them through `push_destination_devices`; notification text comes from `render_push_template` in SQL and `claim_deliveries`, never from TypeScript; `push.ts`, `register.ts` and the service-worker rules from Global Constraints; the web never reads an endpoint back.
-- [ ] Commit `Spec: push destinations follow canvas page 5`, push, open the spec PR. Brad reviews it before Part 2 starts.
+- [x] Add a section "Amendment, 2026-10-15: page 5" at the top of the spec, after Status: the model change (decision 1), the schema in Task 3 in prose, the decisions above with Brad's answers, and the Copy section of this plan (page 5 strings with substitutions). Mark the original "PR 3: push UI" section superseded and the spec's open questions 3 and 6 closed (`renotify` is now the Sound and vibration switch; "Add without this device" is replaced by the editor, which saves with zero devices and shows "No devices yet").
+- [x] CLAUDE.md "Push rules": replace the first bullet (one push destination per account) with: many per account; devices belong to the account (`push_devices`) and destinations pick them through `push_destination_devices`; notification text comes from `render_push_template` in SQL and `claim_deliveries`, never from TypeScript; `push.ts`, `register.ts` and the service-worker rules from Global Constraints; the web never reads an endpoint back.
+- [x] Commit `Spec: push destinations follow canvas page 5`, push, open the spec PR. Brad reviews it before Part 2 starts.
 
 ---
 

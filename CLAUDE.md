@@ -339,35 +339,51 @@ relay on pushes to main; nothing else deploys automatically.
 
 ## Push rules
 
-The design is `docs/superpowers/specs/2026-10-13-push-notifications-design.md`. Its Copy section,
-not `docs/ui-mock.html`, is the copy source for push and install screens and for notification
-text.
+The design is `docs/superpowers/specs/2026-10-13-push-notifications-design.md`, as amended for
+canvas page 5 (its "Amendment, 2026-10-15" section wins where the two disagree). The amendment's
+Copy, then the spec's Copy, not `docs/ui-mock.html`, is the copy source for push and install
+screens and for notification text.
 
-- One `push` destination per account fans out to every row in `push_devices`. A push destination
-  has no URL (`check ((type = 'push') = (url is null))`).
+- An account has many `push` destinations. Devices belong to the account (`push_devices`); each
+  push destination picks some of them through `push_destination_devices`, and only its members
+  with `blocked_at is null` receive it. A push destination has no URL
+  (`check ((type = 'push') = (url is null))`).
+- Notification text comes from the destination's templates, rendered by `render_push_template` in
+  SQL: `claim_deliveries` hands the worker `push_title`, `push_body` and `push_url`, and
+  `preview_push_notification` calls the same function, so the preview and the delivered text agree.
+  Never interpolate a template or build a tap URL in TypeScript. Quiet hours are decided in SQL too.
 - Device endpoints must be https on an allowlisted push-service host: `fcm.googleapis.com`,
   `updates.push.services.mozilla.com`, `*.push.apple.com`, `*.notify.windows.com`. The list lives
   in SQL (`validate_push_endpoint`, checked by `register_push_device`) and in
   `_shared/delivery/urlsafety.ts` (checked before every POST); change both together. It is the SSRF
   guard: the worker POSTs to a URL a client chose.
 - `push_devices` is service-role only (RLS on, no policies). Endpoints, `p256dh` and `auth` are
-  capability secrets and never appear in a client read. `list_push_devices` returns labels and
-  status only, and only `claim_deliveries` hands keys to the worker.
+  capability secrets and never appear in a client read. `list_push_devices` and
+  `get_push_destination` return ids, names, descriptors and status only, and only
+  `claim_deliveries` hands keys to the worker. The web never reads an endpoint back; the browser
+  keeps its own last endpoint in `localStorage` for `report_push_device_blocked`.
 - `_shared/delivery/webpush.ts` (VAPID and RFC 8291 `aes128gcm`) uses WebCrypto only and has no
   dependency. Its tests pin the RFC 8291 Appendix A vector byte for byte. If the vector fails, fix
   the code, never the vector.
-- Notification text is built in `format.ts` (`pushNotifications`); the service worker only
-  displays it. Click URLs use `base_callsign` from the claimed spot, so the web never works one
-  out.
-- The service worker (`web/src/pwa/sw.ts`, emitted unhashed as `/sw.js`) handles `push`,
-  `notificationclick` and `pushsubscriptionchange` only. It has no `fetch` handler and caches
+- `format.ts` (`pushNotifications`) only shapes what SQL rendered: tags, actions,
+  `silent`/`renotify`, and the 3-then-summary limit per run. The service worker only displays it.
+- `web/src/pwa/push.ts` is the only module that touches `PushManager`, `Notification` and
+  `PushSubscription`; `Notification.requestPermission()` is the first statement of `enablePush()`,
+  before any `await`. `web/src/pwa/register.ts` is the only module that calls
+  `navigator.serviceWorker.register`.
+- The service worker (`web/src/pwa/sw.ts`, emitted unhashed as `/sw.js` with no `import`
+  statements) handles `push`, `notificationclick` and `pushsubscriptionchange` only. It never
+  imports app code and never holds a token: on `pushsubscriptionchange` it re-subscribes and
+  posts a message to open windows, which re-register. It has no `fetch` handler and caches
   nothing, and `/sw.js` is served `Cache-Control: no-cache`, so a deploy can't strand a stale
   bundle.
 - The VAPID private key and subject live only in Edge Function env (`LONGLINES_VAPID_*`). The
   public key is the one new `define` entry in `web/vite.config.ts` (`VITE_VAPID_PUBLIC_KEY`); never
   widen `envPrefix`.
 - A gone subscription (404/410) is pruned, not counted as a failure; a 429 delays like any other
-  rate limit. Zero devices is a failure, so a push destination nobody can receive goes `failing`.
+  rate limit. Zero deliverable devices is a failure, so a push destination nobody can receive goes
+  `failing`. A spot skipped for quiet hours ("Don't send") is marked sent, never retried or
+  counted as a failure.
 
 ## Conventions
 

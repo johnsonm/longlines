@@ -5,6 +5,235 @@ Copy section, is waiting for his review.** No code ships until he approves it. I
 *proposed* fill gaps the planning session didn't cover. Each needs an explicit yes. If the design
 changes during a PR, update this file in that PR.
 
+## Amendment, 2026-10-15: page 5
+
+Status: **waiting for Brad's review.** PR 1 (#157, merged 2026-10-14) shipped the model the rest of
+this file describes. Page 5 of Brad's design canvas ("Push notification destination (draft)",
+artboards `PushList-Desktop`, `PushType-Desktop`, `PushNew-Desktop`, `PushDevice-Desktop`,
+`PushEdit-Desktop`, `PushEdit-Mobile`, `PushDevice-iOS-Mobile`) draws a different one, and this
+amendment records it. Where this section and the rest of the file disagree, this section wins. The
+implementation plan is `docs/superpowers/plans/2026-10-15-push-pwa-and-ui.md`.
+
+Brad gave no answers in Part 0, so every decision below is the plan's proposal and is marked
+*proposed*. Each needs an explicit yes before Part 2 starts.
+
+### The model change
+
+**Many push destinations per account, each with its own devices, notification text and delivery
+settings** (decision 1) replaces "one push destination per account, fanning out to every device".
+Devices still belong to the account (`push_devices`). Each push destination picks some of them, so
+a user can have "POTA on my phone", "SOTA on my phone" and "Desktop alerts" side by side. Templates
+are rendered in SQL, so the worker and the editor's preview show the same text; the worker keeps
+only the per-run "3 spots then a summary" shaping.
+
+### Schema (migration `20261015000100_push_destinations_v2.sql`)
+
+`20261014000100` is applied to hosted and stays as is; the new migration builds on it.
+
+- **Destinations.** The one-push-per-account index (`destinations_one_push_per_user`) goes, and with
+  it "You already have push notifications.". `destinations` gains `enabled boolean not null default
+  true`; `match_pending_spots` skips disabled destinations of every type, and `update_destination`
+  gains `p_enabled`. Names become unique per account across all types, case-insensitive
+  (`destinations_user_name_key` on `(user_id, lower(name))`). Before the index is built, the
+  migration renames hosted duplicates: the oldest keeps its name, the rest become "{name} (2)",
+  "{name} (3)" and so on. `create_destination` and `update_destination` turn the `unique_violation`
+  into the name-taken error in Copy.
+- **Devices.** `push_devices.label` becomes the user's name for the device. New columns: `agent`
+  (the "{Browser} on {Platform}" descriptor, backfilled from `label`), `standalone` (opened from the
+  Home Screen or as an installed app) and `blocked_at`. `register_push_device(p_endpoint, p_p256dh,
+  p_auth, p_label, p_agent, p_standalone)` upserts as before, clears `blocked_at` and returns the
+  device id. It **never creates a destination**; the old five-argument overload is dropped. New
+  client RPCs: `rename_push_device(p_id, p_label)` (trimmed, 60 characters, blank becomes "This
+  browser") and `report_push_device_blocked(p_endpoint)` (stamps `blocked_at` on the caller's
+  device, silent otherwise). `list_push_devices(p_current_endpoint)` returns `id, label, agent,
+  standalone, created_at, last_success_at, last_error, last_error_at, blocked_at, is_current` and
+  the `destination_ids` each device belongs to. The 20-device cap stays.
+- **Membership.** `push_destination_devices (destination_id, device_id)`, both cascading, RLS on with
+  no policies and client grants revoked. The migration enrols every existing device in its owner's
+  existing push destination, so nothing that works today stops working.
+- **Settings.** `push_destination_settings`, one row per push destination, same RLS pattern: title
+  and body templates, tap target (`profile` or `source`), action buttons, urgency (`low`, `normal`,
+  `high`), drop-if-offline seconds (300, 900, 1800, 3600, 14400), replace same station, sound, quiet
+  hours on/off, from, until, and quiet mode (`silent` or `skip`). `push_default_settings()` holds
+  the defaults (decision 7 and the default templates in Copy). A trigger on `destinations` inserts
+  them for every new push row, and the migration backfills existing ones. The title is at most 120
+  characters, the body 300, and only fields from `push_template_fields()` are allowed; an unknown
+  one raises "Unknown field {name}.".
+- **Rendering, in SQL only.** `render_push_template(template, spot)` replaces fields (decision 4)
+  and tidies the separators a missing field leaves behind. `spot_source_url(spot)` returns the POTA
+  park page or the SOTA summit page, otherwise null. `push_quiet_now(settings, timezone, at)` handles
+  ranges that cross midnight, in the account time zone (`profiles.timezone`).
+- **`claim_deliveries`.** For push, `devices` are the destination's members with `blocked_at is
+  null`, aggregated once per destination (this also fixes #159 for push). The destination jsonb
+  gains `push` (the settings row). The spot jsonb gains `push_title`, `push_body`, `push_url` (from
+  the tap target), `push_source_url` and `quiet_now`. Webhook payloads strip these keys, so
+  `docs/WEBHOOKS.md` doesn't change.
+- **Client RPCs** (security definer, pinned `search_path`, granted to `authenticated`, listed in
+  `advisor.test.sql`, "Not signed in." without `auth.uid()`):
+  `save_push_destination(p_id, p_name, p_enabled, p_settings, p_device_ids)` creates when `p_id` is
+  null, validates the settings, rejects devices that aren't the caller's with "Device not found."
+  and replaces membership. `get_push_destination(p_id)` returns settings and `device_ids`.
+  `duplicate_destination(p_id)` (decision 9). `preview_push_notification(p_title, p_body,
+  p_spot_id)` renders against a `raw_spots` row, or `push_sample_spot()` when null, through the same
+  `render_push_template` that `claim_deliveries` calls. None of them returns an endpoint or a key.
+- **Worker.** `send.ts` takes `Urgency` and `TTL` from the destination's settings (today's values
+  when absent). `deliver.ts` drops a push delivery older than that destination's TTL instead of the
+  fixed 15 minutes. `format.ts` passes the SQL-rendered text through and only builds tags, actions,
+  `silent`/`renotify` and the summary; it never interpolates a template. A spot in quiet hours with
+  "Don't send" is marked sent without a request: never retried, never a failure.
+- **Send test.** Devices come from the destination's members, not the owner's. `send-test` takes
+  an optional `spot_id` and renders through `preview_push_notification`, so the test shows the
+  saved template.
+- **Management API.** `api_destination_json` gains `enabled` and, for push, `push` (the settings
+  and a `device_count`, never devices). `PATCH` accepts `enabled`. `POST /destinations` with
+  `"type": "push"` always works. Devices stay browser-only.
+
+### Decisions
+
+1. **Many push destinations per account, devices picked per destination**, as above. *Proposed.*
+2. **Enabled switch.** A real `destinations.enabled` that `match_pending_spots` honours for every
+   type, rather than reusing `health = 'paused'`, which is a delivery-side state. Discord and
+   webhook cards don't show the switch (page 1), but the API exposes `enabled` for all. *Proposed.*
+3. **Unique names** per account across every destination type, case-insensitive, with hosted
+   duplicates renamed as above. *Proposed.*
+4. **Template fields and formatting.** `{callsign}`, `{frequency}`, `{band}`, `{mode}`, `{source}`,
+   `{reference}`, `{place_name}`, `{state}`, `{spotter}`, `{comment}`, `{time}`. `{frequency}` is
+   MHz with three decimals ("14.062"), as page 5 draws it, although the app shows kHz elsewhere.
+   `{reference}` is the POTA reference or SOTA summit; `{place_name}` the park name; `{state}` the
+   part after the dash of `pota_location` ("US-NC" becomes "NC"); `{source}` the source label;
+   `{time}` the UTC clock; `{mode}` upper case. A missing field becomes nothing, then the renderer
+   tidies ", ,", " ." and doubled spaces, so "POTA US-2763, , NC." never appears. *Proposed.*
+5. **When tapped, open.** Callsign profile (`/call/<base>`, the default) or Source site
+   (`spot_source_url`; RBN and DX Cluster spots fall back to the profile). URLs are built in SQL.
+   *Proposed.*
+6. **Action buttons.** "Open profile" and "Open on {Source}", the latter only when the source URL
+   differs from the profile, through the notification `actions` API. iOS ignores them, as the
+   preview caption says. *Proposed.*
+7. **Delivery values.** Urgency Low / Normal / High, default Normal (today's worker sends High).
+   Drop if offline for 5 min / 15 min / 30 min / 1 hour / 4 hours, default 30 minutes (today 15).
+   Replace the earlier notification for the same station: default on (tag per station; off gives
+   each spot its own tag). Sound and vibration: default on (`silent: false`). Quiet hours: default
+   off, 22:00 to 07:00; during them, **Send silently** (default) or **Don't send** (marked sent
+   without a push). Quiet hours use the account time zone and are evaluated in SQL when the delivery
+   is claimed. *Proposed.*
+8. **Blocked devices.** A browser that finds `Notification.permission === "denied"` on load reports
+   its last endpoint through `report_push_device_blocked`. Blocked devices are skipped at claim time
+   and shown as page 5 draws them. The browser keeps its last endpoint in `localStorage` (a
+   per-viewer convenience), since a denied browser can no longer read its subscription.
+   Re-registering clears `blocked_at`. *Proposed.*
+9. **Duplicate.** `duplicate_destination(p_id)`, push destinations only (page 5 shows it only
+   there): same settings and devices, named "Copy of {name}", `enabled` false so a copy never
+   double-sends until it's edited. It returns the new id and the web opens the editor. *Proposed.*
+10. **Send test from the editor** uses the destination's *saved* settings and devices and the chosen
+    preview spot. While the form has unsaved changes the button is disabled with "Save your changes
+    to send a test."; on a new destination, "Add a device to send a test.". *Proposed.*
+11. **Device name.** The Add a device dialog prefills "{Browser} on {Platform}" and the user can
+    change it. The descriptor is stored separately in `agent` and shown under the name, with ",
+    installed app" for standalone browsers. *Proposed.*
+12. **Install app** stays in the account menu, between Account and Sign out (the tour it sat next
+    to is gone). *Proposed.*
+13. **`pushsubscriptionchange`.** The service worker can't reach the supabase-js session and must
+    never hold a token, so it re-subscribes and posts `{type: "push-subscription-changed"}` to open
+    windows, which re-register. The next app load covers the no-window case, and the old endpoint
+    is pruned on its first 410. This replaces PR 2's "call `register_push_device` through a plain
+    `fetch` with the stored session". *Proposed.*
+14. **Icons.** No SVG rasteriser is installed: a throwaway resvg script in the session scratchpad
+    renders them, the PNGs are committed, and nothing is added to the build. *Proposed.*
+15. **Manifest colours.** `theme_color` is the stock MUI light primary `#1976d2`, `background_color`
+    `#ffffff`; the `index.html` `theme-color` metas keep light and dark variants. *Proposed.*
+16. **Per-run shaping stays.** Page 5 doesn't show it, so the worker keeps "at most 3 notifications
+    per device per run, then one summary". The summary keeps the fixed text in Copy below and uses
+    the destination's tap target. *Proposed.*
+
+### What this supersedes
+
+- **PR 3: push UI** below is superseded by this amendment and the plan's Parts 3 to 5: a
+  Destinations card grid, an Add destination type picker, a full-page push destination editor and
+  an Add a device dialog replace the dialog's Turn on notifications button and the This device line.
+- **Open question 3** (`renotify: true`) is closed: `renotify` follows the Sound and vibration
+  switch (`renotify = !silent`).
+- **Open question 6** (Add without this device) is closed: the editor saves a destination with zero
+  devices and shows "No devices yet".
+- In **Copy** below, the page 5 strings that follow win wherever page 5 shows a screen. The fixed
+  spot title and body under Notifications become the default templates; the summary text, the
+  install strings page 5 doesn't show and the error strings stay. "You already have push
+  notifications." goes.
+
+### Copy (page 5)
+
+Use these word for word. Substitutions applied everywhere: **"connection(s)" becomes
+"subscription(s)"** (CLAUDE.md: until Connections ship); **"KK4PWJ"** becomes the signed-in
+callsign; **"America/New_York"** becomes `profile.timezone`. `{…}` marks a value. Anything not
+listed here comes from Copy at the end of this file.
+
+**Destinations page (page 1 + page 5)**
+- Subtitle: Where matching spots are sent.
+- Button: Add destination
+- Failing alert: {name} is failing · The last {N} deliveries returned {error}. Spots for {M} subscription(s) are not being sent. Check the URL, then send a test. · Action: Send test
+- Blocked alert: {device} cannot receive notifications · Notifications are blocked for longlines.io in {agent} on that device. Allow them in the browser site settings, or remove the device from {destination}. · Action: Manage devices
+- Card type lines: Discord channel · Webhook · Push notification
+- Card meta: used by {N} subscription(s) · Last delivery {age} ago | not used by any subscription · Never used | Last delivery failed {age} ago
+- Push card chip when blocked: {N} device(s) blocked; device chip: {label} (blocked)
+- Actions: Send test · Edit · Duplicate · Delete; Delete tooltip: Used by {N} subscriptions. Remove it from them first.
+- Toasts: Added {name} · Saved changes · Duplicated {name} · Deleted {name} · Test spot sent to {name}
+
+**Add destination dialog**
+- Title: Add destination
+- Intro: Pick where matching spots should go. You can add as many of each type as you like, for example one push destination per source or per device.
+- Discord channel: Post each spot to a channel through a webhook.
+- Webhook: Send each spot as JSON to your own URL.
+- Push notification: Notify your phone or computer. Works in the browser, no app to install.
+- Buttons: Cancel · Continue (step 2 for Discord and webhook: Add destination, as today)
+
+**Push destination editor**
+- Breadcrumb: Destinations › New destination | {name}
+- Titles: New destination · Edit destination; buttons: Cancel · Add destination | Save destination (phones: Save)
+- Name helper: Names are unique. A name can be reused after the destination that has it is deleted.
+- Name taken: A destination named {name} already exists. Choose a different name.
+- Switch: Enabled
+- Type chip: Push notification · Sentence: Filtering and repeat limits are set on each subscription. This page controls where and how notifications arrive.
+- Devices card: Devices · Pick which devices receive notifications. Each device is a browser you have allowed.
+  - Row caption: {agent}[, installed app] · last delivery {age} ago | {agent} · no deliveries yet | {agent} · notifications blocked in this browser
+  - Chips: This device · Blocked; icon buttons: Rename device · Remove device; button: Add a device
+  - Empty: No devices yet · Add the device you are on now, or open Long Lines on your phone to add it. A destination needs at least one device to deliver. · Add this device · Add my phone
+- Notification content card: Notification content · Write the title and body using fields from the spot
+  - Title helper: Shown in bold. Phones cut off long titles.
+  - Body helper: A field the spot does not have is left out. place_name is the park or summit.
+  - Insert a field; chips: {callsign} {frequency} {band} {mode} {source} {reference} {place_name} {state} {spotter} {comment} {time}
+  - When tapped, open: Callsign profile · Source site
+  - Show action buttons · Open profile, Open on the source site.
+  - Button: Reset to default text
+  - Default title: {callsign} on {frequency} {mode}; default body: {source} {reference}, {place_name}, {state}. Spotted by {spotter}.
+- Delivery card: Delivery · How notifications behave on the device
+  - Urgency (Low · Normal · High) · High can wake a sleeping phone. Normal fits most subscriptions.
+  - Drop if the device is offline for (5 minutes · 15 minutes · 30 minutes · 1 hour · 4 hours) · Old spots are rarely useful. Late notifications are dropped, not queued.
+  - Replace the earlier notification for the same station · A station that keeps getting spotted updates one notification instead of stacking many.
+  - Sound and vibration · Uses the device default. Custom sounds are not supported.
+  - Quiet hours · Uses your account time zone, {timezone}. · From · Until · During quiet hours (Send silently · Don't send)
+- Preview card: Preview · Preview with this spot · Android · iPhone · Desktop
+  - Captions: Action buttons shown on Android and desktop Chrome. · Action buttons are not shown on iPhone. · Style follows the operating system.
+  - Button: Send test notification; captions: Add a device to send a test. · Save your changes to send a test. · Sends this example to the {N} selected device(s).
+  - Action buttons in mock-ups and notifications: Open profile · Open on {Source}
+
+**Add a device dialog**
+- Title: Add a device
+- This device · chip {agent} · Your browser will ask for permission. Choose Allow. You can change this later in the browser site settings. · Field: Device name · Button: Enable notifications
+- Another device · 1. Open Long Lines on that device · Go to longlines.io and sign in as {callsign}. · 2. Open Destinations and choose Add this device · Allow notifications when asked. The device appears here when it is ready.
+- Info alert: On iPhone and iPad, first add Long Lines to the Home Screen from the Share menu. Safari only allows notifications for installed web apps.
+- Button: Cancel
+- Toasts: Notifications turned on · Removed {label} · Renamed {label}
+
+**Add a device on iPhone, not installed**
+- Warning alert: Add Long Lines to your Home Screen first · Safari on iPhone only allows notifications for web apps added to the Home Screen.
+- 1. Tap Share · The square with an arrow, in the Safari toolbar. · 2. Choose Add to Home Screen · Then tap Add. · 3. Open Long Lines from the Home Screen · Sign in, go to Destinations, and choose Add this device.
+- Disabled button: Enable notifications · Caption: Available once Long Lines is opened from the Home Screen.
+
+**Device labels** ({agent}): {Browser} on {Platform}; browsers Chrome, Edge, Firefox, Safari, Samsung Internet, Opera; platforms Android, iPhone, iPad, macOS, Windows, Linux, ChromeOS; fallback This browser; suffix ", installed app" when standalone.
+
+**Errors (new)**
+- A destination named {name} already exists. Choose a different name.
+- Unknown field {name}.
+
 ## Purpose
 
 Today matched spots go out through only two destination types, `discord` and `webhook`. This adds a
@@ -16,7 +245,7 @@ Chrome, Edge, Firefox and Safari, and iOS/iPadOS 16.4+ once Long Lines is added 
 
 | Topic | Decided |
 |---|---|
-| Shape | **One push destination per account.** It fans out to every registered device. Subscriptions pick it like any other destination, and devices come and go underneath it. |
+| Shape | *Superseded by the 2026-10-15 amendment: many per account, devices picked per destination.* **One push destination per account.** It fans out to every registered device. Subscriptions pick it like any other destination, and devices come and go underneath it. |
 | Volume | **A few alerts, then a summary.** A run sends each device at most 3 notifications, one per spot. A notification is tagged by callsign, so a re-spot replaces the older one. When more spots match in that run, one "N more spots" notification covers the rest. |
 | PWA scope | **Install and push only.** The service worker handles `push`, `notificationclick` and `pushsubscriptionchange`. It caches nothing, so a deploy can never strand anyone on a stale bundle. |
 | Copy | The Copy section below is the copy source for these screens. `docs/ui-mock.html` is a bundled build, as it was for callsign lookup and groups. |
@@ -250,6 +479,8 @@ Cover:
 
 ## PR 3: push UI (web)
 
+*Superseded by the 2026-10-15 amendment (page 5) at the top of this file.*
+
 - **`web/src/lib/api.ts`** (still the only supabase-js module) gains:
   - `registerPushDevice`, `unregisterPushDevice`, `listPushDevices` and `deletePushDevice`.
   - `signOut` first unregisters this device's endpoint (best-effort), then calls
@@ -303,20 +534,22 @@ Cover:
 ## Open questions (*proposed*, need a yes)
 
 Brad approved 1, 2, 4 and 5 on 2026-10-13, at the start of PR 1. 3 and 6 are PR 2 and PR 3
-questions and are still open.
+questions; the 2026-10-15 amendment closes both.
 
 1. **Device cap.** *Approved.* Should an account be limited to some number of devices, say 20? Each run's
    requests scale with devices × 4. Proposed: 20, enforced in `register_push_device` with "You can
    turn on notifications on up to 20 devices. Remove one first.".
 2. **Management API.** *Approved.* As described in PR 1: push is visible and can be created, but devices are
    browser-only.
-3. **`renotify: true`** on replaced notifications.
+3. **`renotify: true`** on replaced notifications. *Closed by the 2026-10-15 amendment: `renotify`
+   follows the Sound and vibration switch.*
 4. **Dialog name.** *Approved.* The optional `p_name` on `register_push_device`.
 5. **Device status writes.** *Approved.* `record_push_results`, so the Devices list can show "Last alert" and
    errors.
 6. **Add without this device.** The dialog's fallback when this browser can't turn notifications
    on. Without it, an iPhone user who hasn't installed the app yet can't add the destination at
-   all.
+   all. *Closed by the 2026-10-15 amendment: the editor saves with zero devices and shows "No
+   devices yet".*
 
 ## Verification
 
