@@ -240,7 +240,7 @@ flowchart LR
 ## Matcher
 
 `match_pending_spots()` is a Postgres function because matching is a join:
-one batch of `spot_events` against every enabled subscription through
+one batch of `spot_events` against every enabled subscription with a destination through
 `spot_matches(subscription, spot)`, the single predicate the preview uses too.
 In one transaction it reads up to 500 events (60 s visibility), applies each
 subscription's quiet window (`subscription_quiet` remembers the last send per
@@ -438,7 +438,7 @@ uses about 20 MB). Issue #13 records the options that were weighed first.
   partitioned by UTC day that keeps seven days in the database; `maintain_rbn_spots()` drops a day
   once every 10-minute slice is archived with a matching count and the callsign rollups have
   recorded it or it is older than 14 days (see "The spot archive"). Only lines whose station `watched_among('rbn', stations)`
-  returns (named by an enabled subscription whose sources are empty or include `rbn`, exactly or by
+  returns (named by an enabled subscription with a destination whose sources are empty or include `rbn`, exactly or by
   base call, the matcher's rule) continue through `runIngest` into `raw_spots` and the matcher, so
   alerting sees a few hundred RBN rows a day.
 - **Partitions.** `maintain_rbn_spots()` runs daily at 03:35 UTC and keeps partitions for today and
@@ -958,7 +958,10 @@ preview beside them. A source page's Create subscription button goes straight to
   subscriptions with several, or none ("any source"), open with their sources listed and keep
   them on save. The API still accepts any list.
 - **Zero destinations.** `save_subscription` accepts an empty list (`20261014000300`). Such a
-  subscription matches as before and `match_pending_spots` makes no deliveries for it.
+  subscription stays off: `match_pending_spots` and `watched_among` skip it (`20261015000500`),
+  so it starts no quiet window and watches no RBN calls. It keeps its `enabled` flag, so it
+  starts by itself once a destination is added. The web shows its switch off and disabled, and
+  "Waiting for a destination" on its card.
 - **Preview window.** `preview_subscription` samples the last 200 spots of the filter's sources
   from the last 24 hours, not of every source, and returns `window_size` so the page can say
   "7 of the last 42 POTA spots would pass". The cards show the same figure for each subscription.

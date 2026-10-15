@@ -487,3 +487,63 @@ notes for the next session. Earlier entries are never edited.
   `postgres` owns the queue table). Brad confirmed it true on hosted on 2026-10-15, so the only
   step left after merge is `supabase db push`. Brad has still not noted the 30-day `deliver`
   invocation count.
+- 2026-10-15, session 3 (PR #194): the TypeScript delivery loop. Landed:
+  `supabase/functions/_shared/delivery/run.ts` with `runDeliveryBatch(db, send, now, options)`,
+  `DeliveryRpc`, `DeliverySender`, `RunDeliveryOptions`, `DeliveryBatchResult`,
+  `DestinationResult`, `ClaimError` and the constants `CLAIM_LIMIT` (200), `VISIBILITY_SECONDS`
+  (60), `DEFAULT_CONCURRENCY` (4); it imports only `./format.ts`, `./send.ts` and `./types.ts` and
+  loads under `deno cache --no-config`. `handlers/deliver.ts` is `isServiceRole`, the adapter
+  `supabaseDeliveryRpc(client)` and one `runDeliveryBatch`; a `ClaimError` becomes the 500 as
+  before, and the entrypoint passes the request clock through to `sendToDestination`'s `now`.
+  `sendWebhook` reports a 429 as `retryAfterSeconds` (Retry-After in whole seconds, else null)
+  with the error `Webhook HTTP 429 (rate limited)`. Tests: `delivery_run.test.ts` (18 cases over a
+  fake `DeliveryRpc`, including the real `sendDiscord` against a local server with a claim of 300
+  to show the cap is never reached), `handlers_deliver.test.ts` (403, cron JWT, claim 500, the
+  adapter, one cycle end to end), two webhook 429 cases in `delivery_send.test.ts`. Shapes session
+  4 must use, exactly:
+
+  ```ts
+  interface DeliveryRpc {
+    rpc(fn: string, args: Record<string, unknown>): Promise<{ data: unknown; error: string | null }>;
+  }
+  type DeliverySender = (
+    destination: DeliveryDestination,
+    deliveries: readonly PendingDelivery[],
+    now: Date,
+  ) => Promise<SendResult>;
+  interface RunDeliveryOptions {
+    claimLimit?: number; // p_limit, default CLAIM_LIMIT = 200
+    visibilitySeconds?: number; // p_vt, default VISIBILITY_SECONDS = 60
+    concurrency?: number; // destinations in flight, default DEFAULT_CONCURRENCY = 4
+  }
+  // Throws ClaimError when claim_deliveries fails (nothing sent); any other throw is a bug.
+  runDeliveryBatch(db, send, now, options): Promise<DeliveryBatchResult>
+  // { claimed, sent, failed, throttled, skipped_paused, errors: string[], destinations: DestinationResult[] }
+  // DestinationResult: { id, type, name, claimed, sent, failed, throttled, skipped_paused, error? }
+  ```
+
+  The loop's RPC calls, in cycle order: `claim_deliveries(p_limit, p_vt)`; per push destination
+  `prune_push_devices(p_endpoints)` then `record_push_results(p_ok, p_errors)` as
+  `pushBookkeeping` yields them; one `mark_deliveries_sent(p_delivery_ids, p_msg_ids)` with every
+  successful row; then per destination either `throttle_destination(p_destination_id, p_msg_ids,
+  p_seconds)` (p_seconds a number or null) or `mark_deliveries_failed(p_delivery_ids, p_msg_ids,
+  p_error, p_delay_seconds)`. The ack goes before the throttles on purpose: `mark_deliveries_sent`
+  clears `throttled_until`, so the other order would lose a 429 that followed a partial success.
+  Bookkeeping runs in claim order whatever the concurrency, so a cycle's RPCs are deterministic.
+  `rpc(...).data` for `claim_deliveries` must be the row array (postgres.js returns it directly;
+  `msg_id`/`delivery_id` must be Numbers), `error` the message or null; `record_push_results`'s
+  `p_errors` is an object, so the postgres.js adapter wraps it with `sql.json()`. The sender's
+  `send` is `(d, b, now) => sendToDestination(d, b, { allowInsecure, vapid, now })`.
+  Deviations: (1) a webhook 429 without Retry-After sets `retryAfterSeconds: null` rather than
+  leaving it undefined, since undefined is what a failure looks like; `SendResult.retryAfterSeconds`
+  is now `number | null | undefined` and the loop throttles whenever it is not undefined. Discord
+  and push 429s and the Discord cap are unchanged and still pass a number. (2) The paused skip stays
+  in the loop as a safety net although the claim already leaves paused destinations out.
+  (3) `web/src/lib/database.types.ts` was not regenerated: the local stack belongs to the main
+  checkout and may not carry `origin/main`'s migrations, so the next session that resets the local
+  database should run the generator. Notes for session 4: the Edge handler's summary log line is
+  the whole `DeliveryBatchResult` as JSON (`destinations` included, no secrets); the sender's
+  per-cycle line can do the same. `ClaimError` is what the watchdog should not count as a
+  successful claim. Hand step after merge: `supabase functions deploy deliver`, which needs
+  session 2's migration pushed to hosted first (the loop calls `throttle_destination`). Brad has
+  still not noted the 30-day `deliver` invocation count.

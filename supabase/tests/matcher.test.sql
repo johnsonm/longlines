@@ -3,7 +3,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(50);
+select plan(51);
 
 -- Drain anything already queued so counts below are exact.
 select pgmq.purge_queue('spot_events');
@@ -75,7 +75,8 @@ select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
 create temp table subs as
 select save_subscription(jsonb_build_object('name','NC parks','sources',array['pota'],'rules','[[{"field":"reference","op":"contains","values":["US-NC"]}]]'::jsonb,'quiet_minutes',10,'destinations',array[(select id from da)])) as nc,
        save_subscription(jsonb_build_object('name','CW anywhere','rules','[[{"field":"mode","op":"is","values":["cw"]}]]'::jsonb,'quiet_minutes',0,'destinations',array[(select id from da),(select id from db)])) as cw,
-       save_subscription(jsonb_build_object('name','Paused','quiet_minutes',0,'enabled',false,'destinations',array[(select id from db)])) as paused;
+       save_subscription(jsonb_build_object('name','Paused','quiet_minutes',0,'enabled',false,'destinations',array[(select id from db)])) as paused,
+       save_subscription(jsonb_build_object('name','Nowhere yet','quiet_minutes',10,'destinations','[]'::jsonb)) as nowhere;
 
 reset role;
 
@@ -96,6 +97,8 @@ select is((select queue_length from pgmq.metrics('deliveries_queue')), 7::bigint
 select is((select queue_length from pgmq.metrics('spot_events')), 0::bigint, 'processed spot_events are archived');
 select ok(exists (select 1 from subscription_quiet where subscription_id = (select nc from subs) and callsign = 'KK4PWJ'), 'quiet window recorded for the 10-minute subscription');
 select ok(not exists (select 1 from subscription_quiet where subscription_id = (select cw from subs)), 'no quiet rows for a subscription that sends every spot');
+select ok(not exists (select 1 from subscription_quiet where subscription_id = (select nowhere from subs)),
+  'a subscription with no destinations stays off: no quiet window starts for it');
 
 -- Inside the window: the 10-minute subscription stays quiet, the other sends.
 select count(*) from ingest_spots(jsonb_build_array(

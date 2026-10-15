@@ -57,6 +57,7 @@ function DestinationLine({ dests }: { dests: Destination[] }) {
 }
 
 function hitsText(sub: SubscriptionWithLinks, preview: Preview | undefined): string | null {
+  if (sub.destinations.length === 0) return "Waiting for a destination";
   if (!sub.enabled) return "Paused";
   if (!preview) return null;
   const one = singleSource(sub.sources);
@@ -153,8 +154,10 @@ export function SubscriptionsPage({ subs, dests, loading, reload, mobile }: Prop
                   <Stack spacing={1.5}>
                     <Stack direction="row" spacing={1} sx={{ justifyContent: "space-between", alignItems: "center" }}>
                       <Typography variant="h6" sx={{ minWidth: 0, overflowWrap: "anywhere" }}>{s.name}</Typography>
+                      {/* With no destinations the matcher skips it whatever enabled says, so show it off. */}
                       <Switch
-                        checked={s.enabled} onChange={(e) => void toggle(s, e.target.checked)}
+                        checked={s.enabled && s.destinations.length > 0} disabled={s.destinations.length === 0}
+                        onChange={(e) => void toggle(s, e.target.checked)}
                         slotProps={{ input: { "aria-label": `${s.name} on` } }}
                       />
                     </Stack>

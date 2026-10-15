@@ -117,6 +117,8 @@ describe("new subscription", () => {
     expect(screen.getByText("Optional. Leave it empty to pass every spot")).toBeInTheDocument();
     expect(screen.queryByText("Pass spots that match all of these rules")).not.toBeInTheDocument();
     expect(screen.getByText("No destinations yet")).toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: "Enabled" })).toBeDisabled();
+    expect(screen.getByRole("switch", { name: "Enabled" })).not.toBeChecked();
     expect(save()).toBeDisabled();
 
     await user.type(screen.getByLabelText(/^Name/), " Parks ");
@@ -312,6 +314,20 @@ describe("edit subscription", () => {
     await user.click(screen.getByRole("button", { name: "Remove Shack" }));
     await user.click(save());
     expect(saveSubscription).toHaveBeenCalledWith(expect.objectContaining({ destinations: ["d2"] }));
+  });
+
+  it("stays off without a destination and comes back on with one", async () => {
+    const { user } = render({ id: "s1" });
+    const enabled = () => screen.getByRole("switch", { name: "Enabled" });
+    expect(enabled()).toBeChecked();
+    await user.click(screen.getByRole("button", { name: "Remove Shack" }));
+    expect(enabled()).not.toBeChecked();
+    expect(enabled()).toBeDisabled();
+    expect(screen.getByText(/stays off until it has a destination/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Add destination" }));
+    await user.click(within(await screen.findByRole("menu")).getByText("Club"));
+    expect(enabled()).toBeChecked();
+    expect(enabled()).toBeEnabled();
   });
 
   it("disables Add destination when every one is used, and links to Destinations when there are none", async () => {

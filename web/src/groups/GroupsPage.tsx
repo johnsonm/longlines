@@ -63,24 +63,20 @@ export function GroupsPage({ reload }: Props) {
     const existing = subs.find((s) => hasPositiveRule(toInput(s).rules, "group", g.id));
     if (existing) {
       notify(`You already have ${existing.name}.`);
-      void navigate("/subscriptions");
+      void navigate(`/subscriptions/${existing.id}`);
       return;
     }
-    // save_subscription requires a destination, and a paused or failing one would deliver nothing.
+    // The group is the only rule; the user finishes the rest in the editor. A paused or failing
+    // destination would deliver nothing, and with none the subscription waits for one.
     const dest = dests.find((d) => d.health === "ok");
-    if (!dest) {
-      notify("Add a destination to start getting alerts.");
-      void navigate("/destinations");
-      return;
-    }
     const name = `${g.name} on the air`;
-    await saveSubscription({
-      name, enabled: true, quiet_minutes: 30, destinations: [dest.id],
+    const id = await saveSubscription({
+      name, enabled: true, quiet_minutes: 30, destinations: dest ? [dest.id] : [],
       sources: [], rules: [[{ field: "group", op: "is", values: [g.id] }]],
     });
     await reload();
     notify(`Created ${name}`);
-    void navigate("/subscriptions");
+    void navigate(`/subscriptions/${id}`);
   });
 
   const remove = (g: CallsignGroup) => run(g.id, "Couldn't delete the group.", async () => {

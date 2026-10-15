@@ -70,7 +70,7 @@ describe("SubscriptionsPage", () => {
     render([
       sub({ destinations: ["d1", "d2"] }),
       sub({
-        id: "s2", name: "Anything", enabled: false, destinations: [], sources: ["rbn"], quiet_minutes: 0,
+        id: "s2", name: "Anything", enabled: true, destinations: [], sources: ["rbn"], quiet_minutes: 0,
         rules: [[rule("callsign", "is", "W1AW")], [rule("callsign", "is", "K1ABC"), rule("frequency", "lt", 7100)]],
       }),
     ]);
@@ -87,8 +87,17 @@ describe("SubscriptionsPage", () => {
     expect(screen.getByText("Club")).toBeInTheDocument();
     expect(screen.getByText("No destinations")).toBeInTheDocument();
     expect(screen.getByText("Reverse Beacon Network")).toBeInTheDocument();
-    expect(screen.getByText("Every spot · Paused")).toBeInTheDocument();
+    expect(screen.getByText("Every spot · Waiting for a destination")).toBeInTheDocument();
+    const waiting = screen.getByRole("switch", { name: "Anything on" });
+    expect(waiting).not.toBeChecked();
+    expect(waiting).toBeDisabled();
     expect(await screen.findByText("Once per 10 min · 3 of the last 42 POTA spots passed")).toBeInTheDocument();
+  });
+
+  it("shows a paused subscription", () => {
+    render([sub({ enabled: false })]);
+    expect(screen.getByText("Once per 10 min · Paused")).toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: "NC parks on" })).not.toBeChecked();
   });
 
   it("names the group rule once the groups load, and lists older subscriptions' sources", async () => {

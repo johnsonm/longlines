@@ -134,6 +134,9 @@ relay on pushes to main; nothing else deploys automatically.
 
 - Matching lives in SQL (`spot_matches`, `match_pending_spots`); never re-implement the predicate in
   TypeScript. The preview RPC and the matcher must stay on the same function.
+- A subscription is live only while `enabled` and linked to at least one destination. Saving with
+  none is allowed; `match_pending_spots` and `watched_among` both skip it, and `enabled` is kept
+  so it starts once a destination is added. Keep that check in both if either changes.
 - DX Cluster and WWFF spots match only subscriptions whose `sources` lists `dxcluster` / `wwff`;
   an empty sources list ("any source") includes neither (WWFF overlaps POTA heavily and there is no
   cross-source dedup). The rule lives in `source_matches`. An RBN spot passes only an AND group of
