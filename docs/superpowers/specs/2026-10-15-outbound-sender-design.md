@@ -447,3 +447,41 @@ notes for the next session. Earlier entries are never edited.
   `net` grants. The role test leaves `net` out of its schema list for that reason. (4) Hand step
   after merge: `supabase db push`. Brad has not yet noted the 30-day `deliver` invocation count
   from the dashboard in this log.
+- 2026-10-15, session 2 (PR #191): rate-aware, newest-first claim, throttle, expiry and stats.
+  Landed in `20261015000400_rate_aware_claim.sql`: columns `destinations.throttled_until`,
+  `throttle_level`, `claim_tokens`, `claim_tokens_at` and `deliveries.dropped_at` with
+  `deliveries_destination_dropped_at_idx (destination_id, dropped_at)`; knobs
+  `destination_budget(p_type)` (discord 300, push 3, webhook 1000; burst = rate),
+  `destination_throttle_seconds(p_level)` (60 s at level 1 doubling to 900 s),
+  `destination_max_age(p_type)` (push 15 min, else 24 h), all immutable SQL with `search_path`
+  pinned, revoked from public; `claim_deliveries(p_limit int, p_vt int)` rewritten per section 2
+  with the same signature and result columns (expiry sweep of 500 per call first, then ready rows
+  minus paused and throttled, token bucket, `row_number()` newest first, chosen by rank then
+  `spot_time desc`, claim by `update pgmq.q_deliveries_queue ... where vt <= now`, debit, rows
+  returned in the chosen order); `throttle_destination(p_destination_id uuid, p_msg_ids bigint[],
+  p_seconds int) returns int`; `delivery_queue_stats() returns table (depth bigint,
+  expired_last_hour bigint)`; `mark_deliveries_sent` clears `throttled_until` and decays the level
+  by one; grants to `service_role` and `delivery_sender` on the two new RPCs, listed in
+  `sender_role.test.sql`. pgTAP: `deliveries_rpc.test.sql` now has 80 assertions covering the
+  Verification list (fairness, budget, refill, paused and throttled, throttle backoff and decay,
+  expiry, stats, orphans, grants); `push_devices.test.sql` fills the buckets before its claim.
+  Deviations: (1) `throttle_destination` returns the seconds used (the spec left the return type
+  open) and raises `Destination not found.` for an unknown id. (2) `mark_deliveries_dropped` also
+  stamps `dropped_at`, so `delivery_queue_stats` counts the Edge worker's drops during the overlap.
+  (3) The expiry sweep walks the queue table (every unsent delivery has a message) and skips
+  messages whose vt is ahead, so an in-flight delivery is left to its ack; the next poll sweeps it
+  once visible. (4) pgmq 1.5.1 has no `last_read_at`, so the claim sets only `vt` and `read_ct`.
+  (5) `web/src/lib/database.types.ts` was not regenerated: the checked-in file already lags the
+  generator on unrelated tables (`country_daily_spots`, `ComputedFields`), so session 3, the first
+  TypeScript session, should regenerate it in one go. Notes for session 3: the sender's calls are
+  `claim_deliveries(p_limit => $1, p_vt => $2)`, `mark_deliveries_sent(p_delivery_ids => $1,
+  p_msg_ids => $2)`, `mark_deliveries_failed(p_delivery_ids, p_msg_ids, p_error, p_delay_seconds)`,
+  `throttle_destination(p_destination_id, p_msg_ids, p_seconds)` with `p_seconds` null when there is
+  no `Retry-After`, `delivery_queue_stats()`, `prune_push_devices(p_endpoints)`,
+  `record_push_results(p_ok, p_errors)`. A destination's bucket starts empty and refills from its
+  creation, so a brand-new push destination can wait up to 20 s for its first token; the TS age
+  check in `handlers/deliver.ts` is now unreachable (SQL expires first with the same thresholds)
+  and goes away with `run.ts`. Hand step before `supabase db push`: on hosted, confirm
+  `pg_get_userbyid(proowner)` for `public.claim_deliveries` is `postgres` and
+  `has_table_privilege('postgres', 'pgmq.q_deliveries_queue', 'update')` is true (locally
+  `postgres` owns the queue table). Brad has still not noted the 30-day `deliver` invocation count.
