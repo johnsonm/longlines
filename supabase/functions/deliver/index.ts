@@ -14,7 +14,7 @@ Deno.serve((req) =>
   handleDeliver(req, {
     serviceRoleKey: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"),
     db: createServiceClient,
-    send: (destination, deliveries) =>
-      sendToDestination(destination, deliveries, { allowInsecure, vapid }),
+    send: (destination, deliveries, now) =>
+      sendToDestination(destination, deliveries, { allowInsecure, vapid, now }),
   })
 );

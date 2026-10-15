@@ -174,6 +174,48 @@ Deno.test("sendWebhook treats non-2xx as failure with the status in the error", 
   );
 });
 
+Deno.test("sendWebhook treats a 429 as a rate limit with the Retry-After, not a failure", async () => {
+  let calls = 0;
+  await withServer(
+    () => {
+      calls++;
+      return calls === 1
+        ? new Response(null, { status: 204 })
+        : new Response(null, { status: 429, headers: { "Retry-After": "42" } });
+    },
+    async (base) => {
+      const d = dest(`${base}/spots`, "webhook");
+      const result = await sendWebhook(
+        d,
+        Array.from({ length: 60 }, (_, i) => delivery(i + 1, d)),
+        { allowInsecure: true },
+      );
+      assertEquals(result.ok, false);
+      assertEquals(result.sent, 50);
+      assertEquals(result.retryAfterSeconds, 42);
+      assertMatch(result.error ?? "", /429/);
+      assertEquals(calls, 2);
+    },
+  );
+});
+
+Deno.test("sendWebhook reports a 429 without Retry-After as null so SQL picks the delay", async () => {
+  const cases: Record<string, string>[] = [{}, { "Retry-After": "soon" }, { "Retry-After": "0" }];
+  for (const headers of cases) {
+    await withServer(
+      () => new Response(null, { status: 429, headers }),
+      async (base) => {
+        const d = dest(`${base}/spots`, "webhook");
+        const result = await sendWebhook(d, [delivery(1, d)], { allowInsecure: true });
+        assertEquals(result.ok, false);
+        assertEquals(result.sent, 0);
+        assertEquals(result.retryAfterSeconds, null);
+        assertEquals("retryAfterSeconds" in result, true);
+      },
+    );
+  }
+});
+
 Deno.test("sendWebhook does not follow redirects and reports them as failures", async () => {
   let followed = false;
   await withServer(
