@@ -1,91 +1,59 @@
 # APRS-IS on the Stats page Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development
-> (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use
-> checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Count APRS-IS packets in the Stats page's volume figures and add an APRS-IS section
-(packets, stations heard, igates, packet types), without touching matching or subscription sources.
+**Goal:** Count APRS-IS packets in the Stats page's volume figures and add an APRS-IS section (packets, stations heard, igates, packet types), without touching matching or subscription sources.
 
-**Architecture:** One migration adds four service-role-only rollup tables and `rollup_aprs_day`,
-which the hourly `refresh_stats_snapshot_at` calls per window day (the RBN pattern).
-`maintain_aprs_packets` refuses to drop a day until it has been rolled up at least an hour after it
-ended. Packet volume comes from the existing `aprs_packet_hours`. The payload gains `daily[].aprs`,
-`hourly[].aprs` and an `aprs` object, and the web page renders them.
+**Architecture:** One migration adds four service-role-only rollup tables and `rollup_aprs_day`, which the hourly `refresh_stats_snapshot_at` calls per window day (the RBN pattern). `maintain_aprs_packets` refuses to drop a day until it has been rolled up at least an hour after it ended. Packet volume comes from the existing `aprs_packet_hours`. The payload gains `daily[].aprs`, `hourly[].aprs` and an `aprs` object, and the web page renders them.
 
-**Tech Stack:** Postgres (plpgsql, pg_cron), pgTAP, React + MUI 9 + MUI X Charts (community),
-Vitest.
+**Tech Stack:** Postgres (plpgsql, pg_cron), pgTAP, React + MUI 9 + MUI X Charts (community), Vitest.
 
 **Spec:** `docs/superpowers/specs/2026-10-14-aprs-stats-design.md`
 
 ## Global Constraints
 
-- Work in the worktree `/Users/bradbazemore/Dev/longlines-aprs-stats` (branch `aprs-stats`). Never
-  `git checkout` in `/Users/bradbazemore/Dev/longlines`.
-- Migration file name: `supabase/migrations/20261014000030_stats_aprs.sql`. Never edit an applied
-  migration.
-- APRS never reaches `raw_spots`, matching, `spot_stream`, the subscription sources, profiles or the
-  callsign rollups.
-- New tables: RLS on, no policies, `revoke all ... from anon, authenticated`. New functions:
-  `security definer`, `set search_path = public`, `revoke all ... from public, anon, authenticated`.
+- Work in the worktree `/Users/bradbazemore/Dev/longlines-aprs-stats` (branch `aprs-stats`). Never `git checkout` in `/Users/bradbazemore/Dev/longlines`.
+- Migration file name: `supabase/migrations/20261014000030_stats_aprs.sql`. Never edit an applied migration.
+- APRS never reaches `raw_spots`, matching, `spot_stream`, the subscription sources, profiles or the callsign rollups.
+- New tables: RLS on, no policies, `revoke all ... from anon, authenticated`. New functions: `security definer`, `set search_path = public`, `revoke all ... from public, anon, authenticated`.
 - Group a day by `source_call` before calling `base_callsign()`.
 - Never run `supabase db push`, `supabase functions deploy`, `fly deploy` or `fly secrets set`.
-- Web: `sx` for layout only; MUI 9 `Grid size`; colours from the theme (APRS is
-  `theme.palette.success.main`).
+- Web: `sx` for layout only; MUI 9 `Grid size`; colours from the theme (APRS is `theme.palette.success.main`).
 - Copy is word for word from the spec's Page section:
-  - Section heading `APRS-IS`, body "Every packet on the APRS-IS full feed. Packets aren't spots and
-    never trigger alerts."
-  - KPIs "APRS packets" / "Every packet on the full feed", "Stations heard" / "Unique callsigns that
-    sent a packet, SSIDs combined", "Igates" / "Unique gateways that passed a packet to APRS-IS".
+  - Section heading `APRS-IS`, body "Every packet on the APRS-IS full feed. Packets aren't spots and never trigger alerts."
+  - KPIs "APRS packets" / "Every packet on the full feed", "Stations heard" / "Unique callsigns that sent a packet, SSIDs combined", "Igates" / "Unique gateways that passed a packet to APRS-IS".
   - Chart "Packet types" / "What APRS stations sent".
   - Per-day chart `APRS` / `{n} packets`.
   - Spots processed detail `{rbn} RBN, {aprs} APRS, {pota} POTA, {sota} SOTA`.
-  - Spots per day text "One chart per source. RBN and APRS run 100 times the volume of POTA or more,
-    so they don't share a scale."
-  - Type labels: Position, Mic-E, Object, Item, Message, Status, Weather, Telemetry, NMEA, Third
-    party, Capabilities, Query, User defined, Other.
-- pgTAP needs a freshly reset local DB: `supabase db reset` before `supabase test db` (another
-  session may share the stack; re-run the reset if a suite fails on foreign rows).
+  - Spots per day text "One chart per source. RBN and APRS run 100 times the volume of POTA or more, so they don't share a scale."
+  - Type labels: Position, Mic-E, Object, Item, Message, Status, Weather, Telemetry, NMEA, Third party, Capabilities, Query, User defined, Other.
+- pgTAP needs a freshly reset local DB: `supabase db reset` before `supabase test db` (another session may share the stack; re-run the reset if a suite fails on foreign rows).
 - Commit trailer: `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 
 ## Review Focus
 
-1. A late relay batch for yesterday lands after the 00:05 rollup: the 01:05 refresh must re-roll the
-   day, and stations, igates and types must grow with no duplicate rows (Task 1 re-roll test, Task 2
-   late-packet test).
-2. The same operator under several SSIDs or in lower case (`K4ABC-9`, `K4ABC-7`, `k4abc-5`) must
-   count as one station (Task 1 stations test).
-3. A packet with no igate (no q-construct) must not add a null igate (Task 1 igates test, Task 2
-   igates count).
-4. The SQL list of packet types drifting from `aprs_packets`' check constraint would silently drop a
-   type from the chart (Task 2 `set_eq` against the constraint).
-5. The newest snapshot written before the migration (no `aprs`, no `daily[].aprs`/`hourly[].aprs`)
-   must render zeros, not crash, for up to an hour after deploy (Task 3 old-snapshot test).
+1. A late relay batch for yesterday lands after the 00:05 rollup: the 01:05 refresh must re-roll the day, and stations, igates and types must grow with no duplicate rows (Task 1 re-roll test, Task 2 late-packet test).
+2. The same operator under several SSIDs or in lower case (`K4ABC-9`, `K4ABC-7`, `k4abc-5`) must count as one station (Task 1 stations test).
+3. A packet with no igate (no q-construct) must not add a null igate (Task 1 igates test, Task 2 igates count).
+4. The SQL list of packet types drifting from `aprs_packets`' check constraint would silently drop a type from the chart (Task 2 `set_eq` against the constraint).
+5. The newest snapshot written before the migration (no `aprs`, no `daily[].aprs`/`hourly[].aprs`) must render zeros, not crash, for up to an hour after deploy (Task 3 old-snapshot test).
 
 ---
 
 ### Task 1: APRS day rollup and the retention guard
 
 **Files:**
-
-- Create: `supabase/migrations/20261014000030_stats_aprs.sql` (first half: tables,
-  `rollup_aprs_day`, `maintain_aprs_packets`)
+- Create: `supabase/migrations/20261014000030_stats_aprs.sql` (first half: tables, `rollup_aprs_day`, `maintain_aprs_packets`)
 - Modify: `supabase/tests/aprs.test.sql`
 
 **Interfaces:**
-
 - Produces:
-  - tables `aprs_daily_stations(day date, base text, pk (day, base))`,
-    `aprs_daily_igates(day date, igate text, pk (day, igate))`,
-    `aprs_daily_types(day date, packet_type text, packets bigint, pk (day, packet_type))`,
-    `aprs_rollup_days(day date pk, rolled_at timestamptz)`
-  - `public.rollup_aprs_day(p_day date) returns boolean`: true when rolled (marker written), false
-    when refused.
+  - tables `aprs_daily_stations(day date, base text, pk (day, base))`, `aprs_daily_igates(day date, igate text, pk (day, igate))`, `aprs_daily_types(day date, packet_type text, packets bigint, pk (day, packet_type))`, `aprs_rollup_days(day date pk, rolled_at timestamptz)`
+  - `public.rollup_aprs_day(p_day date) returns boolean`: true when rolled (marker written), false when refused.
 
 - [ ] **Step 1: Write the failing tests in `supabase/tests/aprs.test.sql`**
 
-Change the header comment's first line list to include "the Stats rollup and its retention guard",
-and `select plan(39);` to `select plan(54);`.
+Change the header comment's first line list to include "the Stats rollup and its retention guard", and `select plan(39);` to `select plan(54);`.
 
 Add to the cleanup at the top, after `delete from archive_log where source = 'aprs';`:
 
@@ -106,8 +74,7 @@ returns jsonb language sql as $$
 $$;
 ```
 
-Insert a new section between `select ok((select source = 'aprs' from archive_status ...` and
-`-- Retention.`:
+Insert a new section between `select ok((select source = 'aprs' from archive_status ...` and `-- Retention.`:
 
 ```sql
 -- Stats rollup (20261014000030).
@@ -156,8 +123,7 @@ select ok(rollup_aprs_day(pg_temp.d(-9)) and exists (select 1 from aprs_rollup_d
   'a day without packets rolls up as empty');
 ```
 
-Replace the Retention setup (from `-- Retention.` through the
-`select log_archive('aprs', pg_temp.at(-3, '11:00') ...` line) with:
+Replace the Retention setup (from `-- Retention.` through the `select log_archive('aprs', pg_temp.at(-3, '11:00') ...` line) with:
 
 ```sql
 -- Retention.
@@ -210,8 +176,7 @@ select ok(not has_function_privilege('authenticated', 'public.rollup_aprs_day(da
 
 - [ ] **Step 2: Run the suite and see it fail**
 
-Run:
-`cd /Users/bradbazemore/Dev/longlines-aprs-stats && supabase db reset && supabase test db supabase/tests/aprs.test.sql`
+Run: `cd /Users/bradbazemore/Dev/longlines-aprs-stats && supabase db reset && supabase test db supabase/tests/aprs.test.sql`
 Expected: FAIL, `relation "aprs_daily_stations" does not exist`.
 
 - [ ] **Step 3: Write the first half of the migration**
@@ -385,12 +350,10 @@ $$;
 
 - [ ] **Step 4: Run the suite and see it pass**
 
-Run:
-`cd /Users/bradbazemore/Dev/longlines-aprs-stats && supabase db reset && supabase test db supabase/tests/aprs.test.sql`
+Run: `cd /Users/bradbazemore/Dev/longlines-aprs-stats && supabase db reset && supabase test db supabase/tests/aprs.test.sql`
 Expected: `ok` for all 54, `Result: PASS`.
 
-Also run: `supabase test db supabase/tests/advisor.test.sql`. Expected: PASS unchanged (the function
-pins `search_path` and is not client-callable).
+Also run: `supabase test db supabase/tests/advisor.test.sql`. Expected: PASS unchanged (the function pins `search_path` and is not client-callable).
 
 - [ ] **Step 5: Commit**
 
@@ -407,19 +370,15 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ### Task 2: APRS in the Stats snapshot
 
 **Files:**
-
 - Modify: `supabase/migrations/20261014000030_stats_aprs.sql` (append the refresh)
 - Modify: `supabase/tests/stats_snapshot.test.sql`
 - Modify: `CLAUDE.md`, `docs/ARCHITECTURE.md`
 
 **Interfaces:**
-
-- Consumes: `rollup_aprs_day(date) returns boolean`, `aprs_daily_*`, `aprs_rollup_days` (Task 1);
-  `aprs_packet_hours(hour_start, packets)` (20261014000010).
+- Consumes: `rollup_aprs_day(date) returns boolean`, `aprs_daily_*`, `aprs_rollup_days` (Task 1); `aprs_packet_hours(hour_start, packets)` (20261014000010).
 - Produces payload additions (Task 3 types them):
   - `daily[i].aprs: number`, `hourly[i].aprs: number`
-  - `aprs: { packets: number, stations: number, igates: number, types: [{ type: string, packets: number }] }`,
-    where `types` holds all 14 packet types ordered by packets desc then type asc.
+  - `aprs: { packets: number, stations: number, igates: number, types: [{ type: string, packets: number }] }`, where `types` holds all 14 packet types ordered by packets desc then type asc.
 
 - [ ] **Step 1: Write the failing tests in `supabase/tests/stats_snapshot.test.sql`**
 
@@ -466,8 +425,7 @@ select ingest_aprs_packets(jsonb_build_array(
 insert into aprs_daily_stations (day, base) values ((pg_temp.at_utc(-2, 0) at time zone 'utc')::date, 'OLD1');
 ```
 
-Edit these existing assertions to carry `aprs` (each `jsonb_build_object` gains one pair;
-descriptions unchanged unless shown):
+Edit these existing assertions to carry `aprs` (each `jsonb_build_object` gains one pair; descriptions unchanged unless shown):
 
 ```sql
 select is(pg_temp.snap() -> 'daily' -> 0, jsonb_build_object('day', pg_temp.day_str(0), 'pota', 0, 'sota', 0, 'rbn', 0, 'aprs', 0), 'daily starts at the oldest day and a day without spots is zero-filled');
@@ -475,13 +433,9 @@ select is(pg_temp.snap() -> 'daily' -> 1, jsonb_build_object('day', pg_temp.day_
 select is(pg_temp.snap() -> 'daily' -> 6, jsonb_build_object('day', pg_temp.day_str(6), 'pota', 0, 'sota', 4, 'rbn', 1, 'aprs', 2), 'daily ends yesterday with the SOTA, RBN and APRS counts');
 ```
 
-In the hourly section, `hourly -> 0` gains `'aprs', 0`, and `hourly -> 68` gains `'aprs', 2` with
-the description `'day 2 at 20 UTC: one POTA spot, four RBN spots and two APRS packets'`. In the
-02:10 section, `hourly -> 166` gains `'aprs', 0` and `hourly -> 167` gains `'aprs', 1` with the
-description `'hourly ends at 01:00 UTC today, with its RBN spot and APRS packet'`.
+In the hourly section, `hourly -> 0` gains `'aprs', 0`, and `hourly -> 68` gains `'aprs', 2` with the description `'day 2 at 20 UTC: one POTA spot, four RBN spots and two APRS packets'`. In the 02:10 section, `hourly -> 166` gains `'aprs', 0` and `hourly -> 167` gains `'aprs', 1` with the description `'hourly ends at 01:00 UTC today, with its RBN spot and APRS packet'`.
 
-After
-`select is((select count(*) from rbn_daily_stations where callsign = 'OLD1'), 0::bigint, ...);` add:
+After `select is((select count(*) from rbn_daily_stations where callsign = 'OLD1'), 0::bigint, ...);` add:
 
 ```sql
 -- aprs: packets from aprs_packet_hours, the rest from the day rollups.
@@ -519,8 +473,7 @@ In the anon block, before `reset role;`, add:
 select throws_ok('select count(*) from aprs_daily_types', '42501', null, 'anon cannot read the APRS rollup');
 ```
 
-After `select is(jsonb_array_length(pg_temp.snap() #> '{rbn,topStations}'), 4, ...);` (end of the
-RBN late-rows block), add:
+After `select is(jsonb_array_length(pg_temp.snap() #> '{rbn,topStations}'), 4, ...);` (end of the RBN late-rows block), add:
 
 ```sql
 -- Late APRS packets. Day 5 was rolled up long after it ended, day 6 five minutes after: only day 6 is
@@ -540,13 +493,10 @@ select is((select (e ->> 'packets')::int from jsonb_array_elements(pg_temp.snap(
 
 - [ ] **Step 2: Run the suite and see it fail**
 
-Run:
-`cd /Users/bradbazemore/Dev/longlines-aprs-stats && supabase db reset && supabase test db supabase/tests/stats_snapshot.test.sql`
+Run: `cd /Users/bradbazemore/Dev/longlines-aprs-stats && supabase db reset && supabase test db supabase/tests/stats_snapshot.test.sql`
 Expected: FAIL on the `daily`/`hourly` shape assertions and every `aprs` assertion (`aprs` is null).
 
-If the `set_eq` fails because the constraint has a different name, find it with
-`select conname from pg_constraint where conrelid = 'aprs_packets'::regclass and contype = 'c'` and
-fix the test, not the migration.
+If the `set_eq` fails because the constraint has a different name, find it with `select conname from pg_constraint where conrelid = 'aprs_packets'::regclass and contype = 'c'` and fix the test, not the migration.
 
 - [ ] **Step 3: Append the refresh to the migration**
 
@@ -565,113 +515,109 @@ Append to `supabase/migrations/20261014000030_stats_aprs.sql`:
 --   aprs_packets' check constraint; stats_snapshot.test.sql compares them.
 ```
 
-2. Copy lines 80-534 of `supabase/migrations/20261013000010_stats_hourly_window.sql` (from
-   `create function public.refresh_stats_snapshot_at(p_now timestamptz)` through its closing `$$;`)
-   verbatim, changing `create function` to `create or replace function`, then make these edits in
-   the copy.
+2. Copy lines 80-534 of `supabase/migrations/20261013000010_stats_hourly_window.sql` (from `create function public.refresh_stats_snapshot_at(p_now timestamptz)` through its closing `$$;`) verbatim, changing `create function` to `create or replace function`, then make these edits in the copy.
 
 Edit A: after `delete from rbn_rollup_hours where hour < v_window_end;` insert:
 
 ```sql
--- APRS rollups (20261014000030): the same rule as the RBN days. Retention
--- keeps a day until it has a final rollup, so a re-roll never finds it gone.
-for v_day in
-  select v_first_day + i
-  from generate_series(0, 6) as i
-  left join aprs_rollup_days l on l.day = v_first_day + i
-  where l.day is null
-     or l.rolled_at < (v_first_day + i + 1)::timestamp at time zone 'utc' + interval '1 hour'
-  order by i
-loop
-  perform public.rollup_aprs_day(v_day);
-end loop;
-delete from aprs_daily_stations where day < v_first_day;
-delete from aprs_daily_igates where day < v_first_day;
-delete from aprs_daily_types where day < v_first_day;
+
+  -- APRS rollups (20261014000030): the same rule as the RBN days. Retention
+  -- keeps a day until it has a final rollup, so a re-roll never finds it gone.
+  for v_day in
+    select v_first_day + i
+    from generate_series(0, 6) as i
+    left join aprs_rollup_days l on l.day = v_first_day + i
+    where l.day is null
+       or l.rolled_at < (v_first_day + i + 1)::timestamp at time zone 'utc' + interval '1 hour'
+    order by i
+  loop
+    perform public.rollup_aprs_day(v_day);
+  end loop;
+  delete from aprs_daily_stations where day < v_first_day;
+  delete from aprs_daily_igates where day < v_first_day;
+  delete from aprs_daily_types where day < v_first_day;
 ```
 
 Edit B: after the `daily_rbn as (...)` CTE insert:
 
 ```sql
-daily_aprs as (
-  select to_char(hour_start at time zone 'utc', 'YYYY-MM-DD') as day, sum(packets) as aprs
-  from aprs_packet_hours
-  where hour_start >= v_window_start and hour_start < v_window_end
-  group by 1
-),
+  daily_aprs as (
+    select to_char(hour_start at time zone 'utc', 'YYYY-MM-DD') as day, sum(packets) as aprs
+    from aprs_packet_hours
+    where hour_start >= v_window_start and hour_start < v_window_end
+    group by 1
+  ),
 ```
 
 and change the `daily` CTE to:
 
 ```sql
-daily as (
-  select jsonb_agg(
-           jsonb_build_object('day', d.day, 'pota', coalesce(c.pota, 0), 'sota', coalesce(c.sota, 0),
-                              'rbn', coalesce(r.rbn, 0), 'aprs', coalesce(a.aprs, 0))
-           order by d.day
-         ) as v
-  from days d
-  left join daily_counts c using (day)
-  left join daily_rbn r using (day)
-  left join daily_aprs a using (day)
-),
+  daily as (
+    select jsonb_agg(
+             jsonb_build_object('day', d.day, 'pota', coalesce(c.pota, 0), 'sota', coalesce(c.sota, 0),
+                                'rbn', coalesce(r.rbn, 0), 'aprs', coalesce(a.aprs, 0))
+             order by d.day
+           ) as v
+    from days d
+    left join daily_counts c using (day)
+    left join daily_rbn r using (day)
+    left join daily_aprs a using (day)
+  ),
 ```
 
 Edit C: change the `hourly` CTE to:
 
 ```sql
-hourly as (
-  select jsonb_agg(
-           jsonb_build_object(
-             'hour', to_char(s.slot at time zone 'utc', 'YYYY-MM-DD"T"HH24":00:00Z"'),
-             'pota', coalesce(c.pota, 0), 'sota', coalesce(c.sota, 0), 'rbn', coalesce(h.spots, 0),
-             'aprs', coalesce(ah.packets, 0)
-           )
-           order by s.slot
-         ) as v
-  from slots s
-  left join slot_counts c using (slot)
-  left join rbn_hourly h on h.hour = s.slot
-  left join aprs_packet_hours ah on ah.hour_start = s.slot
-),
+  hourly as (
+    select jsonb_agg(
+             jsonb_build_object(
+               'hour', to_char(s.slot at time zone 'utc', 'YYYY-MM-DD"T"HH24":00:00Z"'),
+               'pota', coalesce(c.pota, 0), 'sota', coalesce(c.sota, 0), 'rbn', coalesce(h.spots, 0),
+               'aprs', coalesce(ah.packets, 0)
+             )
+             order by s.slot
+           ) as v
+    from slots s
+    left join slot_counts c using (slot)
+    left join rbn_hourly h on h.hour = s.slot
+    left join aprs_packet_hours ah on ah.hour_start = s.slot
+  ),
 ```
 
-Edit D: after the `rbn as (...)` CTE (before the final `select`), add a comma after its closing
-paren and insert:
+Edit D: after the `rbn as (...)` CTE (before the final `select`), add a comma after its closing paren and insert:
 
 ```sql
--- aprs: packets from aprs_packet_hours, the rest from the day rollups; never
--- aprs_packets. Stations and igates are distinct over the whole week.
-aprs_type_order as (
-  select unnest(array[
-    'position', 'mic_e', 'object', 'item', 'message', 'status', 'weather',
-    'telemetry', 'nmea', 'third_party', 'capabilities', 'query', 'user_defined', 'other'
-  ]) as type
-),
-aprs_type_counts as (
-  select packet_type as type, sum(packets) as n
-  from aprs_daily_types
-  where day >= v_first_day and day < v_end_day
-  group by 1
-),
-aprs as (
-  select jsonb_build_object(
-           'packets', (select coalesce(sum(packets), 0) from aprs_packet_hours
-                       where hour_start >= v_window_start and hour_start < v_window_end),
-           'stations', (select count(distinct base) from aprs_daily_stations
+  -- aprs: packets from aprs_packet_hours, the rest from the day rollups; never
+  -- aprs_packets. Stations and igates are distinct over the whole week.
+  aprs_type_order as (
+    select unnest(array[
+      'position', 'mic_e', 'object', 'item', 'message', 'status', 'weather',
+      'telemetry', 'nmea', 'third_party', 'capabilities', 'query', 'user_defined', 'other'
+    ]) as type
+  ),
+  aprs_type_counts as (
+    select packet_type as type, sum(packets) as n
+    from aprs_daily_types
+    where day >= v_first_day and day < v_end_day
+    group by 1
+  ),
+  aprs as (
+    select jsonb_build_object(
+             'packets', (select coalesce(sum(packets), 0) from aprs_packet_hours
+                         where hour_start >= v_window_start and hour_start < v_window_end),
+             'stations', (select count(distinct base) from aprs_daily_stations
+                          where day >= v_first_day and day < v_end_day),
+             'igates', (select count(distinct igate) from aprs_daily_igates
                         where day >= v_first_day and day < v_end_day),
-           'igates', (select count(distinct igate) from aprs_daily_igates
-                      where day >= v_first_day and day < v_end_day),
-           'types', (select jsonb_agg(jsonb_build_object('type', o.type, 'packets', coalesce(c.n, 0))
-                                      order by coalesce(c.n, 0) desc, o.type asc)
-                     from aprs_type_order o
-                     left join aprs_type_counts c using (type))
-         ) as v
-)
+             'types', (select jsonb_agg(jsonb_build_object('type', o.type, 'packets', coalesce(c.n, 0))
+                                        order by coalesce(c.n, 0) desc, o.type asc)
+                       from aprs_type_order o
+                       left join aprs_type_counts c using (type))
+           ) as v
+  )
 ```
 
-Edit E: in the final `jsonb_build_object`, after `'rbn',              r.v` add `,` and
-`'aprs',             ap.v`; after `cross join rbn r` add `cross join aprs ap`.
+Edit E: in the final `jsonb_build_object`, after `'rbn',              r.v` add `,` and `'aprs',             ap.v`; after `cross join rbn r` add `cross join aprs ap`.
 
 3. After the function, append:
 
@@ -687,62 +633,44 @@ revoke all on function public.refresh_stats_snapshot_at(timestamptz) from public
 - [ ] **Step 4: Run the suites and see them pass**
 
 Run: `cd /Users/bradbazemore/Dev/longlines-aprs-stats && supabase db reset && supabase test db`
-Expected: every suite PASS, including `stats_snapshot.test.sql` (146), `aprs.test.sql` (54),
-`stats_hidden.test.sql` and `advisor.test.sql`.
+Expected: every suite PASS, including `stats_snapshot.test.sql` (146), `aprs.test.sql` (54), `stats_hidden.test.sql` and `advisor.test.sql`.
 
-Then:
-`docker exec -i supabase_db_longlines psql -U postgres -v ON_ERROR_STOP=1 < scripts/smoke-test.sql`
-(expected: no errors) and `supabase db lint --level warning` (expected: no new findings).
+Then: `docker exec -i supabase_db_longlines psql -U postgres -v ON_ERROR_STOP=1 < scripts/smoke-test.sql` (expected: no errors) and `supabase db lint --level warning` (expected: no new findings).
 
-Check the seed refresh still works: `supabase db reset` ran `seed.sql`, which ends with a refresh;
-run
+Check the seed refresh still works: `supabase db reset` ran `seed.sql`, which ends with a refresh; run
 `docker exec -i supabase_db_longlines psql -U postgres -Atc "select payload->'aprs' from stats_snapshots order by generated_at desc limit 1"`.
 Expected: `{"types": [...14 zero entries...], "igates": 0, "packets": 0, "stations": 0}`.
 
 - [ ] **Step 5: Update the docs**
 
-`CLAUDE.md`, Relay rules, the APRS-IS bullet: replace "never send them to `raw_spots`, matching,
-`spot_stream` or the rollups." with "never send them to `raw_spots`, matching, `spot_stream` or the
-callsign rollups. The Stats refresh rolls them up per day (`rollup_aprs_day` into `aprs_daily_*`),
-and `maintain_aprs_packets` keeps a day until that rollup is final."
+`CLAUDE.md`, Relay rules, the APRS-IS bullet: replace "never send them to `raw_spots`, matching, `spot_stream` or the rollups." with "never send them to `raw_spots`, matching, `spot_stream` or the callsign rollups. The Stats refresh rolls them up per day (`rollup_aprs_day` into `aprs_daily_*`), and `maintain_aprs_packets` keeps a day until that rollup is final."
 
-`CLAUDE.md`, Phase 3 stats rules, after the sentence ending "never from `rbn_spots` directly: the
-refresh runs hourly and the firehose is ~1.5M rows a day.": add "APRS figures come from
-`aprs_packet_hours` and the `aprs_daily_*` tables, never `aprs_packets`."
+`CLAUDE.md`, Phase 3 stats rules, after the sentence ending "never from `rbn_spots` directly: the refresh runs hourly and the firehose is ~1.5M rows a day.": add "APRS figures come from `aprs_packet_hours` and the `aprs_daily_*` tables, never `aprs_packets`."
 
 `docs/ARCHITECTURE.md`:
-
 - In the "Phase 3: stats snapshot" mermaid, add after the `UH --> RR` line:
   ```
-  AP[(aprs_packets)] -->|once per complete day| UA[rollup_aprs_day]
-  UA --> AR[(aprs_daily_stations, aprs_daily_igates, aprs_daily_types)]
-  AH[(aprs_packet_hours)] --> F
-  AR --> F
+    AP[(aprs_packets)] -->|once per complete day| UA[rollup_aprs_day]
+    UA --> AR[(aprs_daily_stations, aprs_daily_igates, aprs_daily_types)]
+    AH[(aprs_packet_hours)] --> F
+    AR --> F
   ```
-- In Counting rules, change the `hourly` bullet's "each with the POTA and SOTAwatch `raw_spots` rows
-  and the `rbn_spots` rows whose `spot_time` falls in that hour" to "each with the POTA and
-  SOTAwatch `raw_spots` rows, the `rbn_spots` rows whose `spot_time` falls in that hour and the
-  hour's APRS-IS packets from `aprs_packet_hours`", and "`daily[].rbn` is the RBN count per day." to
-  "`daily[].rbn` and `daily[].aprs` are the RBN and APRS-IS counts per day."
+- In Counting rules, change the `hourly` bullet's "each with the POTA and SOTAwatch `raw_spots` rows and the `rbn_spots` rows whose `spot_time` falls in that hour" to "each with the POTA and SOTAwatch `raw_spots` rows, the `rbn_spots` rows whose `spot_time` falls in that hour and the hour's APRS-IS packets from `aprs_packet_hours`", and "`daily[].rbn` is the RBN count per day." to "`daily[].rbn` and `daily[].aprs` are the RBN and APRS-IS counts per day."
 - Add a section before "The payload's TypeScript shape is ...":
 
   ```markdown
   ## APRS-IS figures
 
-  `aprs` holds the week's APRS-IS packets, distinct stations (base calls, so SSIDs combine), distinct
-  igates as sent, and packets for each of the 14 packet types, busiest first. Packets come from
-  `aprs_packet_hours`, which ingest keeps current. `aprs_packets` keeps only about two days, so
+  `aprs` holds the week's APRS-IS packets, distinct stations (base calls, so SSIDs combine),
+  distinct igates as sent, and packets for each of the 14 packet types, busiest first. Packets come
+  from `aprs_packet_hours`, which ingest keeps current. `aprs_packets` keeps only about two days, so
   `rollup_aprs_day(day)` saves the rest per UTC day into `aprs_daily_stations`, `aprs_daily_igates`
   and `aprs_daily_types`, on the same schedule as the RBN days, including the re-roll an hour after
   the day ends. It refuses a day whose rows no longer add up to its `aprs_packet_hours`.
-  `maintain_aprs_packets()` keeps a day until `aprs_rollup_days` shows a rollup at least an hour after
-  the day ended.
+  `maintain_aprs_packets()` keeps a day until `aprs_rollup_days` shows a rollup at least an hour
+  after the day ended.
   ```
-- In the "APRS-IS" section, the "Packets, not spots." bullet: change "Nothing reaches `raw_spots`,
-  the matcher, `spot_stream`, the rollups or Stats" to "Nothing reaches `raw_spots`, the matcher,
-  `spot_stream` or the callsign rollups; Stats reads its own per-day rollups (see \"APRS-IS
-  figures\")". In the "Two days." bullet, after "five-minute slice is archived with a matching
-  count" add ", and the Stats rollup of the day is final".
+- In the "APRS-IS" section, the "Packets, not spots." bullet: change "Nothing reaches `raw_spots`, the matcher, `spot_stream`, the rollups or Stats" to "Nothing reaches `raw_spots`, the matcher, `spot_stream` or the callsign rollups; Stats reads its own per-day rollups (see \"APRS-IS figures\")". In the "Two days." bullet, after "five-minute slice is archived with a matching count" add ", and the Stats rollup of the day is final".
 
 - [ ] **Step 6: Commit**
 
@@ -759,81 +687,47 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ### Task 3: APRS on the Stats page
 
 **Files:**
-
 - Modify: `web/src/stats/types.ts`, `web/src/stats/format.ts`, `web/src/stats/StatsPage.tsx`
 - Modify: `web/src/stats/format.test.ts`, `web/src/stats/StatsPage.test.tsx`
 - Modify: `web/src/lib/database.types.ts`
 
 **Interfaces:**
-
 - Consumes: the payload from Task 2.
 - Produces: `AprsPacketType`, `StatsPayload["aprs"]`, `aprsTypeLabel(type: AprsPacketType): string`.
 
 - [ ] **Step 1: Update the types (needed for the tests to compile)**
 
-In `web/src/stats/types.ts`, change the header's migration reference to
-`supabase/migrations/20261014000030_stats_aprs.sql`. Add after `export type Program`:
+In `web/src/stats/types.ts`, change the header's migration reference to `supabase/migrations/20261014000030_stats_aprs.sql`. Add after `export type Program`:
 
 ```ts
 // aprs_packets.packet_type's check constraint (20261014000010).
 export type AprsPacketType =
-  | "position"
-  | "mic_e"
-  | "object"
-  | "item"
-  | "message"
-  | "status"
-  | "weather"
-  | "telemetry"
-  | "nmea"
-  | "third_party"
-  | "capabilities"
-  | "query"
-  | "user_defined"
-  | "other";
+  | "position" | "mic_e" | "object" | "item" | "message" | "status" | "weather"
+  | "telemetry" | "nmea" | "third_party" | "capabilities" | "query" | "user_defined" | "other";
 ```
 
 Change `daily` and `hourly`:
 
 ```ts
-daily: {
-  day: string;
-  pota: number;
-  sota: number;
-  rbn: number;
-  aprs: number;
-}
-[]; // exactly 7, oldest first, zero-filled
-hourly: {
-  hour: string;
-  pota: number;
-  sota: number;
-  rbn: number;
-  aprs: number;
-}
-[]; // exactly 168, oldest first, zero-filled, ending at the last complete hour; hour is ISO UTC
+  daily: { day: string; pota: number; sota: number; rbn: number; aprs: number }[]; // exactly 7, oldest first, zero-filled
+  hourly: { hour: string; pota: number; sota: number; rbn: number; aprs: number }[]; // exactly 168, oldest first, zero-filled, ending at the last complete hour; hour is ISO UTC
 ```
 
 Add after `rbn: {...};`:
 
 ```ts
-// Every APRS-IS packet: packets from aprs_packet_hours, the rest from the aprs_daily_* rollups.
-aprs: {
-  packets: number;
-  stations: number; // distinct base calls, so SSIDs combine
-  igates: number; // distinct igates, as sent
-  types: {
-    type: AprsPacketType;
+  // Every APRS-IS packet: packets from aprs_packet_hours, the rest from the aprs_daily_* rollups.
+  aprs: {
     packets: number;
-  }
-  []; // all 14, packets desc then type asc
-}
+    stations: number; // distinct base calls, so SSIDs combine
+    igates: number; // distinct igates, as sent
+    types: { type: AprsPacketType; packets: number }[]; // all 14, packets desc then type asc
+  };
 ```
 
 - [ ] **Step 2: Write the failing tests**
 
-`web/src/stats/format.test.ts`: add `aprsTypeLabel` to the import from `./format`. In the `payload`
-helper add `aprs: { packets: 0, stations: 0, igates: 0, types: [] },` after `rbn`. Add:
+`web/src/stats/format.test.ts`: add `aprsTypeLabel` to the import from `./format`. In the `payload` helper add `aprs: { packets: 0, stations: 0, igates: 0, types: [] },` after `rbn`. Add:
 
 ```ts
 describe("aprsTypeLabel", () => {
@@ -854,85 +748,69 @@ describe("aprsTypeLabel", () => {
 and import `AprsPacketType` alongside `LatestStats, StatsPayload` from `./types`.
 
 `web/src/stats/StatsPage.test.tsx`:
-
 - `daily` fixture: `day, pota: 1000 + i, sota: 300 + i, rbn: 24000, aprs: 250000,`
 - `hourly` fixture: `pota: 50, sota: 10, rbn: 1000, aprs: 10000,`
 - After `rbn: {...},` add:
 
 ```ts
-aprs: {
-  packets: 1750000, stations: 41234, igates: 9876,
-  types: [{ type: "position", packets: 1000000 }, { type: "mic_e", packets: 500000 }, { type: "weather", packets: 250000 }],
-},
+  aprs: {
+    packets: 1750000, stations: 41234, igates: 9876,
+    types: [{ type: "position", packets: 1000000 }, { type: "mic_e", packets: 500000 }, { type: "weather", packets: 250000 }],
+  },
 ```
 
-- In "renders the dashboard from the snapshot": `"180,345"` becomes `"1,930,345"`, and
-  `"168,000 RBN, 10,000 POTA, 2,345 SOTA"` becomes
-  `"168,000 RBN, 1,750,000 APRS, 10,000 POTA, 2,345 SOTA"`.
-- Rename "shows ingest volume across all three sources" to "shows ingest volume across every
-  source". Its comment becomes
-  `// 1,930,345 spots and packets over 10,080 minutes; every hour of the fixture is 50 + 10 + 1,000 + 10,000.`.
-  `"18/min"` becomes `"192/min"`, and `"Peak hour: 1,060 spots"` becomes
-  `"Peak hour: 11,060 spots"`. Add
-  `expect(screen.getByText("1,750,000 packets")).toBeInTheDocument();` after the `"168,000 spots"`
-  line.
-- In "renders a snapshot written before activations and chasers existed": `"180,345"` becomes
-  `"1,930,345"`.
+- In "renders the dashboard from the snapshot": `"180,345"` becomes `"1,930,345"`, and `"168,000 RBN, 10,000 POTA, 2,345 SOTA"` becomes `"168,000 RBN, 1,750,000 APRS, 10,000 POTA, 2,345 SOTA"`.
+- Rename "shows ingest volume across all three sources" to "shows ingest volume across every source". Its comment becomes `// 1,930,345 spots and packets over 10,080 minutes; every hour of the fixture is 50 + 10 + 1,000 + 10,000.`. `"18/min"` becomes `"192/min"`, and `"Peak hour: 1,060 spots"` becomes `"Peak hour: 11,060 spots"`. Add `expect(screen.getByText("1,750,000 packets")).toBeInTheDocument();` after the `"168,000 spots"` line.
+- In "renders a snapshot written before activations and chasers existed": `"180,345"` becomes `"1,930,345"`.
 - Replace "renders a snapshot written before RBN figures and the hourly series existed" with:
 
 ```ts
-it("renders a snapshot written before RBN figures and the hourly series existed", () => {
-  const { hourly: _hourly, rbn: _rbn, aprs: _aprs, ...old } = PAYLOAD;
-  const daily = PAYLOAD.daily.map(({ rbn: _r, aprs: _a, ...d }) => d);
-  const stats = { ...STATS, payload: { ...old, daily } } as unknown as LatestStats;
-  vi.mocked(useStats).mockReturnValue({ stats, loading: false, error: null });
-  renderPage(<StatsPage />);
-  expect(screen.getByText("12,345")).toBeInTheDocument();
-  expect(screen.getByText("0 RBN, 0 APRS, 10,000 POTA, 2,345 SOTA")).toBeInTheDocument();
-  expect(screen.getByText("Peak hour: 0 spots")).toBeInTheDocument();
-  expect(screen.queryByText("Spots processed per hour")).not.toBeInTheDocument();
-});
+  it("renders a snapshot written before RBN figures and the hourly series existed", () => {
+    const { hourly: _hourly, rbn: _rbn, aprs: _aprs, ...old } = PAYLOAD;
+    const daily = PAYLOAD.daily.map(({ rbn: _r, aprs: _a, ...d }) => d);
+    const stats = { ...STATS, payload: { ...old, daily } } as unknown as LatestStats;
+    vi.mocked(useStats).mockReturnValue({ stats, loading: false, error: null });
+    renderPage(<StatsPage />);
+    expect(screen.getByText("12,345")).toBeInTheDocument();
+    expect(screen.getByText("0 RBN, 0 APRS, 10,000 POTA, 2,345 SOTA")).toBeInTheDocument();
+    expect(screen.getByText("Peak hour: 0 spots")).toBeInTheDocument();
+    expect(screen.queryByText("Spots processed per hour")).not.toBeInTheDocument();
+  });
 ```
 
 - Add two tests:
 
 ```ts
-it("shows the APRS-IS section", () => {
-  vi.mocked(useStats).mockReturnValue({ stats: STATS, loading: false, error: null });
-  renderPage(<StatsPage />);
-  expect(screen.getByText("APRS-IS")).toBeInTheDocument();
-  expect(
-    screen.getByText(
-      "Every packet on the APRS-IS full feed. Packets aren't spots and never trigger alerts.",
-    ),
-  ).toBeInTheDocument();
-  expect(screen.getByText("APRS packets")).toBeInTheDocument();
-  expect(screen.getByText("1,750,000")).toBeInTheDocument();
-  expect(screen.getByText("Stations heard")).toBeInTheDocument();
-  expect(screen.getByText("41,234")).toBeInTheDocument();
-  expect(screen.getByText("Unique callsigns that sent a packet, SSIDs combined"))
-    .toBeInTheDocument();
-  expect(screen.getByText("Igates")).toBeInTheDocument();
-  expect(screen.getByText("9,876")).toBeInTheDocument();
-  expect(screen.getByText("Packet types")).toBeInTheDocument();
-  expect(screen.getByText("What APRS stations sent")).toBeInTheDocument();
-  expect(screen.getByText(/RBN and APRS run 100 times the volume of POTA or more/))
-    .toBeInTheDocument();
-});
+  it("shows the APRS-IS section", () => {
+    vi.mocked(useStats).mockReturnValue({ stats: STATS, loading: false, error: null });
+    renderPage(<StatsPage />);
+    expect(screen.getByText("APRS-IS")).toBeInTheDocument();
+    expect(screen.getByText("Every packet on the APRS-IS full feed. Packets aren't spots and never trigger alerts.")).toBeInTheDocument();
+    expect(screen.getByText("APRS packets")).toBeInTheDocument();
+    expect(screen.getByText("1,750,000")).toBeInTheDocument();
+    expect(screen.getByText("Stations heard")).toBeInTheDocument();
+    expect(screen.getByText("41,234")).toBeInTheDocument();
+    expect(screen.getByText("Unique callsigns that sent a packet, SSIDs combined")).toBeInTheDocument();
+    expect(screen.getByText("Igates")).toBeInTheDocument();
+    expect(screen.getByText("9,876")).toBeInTheDocument();
+    expect(screen.getByText("Packet types")).toBeInTheDocument();
+    expect(screen.getByText("What APRS stations sent")).toBeInTheDocument();
+    expect(screen.getByText(/RBN and APRS run 100 times the volume of POTA or more/)).toBeInTheDocument();
+  });
 
-it("renders a snapshot written before APRS figures existed", () => {
-  const { aprs: _aprs, ...old } = PAYLOAD;
-  const daily = PAYLOAD.daily.map(({ aprs: _a, ...d }) => d);
-  const hourly = PAYLOAD.hourly.map(({ aprs: _a, ...h }) => h);
-  const stats = { ...STATS, payload: { ...old, daily, hourly } } as unknown as LatestStats;
-  vi.mocked(useStats).mockReturnValue({ stats, loading: false, error: null });
-  renderPage(<StatsPage />);
-  expect(screen.getByText("180,345")).toBeInTheDocument();
-  expect(screen.getByText("168,000 RBN, 0 APRS, 10,000 POTA, 2,345 SOTA")).toBeInTheDocument();
-  expect(screen.getByText("Peak hour: 1,060 spots")).toBeInTheDocument();
-  expect(screen.getByText("0 packets")).toBeInTheDocument();
-  expect(screen.getByText("APRS packets")).toBeInTheDocument();
-});
+  it("renders a snapshot written before APRS figures existed", () => {
+    const { aprs: _aprs, ...old } = PAYLOAD;
+    const daily = PAYLOAD.daily.map(({ aprs: _a, ...d }) => d);
+    const hourly = PAYLOAD.hourly.map(({ aprs: _a, ...h }) => h);
+    const stats = { ...STATS, payload: { ...old, daily, hourly } } as unknown as LatestStats;
+    vi.mocked(useStats).mockReturnValue({ stats, loading: false, error: null });
+    renderPage(<StatsPage />);
+    expect(screen.getByText("180,345")).toBeInTheDocument();
+    expect(screen.getByText("168,000 RBN, 0 APRS, 10,000 POTA, 2,345 SOTA")).toBeInTheDocument();
+    expect(screen.getByText("Peak hour: 1,060 spots")).toBeInTheDocument();
+    expect(screen.getByText("0 packets")).toBeInTheDocument();
+    expect(screen.getByText("APRS packets")).toBeInTheDocument();
+  });
 ```
 
 - [ ] **Step 3: Run the tests and see them fail**
@@ -942,25 +820,13 @@ Expected: FAIL: `aprsTypeLabel` is not exported, and the APRS text is not found.
 
 - [ ] **Step 4: Implement**
 
-`web/src/stats/format.ts`: change the import to
-`import type { AprsPacketType, LatestStats } from "./types";` and add at the end:
+`web/src/stats/format.ts`: change the import to `import type { AprsPacketType, LatestStats } from "./types";` and add at the end:
 
 ```ts
 const APRS_TYPE_LABELS: Record<AprsPacketType, string> = {
-  position: "Position",
-  mic_e: "Mic-E",
-  object: "Object",
-  item: "Item",
-  message: "Message",
-  status: "Status",
-  weather: "Weather",
-  telemetry: "Telemetry",
-  nmea: "NMEA",
-  third_party: "Third party",
-  capabilities: "Capabilities",
-  query: "Query",
-  user_defined: "User defined",
-  other: "Other",
+  position: "Position", mic_e: "Mic-E", object: "Object", item: "Item", message: "Message",
+  status: "Status", weather: "Weather", telemetry: "Telemetry", nmea: "NMEA", third_party: "Third party",
+  capabilities: "Capabilities", query: "Query", user_defined: "User defined", other: "Other",
 };
 
 /** Packet type as the Stats page names it; a type added in SQL first shows as sent. */
@@ -968,7 +834,6 @@ export const aprsTypeLabel = (type: AprsPacketType): string => APRS_TYPE_LABELS[
 ```
 
 `web/src/stats/StatsPage.tsx`:
-
 - Import `aprsTypeLabel` from `./format`, beside the other format helpers.
 - After `const NO_RBN ...` add:
 
@@ -977,90 +842,78 @@ export const aprsTypeLabel = (type: AprsPacketType): string => APRS_TYPE_LABELS[
 const NO_APRS: StatsPayload["aprs"] = { packets: 0, stations: 0, igates: 0, types: [] };
 ```
 
-- In `Dashboard`: change the colour comment to
-  `// Color follows the source everywhere on the page: POTA is primary, SOTA is secondary, RBN is warning, APRS is success.`
-  and add `const aprsColor = theme.palette.success.main;` after `rbnColor`. Then:
+- In `Dashboard`: change the colour comment to `// Color follows the source everywhere on the page: POTA is primary, SOTA is secondary, RBN is warning, APRS is success.` and add `const aprsColor = theme.palette.success.main;` after `rbnColor`. Then:
 
 ```ts
-const rbn = payload.rbn ?? NO_RBN;
-const aprs = payload.aprs ?? NO_APRS;
-const hourly = payload.hourly ?? [];
-const hours = hourly.map((h) => new Date(h.hour));
-const hourTotals = hourly.map((h) => h.pota + h.sota + h.rbn + (h.aprs ?? 0));
-// Midnight ticks; every other day on phones so the labels do not collide.
-const midnights = midnightTicks(hours, mobile);
-const processed = payload.totals.spots + rbn.spots + aprs.packets;
-const perDay: [string, number[], string, string][] = [
-  ["RBN", payload.daily.map((d) => d.rbn ?? 0), rbnColor, "spots"],
-  ["APRS", payload.daily.map((d) => d.aprs ?? 0), aprsColor, "packets"],
-  ["POTA", payload.daily.map((d) => d.pota), pota, "spots"],
-  ["SOTA", payload.daily.map((d) => d.sota), sota, "spots"],
-];
+  const rbn = payload.rbn ?? NO_RBN;
+  const aprs = payload.aprs ?? NO_APRS;
+  const hourly = payload.hourly ?? [];
+  const hours = hourly.map((h) => new Date(h.hour));
+  const hourTotals = hourly.map((h) => h.pota + h.sota + h.rbn + (h.aprs ?? 0));
+  // Midnight ticks; every other day on phones so the labels do not collide.
+  const midnights = midnightTicks(hours, mobile);
+  const processed = payload.totals.spots + rbn.spots + aprs.packets;
+  const perDay: [string, number[], string, string][] = [
+    ["RBN", payload.daily.map((d) => d.rbn ?? 0), rbnColor, "spots"],
+    ["APRS", payload.daily.map((d) => d.aprs ?? 0), aprsColor, "packets"],
+    ["POTA", payload.daily.map((d) => d.pota), pota, "spots"],
+    ["SOTA", payload.daily.map((d) => d.sota), sota, "spots"],
+  ];
 ```
 
-- Spots processed detail:
-  ``detail={`${fmt(rbn.spots)} RBN, ${fmt(aprs.packets)} APRS, ${fmt(payload.totals.potaSpots)} POTA, ${fmt(payload.totals.sotaSpots)} SOTA`}``
-- Spots per day text:
-  `One chart per source. RBN and APRS run 100 times the volume of POTA or more, so they don't share a scale.`
+- Spots processed detail: `` detail={`${fmt(rbn.spots)} RBN, ${fmt(aprs.packets)} APRS, ${fmt(payload.totals.potaSpots)} POTA, ${fmt(payload.totals.sotaSpots)} SOTA`} ``
+- Spots per day text: `One chart per source. RBN and APRS run 100 times the volume of POTA or more, so they don't share a scale.`
 - Per-day grid:
 
 ```tsx
-{perDay.map(([label, data, color, unit]) => (
-  <Grid key={label} size={{ xs: 12, sm: 6, md: 3 }}>
-    <ChartCard title={label} subheader={`${fmt(data.reduce((sum, n) => sum + n, 0))} ${unit}`}>
+        {perDay.map(([label, data, color, unit]) => (
+          <Grid key={label} size={{ xs: 12, sm: 6, md: 3 }}>
+            <ChartCard title={label} subheader={`${fmt(data.reduce((sum, n) => sum + n, 0))} ${unit}`}>
 ```
 
-(the `LineChart` inside is unchanged).
-
+  (the `LineChart` inside is unchanged).
 - After the "Most heard on RBN" `ChartCard`, before the closing `</>`:
 
 ```tsx
-<Box>
-  <Typography variant="h6" gutterBottom>APRS-IS</Typography>
-  <Typography variant="body2" color="text.secondary">
-    Every packet on the APRS-IS full feed. Packets aren't spots and never trigger alerts.
-  </Typography>
-</Box>
-<Grid container spacing={2}>
-  <Grid size={{ xs: 12, sm: 4 }}>
-    <Kpi label="APRS packets" value={fmt(aprs.packets)} detail="Every packet on the full feed" />
-  </Grid>
-  <Grid size={{ xs: 12, sm: 4 }}>
-    <Kpi label="Stations heard" value={fmt(aprs.stations)} detail="Unique callsigns that sent a packet, SSIDs combined" />
-  </Grid>
-  <Grid size={{ xs: 12, sm: 4 }}>
-    <Kpi label="Igates" value={fmt(aprs.igates)} detail="Unique gateways that passed a packet to APRS-IS" />
-  </Grid>
-</Grid>
-<ChartCard title="Packet types" subheader="What APRS stations sent">
-  <BarChart
-    height={380}
-    hideLegend
-    layout="horizontal"
-    yAxis={[{ scaleType: "band", data: aprs.types.map((t) => aprsTypeLabel(t.type)), width: 96 }]}
-    xAxis={[{ valueFormatter: axis }]}
-    series={[{ label: "Packets", data: aprs.types.map((t) => t.packets), color: aprsColor, valueFormatter: count }]}
-  />
-</ChartCard>
+      <Box>
+        <Typography variant="h6" gutterBottom>APRS-IS</Typography>
+        <Typography variant="body2" color="text.secondary">
+          Every packet on the APRS-IS full feed. Packets aren't spots and never trigger alerts.
+        </Typography>
+      </Box>
+      <Grid container spacing={2}>
+        <Grid size={{ xs: 12, sm: 4 }}>
+          <Kpi label="APRS packets" value={fmt(aprs.packets)} detail="Every packet on the full feed" />
+        </Grid>
+        <Grid size={{ xs: 12, sm: 4 }}>
+          <Kpi label="Stations heard" value={fmt(aprs.stations)} detail="Unique callsigns that sent a packet, SSIDs combined" />
+        </Grid>
+        <Grid size={{ xs: 12, sm: 4 }}>
+          <Kpi label="Igates" value={fmt(aprs.igates)} detail="Unique gateways that passed a packet to APRS-IS" />
+        </Grid>
+      </Grid>
+      <ChartCard title="Packet types" subheader="What APRS stations sent">
+        <BarChart
+          height={380}
+          hideLegend
+          layout="horizontal"
+          yAxis={[{ scaleType: "band", data: aprs.types.map((t) => aprsTypeLabel(t.type)), width: 96 }]}
+          xAxis={[{ valueFormatter: axis }]}
+          series={[{ label: "Packets", data: aprs.types.map((t) => t.packets), color: aprsColor, valueFormatter: count }]}
+        />
+      </ChartCard>
 ```
 
 - [ ] **Step 5: Run the web checks and see them pass**
 
-Run:
-`cd /Users/bradbazemore/Dev/longlines-aprs-stats/web && npx vitest run src/stats && npm run build && npm run lint && npm run coverage`
+Run: `cd /Users/bradbazemore/Dev/longlines-aprs-stats/web && npx vitest run src/stats && npm run build && npm run lint && npm run coverage`
 Expected: all pass; build with zero TS errors; coverage at or above 80%.
 
 - [ ] **Step 6: Splice the generated types**
 
-Run
-`cd /Users/bradbazemore/Dev/longlines-aprs-stats && supabase gen types typescript --local > /private/tmp/claude-501/-Users-bradbazemore-Dev-longlines/20db10a7-0f82-4914-88ef-4bc67fc12e8a/scratchpad/types.ts`
-and copy only the new entries from it into `web/src/lib/database.types.ts`, keeping alphabetical
-order and leaving every other line alone (the generator drifts on computed fields):
-
-- Tables `aprs_daily_igates`, `aprs_daily_stations`, `aprs_daily_types` (before `aprs_packet_hours`)
-  and `aprs_rollup_days` (after `aprs_packets`).
-- Function `rollup_aprs_day` (`{ Args: { "p_day": string }; Returns: boolean }`), before
-  `rollup_callsign_day`.
+Run `cd /Users/bradbazemore/Dev/longlines-aprs-stats && supabase gen types typescript --local > /private/tmp/claude-501/-Users-bradbazemore-Dev-longlines/20db10a7-0f82-4914-88ef-4bc67fc12e8a/scratchpad/types.ts` and copy only the new entries from it into `web/src/lib/database.types.ts`, keeping alphabetical order and leaving every other line alone (the generator drifts on computed fields):
+- Tables `aprs_daily_igates`, `aprs_daily_stations`, `aprs_daily_types` (before `aprs_packet_hours`) and `aprs_rollup_days` (after `aprs_packets`).
+- Function `rollup_aprs_day` (`{ Args: { "p_day": string }; Returns: boolean }`), before `rollup_callsign_day`.
 
 Then `cd web && npm run build` again. Expected: PASS.
 
@@ -1078,11 +931,6 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ### Task 4: Whole-branch verification
 
-- [ ] **Step 1:** `cd /Users/bradbazemore/Dev/longlines-aprs-stats/web && npm run test:all:fresh`.
-      Expected: every check green in the summary (Deno fmt/lint/check/coverage, pgTAP, smoke test,
-      db lint, web build/lint/coverage).
-- [ ] **Step 2:** Look at the page in a browser against the local stack (`npm run dev:full`, then
-      `/stats`). Insert a few APRS packets for yesterday through `ingest_aprs_packets` and run
-      `select refresh_stats_snapshot()` so the section shows non-zero numbers. Check desktop and
-      phone widths, both colour schemes.
+- [ ] **Step 1:** `cd /Users/bradbazemore/Dev/longlines-aprs-stats/web && npm run test:all:fresh`. Expected: every check green in the summary (Deno fmt/lint/check/coverage, pgTAP, smoke test, db lint, web build/lint/coverage).
+- [ ] **Step 2:** Look at the page in a browser against the local stack (`npm run dev:full`, then `/stats`). Insert a few APRS packets for yesterday through `ingest_aprs_packets` and run `select refresh_stats_snapshot()` so the section shows non-zero numbers. Check desktop and phone widths, both colour schemes.
 - [ ] **Step 3:** Push the branch and open a PR only when Brad asks.

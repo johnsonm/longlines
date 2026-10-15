@@ -1,108 +1,66 @@
 # Spot Archive and RBN Retention (PR 2) Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development
-> (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use
-> checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Archive every spot of every source to Supabase Storage as gzipped NDJSON, and drop
-`rbn_spots` days older than seven only once Storage holds them with matching counts.
+**Goal:** Archive every spot of every source to Supabase Storage as gzipped NDJSON, and drop `rbn_spots` days older than seven only once Storage holds them with matching counts.
 
-**Architecture:** Postgres builds each slice's NDJSON (`archive_ndjson`) and decides which slices
-are due (`archive_pending_slices`, slice length from `archive_slice_minutes`). A new Edge Function
-`archive`, called by pg_cron every 10 minutes with the service-role key, gzips each due slice,
-uploads it to a private `archive` bucket and records it in `archive_log`. The daily
-`maintain_rbn_spots()` gains the retention step: per day older than seven, every 10-minute slice
-must be logged with the database's row count before the partition (and any default-partition rows)
-is dropped; mismatched slices lose their log row so the next run re-archives them.
+**Architecture:** Postgres builds each slice's NDJSON (`archive_ndjson`) and decides which slices are due (`archive_pending_slices`, slice length from `archive_slice_minutes`). A new Edge Function `archive`, called by pg_cron every 10 minutes with the service-role key, gzips each due slice, uploads it to a private `archive` bucket and records it in `archive_log`. The daily `maintain_rbn_spots()` gains the retention step: per day older than seven, every 10-minute slice must be logged with the database's row count before the partition (and any default-partition rows) is dropped; mismatched slices lose their log row so the next run re-archives them.
 
-**Tech Stack:** Postgres 17 on Supabase (pg_cron, pg_net, Vault, Storage), Deno 2 Edge Functions in
-strict TypeScript, `CompressionStream`, pgTAP, `deno test`.
+**Tech Stack:** Postgres 17 on Supabase (pg_cron, pg_net, Vault, Storage), Deno 2 Edge Functions in strict TypeScript, `CompressionStream`, pgTAP, `deno test`.
 
-**Spec:** `docs/superpowers/specs/2026-10-11-rbn-firehose-archive-design.md`, including its
-"Amendment after measurement" (10-minute RBN slices, hourly POTA/SOTAwatch, a run every 10 minutes,
-a 60,000-row budget per run). PR 1 (`rbn_spots`, full ingest) is merged as #32.
+**Spec:** `docs/superpowers/specs/2026-10-11-rbn-firehose-archive-design.md`, including its "Amendment after measurement" (10-minute RBN slices, hourly POTA/SOTAwatch, a run every 10 minutes, a 60,000-row budget per run). PR 1 (`rbn_spots`, full ingest) is merged as #32.
 
 ## Global Constraints
 
-- Strict TypeScript, no JavaScript files, no `any` without a justifying comment, no new runtime
-  dependencies.
-- New migrations only: `20261011000004_spot_archive.sql` and `20261011000005_rbn_retention.sql`.
-  Never edit an applied migration (`20261011000003` is applied on the hosted project).
-- Every new table, view and function has `anon`/`authenticated` revoked; functions are executable by
-  `service_role` only; `archive_log` has RLS on with no policies; the bucket is private.
-- Slice lengths: RBN 10 minutes, POTA and SOTAwatch 60 minutes, defined only in
-  `archive_slice_minutes(source)`. Slices are aligned with
-  `date_bin(step, t, '2000-01-01 00:00+00')`.
-- Object path: `<source>/YYYY/MM/DD/HHMM.ndjson.gz` from the slice start in UTC, content type
-  `application/gzip`, uploaded with `upsert: true`.
-- Archive line fields — RBN:
-  `spot_time, received_at, spotter, callsign, frequency_khz, band, mode, mode_family, snr, speed, speed_unit, spot_type, line`.
-  POTA/SOTAwatch: every `raw_spots` column except `id`. Watched RBN rows in `raw_spots` are never
-  archived from there.
-- The `archive` function: cron `*/10 * * * *`; lag 2 hours; sources in order `pota`, `sotawatch`,
-  `rbn`; at most 24 pending slices fetched per source; stops starting new slices once 60,000 rows
-  have been archived in the run. A slice is logged only after its upload succeeds; an empty slice is
-  logged with `row_count = 0` and no object.
-- Retention: a day is eligible when `day < today_utc - 7`. It is dropped only when all 144 of its
-  10-minute slices have an `archive_log` row whose `row_count` equals the database count.
-- Auth for `archive`: `verify_jwt` stays on and the handler requires
-  `Authorization: Bearer <service-role key>` (403 otherwise), like `deliver`.
-- Run `supabase db reset` before `supabase test db`. Never run `supabase db push`,
-  `supabase functions deploy`, `fly deploy`, or `fly secrets set`.
+- Strict TypeScript, no JavaScript files, no `any` without a justifying comment, no new runtime dependencies.
+- New migrations only: `20261011000004_spot_archive.sql` and `20261011000005_rbn_retention.sql`. Never edit an applied migration (`20261011000003` is applied on the hosted project).
+- Every new table, view and function has `anon`/`authenticated` revoked; functions are executable by `service_role` only; `archive_log` has RLS on with no policies; the bucket is private.
+- Slice lengths: RBN 10 minutes, POTA and SOTAwatch 60 minutes, defined only in `archive_slice_minutes(source)`. Slices are aligned with `date_bin(step, t, '2000-01-01 00:00+00')`.
+- Object path: `<source>/YYYY/MM/DD/HHMM.ndjson.gz` from the slice start in UTC, content type `application/gzip`, uploaded with `upsert: true`.
+- Archive line fields — RBN: `spot_time, received_at, spotter, callsign, frequency_khz, band, mode, mode_family, snr, speed, speed_unit, spot_type, line`. POTA/SOTAwatch: every `raw_spots` column except `id`. Watched RBN rows in `raw_spots` are never archived from there.
+- The `archive` function: cron `*/10 * * * *`; lag 2 hours; sources in order `pota`, `sotawatch`, `rbn`; at most 24 pending slices fetched per source; stops starting new slices once 60,000 rows have been archived in the run. A slice is logged only after its upload succeeds; an empty slice is logged with `row_count = 0` and no object.
+- Retention: a day is eligible when `day < today_utc - 7`. It is dropped only when all 144 of its 10-minute slices have an `archive_log` row whose `row_count` equals the database count.
+- Auth for `archive`: `verify_jwt` stays on and the handler requires `Authorization: Bearer <service-role key>` (403 otherwise), like `deliver`.
+- Run `supabase db reset` before `supabase test db`. Never run `supabase db push`, `supabase functions deploy`, `fly deploy`, or `fly secrets set`.
 
 ## Review Focus
 
-1. A slice whose upload fails must not be logged, and the next run must retry it, while other
-   sources still progress in the same run (Task 2 "an upload failure leaves the slice unlogged").
-2. A contest-rate backlog must not blow the CPU budget: the run stops starting slices at 60,000 rows
-   (Task 2 "stops starting new slices at the row budget").
-3. Rows arriving for a slice after it was archived (relay flushing after an outage, or a late
-   default-partition move) must be re-archived before their day is dropped (Task 5 "a mismatched
-   slice keeps the partition and loses its log row").
-4. A day whose rows sit in `rbn_spots_default` (no partition) is retired by deleting those rows, not
-   by dropping a partition (Task 5 "default-partition rows of an archived day are deleted").
-5. Slice boundaries are half-open `[start, end)`: a spot at exactly 10:10:00 belongs to the 10:10
-   slice, never to both (Task 1 "a spot on the boundary is in exactly one slice").
+1. A slice whose upload fails must not be logged, and the next run must retry it, while other sources still progress in the same run (Task 2 "an upload failure leaves the slice unlogged").
+2. A contest-rate backlog must not blow the CPU budget: the run stops starting slices at 60,000 rows (Task 2 "stops starting new slices at the row budget").
+3. Rows arriving for a slice after it was archived (relay flushing after an outage, or a late default-partition move) must be re-archived before their day is dropped (Task 5 "a mismatched slice keeps the partition and loses its log row").
+4. A day whose rows sit in `rbn_spots_default` (no partition) is retired by deleting those rows, not by dropping a partition (Task 5 "default-partition rows of an archived day are deleted").
+5. Slice boundaries are half-open `[start, end)`: a spot at exactly 10:10:00 belongs to the 10:10 slice, never to both (Task 1 "a spot on the boundary is in exactly one slice").
 
 ---
 
 ## File Structure
 
-| File                                                                                                                          | Responsibility                                                                                                                                     |
-| ----------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `supabase/migrations/20261011000004_spot_archive.sql` (create)                                                                | Bucket, `archive_log`, `archive_slice_minutes`, `archive_pending_slices`, `archive_ndjson`, `log_archive`, `archive_status`, cron `archive-spots`. |
-| `supabase/migrations/20261011000005_rbn_retention.sql` (create)                                                               | `rbn_day_slices`, `retire_rbn_day`, `maintain_rbn_spots` with the retention step.                                                                  |
-| `supabase/tests/archive.test.sql`, `supabase/tests/rbn_retention.test.sql` (create)                                           | pgTAP for the two migrations.                                                                                                                      |
-| `scripts/smoke-test.sql` (modify)                                                                                             | `archive_ndjson` and `archive_pending_slices` calls; the cron job.                                                                                 |
-| `supabase/functions/_shared/types.ts` (modify)                                                                                | `ArchiveSlice`, `ArchiveLogEntry`, `ArchiveDb`, `ArchiveStore`.                                                                                    |
-| `supabase/functions/_shared/archive.ts` (create)                                                                              | `objectPath`, `gzip`, `runArchive` (pure over the two interfaces).                                                                                 |
-| `supabase/functions/_shared/db.ts` (modify)                                                                                   | `createArchiveDb`, `createArchiveStore`.                                                                                                           |
-| `supabase/functions/_shared/__tests__/fake_supabase.ts` (modify)                                                              | `storage.from(bucket).upload` in the fake.                                                                                                         |
-| `supabase/functions/_shared/handlers/archive.ts` (create)                                                                     | `handleArchive`: service-role check, run, JSON summary.                                                                                            |
-| `supabase/functions/archive/index.ts`, `deno.json` (create)                                                                   | Thin entrypoint.                                                                                                                                   |
-| `supabase/functions/_shared/serve.ts` (modify)                                                                                | Remove the `ingest-rbn` GET (watchlist) branch.                                                                                                    |
-| `docs/ARCHITECTURE.md`, `docs/OPERATIONS.md`, `README.md`, `CLAUDE.md` (modify), `web/src/lib/database.types.ts` (regenerate) | Describe the archive and retention.                                                                                                                |
+| File | Responsibility |
+| --- | --- |
+| `supabase/migrations/20261011000004_spot_archive.sql` (create) | Bucket, `archive_log`, `archive_slice_minutes`, `archive_pending_slices`, `archive_ndjson`, `log_archive`, `archive_status`, cron `archive-spots`. |
+| `supabase/migrations/20261011000005_rbn_retention.sql` (create) | `rbn_day_slices`, `retire_rbn_day`, `maintain_rbn_spots` with the retention step. |
+| `supabase/tests/archive.test.sql`, `supabase/tests/rbn_retention.test.sql` (create) | pgTAP for the two migrations. |
+| `scripts/smoke-test.sql` (modify) | `archive_ndjson` and `archive_pending_slices` calls; the cron job. |
+| `supabase/functions/_shared/types.ts` (modify) | `ArchiveSlice`, `ArchiveLogEntry`, `ArchiveDb`, `ArchiveStore`. |
+| `supabase/functions/_shared/archive.ts` (create) | `objectPath`, `gzip`, `runArchive` (pure over the two interfaces). |
+| `supabase/functions/_shared/db.ts` (modify) | `createArchiveDb`, `createArchiveStore`. |
+| `supabase/functions/_shared/__tests__/fake_supabase.ts` (modify) | `storage.from(bucket).upload` in the fake. |
+| `supabase/functions/_shared/handlers/archive.ts` (create) | `handleArchive`: service-role check, run, JSON summary. |
+| `supabase/functions/archive/index.ts`, `deno.json` (create) | Thin entrypoint. |
+| `supabase/functions/_shared/serve.ts` (modify) | Remove the `ingest-rbn` GET (watchlist) branch. |
+| `docs/ARCHITECTURE.md`, `docs/OPERATIONS.md`, `README.md`, `CLAUDE.md` (modify), `web/src/lib/database.types.ts` (regenerate) | Describe the archive and retention. |
 
 ---
 
 ### Task 1: Archive schema, slice RPCs and the cron job
 
 **Files:**
-
 - Create: `supabase/migrations/20261011000004_spot_archive.sql`
 - Create: `supabase/tests/archive.test.sql`
 - Modify: `scripts/smoke-test.sql`
 
 **Interfaces:**
-
-- Produces: table
-  `archive_log(source, slice_start, slice_end, row_count, bytes, object_path, archived_at)`, PK
-  `(source, slice_start)`; `archive_slice_minutes(p_source text) returns int`;
-  `archive_pending_slices(p_source text, p_before timestamptz, p_limit int) returns table (slice_start timestamptz, slice_end timestamptz)`;
-  `archive_ndjson(p_source text, p_from timestamptz, p_to timestamptz) returns table (row_count int, ndjson text)`;
-  `log_archive(p_source text, p_slice_start timestamptz, p_slice_end timestamptz, p_row_count int, p_bytes int, p_object_path text) returns void`;
-  view `archive_status(source, archived_through, pending_slices)`; bucket `archive`; cron job
-  `archive-spots`.
+- Produces: table `archive_log(source, slice_start, slice_end, row_count, bytes, object_path, archived_at)`, PK `(source, slice_start)`; `archive_slice_minutes(p_source text) returns int`; `archive_pending_slices(p_source text, p_before timestamptz, p_limit int) returns table (slice_start timestamptz, slice_end timestamptz)`; `archive_ndjson(p_source text, p_from timestamptz, p_to timestamptz) returns table (row_count int, ndjson text)`; `log_archive(p_source text, p_slice_start timestamptz, p_slice_end timestamptz, p_row_count int, p_bytes int, p_object_path text) returns void`; view `archive_status(source, archived_through, pending_slices)`; bucket `archive`; cron job `archive-spots`.
 
 - [ ] **Step 1: Write the failing pgTAP suite**
 
@@ -202,13 +160,12 @@ select * from finish();
 rollback;
 ```
 
-Note: the plan count is 24 and the file has 24 assertions; the cron and bucket checks are in the
-smoke test (Step 5) because the bucket exists only where Storage runs.
+Note: the plan count is 24 and the file has 24 assertions; the cron and bucket checks are in the smoke test (Step 5) because the bucket exists only where Storage runs.
 
 - [ ] **Step 2: Run it to verify it fails**
 
-Run: `supabase db reset && supabase test db 2>&1 | grep -A3 archive.test` Expected: FAIL
-(`function archive_slice_minutes(unknown) does not exist`).
+Run: `supabase db reset && supabase test db 2>&1 | grep -A3 archive.test`
+Expected: FAIL (`function archive_slice_minutes(unknown) does not exist`).
 
 - [ ] **Step 3: Write the migration**
 
@@ -387,28 +344,26 @@ select cron.schedule(
 
 - [ ] **Step 4: Run the suite to verify it passes**
 
-Run: `supabase db reset && supabase test db 2>&1 | tail -4` Expected: `Result: PASS`,
-`archive.test.sql .. ok`.
+Run: `supabase db reset && supabase test db 2>&1 | tail -4`
+Expected: `Result: PASS`, `archive.test.sql .. ok`.
 
 - [ ] **Step 5: Smoke test, lint, commit**
 
 In `scripts/smoke-test.sql`, after the `maintain-rbn-spots` assertion, add:
 
 ```sql
--- Archive: the slice RPCs answer, the job is scheduled, the bucket is private.
-assert (select row_count from public.archive_ndjson('rbn', now() - interval '1 day', now() + interval '1 minute')) >= 1,
-  'archive_ndjson should see the smoke rbn row';
-perform * from public.archive_pending_slices('pota', now(), 10);
-assert exists (select 1 from cron.job where jobname = 'archive-spots' and schedule = '*/10 * * * *'),
-  'archive-spots should run every 10 minutes';
-assert to_regclass('storage.buckets') is null
-    or exists (select 1 from storage.buckets where id = 'archive' and not public),
-  'the archive bucket should exist and be private';
+  -- Archive: the slice RPCs answer, the job is scheduled, the bucket is private.
+  assert (select row_count from public.archive_ndjson('rbn', now() - interval '1 day', now() + interval '1 minute')) >= 1,
+    'archive_ndjson should see the smoke rbn row';
+  perform * from public.archive_pending_slices('pota', now(), 10);
+  assert exists (select 1 from cron.job where jobname = 'archive-spots' and schedule = '*/10 * * * *'),
+    'archive-spots should run every 10 minutes';
+  assert to_regclass('storage.buckets') is null
+      or exists (select 1 from storage.buckets where id = 'archive' and not public),
+    'the archive bucket should exist and be private';
 ```
 
-Run:
-`docker exec -i supabase_db_longlines psql -U postgres -v ON_ERROR_STOP=1 -X < scripts/smoke-test.sql | tail -1`
-→ `smoke test passed`; `supabase db lint --fail-on error` → no results.
+Run: `docker exec -i supabase_db_longlines psql -U postgres -v ON_ERROR_STOP=1 -X < scripts/smoke-test.sql | tail -1` → `smoke test passed`; `supabase db lint --fail-on error` → no results.
 
 ```bash
 git add supabase/migrations/20261011000004_spot_archive.sql supabase/tests/archive.test.sql scripts/smoke-test.sql
@@ -420,22 +375,13 @@ git commit -m "Add the spot archive schema: slices, NDJSON, log, status, cron"
 ### Task 2: `runArchive`, gzip and object paths
 
 **Files:**
-
 - Modify: `supabase/functions/_shared/types.ts`
 - Create: `supabase/functions/_shared/archive.ts`
 - Test: `supabase/functions/_shared/__tests__/archive.test.ts`
 
 **Interfaces:**
-
-- Produces (types.ts): `interface ArchiveSlice { slice_start: string; slice_end: string }`;
-  `interface ArchiveLogEntry extends ArchiveSlice { source: Source; row_count: number; bytes: number | null; object_path: string | null }`;
-  `interface ArchiveDb { pendingSlices(source: Source, before: Date, limit: number): Promise<ArchiveSlice[]>; sliceNdjson(source: Source, slice: ArchiveSlice): Promise<{ row_count: number; ndjson: string }>; logArchive(entry: ArchiveLogEntry): Promise<void> }`;
-  `interface ArchiveStore { upload(path: string, bytes: Uint8Array): Promise<void> }`.
-- Produces (archive.ts): `ARCHIVE_ORDER`, `LAG_MS`, `MAX_ROWS_PER_RUN`, `MAX_SLICES_PER_SOURCE`;
-  `objectPath(source: Source, sliceStart: string): string`;
-  `gzip(text: string): Promise<Uint8Array>`;
-  `interface ArchiveSummary { slices: number; rows: number; bytes: number; empty: number; errors: string[]; duration_ms: number }`;
-  `runArchive(db: ArchiveDb, store: ArchiveStore, now?: Date): Promise<ArchiveSummary>`.
+- Produces (types.ts): `interface ArchiveSlice { slice_start: string; slice_end: string }`; `interface ArchiveLogEntry extends ArchiveSlice { source: Source; row_count: number; bytes: number | null; object_path: string | null }`; `interface ArchiveDb { pendingSlices(source: Source, before: Date, limit: number): Promise<ArchiveSlice[]>; sliceNdjson(source: Source, slice: ArchiveSlice): Promise<{ row_count: number; ndjson: string }>; logArchive(entry: ArchiveLogEntry): Promise<void> }`; `interface ArchiveStore { upload(path: string, bytes: Uint8Array): Promise<void> }`.
+- Produces (archive.ts): `ARCHIVE_ORDER`, `LAG_MS`, `MAX_ROWS_PER_RUN`, `MAX_SLICES_PER_SOURCE`; `objectPath(source: Source, sliceStart: string): string`; `gzip(text: string): Promise<Uint8Array>`; `interface ArchiveSummary { slices: number; rows: number; bytes: number; empty: number; errors: string[]; duration_ms: number }`; `runArchive(db: ArchiveDb, store: ArchiveStore, now?: Date): Promise<ArchiveSummary>`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -478,10 +424,7 @@ function fakes(
     },
     sliceNdjson(source, s) {
       const n = options.rows?.(source, s) ?? 2;
-      const lines = Array.from(
-        { length: n },
-        (_, i) => JSON.stringify({ source, i, at: s.slice_start }),
-      );
+      const lines = Array.from({ length: n }, (_, i) => JSON.stringify({ source, i, at: s.slice_start }));
       return Promise.resolve({ row_count: n, ndjson: lines.join("\n") });
     },
     logArchive(entry) {
@@ -514,10 +457,7 @@ Deno.test("runArchive asks every source for slices that ended two hours ago, POT
   const { db, store, calls } = fakes();
   await runArchive(db, store, NOW);
   const cutoff = new Date(NOW.getTime() - LAG_MS).toISOString();
-  assertEquals(calls.pending.map(([s, b]) => [s, b]), [["pota", cutoff], ["sotawatch", cutoff], [
-    "rbn",
-    cutoff,
-  ]]);
+  assertEquals(calls.pending.map(([s, b]) => [s, b]), [["pota", cutoff], ["sotawatch", cutoff], ["rbn", cutoff]]);
 });
 
 Deno.test("runArchive uploads a gzipped slice, then logs it with its count and size", async () => {
@@ -543,24 +483,13 @@ Deno.test("runArchive logs an empty slice without uploading anything", async () 
   const { db, store, calls } = fakes({ pending: { sotawatch: [s] }, rows: () => 0 });
   const summary = await runArchive(db, store, NOW);
   assertEquals(calls.uploads, []);
-  assertEquals(calls.logs, [{
-    source: "sotawatch",
-    ...s,
-    row_count: 0,
-    bytes: null,
-    object_path: null,
-  }]);
+  assertEquals(calls.logs, [{ source: "sotawatch", ...s, row_count: 0, bytes: null, object_path: null }]);
   assertEquals([summary.slices, summary.empty], [1, 1]);
 });
 
 Deno.test("runArchive stops starting new slices at the row budget", async () => {
-  const slices = [0, 10, 20].map((m) =>
-    slice(`2026-10-11T14:${String(m).padStart(2, "0")}:00Z`, 10)
-  );
-  const { db, store, calls } = fakes({
-    pending: { rbn: slices },
-    rows: () => MAX_ROWS_PER_RUN - 1,
-  });
+  const slices = [0, 10, 20].map((m) => slice(`2026-10-11T14:${String(m).padStart(2, "0")}:00Z`, 10));
+  const { db, store, calls } = fakes({ pending: { rbn: slices }, rows: () => MAX_ROWS_PER_RUN - 1 });
   const summary = await runArchive(db, store, NOW);
   // The first slice stays under the budget, the second crosses it, the third is left for the next run.
   assertEquals(calls.uploads.length, 2);
@@ -587,9 +516,7 @@ Deno.test("runArchive records a pending-slices error and moves on", async () => 
   const failing: ArchiveDb = {
     ...db,
     pendingSlices: (source, before, limit) =>
-      source === "pota"
-        ? Promise.reject(new Error("db down"))
-        : db.pendingSlices(source, before, limit),
+      source === "pota" ? Promise.reject(new Error("db down")) : db.pendingSlices(source, before, limit),
   };
   const summary = await runArchive(failing, store, NOW);
   assertEquals(summary.errors, ["pota: db down"]);
@@ -599,8 +526,8 @@ Deno.test("runArchive records a pending-slices error and moves on", async () => 
 
 - [ ] **Step 2: Run them to verify they fail**
 
-Run: `deno test -P supabase/functions/_shared/__tests__/archive.test.ts` Expected: FAIL
-(`archive.ts` missing).
+Run: `deno test -P supabase/functions/_shared/__tests__/archive.test.ts`
+Expected: FAIL (`archive.ts` missing).
 
 - [ ] **Step 3: Add the types**
 
@@ -692,14 +619,7 @@ export async function runArchive(
   now: Date = new Date(),
 ): Promise<ArchiveSummary> {
   const started = performance.now();
-  const summary: ArchiveSummary = {
-    slices: 0,
-    rows: 0,
-    bytes: 0,
-    empty: 0,
-    errors: [],
-    duration_ms: 0,
-  };
+  const summary: ArchiveSummary = { slices: 0, rows: 0, bytes: 0, empty: 0, errors: [], duration_ms: 0 };
   const before = new Date(now.getTime() - LAG_MS);
 
   sources: for (const source of ARCHIVE_ORDER) {
@@ -721,13 +641,7 @@ export async function runArchive(
           const bytes = await gzip(`${ndjson}\n`);
           const path = objectPath(source, slice.slice_start);
           await store.upload(path, bytes);
-          await db.logArchive({
-            source,
-            ...slice,
-            row_count,
-            bytes: bytes.length,
-            object_path: path,
-          });
+          await db.logArchive({ source, ...slice, row_count, bytes: bytes.length, object_path: path });
           summary.rows += row_count;
           summary.bytes += bytes.length;
         }
@@ -762,40 +676,32 @@ git commit -m "Add runArchive: gzip each due slice, upload, then log it"
 ### Task 3: Archive database and Storage adapters
 
 **Files:**
-
 - Modify: `supabase/functions/_shared/db.ts`
 - Modify: `supabase/functions/_shared/__tests__/fake_supabase.ts`
 - Test: `supabase/functions/_shared/__tests__/db.test.ts`
 
 **Interfaces:**
-
 - Consumes: `ArchiveDb`, `ArchiveStore`, `ArchiveSlice`, `ArchiveLogEntry` (Task 2).
-- Produces: `createArchiveDb(client: SupabaseClient): ArchiveDb`;
-  `createArchiveStore(client: SupabaseClient): ArchiveStore` (bucket `archive`); the fake gains
-  `options.storageUpload?: FakeResult` and
-  `calls.storage: Array<{ bucket: string; path: string; body: unknown; options: unknown }>`.
+- Produces: `createArchiveDb(client: SupabaseClient): ArchiveDb`; `createArchiveStore(client: SupabaseClient): ArchiveStore` (bucket `archive`); the fake gains `options.storageUpload?: FakeResult` and `calls.storage: Array<{ bucket: string; path: string; body: unknown; options: unknown }>`.
 
 - [ ] **Step 1: Extend the fake client**
 
-In `fake_supabase.ts`: add `storageUpload?: FakeResult;` to `FakeSupabaseOptions`; add
-`storage: Array<{ bucket: string; path: string; body: unknown; options: unknown }>;` to `FakeCalls`
-and `storage: [],` to the `calls` initializer; and add to the `fake` object, after `auth`:
+In `fake_supabase.ts`: add `storageUpload?: FakeResult;` to `FakeSupabaseOptions`; add `storage: Array<{ bucket: string; path: string; body: unknown; options: unknown }>;` to `FakeCalls` and `storage: [],` to the `calls` initializer; and add to the `fake` object, after `auth`:
 
 ```ts
-storage: {
-  from(bucket: string) {
-    return {
-      upload(path: string, body: unknown, uploadOptions?: unknown) {
-        calls.storage.push({ bucket, path, body, options: uploadOptions });
-        return settle(options.storageUpload);
+    storage: {
+      from(bucket: string) {
+        return {
+          upload(path: string, body: unknown, uploadOptions?: unknown) {
+            calls.storage.push({ bucket, path, body, options: uploadOptions });
+            return settle(options.storageUpload);
+          },
+        };
       },
-    };
-  },
-},
+    },
 ```
 
-Update the header comment's list to "rpc, from(...).select/eq/single/maybeSingle/insert,
-storage.from(...).upload, and a few auth calls."
+Update the header comment's list to "rpc, from(...).select/eq/single/maybeSingle/insert, storage.from(...).upload, and a few auth calls."
 
 - [ ] **Step 2: Write the failing tests**
 
@@ -815,43 +721,23 @@ Deno.test("pendingSlices calls archive_pending_slices with an ISO cutoff", async
 });
 
 Deno.test("sliceNdjson returns the RPC's single row, or an empty slice", async () => {
-  const a = fakeSupabase({
-    rpc: { archive_ndjson: { data: [{ row_count: 2, ndjson: "{}\n{}" }] } },
-  });
-  assertEquals(await createArchiveDb(a.client).sliceNdjson("rbn", SLICE), {
-    row_count: 2,
-    ndjson: "{}\n{}",
-  });
-  assertEquals(a.calls.rpc[0]!.args, {
-    p_source: "rbn",
-    p_from: SLICE.slice_start,
-    p_to: SLICE.slice_end,
-  });
+  const a = fakeSupabase({ rpc: { archive_ndjson: { data: [{ row_count: 2, ndjson: "{}\n{}" }] } } });
+  assertEquals(await createArchiveDb(a.client).sliceNdjson("rbn", SLICE), { row_count: 2, ndjson: "{}\n{}" });
+  assertEquals(a.calls.rpc[0]!.args, { p_source: "rbn", p_from: SLICE.slice_start, p_to: SLICE.slice_end });
   const b = fakeSupabase({ rpc: { archive_ndjson: { data: [] } } });
-  assertEquals(await createArchiveDb(b.client).sliceNdjson("pota", SLICE), {
-    row_count: 0,
-    ndjson: "",
-  });
+  assertEquals(await createArchiveDb(b.client).sliceNdjson("pota", SLICE), { row_count: 0, ndjson: "" });
 });
 
 Deno.test("logArchive passes every field to log_archive", async () => {
   const { client, calls } = fakeSupabase();
   await createArchiveDb(client).logArchive({
-    source: "rbn",
-    ...SLICE,
-    row_count: 3,
-    bytes: 120,
-    object_path: "rbn/2026/10/11/1410.ndjson.gz",
+    source: "rbn", ...SLICE, row_count: 3, bytes: 120, object_path: "rbn/2026/10/11/1410.ndjson.gz",
   });
   assertEquals(calls.rpc, [{
     fn: "log_archive",
     args: {
-      p_source: "rbn",
-      p_slice_start: SLICE.slice_start,
-      p_slice_end: SLICE.slice_end,
-      p_row_count: 3,
-      p_bytes: 120,
-      p_object_path: "rbn/2026/10/11/1410.ndjson.gz",
+      p_source: "rbn", p_slice_start: SLICE.slice_start, p_slice_end: SLICE.slice_end,
+      p_row_count: 3, p_bytes: 120, p_object_path: "rbn/2026/10/11/1410.ndjson.gz",
     },
   }]);
 });
@@ -861,11 +747,7 @@ Deno.test("archive RPC errors are thrown with the function name", async () => {
     rpc: { archive_pending_slices: boom, archive_ndjson: boom, log_archive: boom },
   });
   const db = createArchiveDb(client);
-  await assertRejects(
-    () => db.pendingSlices("rbn", new Date(), 1),
-    Error,
-    "archive_pending_slices failed: boom",
-  );
+  await assertRejects(() => db.pendingSlices("rbn", new Date(), 1), Error, "archive_pending_slices failed: boom");
   await assertRejects(() => db.sliceNdjson("rbn", SLICE), Error, "archive_ndjson failed: boom");
   await assertRejects(
     () => db.logArchive({ source: "rbn", ...SLICE, row_count: 0, bytes: null, object_path: null }),
@@ -895,13 +777,12 @@ Deno.test("createArchiveStore uploads gzip to the private archive bucket, replac
 
 - [ ] **Step 3: Run them to verify they fail**
 
-Run: `deno test -P supabase/functions/_shared/__tests__/db.test.ts` Expected: FAIL
-(`createArchiveDb` not exported).
+Run: `deno test -P supabase/functions/_shared/__tests__/db.test.ts`
+Expected: FAIL (`createArchiveDb` not exported).
 
 - [ ] **Step 4: Implement the adapters**
 
-In `db.ts`, add `ArchiveDb, ArchiveLogEntry, ArchiveSlice, ArchiveStore` to the type import and
-append:
+In `db.ts`, add `ArchiveDb, ArchiveLogEntry, ArchiveSlice, ArchiveStore` to the type import and append:
 
 ```ts
 export function createArchiveDb(client: SupabaseClient): ArchiveDb {
@@ -968,20 +849,13 @@ git commit -m "Add archive adapters over the slice RPCs and the archive bucket"
 ### Task 4: The `archive` Edge Function
 
 **Files:**
-
 - Create: `supabase/functions/_shared/handlers/archive.ts`
 - Create: `supabase/functions/archive/index.ts`, `supabase/functions/archive/deno.json`
 - Test: `supabase/functions/_shared/__tests__/handlers_archive.test.ts`
 
 **Interfaces:**
-
-- Consumes: `runArchive`, `ArchiveSummary` (Task 2); `createArchiveDb`, `createArchiveStore` (Task
-  3); `bearerToken` (`auth.ts`).
-- Produces:
-  `interface ArchiveDeps { serviceRoleKey: string | undefined; db: () => SupabaseClient }`;
-  `handleArchive(req: Request, deps: ArchiveDeps, now?: Date): Promise<Response>` — 403 without the
-  service-role bearer, otherwise the summary JSON with status 500 when `errors` is non-empty and 200
-  otherwise.
+- Consumes: `runArchive`, `ArchiveSummary` (Task 2); `createArchiveDb`, `createArchiveStore` (Task 3); `bearerToken` (`auth.ts`).
+- Produces: `interface ArchiveDeps { serviceRoleKey: string | undefined; db: () => SupabaseClient }`; `handleArchive(req: Request, deps: ArchiveDeps, now?: Date): Promise<Response>` — 403 without the service-role bearer, otherwise the summary JSON with status 500 when `errors` is non-empty and 200 otherwise.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1012,10 +886,7 @@ Deno.test("handleArchive refuses callers without the service-role key", async ()
 });
 
 Deno.test("handleArchive runs the archive and returns its summary", async () => {
-  const slice = {
-    slice_start: "2026-10-11T14:10:00+00:00",
-    slice_end: "2026-10-11T14:20:00+00:00",
-  };
+  const slice = { slice_start: "2026-10-11T14:10:00+00:00", slice_end: "2026-10-11T14:20:00+00:00" };
   const { client, calls } = fakeSupabase({
     rpc: {
       archive_pending_slices: (args) => ({ data: args?.["p_source"] === "rbn" ? [slice] : [] }),
@@ -1030,10 +901,7 @@ Deno.test("handleArchive runs the archive and returns its summary", async () => 
 });
 
 Deno.test("handleArchive answers 500 when any slice failed", async () => {
-  const slice = {
-    slice_start: "2026-10-11T14:00:00+00:00",
-    slice_end: "2026-10-11T15:00:00+00:00",
-  };
+  const slice = { slice_start: "2026-10-11T14:00:00+00:00", slice_end: "2026-10-11T15:00:00+00:00" };
   const { client } = fakeSupabase({
     rpc: {
       archive_pending_slices: (args) => ({ data: args?.["p_source"] === "pota" ? [slice] : [] }),
@@ -1049,8 +917,8 @@ Deno.test("handleArchive answers 500 when any slice failed", async () => {
 
 - [ ] **Step 2: Run them to verify they fail**
 
-Run: `deno test -P supabase/functions/_shared/__tests__/handlers_archive.test.ts` Expected: FAIL
-(`handlers/archive.ts` missing).
+Run: `deno test -P supabase/functions/_shared/__tests__/handlers_archive.test.ts`
+Expected: FAIL (`handlers/archive.ts` missing).
 
 - [ ] **Step 3: Implement the handler and entrypoint**
 
@@ -1102,8 +970,7 @@ Deno.serve((req) =>
 );
 ```
 
-Create `supabase/functions/archive/deno.json` with the same content as
-`supabase/functions/ingest-pota/deno.json`.
+Create `supabase/functions/archive/deno.json` with the same content as `supabase/functions/ingest-pota/deno.json`.
 
 - [ ] **Step 4: Run all Deno checks, then commit**
 
@@ -1119,18 +986,12 @@ git commit -m "Add the archive Edge Function"
 ### Task 5: Retention in `maintain_rbn_spots`
 
 **Files:**
-
 - Create: `supabase/migrations/20261011000005_rbn_retention.sql`
 - Create: `supabase/tests/rbn_retention.test.sql`
 
 **Interfaces:**
-
-- Consumes: `archive_log`, `log_archive` (Task 1); `create_rbn_spots_partition`,
-  `maintain_rbn_spots` (PR 1).
-- Produces:
-  `rbn_day_slices(p_day date) returns table (slice_start timestamptz, db_rows int, archived_rows int)`;
-  `retire_rbn_day(p_day date) returns boolean` (true when the day was dropped);
-  `maintain_rbn_spots()` now also retires days with `day < today_utc - 7`.
+- Consumes: `archive_log`, `log_archive` (Task 1); `create_rbn_spots_partition`, `maintain_rbn_spots` (PR 1).
+- Produces: `rbn_day_slices(p_day date) returns table (slice_start timestamptz, db_rows int, archived_rows int)`; `retire_rbn_day(p_day date) returns boolean` (true when the day was dropped); `maintain_rbn_spots()` now also retires days with `day < today_utc - 7`.
 
 - [ ] **Step 1: Write the failing pgTAP suite**
 
@@ -1216,8 +1077,8 @@ rollback;
 
 - [ ] **Step 2: Run it to verify it fails**
 
-Run: `supabase db reset && supabase test db 2>&1 | grep -A3 rbn_retention` Expected: FAIL
-(`function rbn_day_slices(date) does not exist`).
+Run: `supabase db reset && supabase test db 2>&1 | grep -A3 rbn_retention`
+Expected: FAIL (`function rbn_day_slices(date) does not exist`).
 
 - [ ] **Step 3: Write the migration**
 
@@ -1327,8 +1188,7 @@ grant execute on function public.maintain_rbn_spots() to service_role;
 
 - [ ] **Step 4: Run the suites to verify they pass, then commit**
 
-Run: `supabase db reset && supabase test db 2>&1 | tail -4` → `Result: PASS`;
-`supabase db lint --fail-on error` → no results; smoke test → `smoke test passed`.
+Run: `supabase db reset && supabase test db 2>&1 | tail -4` → `Result: PASS`; `supabase db lint --fail-on error` → no results; smoke test → `smoke test passed`.
 
 ```bash
 git add supabase/migrations/20261011000005_rbn_retention.sql supabase/tests/rbn_retention.test.sql
@@ -1340,22 +1200,15 @@ git commit -m "Retire rbn_spots days only once every slice is archived with matc
 ### Task 6: Remove the `ingest-rbn` watchlist GET
 
 **Files:**
-
 - Modify: `supabase/functions/_shared/serve.ts`
 - Test: `supabase/functions/_shared/__tests__/serve.test.ts`
 
 **Interfaces:**
-
-- Produces: `pushIngestHandler<D>(source, run, deps)` without the `WatchlistDb` bound; GET answers
-  405 like any other non-POST method.
+- Produces: `pushIngestHandler<D>(source, run, deps)` without the `WatchlistDb` bound; GET answers 405 like any other non-POST method.
 
 - [ ] **Step 1: Change the tests**
 
-In `serve.test.ts`: delete the tests "pushIngestHandler GET returns the watchlist for its source"
-and "pushIngestHandler GET reports a watchlist failure as a 500"; in `pushHandler` drop the
-`watchlist` override and the `watched` array (return `{ handler, bodies }`; `pushDb` becomes `db`);
-in "fails closed when the secret is not configured" change the request method to `"POST"` with body
-`"{}"`; and add:
+In `serve.test.ts`: delete the tests "pushIngestHandler GET returns the watchlist for its source" and "pushIngestHandler GET reports a watchlist failure as a 500"; in `pushHandler` drop the `watchlist` override and the `watched` array (return `{ handler, bodies }`; `pushDb` becomes `db`); in "fails closed when the secret is not configured" change the request method to `"POST"` with body `"{}"`; and add:
 
 ```ts
 Deno.test("pushIngestHandler refuses GET now that the relay no longer reads a watchlist", async () => {
@@ -1366,16 +1219,12 @@ Deno.test("pushIngestHandler refuses GET now that the relay no longer reads a wa
 
 - [ ] **Step 2: Run them to verify they fail**
 
-Run: `deno test -P supabase/functions/_shared/__tests__/serve.test.ts` Expected: FAIL (GET still
-answers 200).
+Run: `deno test -P supabase/functions/_shared/__tests__/serve.test.ts`
+Expected: FAIL (GET still answers 200).
 
 - [ ] **Step 3: Remove the GET branch**
 
-In `serve.ts`: delete the `if (req.method === "GET") { ... }` block; change
-`PushDeps<D extends WatchlistDb>` and `pushIngestHandler<D extends WatchlistDb>` to `PushDeps<D>`
-and `pushIngestHandler<D>`; drop `WatchlistDb` from the type import; change the header's last
-sentence to "Pushed sources (RBN) are invoked by the relay, which holds only the relay secret, with
-POST batches of lines."
+In `serve.ts`: delete the `if (req.method === "GET") { ... }` block; change `PushDeps<D extends WatchlistDb>` and `pushIngestHandler<D extends WatchlistDb>` to `PushDeps<D>` and `pushIngestHandler<D>`; drop `WatchlistDb` from the type import; change the header's last sentence to "Pushed sources (RBN) are invoked by the relay, which holds only the relay secret, with POST batches of lines."
 
 - [ ] **Step 4: Run all Deno checks, then commit**
 
@@ -1391,49 +1240,24 @@ git commit -m "ingest-rbn: drop the watchlist GET the relay no longer calls"
 ### Task 7: Docs, types and end-to-end verification
 
 **Files:**
-
 - Regenerate: `web/src/lib/database.types.ts`
 - Modify: `docs/ARCHITECTURE.md`, `docs/OPERATIONS.md`, `README.md`, `CLAUDE.md`
 
 - [ ] **Step 1: Regenerate types and run the web checks**
 
-Run:
-`supabase db reset && supabase gen types typescript --local > web/src/lib/database.types.ts && cd web && npm run lint && npm test && SUPABASE_URL=https://example.supabase.co SUPABASE_ANON_KEY=placeholder npm run build`
-Expected: clean; `git diff --stat web/src/lib/database.types.ts` shows `archive_log`,
-`archive_status` and the new functions, and no `partitions` tables.
+Run: `supabase db reset && supabase gen types typescript --local > web/src/lib/database.types.ts && cd web && npm run lint && npm test && SUPABASE_URL=https://example.supabase.co SUPABASE_ANON_KEY=placeholder npm run build`
+Expected: clean; `git diff --stat web/src/lib/database.types.ts` shows `archive_log`, `archive_status` and the new functions, and no `partitions` tables.
 
 - [ ] **Step 2: Update the docs**
 
-- `docs/ARCHITECTURE.md`, section "Streaming sources: the relay": replace "until that archive and
-  retention work lands, nothing is dropped." with "`maintain_rbn_spots()` drops a day once every
-  10-minute slice is archived with a matching count (see "The spot archive")." Add a new top-level
-  section after it:
+- `docs/ARCHITECTURE.md`, section "Streaming sources: the relay": replace "until that archive and retention work lands, nothing is dropped." with "`maintain_rbn_spots()` drops a day once every 10-minute slice is archived with a matching count (see "The spot archive")." Add a new top-level section after it:
 
-  "# The spot archive" with: every spot of every source is written to the private `archive` bucket
-  as gzipped NDJSON by the `archive` Edge Function, which pg_cron calls every 10 minutes with the
-  service-role key; slice length comes from `archive_slice_minutes` (RBN 10 minutes, POTA and
-  SOTAwatch an hour) and objects are `<source>/YYYY/MM/DD/HHMM.ndjson.gz`; Postgres decides which
-  slices are due (`archive_pending_slices`, two hours after they end) and builds their NDJSON
-  (`archive_ndjson`), so the function only gzips and uploads (measured at ~0.3 s CPU for a full RBN
-  hour against the 2 s limit); a run stops starting slices at 60,000 rows; a slice is logged in
-  `archive_log` only after its upload succeeds and empty slices are logged with `row_count = 0`;
-  retention (`retire_rbn_day`) drops an RBN day older than seven only when all 144 slices are logged
-  with the database's count and clears the log rows of mismatched slices so they are re-archived;
-  POTA and SOTAwatch are never deleted from `raw_spots`. The NDJSON fields per source as in the
-  spec.
+  "# The spot archive" with: every spot of every source is written to the private `archive` bucket as gzipped NDJSON by the `archive` Edge Function, which pg_cron calls every 10 minutes with the service-role key; slice length comes from `archive_slice_minutes` (RBN 10 minutes, POTA and SOTAwatch an hour) and objects are `<source>/YYYY/MM/DD/HHMM.ndjson.gz`; Postgres decides which slices are due (`archive_pending_slices`, two hours after they end) and builds their NDJSON (`archive_ndjson`), so the function only gzips and uploads (measured at ~0.3 s CPU for a full RBN hour against the 2 s limit); a run stops starting slices at 60,000 rows; a slice is logged in `archive_log` only after its upload succeeds and empty slices are logged with `row_count = 0`; retention (`retire_rbn_day`) drops an RBN day older than seven only when all 144 slices are logged with the database's count and clears the log rows of mismatched slices so they are re-archived; POTA and SOTAwatch are never deleted from `raw_spots`. The NDJSON fields per source as in the spec.
 
-- `docs/OPERATIONS.md`: replace the "rbn_spots size" subsection's "Until archiving and retention
-  land (PR 2) nothing is dropped." with "About seven days (2.5-3 GB) stay in the database." Add a
-  section "# Spot archive" with:
-  - "Is it keeping up?" → `select * from archive_status;` (`pending_slices` should be 0-2 per
-    source; growth means runs are failing) and
-    `select status_code, content::text from net._http_response order by created desc limit 5;` for
-    the function's last responses.
-  - "Re-archive a slice" → `delete from archive_log where source = 'rbn' and slice_start = '<ts>';`
-    (the next run rewrites the object).
-  - "Retention" → runs in `maintain_rbn_spots()` at 03:30 UTC;
-    `select * from rbn_day_slices('<date>') where archived_rows is distinct from db_rows;` shows why
-    a day is still kept.
+- `docs/OPERATIONS.md`: replace the "rbn_spots size" subsection's "Until archiving and retention land (PR 2) nothing is dropped." with "About seven days (2.5-3 GB) stay in the database." Add a section "# Spot archive" with:
+  - "Is it keeping up?" → `select * from archive_status;` (`pending_slices` should be 0-2 per source; growth means runs are failing) and `select status_code, content::text from net._http_response order by created desc limit 5;` for the function's last responses.
+  - "Re-archive a slice" → `delete from archive_log where source = 'rbn' and slice_start = '<ts>';` (the next run rewrites the object).
+  - "Retention" → runs in `maintain_rbn_spots()` at 03:30 UTC; `select * from rbn_day_slices('<date>') where archived_rows is distinct from db_rows;` shows why a day is still kept.
   - "Reading the archive" → DuckDB over Storage's S3 endpoint:
     ```sql
     install httpfs; load httpfs;
@@ -1441,29 +1265,13 @@ Expected: clean; `git diff --stat web/src/lib/database.types.ts` shows `archive_
                    endpoint '<project-ref>.supabase.co/storage/v1/s3', region '<region>', url_style 'path');
     select spot_type, count(*) from read_json_auto('s3://archive/rbn/2026/10/11/*.ndjson.gz') group by 1;
     ```
-    with a note that S3 keys are created under Storage settings and grant access to every bucket, so
-    they belong on an operator's machine, never in the app or the relay.
-- `README.md`: in the "Streaming sources" paragraph replace "(partitioned by day; a rolling seven
-  days with older days archived to Storage once the archive work lands, nothing is dropped until
-  then)" with "(partitioned by day; seven days stay in the database)", and after the "Deliver."
-  paragraph add a paragraph: "**Archive.** Every spot from every source is also written to a private
-  Storage bucket as gzipped NDJSON, ten-minute files for RBN and hourly for POTA and SOTAwatch, by
-  the `archive` function every 10 minutes. Files are readable directly by DuckDB, pandas or Spark.
-  RBN days are dropped from the database only after their archive matches." Add `archive` to the
-  function deploy loop in "Deploying to a hosted project".
-- `CLAUDE.md`: add an "## Archive rules" section: slice length lives only in
-  `archive_slice_minutes`; NDJSON is built in SQL (`archive_ndjson`), never in TypeScript; a slice
-  is logged only after its upload succeeds; nothing is deleted from `rbn_spots` unless
-  `retire_rbn_day` finds every slice logged with a matching count; `raw_spots` is never pruned by
-  the archive; S3 keys never go in the app or relay. In "Relay rules", remove "`GET` still returns
-  the watchlist" wording if present, and in the ARCHITECTURE push bullet remove the sentence about
-  `GET` returning the watchlist.
+    with a note that S3 keys are created under Storage settings and grant access to every bucket, so they belong on an operator's machine, never in the app or the relay.
+- `README.md`: in the "Streaming sources" paragraph replace "(partitioned by day; a rolling seven days with older days archived to Storage once the archive work lands, nothing is dropped until then)" with "(partitioned by day; seven days stay in the database)", and after the "Deliver." paragraph add a paragraph: "**Archive.** Every spot from every source is also written to a private Storage bucket as gzipped NDJSON, ten-minute files for RBN and hourly for POTA and SOTAwatch, by the `archive` function every 10 minutes. Files are readable directly by DuckDB, pandas or Spark. RBN days are dropped from the database only after their archive matches." Add `archive` to the function deploy loop in "Deploying to a hosted project".
+- `CLAUDE.md`: add an "## Archive rules" section: slice length lives only in `archive_slice_minutes`; NDJSON is built in SQL (`archive_ndjson`), never in TypeScript; a slice is logged only after its upload succeeds; nothing is deleted from `rbn_spots` unless `retire_rbn_day` finds every slice logged with a matching count; `raw_spots` is never pruned by the archive; S3 keys never go in the app or relay. In "Relay rules", remove "`GET` still returns the watchlist" wording if present, and in the ARCHITECTURE push bullet remove the sentence about `GET` returning the watchlist.
 
 - [ ] **Step 3: End-to-end against the local stack**
 
-With `supabase start` and `supabase functions serve` (no extra env needed for `archive`), seed one
-synthetic RBN hour three hours ago (the 62,000-row `generate_series` insert from the spec's
-amendment measurement) and two POTA rows, then:
+With `supabase start` and `supabase functions serve` (no extra env needed for `archive`), seed one synthetic RBN hour three hours ago (the 62,000-row `generate_series` insert from the spec's amendment measurement) and two POTA rows, then:
 
 ```bash
 KEY=$(supabase status -o env | grep '^SERVICE_ROLE_KEY' | cut -d'"' -f2)
@@ -1471,10 +1279,7 @@ for i in 1 2; do curl -s -X POST http://127.0.0.1:54321/functions/v1/archive -H 
 curl -s -o /dev/null -w '%{http_code}\n' -X POST http://127.0.0.1:54321/functions/v1/archive   # expected 403
 ```
 
-Expected: the first run archives the POTA slice(s) and all six RBN slices of ~10,333 rows (the
-60,000-row budget is checked before starting each slice, so the sixth still starts at ~51,700),
-`errors: []`; the second run archives nothing new except slices that have since become due. Then
-check:
+Expected: the first run archives the POTA slice(s) and all six RBN slices of ~10,333 rows (the 60,000-row budget is checked before starting each slice, so the sixth still starts at ~51,700), `errors: []`; the second run archives nothing new except slices that have since become due. Then check:
 
 ```sql
 select source, count(*), sum(row_count) from archive_log group by 1;   -- rbn 62000 rows over its slices
@@ -1482,10 +1287,7 @@ select name from storage.objects where bucket_id = 'archive' order by 1 limit 3;
 select * from archive_status;                                            -- pending 0 for the seeded sources
 ```
 
-Download one RBN object
-(`curl -H "Authorization: Bearer $KEY" http://127.0.0.1:54321/storage/v1/object/archive/<path> | gunzip | wc -l`)
-and confirm its line count equals that slice's `row_count`. Record the function's `duration_ms` for
-a full-hour run.
+Download one RBN object (`curl -H "Authorization: Bearer $KEY" http://127.0.0.1:54321/storage/v1/object/archive/<path> | gunzip | wc -l`) and confirm its line count equals that slice's `row_count`. Record the function's `duration_ms` for a full-hour run.
 
 - [ ] **Step 4: Full CI, commit, PR**
 
