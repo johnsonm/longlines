@@ -3,7 +3,6 @@ import {
   assertSafeDestinationUrl,
   assertSafePushEndpoint,
   assertSafeResolvedHost,
-  hostOf,
   isDeniedHostname,
   isPrivateIp,
 } from "../delivery/urlsafety.ts";
@@ -94,11 +93,7 @@ Deno.test("assertSafeDestinationUrl refuses private-only name suffixes (same lis
       "https://notinternal.example.com/spots",
     ]
   ) {
-    assertEquals(
-      hostOf(assertSafeDestinationUrl("webhook", url)).endsWith("example.com"),
-      true,
-      url,
-    );
+    assertEquals(assertSafeDestinationUrl("webhook", url).href, url);
   }
 });
 
