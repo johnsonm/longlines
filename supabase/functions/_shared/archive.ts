@@ -18,7 +18,7 @@ import type { ArchiveColumns, ArchiveDb, ArchiveSlice, ArchiveStore, Source } fr
  * so an RBN backlog never starves them. APRS-IS is not here: at ~100 packets/s
  * it alone would fill the row budget, so its own cron job (archive-aprs) names it.
  */
-export const ARCHIVE_ORDER: readonly Source[] = ["pota", "sotawatch", "dxcluster", "rbn"];
+export const ARCHIVE_ORDER: readonly Source[] = ["pota", "sotawatch", "dxcluster", "wwff", "rbn"];
 /** Every source a request may name. */
 export const ARCHIVE_SOURCES: readonly Source[] = [...ARCHIVE_ORDER, "aprs"];
 /** Only slices that ended this long ago are archived, so late relay batches land first. */
@@ -45,6 +45,8 @@ const SPOT_COLUMNS: ReadonlyArray<readonly [string, ColumnType]> = [
   ["pota_park_name", "string"],
   ["pota_location", "string"],
   ["sota_summit_ref", "string"],
+  ["wwff_reference", "string"],
+  ["wwff_reference_name", "string"],
   ["raw_payload", "json"],
 ];
 
@@ -120,6 +122,7 @@ export const ARCHIVE_SCHEMAS: Readonly<
   pota: SPOT_COLUMNS,
   sotawatch: SPOT_COLUMNS,
   dxcluster: SPOT_COLUMNS,
+  wwff: SPOT_COLUMNS,
 };
 
 /** Hive-partitioned: `<source>/year=YYYY/month=MM/day=DD/HHMM.parquet` from the slice start in UTC. */

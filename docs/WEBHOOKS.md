@@ -36,7 +36,9 @@ X-LongLines-Signature: sha256=3f1c…
         "pota_reference": "DE-0858",
         "pota_park_name": "Via Sancti Martini National Historic Trail",
         "pota_location": "DE-BW,DE-BY,DE-RP,DE-SL",
-        "sota_summit_ref": null
+        "sota_summit_ref": null,
+        "wwff_reference": null,
+        "wwff_reference_name": null
       }
     }
   ]
@@ -45,6 +47,10 @@ X-LongLines-Signature: sha256=3f1c…
 
 `spot` has the fields of the `recent_spots` view plus `base_callsign`, the call
 without prefixes or suffixes that Long Lines profiles are keyed on. New fields may be added to `spot`, so ignore ones you don't know.
+`source` is `pota`, `sotawatch`, `wwff`, `dxcluster` or `rbn`. A WWFF spot (`"source": "wwff"`)
+carries its reference in `wwff_reference` (`KFF-5268`) and the reference's name in
+`wwff_reference_name`; both are null for other sources. WWFF and DX Cluster spots reach only
+subscriptions whose sources name them.
 `delivery_id` is unique per spot and destination, so you can use it to
 deduplicate retries.
 

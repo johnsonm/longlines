@@ -28,6 +28,8 @@ const spot: DeliverySpot = {
   pota_park_name: "Eno River State Park",
   pota_location: "US-NC",
   sota_summit_ref: null,
+  wwff_reference: null,
+  wwff_reference_name: null,
 };
 
 function delivery(id: number, s: DeliverySpot = spot): PendingDelivery {
@@ -80,6 +82,23 @@ Deno.test("embedForSpot shows the summit for SOTAwatch spots and omits empty fac
     ["Summit", "W4C/CM-001"],
     ["Source", "SOTAwatch"],
     ["Time (UTC)", "14:32:08"],
+  ]);
+});
+
+Deno.test("embedForSpot shows the WWFF reference and its name for WWFF spots", () => {
+  const e = embedForSpot({
+    ...spot,
+    source: "wwff",
+    pota_reference: null,
+    pota_park_name: null,
+    pota_location: null,
+    wwff_reference: "KFF-6101",
+    wwff_reference_name: "State Game Land PA 013",
+  });
+  assertEquals(e.fields.map((f) => [f.name, f.value]).slice(0, 3), [
+    ["WWFF", "KFF-6101"],
+    ["Reserve", "State Game Land PA 013"],
+    ["Source", "WWFF"],
   ]);
 });
 
@@ -155,6 +174,15 @@ Deno.test("pushNotifications lists only the facts present and links the base cal
     tag: "spot:W4/KK4PWJ/P",
     url: "/call/KK4PWJ",
   });
+  const [ww] = pushNotifications([{
+    ...spot,
+    source: "wwff",
+    pota_reference: null,
+    pota_park_name: null,
+    wwff_reference: "KFF-6101",
+    wwff_reference_name: "State Game Land PA 013",
+  }]);
+  assertEquals(ww?.body.split("\n")[1], "KFF-6101 · State Game Land PA 013 · WWFF");
   const [rbn] = pushNotifications([{
     ...call("w1aw"),
     source: "rbn",
@@ -200,6 +228,8 @@ Deno.test("a worst-case push payload stays under 3,000 bytes", () => {
     pota_reference: long(40),
     pota_park_name: "Ä".repeat(300),
     sota_summit_ref: long(40),
+    wwff_reference: long(40),
+    wwff_reference_name: "Ä".repeat(300),
     source: "dxcluster",
   };
   const notifications = pushNotifications(

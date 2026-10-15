@@ -7,9 +7,9 @@ import type { AprsPacketType, LatestStats, StatsPayload } from "./types";
 
 const payload = (spots: number): StatsPayload => ({
   totals: {
-    spots, potaSpots: spots, sotaSpots: 0,
-    activations: 0, potaActivations: 0, sotaActivations: 0,
-    chasers: 0, potaChasers: 0, sotaChasers: 0,
+    spots, potaSpots: spots, sotaSpots: 0, wwffSpots: 0,
+    activations: 0, potaActivations: 0, sotaActivations: 0, wwffActivations: 0,
+    chasers: 0, potaChasers: 0, sotaChasers: 0, wwffChasers: 0,
     activators: 0, references: 0,
   },
   peakHour: 0,
@@ -18,6 +18,7 @@ const payload = (spots: number): StatsPayload => ({
   potaByState: {},
   countries: [],
   sotaAssociations: [],
+  wwffPrograms: [],
   bands: [],
   modes: [],
   topActivators: [],
@@ -139,12 +140,18 @@ describe("logFillOpacity", () => {
 });
 
 describe("countryTotal and countryDetail", () => {
-  const c = { code: "DE", pota: 1200, sota: 5, dx: 300, rbn: 12000 };
+  const c = { code: "DE", pota: 1200, sota: 5, wwff: 40, dx: 300, rbn: 12000 };
   it("sums every source", () => {
-    expect(countryTotal(c)).toBe(13505);
+    expect(countryTotal(c)).toBe(13545);
   });
   it("lists each source in the order of Spots processed", () => {
-    expect(countryDetail(c)).toBe("12,000 RBN, 300 DX Cluster, 1,200 POTA, 5 SOTA");
+    expect(countryDetail(c)).toBe("12,000 RBN, 300 DX Cluster, 1,200 POTA, 5 SOTA, 40 WWFF");
+  });
+  it("reads a country from a snapshot written before WWFF existed as zero WWFF", () => {
+    const { wwff: _wwff, ...old } = c;
+    const before = old as unknown as typeof c;
+    expect(countryTotal(before)).toBe(13505);
+    expect(countryDetail(before)).toBe("12,000 RBN, 300 DX Cluster, 1,200 POTA, 5 SOTA, 0 WWFF");
   });
 });
 

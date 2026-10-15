@@ -25,6 +25,7 @@ import {
   noLicenseMessage, onAirNow, otherForms, placeLabel, plural, profileUrl, qrzUrl, shortDay, sourceSeries, sourcesDetail,
   spotRows, totalActivations, usStates,
 } from "./format";
+import { Flag } from "./Flag";
 import { LookupForm } from "./LookupForm";
 import type { CallsignProfile, HeardProfile, License } from "./types";
 import { useCallsignProfile } from "./useCallsignProfile";
@@ -83,8 +84,8 @@ function Invalid({ callsign, message }: { callsign: string; message: string }) {
 }
 
 // Each source keeps one color across the page, matching Stats where they overlap.
-const SOURCE_COLORS: Record<string, "primary" | "secondary" | "warning" | "info"> = {
-  pota: "primary", sotawatch: "secondary", rbn: "warning", dxcluster: "info",
+const SOURCE_COLORS: Record<string, "primary" | "secondary" | "warning" | "info" | "success"> = {
+  pota: "primary", sotawatch: "secondary", rbn: "warning", dxcluster: "info", wwff: "success",
 };
 
 function Header({ profile, account }: { profile: CallsignProfile; account?: AlertAccount }) {
@@ -157,7 +158,10 @@ function Header({ profile, account }: { profile: CallsignProfile; account?: Aler
       <CardContent>
         <Stack direction={{ xs: "column", sm: "row" }} spacing={2} sx={{ justifyContent: "space-between" }}>
           <Box sx={{ minWidth: 0 }}>
-            <Typography variant={mobile ? "h4" : "h3"} component="h1">{callsign}</Typography>
+            <Stack direction="row" spacing={1.5} useFlexGap sx={{ alignItems: "center", flexWrap: "wrap" }}>
+              <Typography variant={mobile ? "h4" : "h3"} component="h1">{callsign}</Typography>
+              <Flag country={profile.country?.name} />
+            </Stack>
             {license?.name && <Typography variant="h6" color="text.secondary">{license.name}</Typography>}
             <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap", mt: 1 }}>
               {license?.operatorClass && <Chip size="small" label={license.operatorClass} />}
@@ -179,10 +183,6 @@ function Header({ profile, account }: { profile: CallsignProfile; account?: Aler
         </Stack>
       </CardContent>
       {heard?.lastHeard && <LastHeard heard={heard} last={heard.lastHeard} />}
-      <Divider />
-      <CardContent>
-        <Typography variant="caption" color="text.secondary" component="p" sx={{ overflowWrap: "anywhere" }}>{url}</Typography>
-      </CardContent>
     </Card>
   );
 }
@@ -321,7 +321,7 @@ function Heard({ profile, heard, prefs }: { profile: CallsignProfile; heard: Hea
           <Kpi label="Heard from" value={plural(heard.countries, "country", "countries")} detail={plural(heard.continents, "continent", "continents")} />
         </Grid>
         <Grid size={{ xs: 6, md: 3 }}>
-          <Kpi label="Days at parks/summits" value={fmt(totalActivations(heard.activations))} detail={activationsDetail(heard.activations)} />
+          <Kpi label="Days at parks/summits/WWFF" value={fmt(totalActivations(heard.activations))} detail={activationsDetail(heard.activations)} />
         </Grid>
       </Grid>
 
@@ -399,7 +399,7 @@ function Heard({ profile, heard, prefs }: { profile: CallsignProfile; heard: Hea
       </Grid>
 
       {heard.references.length > 0 && (
-        <ChartCard title="Where they've been spotted" subheader="Parks and summits, most recent first">
+        <ChartCard title="Where they've been spotted" subheader="Parks, summits and WWFF references, most recent first">
           <Grid container spacing={3}>
             {hasMap && (
               <Grid size={{ xs: 12, md: 6 }}>

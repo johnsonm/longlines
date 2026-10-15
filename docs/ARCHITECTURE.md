@@ -5,19 +5,24 @@ flowchart LR
   subgraph upstream
     POTA[api.pota.app]
     SOTA[api-db2.sota.org.uk]
+    WWFF[spots.wwff.co]
   end
 
   subgraph supabase
     CRON[pg_cron] -- "pg_net http_post\nevery 60s / 30s" --> FP[ingest-pota]
     CRON --> FS[ingest-sotawatch]
+    CRON --> FW[ingest-wwff]
     FP -- "rpc ingest_spots" --> RPC[(ingest_spots)]
     FS -- "rpc ingest_spots" --> RPC
+    FW -- "rpc ingest_spots" --> RPC
     RPC --> RS[(raw_spots)]
     RPC --> Q[[pgmq spot_events]]
     FP --> ST[(ingest_state)]
     FS --> ST
+    FW --> ST
     FP -. unprocessable spots .-> IF[(ingest_failures)]
     FS -. unprocessable spots .-> IF
+    FW -. unprocessable spots .-> IF
     ST --> H[ingest_health view]
     RS --> H
     V[(vault.secrets)] --> CRON
@@ -25,12 +30,13 @@ flowchart LR
 
   FP -- GET --> POTA
   FS -- GET epoch, GET spots --> SOTA
+  FW -- GET --> WWFF
 ```
 
 ## Flow
 
-Both Edge Functions share one orchestrator (`supabase/functions/_shared/ingest.ts`) and differ
-only in their source adapter (`pota.ts`, `sotawatch.ts`). A run:
+The pulled sources' Edge Functions share one orchestrator (`supabase/functions/_shared/ingest.ts`)
+and differ only in their source adapter (`pota.ts`, `sotawatch.ts`, `wwff.ts`). A run:
 
 1. SOTAwatch only: fetch the epoch token and compare with `ingest_state.last_epoch`. Unchanged
    means nothing new; record the run and return.
@@ -67,6 +73,7 @@ fixed order:
 - SOTAwatch: `timeStamp, activatorCallsign, summitCode, frequency, mode, comments`
 - RBN: `spot_time, spotter, callsign, frequency, mode, snr, speed, type`
 - DX Cluster: `spot_time, spotter, callsign, frequency, comment`
+- WWFF: `spot_time, activator, reference, frequency_khz, mode, remarks`
 
 The unique constraint `(source, source_spot_id, content_hash)` plus `INSERT ... ON CONFLICT DO
 NOTHING RETURNING` does the rest: re-fetching an unchanged spot inserts nothing, and an edited
@@ -95,7 +102,8 @@ Supabase Vault (`vault.decrypted_secrets`), encrypted at rest, created once by
 ## Scheduling
 
 pg_cron on Supabase accepts `"30 seconds"` as a schedule, so SOTAwatch is a single sub-minute
-job. POTA runs on the standard `* * * * *`.
+job. POTA runs on the standard `* * * * *`, and so does WWFF (`ingest-wwff`), whose feed is served
+with `max-age=60`.
 
 ## Access
 
@@ -194,7 +202,8 @@ not block the cascade.
 
 ## What clients can read
 
-- `recent_spots`: the last 24 hours of `raw_spots` without `raw_payload`, read one source at a
+- `recent_spots`: the last 24 hours of `raw_spots` without `raw_payload` (WWFF's
+  `wwff_reference` and `wwff_reference_name` included), read one source at a
   time through the `list_recent_spots(p_source, max_rows)` RPC (the table itself stays
   unreadable). For `rbn` the RPC reads `rbn_spots` instead, the whole feed in the same shape.
 - `ingest_health`: read through the `list_ingest_health()` RPC so the Sources page can show it.
@@ -231,7 +240,7 @@ flowchart LR
 ## Matcher
 
 `match_pending_spots()` is a Postgres function because matching is a join:
-one batch of `spot_events` against every enabled subscription through
+one batch of `spot_events` against every enabled subscription with a destination through
 `spot_matches(subscription, spot)`, the single predicate the preview uses too.
 In one transaction it reads up to 500 events (60 s visibility), applies each
 subscription's quiet window (`subscription_quiet` remembers the last send per
@@ -308,8 +317,10 @@ refresh prunes older ones.
 
 ## Counting rules
 
-- Only `pota` and `sotawatch` rows count toward the activity figures; RBN rows in `raw_spots`
-  are copies of watched stations' `rbn_spots` rows and count nowhere. Every such row is one spot. A station spotted by both sources counts twice; callsigns are
+- Only `pota`, `sotawatch` and `wwff` rows count toward the activity figures (WWFF is a peer of
+  POTA and SOTA wherever the page shows them); RBN rows in `raw_spots` are copies of watched
+  stations' `rbn_spots` rows and count nowhere. Every such row is one spot. A station spotted by
+  two sources (a US park that is both a POTA and a WWFF reference, say) counts twice; callsigns are
   counted exactly as stored (`/P` and the like are kept). A spot is one report, not a contact: a
   busy activation is re-spotted many times, so spot counts run far ahead of operating activity.
 - An activation is one distinct (callsign, reference, UTC day), per program. It is an estimate in
@@ -326,14 +337,18 @@ refresh prunes older ones.
 - POTA state counts come from `pota_location`, a comma-separated list such as `US-NC,US-VA`; a park
   spanning two states counts once in each. Non-US entries and territories are ignored and all 51
   codes (50 states and DC) are always present, zero-filled.
-- SOTA associations are the part of `sota_summit_ref` before the `/`.
+- SOTA associations are the part of `sota_summit_ref` before the `/`. WWFF national programs
+  (`wwffPrograms`, the top 10 by spots) are the part of `wwff_reference` before the `-` (`KFF`,
+  `ONFF`, `DLFF`).
+- `topActivators` counts WWFF references and activations alongside POTA parks and SOTA summits,
+  and `topReferences` has a WWFF arm named from `wwff_reference_name`.
 - Bands use a fixed order (`160m` through `2m`); other bands are excluded from the band charts only.
 - Modes collapse to CW, SSB (`ssb`, `usb`, `lsb`), FT8/FT4, FM and Other (including null) as
   integer percentages that sum to exactly 100; the rounding remainder goes to the largest bucket.
 - Window arithmetic is done on `now() at time zone 'utc'` so a session time zone with DST cannot
   shift the window by an hour.
 - `hourly` feeds "Spots processed per hour": the 168 complete UTC hours before the refresh (not
-  the day window), zero-filled, each with the POTA and SOTAwatch `raw_spots` rows, the
+  the day window), zero-filled, each with the POTA, SOTAwatch and WWFF `raw_spots` rows, the
   `rbn_spots` rows whose `spot_time` falls in that hour and the hour's APRS-IS packets from
   `aprs_packet_hours`. The page plots their sum; the "Peak hour" tile figure comes from the same
   series.
@@ -342,7 +357,7 @@ refresh prunes older ones.
 ## RBN figures
 
 `rbn` holds the week's RBN spots, distinct skimmers, spots per band (the same fixed order as the
-POTA and SOTA bands, so the three charts share an axis; other bands count in spots only) and
+POTA, SOTA and WWFF bands, so the four charts share an axis; other bands count in spots only) and
 the eight most heard stations with how many distinct skimmers heard each. `rbn_spots` takes about 1.5 million rows a day, so the hourly
 refresh never aggregates it. `rollup_rbn_day(day)` scans one day once, with grouping sets, into
 three small tables: `rbn_hourly` (24 rows a day, zeros included), `rbn_daily_skimmers` (per
@@ -378,7 +393,7 @@ refresh cannot hold packets forever.
 ## Spots by country
 
 `countries` feeds the world map: spots per country of the station on the air, for POTA, SOTAwatch,
-DX Cluster and RBN (APRS packets are not spots). The country is the cty.dat entity that
+WWFF, DX Cluster and RBN (APRS packets are not spots). The country is the cty.dat entity that
 `cty_lookup()` gives for the call as spotted, so VP2E/K1ABC counts in Anguilla, mapped to ISO
 3166-1 alpha-2 by `cty_entity_countries` (England and Scotland are both GB, Alaska is US).
 Three entities with no country (Spratly, Scarborough Reef, SMOM) are left out, as is any call
@@ -423,7 +438,7 @@ uses about 20 MB). Issue #13 records the options that were weighed first.
   partitioned by UTC day that keeps seven days in the database; `maintain_rbn_spots()` drops a day
   once every 10-minute slice is archived with a matching count and the callsign rollups have
   recorded it or it is older than 14 days (see "The spot archive"). Only lines whose station `watched_among('rbn', stations)`
-  returns (named by an enabled subscription whose sources are empty or include `rbn`, exactly or by
+  returns (named by an enabled subscription with a destination whose sources are empty or include `rbn`, exactly or by
   base call, the matcher's rule) continue through `runIngest` into `raw_spots` and the matcher, so
   alerting sees a few hundred RBN rows a day.
 - **Partitions.** `maintain_rbn_spots()` runs daily at 03:35 UTC and keeps partitions for today and
@@ -520,6 +535,29 @@ feed is deliberate; never add a filter to the login. It runs at roughly 50-150 p
   five-minute slice is archived with a matching count and, while the day is in the Stats window,
   its Stats rollup is final, so the database holds yesterday and today (about 5 GB at 8 million packets a day).
 
+# WWFF
+
+World Wide Flora & Fauna is a POTA-like award program for nature reserves, each identified by a
+reference such as `KFF-5268` (spec `docs/superpowers/specs/2026-10-15-wwff-design.md`). It is a
+pulled source: pg_cron calls `ingest-wwff` once a minute, which fetches
+`https://spots.wwff.co/static/spots.json` (the latest spot per activator over about a day) and
+runs it through `runIngest` into `raw_spots`, exactly like POTA. There is no relay change and no
+firehose table.
+
+- **Adapter.** `_shared/wwff.ts`. `source_spot_id` is the upstream `id`; `spot_time` is Unix
+  seconds. Skips follow POTA (`too_old` after five minutes, `test_comment`), and QRT spots are kept.
+  The reference and its name go into `raw_spots.wwff_reference` and `wwff_reference_name`; the
+  reference's latitude and longitude stay in `raw_payload`.
+- **Opt-in matching.** As with DX Cluster, `source_matches` lets a WWFF spot match only
+  subscriptions whose `sources` lists `wwff`: an empty sources list means
+  `source not in ('dxcluster', 'wwff')`. About half of WWFF spots are US `KFF` references that are
+  usually POTA activations too, and there is no cross-source dedup, so "any source" subscribers
+  would otherwise get duplicate alerts.
+- **Reference rule.** "Park, summit, or location contains" (`rule_matches`) also searches
+  `wwff_reference`, so `KFF-` matches WWFF spots.
+- **Elsewhere.** WWFF is a peer of POTA and SOTA on Stats and profiles (`program` `'WWFF'` in
+  `spot_stream`), is archived hourly from `raw_spots`, and stays off the band map.
+
 # The spot archive
 
 ```mermaid
@@ -541,8 +579,8 @@ amendment, `docs/superpowers/specs/2026-10-14-archive-parquet-design.md` and
 before 2026-10-14 are gzipped NDJSON at `<source>/YYYY/MM/DD/HHMM.ndjson.gz` until a one-off
 migration rewrites them.
 
-- **Slices.** APRS-IS is archived in 5-minute slices, RBN in 10-minute slices, POTA, SOTAwatch and DX Cluster hourly. The length lives only
-  in `archive_slice_minutes(source)`; slices are aligned with `date_bin` and half-open
+- **Slices.** APRS-IS is archived in 5-minute slices, RBN in 10-minute slices, POTA, SOTAwatch,
+  DX Cluster and WWFF hourly. The length lives only in `archive_slice_minutes(source)`; slices are aligned with `date_bin` and half-open
   (`[start, end)`). Objects are one Parquet file per slice, in Hive-style day folders under the
   source: `<source>/year=YYYY/month=MM/day=DD/HHMM.parquet` (UTC slice start), so readers get
   `year`, `month` and `day` as columns and skip folders a filter rules out.
@@ -553,8 +591,8 @@ migration rewrites them.
   file; column types in `ARCHIVE_SCHEMAS`) and uploads, which measured at about 0.25 s for a full
   60,000-row run against the 2 s CPU limit.
 - **Runs.** pg_cron calls `archive` every 10 minutes with the service-role key (Vault), like the
-  ingest jobs. A run takes POTA, then SOTAwatch, then DX Cluster, then RBN, oldest first, and
-  starts no new slice once it has archived 60,000 rows, so a backlog clears about six times faster
+  ingest jobs. A run takes POTA, then SOTAwatch, then DX Cluster, then WWFF, then RBN
+  (`ARCHIVE_ORDER`), oldest first, and starts no new slice once it has archived 60,000 rows, so a backlog clears about six times faster
   than real time without risking the CPU limit. APRS-IS is not in that list: at ~100 packets a
   second it alone fills the budget. A second job, `archive-aprs`, calls `archive` every five
   minutes (two minutes off the 10-minute grid) with `{"sources": ["aprs"]}`; two 30,000-packet
@@ -571,9 +609,10 @@ migration rewrites them.
   `row_count = 0` and no object, so a gap in `archive_log` always means "not archived".
 - **Columns.** Timestamps are `TIMESTAMP(MILLIS)` adjusted to UTC, `frequency_khz` is `DOUBLE`,
   `snr` and `speed` are `INT32`, `raw_payload` is JSON text, the rest are strings. RBN: `spot_time, received_at, spotter, callsign, frequency_khz, band, mode,
-  mode_family, snr, speed, speed_unit, spot_type, line`. POTA, SOTAwatch and DX Cluster: every
-  `raw_spots` column except `id`, including the upstream `raw_payload`. Watched RBN rows in
-  `raw_spots` are not archived from there. APRS-IS: `received_at, source_call, destination, path,
+  mode_family, snr, speed, speed_unit, spot_type, line`. POTA, SOTAwatch, DX Cluster and WWFF: every
+  `raw_spots` column except `id`, including the upstream `raw_payload`; files written before WWFF
+  shipped lack `wwff_reference` and `wwff_reference_name`, which readers treat as null. Watched
+  RBN rows in `raw_spots` are not archived from there. APRS-IS: `received_at, source_call, destination, path,
   q_construct, igate, packet_type, line`.
 - **Retention.** `maintain_rbn_spots()` (03:35 UTC, off the archive's 10-minute grid) retires RBN
   days older than seven that `callsign_rollup_days` records (callsign profiles keep per-station
@@ -639,8 +678,10 @@ rollups keep per-station counts and breakdowns forever, never per-spotter rows (
 
 - **`spot_stream`.** One row shape for every source: `source`, `spot_time`, `callsign`,
   `base_callsign`, `spotter`, `spotter_base`, `frequency_khz`, `band`, `mode`, `mode_bucket`,
-  `snr`, `program`, `reference`, `reference_name`, `reference_location`. It is `raw_spots` without
-  its RBN rows (copies) plus `rbn_spots`. A source that writes `raw_spots` appears with no change;
+  `snr`, `program`, `reference`, `reference_name`, `reference_location`. `program` is `POTA`,
+  `SOTA` or `WWFF`, and `reference` and `reference_name` fall back to `wwff_reference` and
+  `wwff_reference_name` after the POTA and SOTA columns. It is `raw_spots` without its RBN rows
+  (copies) plus `rbn_spots`. A source that writes `raw_spots` appears with no change;
   a new firehose table needs one `union all` arm. The base columns are computed per row for
   `rbn_spots`, so a query over many RBN rows groups by `callsign` first. Service-role only.
 - **`mode_bucket(mode, mode_family)`.** The Stats chart buckets (CW, SSB, FT8/FT4, FM, Other).
@@ -837,7 +878,9 @@ source. It is public, like Stats and profiles.
   at most one `band_map_snapshot()` every 30 seconds. There is no cron job: an idle site rebuilds
   nothing. The payload goes out with `Cache-Control: public, max-age=15`.
 - **What shows.** POTA, SOTAwatch and DX Cluster spots only. RBN is a skimmer firehose that would
-  bury the human spots (RBN still shows on profiles), and APRS-IS never reaches `raw_spots`. A
+  bury the human spots (RBN still shows on profiles), and APRS-IS never reaches `raw_spots`. WWFF
+  is left out for now, though it is a peer of POTA and SOTA on Stats; adding it (a lane, a color,
+  `band_map_snapshot`'s source list) is a separate product call. A
   station appears once per band, at its latest spot there, keyed by `base_callsign`, so
   `KK4PWJ/P` and `KK4PWJ` are one dot. Hidden calls never show. `raw_payload` never leaves the
   table. The shape is `BandMapPayload` in `web/src/bandmap/types.ts`, pinned by
@@ -908,14 +951,17 @@ A subscription is built as one source, a filter and zero or more destinations
 preview beside them. A source page's Create subscription button goes straight to the editor.
 
 - **Same columns.** The filter's rule rows (Callsign, Callsign group, Band, Mode, and Park,
-  summit, or location on POTA and SOTAwatch) each edit one existing column, so a field appears at
+  summit, or location on POTA, SOTAwatch and WWFF) each edit one existing column, so a field appears at
   most once and rules always combine with "all": `spot_matches` ANDs the columns and ORs the
   values inside one. Nothing about matching changed.
 - **One source** is a web rule: new subscriptions save `sources` with one entry. Older
   subscriptions with several, or none ("any source"), open with their sources listed and keep
   them on save. The API still accepts any list.
 - **Zero destinations.** `save_subscription` accepts an empty list (`20261014000300`). Such a
-  subscription matches as before and `match_pending_spots` makes no deliveries for it.
+  subscription stays off: `match_pending_spots` and `watched_among` skip it (`20261015000500`),
+  so it starts no quiet window and watches no RBN calls. It keeps its `enabled` flag, so it
+  starts by itself once a destination is added. The web shows its switch off and disabled, and
+  "Waiting for a destination" on its card.
 - **Preview window.** `preview_subscription` samples the last 200 spots of the filter's sources
   from the last 24 hours, not of every source, and returns `window_size` so the page can say
   "7 of the last 42 POTA spots would pass". The cards show the same figure for each subscription.

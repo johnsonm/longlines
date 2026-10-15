@@ -21,6 +21,7 @@ const SOURCE_LABELS: Record<string, string> = {
   sotawatch: "SOTAwatch",
   rbn: "RBN",
   dxcluster: "DX Cluster",
+  wwff: "WWFF",
 };
 
 export function sourceLabel(source: string): string {
@@ -54,6 +55,8 @@ export function embedForSpot(spot: DeliverySpot): DiscordEmbed {
   add("Reference", spot.pota_reference);
   add("Park", spot.pota_park_name);
   add("Summit", spot.sota_summit_ref);
+  add("WWFF", spot.wwff_reference);
+  add("Reserve", spot.wwff_reference_name);
   add("Source", sourceLabel(spot.source));
   add("Spotter", spot.spotter);
   add("Time (UTC)", utcClock(spot.spot_time));
@@ -81,7 +84,13 @@ export function webhookPayloads(deliveries: readonly PendingDelivery[]): Webhook
 }
 
 function pushForSpot(spot: DeliverySpot): PushNotification {
-  const facts = [spot.pota_reference, spot.pota_park_name, spot.sota_summit_ref]
+  const facts = [
+    spot.pota_reference,
+    spot.pota_park_name,
+    spot.sota_summit_ref,
+    spot.wwff_reference,
+    spot.wwff_reference_name,
+  ]
     .filter((fact): fact is string => !!fact);
   facts.push(sourceLabel(spot.source));
   return {
@@ -149,5 +158,7 @@ export function sampleSpot(destination: DeliveryDestination): DeliverySpot {
     pota_park_name: "Test Park",
     pota_location: "US-TEST",
     sota_summit_ref: null,
+    wwff_reference: null,
+    wwff_reference_name: null,
   };
 }

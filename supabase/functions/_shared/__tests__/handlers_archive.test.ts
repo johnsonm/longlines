@@ -162,7 +162,7 @@ Deno.test("handleArchive treats pg_cron's empty JSON object as the default sourc
   assertEquals(res.status, 200);
   assertEquals(
     calls.rpc.filter((c) => c.fn === "archive_pending_slices").map((c) => c.args?.["p_source"]),
-    ["pota", "sotawatch", "dxcluster", "rbn"],
+    ["pota", "sotawatch", "dxcluster", "wwff", "rbn"],
   );
 });
 

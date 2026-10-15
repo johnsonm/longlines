@@ -1,5 +1,5 @@
 export type Volume = "standard" | "high";
-export type StatsKey = "pota" | "sota" | "rbn" | "dx" | "aprs";
+export type StatsKey = "pota" | "sota" | "wwff" | "rbn" | "dx" | "aprs";
 export type MarkColor = "primary" | "secondary" | "warning" | "success" | "default";
 
 /** One field of the delivered spot, as a webhook receives it (docs/WEBHOOKS.md). */
@@ -94,7 +94,7 @@ export const SOURCES: SourceInfo[] = [
     example: {
       id: 58161241, source: "pota", spot_time: "2026-10-14T14:30:05+00:00", callsign: "KK4PWJ", base_callsign: "KK4PWJ",
       spotter: "K3XYZ", frequency_khz: 14062.0, band: "20m", mode: "cw", mode_family: "cw", comment: "Strong signal",
-      pota_reference: "US-2763", pota_park_name: "Falls Lake SRA", pota_location: "US-NC", sota_summit_ref: null,
+      pota_reference: "US-2763", pota_park_name: "Falls Lake SRA", pota_location: "US-NC", sota_summit_ref: null, wwff_reference: null, wwff_reference_name: null,
     },
   },
   {
@@ -117,7 +117,7 @@ export const SOURCES: SourceInfo[] = [
     example: {
       id: 58161302, source: "sotawatch", spot_time: "2026-10-14T14:31:40+00:00", callsign: "KK4PWJ/P", base_callsign: "KK4PWJ",
       spotter: "KK4PWJ", frequency_khz: 14062.0, band: "20m", mode: "cw", mode_family: "cw", comment: "QRV now",
-      pota_reference: null, pota_park_name: null, pota_location: null, sota_summit_ref: "W4C/CM-001",
+      pota_reference: null, pota_park_name: null, pota_location: null, sota_summit_ref: "W4C/CM-001", wwff_reference: null, wwff_reference_name: null,
     },
   },
   {
@@ -142,7 +142,7 @@ export const SOURCES: SourceInfo[] = [
     example: {
       id: 58161377, source: "rbn", spot_time: "2026-10-14T14:30:12+00:00", callsign: "KK4PWJ", base_callsign: "KK4PWJ",
       spotter: "W3LPL", frequency_khz: 14062.0, band: "20m", mode: "cw", mode_family: "cw", comment: "18 dB 24 WPM CQ",
-      pota_reference: null, pota_park_name: null, pota_location: null, sota_summit_ref: null,
+      pota_reference: null, pota_park_name: null, pota_location: null, sota_summit_ref: null, wwff_reference: null, wwff_reference_name: null,
     },
   },
   {
@@ -163,7 +163,7 @@ export const SOURCES: SourceInfo[] = [
     example: {
       id: 58161420, source: "dxcluster", spot_time: "2026-10-14T14:32:00+00:00", callsign: "KK4PWJ", base_callsign: "KK4PWJ",
       spotter: "K3XYZ", frequency_khz: 14025.0, band: "20m", mode: "cw", mode_family: "cw", comment: "CQ CQ",
-      pota_reference: null, pota_park_name: null, pota_location: null, sota_summit_ref: null,
+      pota_reference: null, pota_park_name: null, pota_location: null, sota_summit_ref: null, wwff_reference: null, wwff_reference_name: null,
     },
   },
   {
@@ -180,14 +180,33 @@ export const SOURCES: SourceInfo[] = [
     example: null,
   },
   {
+    id: "wwff", name: "WWFF", full: "World Wide Flora & Fauna", status: "live", interval: "every 60s", pollSeconds: 60, desc: "Reference activation spots from spots.wwff.co", alerts: true,
+    volume: "standard", title: "WWFF", tagline: "Activators in nature reserves and protected areas around the world.",
+    mark: "WW", markColor: "success", statsKey: "wwff", site: "wwff.co",
+    runBy: { operator: "World Wide Flora & Fauna", feed: "Spot list, polled every 60 seconds", modes: "CW, SSB, digital" },
+    about: [
+      "World Wide Flora & Fauna is an award program for portable operation from nature reserves and protected areas. Activators and hunters post spots to the WWFF spotting page as they operate.",
+      "Long Lines stores every WWFF spot, keeps the reference and its name, and shows them on profiles and in Stats. Only subscriptions that pick WWFF get them.",
+    ],
+    showsUp: [
+      "Callsign profile: last heard, references, activity",
+      "Stats: top WWFF programs, most spotted parks, summits and WWFF references",
+      "Subscription filters: Bands, Modes, Callsigns, Callsign groups, Park, summit, or location contains",
+    ],
+    schema: deliveredSchema("wwff", {}, [
+      { name: "wwff_reference", type: "string", description: "WWFF reference.", derived: false },
+      { name: "wwff_reference_name", type: "string", description: "Reference name.", derived: false },
+    ]),
+    example: {
+      id: 58161488, source: "wwff", spot_time: "2026-10-14T14:33:20+00:00", callsign: "KK4PWJ", base_callsign: "KK4PWJ",
+      spotter: "K3XYZ", frequency_khz: 14244.0, band: "20m", mode: "ssb", mode_family: "phone", comment: "",
+      pota_reference: null, pota_park_name: null, pota_location: null, sota_summit_ref: null, wwff_reference: "KFF-5268", wwff_reference_name: "T.M. Goodwin",
+    },
+  },
+  {
     id: "pskreporter", name: "PSK Reporter", full: "PSK Reporter", status: "planned", interval: "streaming", pollSeconds: null, desc: "FT8, FT4 and other digital mode reports", alerts: true,
     volume: "high", title: "PSK Reporter", tagline: "Digital-mode reception reports from monitoring stations.",
     mark: "PS", markColor: "default", statsKey: null, site: null, runBy: null, about: [], showsUp: [], schema: null, example: null,
-  },
-  {
-    id: "wwff", name: "WWFF", full: "World Wide Flora & Fauna", status: "planned", interval: "streaming", pollSeconds: null, desc: "WWFF reference activations", alerts: true,
-    volume: "standard", title: "WWFF", tagline: "World Wide Flora and Fauna activations.",
-    mark: "WW", markColor: "default", statsKey: null, site: null, runBy: null, about: [], showsUp: [], schema: null, example: null,
   },
 ];
 

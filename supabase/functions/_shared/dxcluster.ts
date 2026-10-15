@@ -122,6 +122,8 @@ export function dxclusterAdapter(body: unknown): SourceAdapter {
           pota_park_name: null,
           pota_location: null,
           sota_summit_ref: null,
+          wwff_reference: null,
+          wwff_reference_name: null,
           raw_payload: raw,
         },
       };

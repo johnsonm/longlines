@@ -1,10 +1,11 @@
 # Long Lines
 
 Long Lines is a routing fabric for amateur radio spots. It watches the public spot feeds for
-[Parks on the Air](https://pota.app) and [Summits on the Air](https://sotawatch.sota.org.uk),
-plus the [Reverse Beacon Network](https://reversebeacon.net) for the callsigns you follow,
-normalizes every spot into one shape, and delivers the ones you care about to a Discord channel
-or a signed webhook within about a minute of them being posted.
+[Parks on the Air](https://pota.app), [Summits on the Air](https://sotawatch.sota.org.uk) and
+[World Wide Flora & Fauna](https://wwff.co), plus the
+[Reverse Beacon Network](https://reversebeacon.net) for the callsigns you follow, normalizes
+every spot into one shape, and delivers the ones you care about to a Discord channel or a signed
+webhook within about a minute of them being posted.
 
 The name is an homage to AT&T's Long Lines microwave backbone. The project moves other people's
 signals from where they are published to where they are wanted; it does not generate spots
@@ -31,7 +32,7 @@ Everything runs inside one Supabase project plus a static web app, except for on
 on Fly.io that holds the telnet stream from the Reverse Beacon Network.
 
 ```
-POTA / SOTAwatch ──► ingest functions ──► raw_spots + spot_events queue
+POTA / SOTAwatch / WWFF ──► ingest functions ──► raw_spots + spot_events queue
 RBN telnet ──► relay (Fly.io) ──► ingest-rbn ──┘
 APRS-IS ──► relay ──► ingest-aprs ──► aprs_packets (stored and archived, not matched)
                                                    │
@@ -42,10 +43,10 @@ APRS-IS ──► relay ──► ingest-aprs ──► aprs_packets (stored and
                                           deliver function ──► Discord / webhooks
 ```
 
-**Ingest.** `pg_cron` calls the `ingest-pota` function every minute and `ingest-sotawatch`
-every 30 seconds over `pg_net`. Each function fetches its upstream feed, normalizes the spots
-(uppercase callsigns, kHz frequencies, lowercase modes, derived `band` and `mode_family`), and
-hands the whole batch to one `ingest_spots` RPC. That RPC inserts into `raw_spots` and enqueues
+**Ingest.** `pg_cron` calls the `ingest-pota` and `ingest-wwff` functions every minute and
+`ingest-sotawatch` every 30 seconds over `pg_net`. Each function fetches its upstream feed,
+normalizes the spots (uppercase callsigns, kHz frequencies, lowercase modes, derived `band` and
+`mode_family`), and hands the whole batch to one `ingest_spots` RPC. That RPC inserts into `raw_spots` and enqueues
 a `spot_events` message per new row in a single transaction. Dedup is a unique constraint over
 a content hash, so re-fetching an unchanged feed inserts nothing and an edited spot lands as a
 new row. Spots that cannot be normalized go to `ingest_failures` instead of aborting the run.
@@ -66,7 +67,7 @@ never reach matching. See
 
 **Match.** `match_pending_spots()` is a Postgres function on a one-minute cron, also poked after
 every successful ingest. It joins a batch of `spot_events` against every enabled subscription
-using the `spot_matches` predicate, applies each subscription's per-callsign quiet window, and
+that has a destination, using the `spot_matches` predicate, applies each subscription's per-callsign quiet window, and
 writes one `deliveries` row per destination and spot. The web app's live preview calls the same
 predicate, so what you see while editing a subscription is exactly what will be delivered.
 
@@ -99,7 +100,7 @@ verification example in [docs/WEBHOOKS.md](docs/WEBHOOKS.md).
 | `supabase/migrations/` | Schema, RPCs, queues, cron jobs. Applied migrations are never edited; add a new one. |
 | `supabase/functions/_shared/` | All Edge Function logic: ingest orchestrator, source adapters, mode canonicalization, delivery formatting and sending. |
 | `supabase/functions/ingest-*`, `deliver`, `send-test`, `sign-in`, `delete-account` | Thin entrypoints around `_shared`. `ingest-rbn` is the push endpoint the relay calls. |
-| `supabase/functions/_shared/__tests__/` | Deno unit tests and the fixtures captured from the real feeds (POTA and SOTAwatch JSON, an RBN telnet capture). Nothing in the suite calls an upstream. |
+| `supabase/functions/_shared/__tests__/` | Deno unit tests and the fixtures captured from the real feeds (POTA, SOTAwatch and WWFF JSON, an RBN telnet capture). Nothing in the suite calls an upstream. |
 | `relay/` | The stream relay that runs on Fly.io: telnet session, batching forwarder, `/healthz`, and its Dockerfile. It imports the RBN parser from `_shared`. Tests use a local TCP server, never RBN. |
 | `fly.toml` | The relay's Fly.io config. It sits at the root because Fly's GitHub integration deploys from there and the image needs `supabase/functions/_shared`. |
 | `supabase/tests/` | pgTAP suites that assert grants, RLS and RPC behavior against a fresh database. |
@@ -145,12 +146,12 @@ The cron jobs exist locally but have no Vault secrets to call the functions with
 yourself while `dev:full` (or `npm run supabase:functions`) is serving the functions:
 
 ```sh
-npm run invoke:pota          # or invoke:sotawatch
+npm run invoke:pota          # or invoke:sotawatch, invoke:wwff
 ```
 
 The response is the run summary (`fetched`, `inserted`, `skipped`, `failed`). These calls hit
-the real POTA and SOTAwatch APIs, so be polite and do not script them in a loop. Then check what
-landed with `npm run db:psql`:
+the real POTA, SOTAwatch and WWFF feeds, so be polite and do not script them in a loop. Then check
+what landed with `npm run db:psql`:
 
 ```sql
 select * from ingest_health;
@@ -232,11 +233,11 @@ project's containers, volumes and network (other projects' stacks are left alone
 | `supabase:start` / `stop` / `restart` / `status` | The matching `supabase` command for this repo. `start` also runs `supabase:setup-env`. |
 | `supabase:setup-env` | Writes `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` into `web/.env.local` from `supabase status`. Other lines in the file are kept. |
 | `supabase:functions` | `supabase functions serve` on its own. |
-| `supabase:reset` | `supabase db reset`. Wipes local data, then loads `supabase/seed.sql`: a synthetic week of POTA, SOTA and RBN spots so the Stats page has something to show. |
+| `supabase:reset` | `supabase db reset`. Wipes local data, then loads `supabase/seed.sql`: a synthetic week of POTA, SOTA, WWFF and RBN spots so the Stats page has something to show. |
 | `supabase:types` | Regenerates `web/src/lib/database.types.ts`. |
 | `supabase:studio` / `supabase:mail` | Opens Studio or the mail catcher (macOS `open`). |
 | `supabase:nuke` | Removes this project's Docker containers, volumes and network. Wipes local data. |
-| `invoke:pota` / `invoke:sotawatch` / `invoke:deliver` | Calls the function with the local service-role key, as cron does when hosted. |
+| `invoke:pota` / `invoke:sotawatch` / `invoke:wwff` / `invoke:deliver` | Calls the function with the local service-role key, as cron does when hosted. |
 | `db:match` | Runs `match_pending_spots()` once. |
 | `db:psql` | Opens psql in the database container (`psql` is not installed with the CLI). |
 | `test:all` / `test:all:fresh` / `test:deno` / `test:db` | The checks described above. |
@@ -272,7 +273,7 @@ supabase db push
 
 supabase secrets set LONGLINES_USER_AGENT_URL=https://github.com/<you>/longlines
 supabase secrets set LONGLINES_RELAY_SECRET=<openssl rand -hex 32>   # shared with the relay
-for fn in ingest-pota ingest-sotawatch ingest-rbn deliver send-test sign-in delete-account archive; do
+for fn in ingest-pota ingest-sotawatch ingest-wwff ingest-rbn deliver send-test sign-in delete-account archive; do
   supabase functions deploy "$fn"
 done
 
@@ -281,8 +282,8 @@ done
 psql "$DATABASE_URL" -f scripts/setup-db-settings.sql
 ```
 
-After a minute or two, `select * from ingest_health;` should show POTA and SOTAwatch with a
-recent `last_success_at`. The web app deploys to Vercel from `web/` as a plain static site.
+After a minute or two, `select * from ingest_health;` should show POTA, SOTAwatch and WWFF
+with a recent `last_success_at`. The web app deploys to Vercel from `web/` as a plain static site.
 
 ### The relay on Fly.io
 
