@@ -24,7 +24,10 @@ import { useStats } from "../stats/useStats";
 import { HealthChip } from "../destinations/HealthChip";
 import { typeLabel } from "../destinations/types";
 import { FilterStep } from "./FilterStep";
-import { blankSub, linkedDestinations, needsCallsign, pickableSource, rulesOf, singleSource, toInput, type RuleField } from "./model";
+import {
+  blankSub, linkedDestinations, needsCallsign, newRow, pickableSource, picksStations, rowInvalid, rowsOf, rulesOf, singleSource, toInput,
+  type RuleRow,
+} from "./model";
 
 const DEBOUNCE_MS = 300;
 const PREVIEW_SHOWN = 4;
@@ -88,10 +91,10 @@ function Editor({ initial, dests, reload, prefs, mobile }: EditorProps) {
   const { report } = useTour();
   const isNew = !initial.id;
   const [sub, setSub] = useState(initial);
-  // Rule rows live apart from the values so a row can exist before it has any.
-  const [rules, setRules] = useState<RuleField[]>(() => {
-    const r = rulesOf(initial);
-    return r.length === 0 && needsCallsign(initial) ? ["callsign"] : r;
+  // The builder's rows; sub.rules is what they store, worked out on preview and save.
+  const [rows, setRows] = useState<RuleRow[]>(() => {
+    const r = rowsOf(initial.rules);
+    return r.length === 0 && needsCallsign(initial.sources, initial.rules) ? [newRow(["callsign"], [])] : r;
   });
   const [groups, setGroups] = useState<CallsignGroup[] | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
@@ -102,7 +105,9 @@ function Editor({ initial, dests, reload, prefs, mobile }: EditorProps) {
 
   const source = singleSource(sub.sources);
   const rates = source?.statsKey && stats ? sourceRates(stats.payload.hourly, source.statsKey) : null;
-  const missingCall = needsCallsign(sub);
+  const rules = useMemo(() => rulesOf(rows), [rows]);
+  const missingCall = needsCallsign(sub.sources, rules);
+  const invalid = rows.some(rowInvalid);
 
   useEffect(() => {
     if (isNew) report("subscription-form-opened");
@@ -120,12 +125,7 @@ function Editor({ initial, dests, reload, prefs, mobile }: EditorProps) {
     };
   }, []);
 
-  const filterKey = useMemo(
-    () => JSON.stringify({
-      sources: sub.sources, bands: sub.bands, modes: sub.modes, callsigns: sub.callsigns, reference: sub.reference, group_ids: sub.group_ids,
-    }),
-    [sub.sources, sub.bands, sub.modes, sub.callsigns, sub.reference, sub.group_ids],
-  );
+  const filterKey = useMemo(() => JSON.stringify({ sources: sub.sources, rules }), [sub.sources, rules]);
 
   // Preview is computed by the database with the same predicate the matcher uses.
   useEffect(() => {
@@ -151,7 +151,7 @@ function Editor({ initial, dests, reload, prefs, mobile }: EditorProps) {
   const save = async () => {
     setBusy(true);
     try {
-      await saveSubscription({ ...sub, name: sub.name.trim() });
+      await saveSubscription({ ...sub, name: sub.name.trim(), rules });
       await reload();
       notify(isNew ? `Created ${sub.name.trim()}` : "Saved changes");
       // Reported before navigating, so the tour moves on before it sees the page change.
@@ -181,7 +181,7 @@ function Editor({ initial, dests, reload, prefs, mobile }: EditorProps) {
   const actions = (
     <Stack direction="row" spacing={1}>
       <Button onClick={cancel} disabled={busy}>Cancel</Button>
-      <Button variant="contained" disabled={!sub.name.trim() || missingCall || busy} onClick={() => void save()} data-tour="subscription-save">
+      <Button variant="contained" disabled={!sub.name.trim() || missingCall || invalid || busy} onClick={() => void save()} data-tour="subscription-save">
         Save subscription
       </Button>
     </Stack>
@@ -219,9 +219,9 @@ function Editor({ initial, dests, reload, prefs, mobile }: EditorProps) {
               <Arrow />
               <Step n={2} title="Filter" subheader={source?.volume === "high" ? "Required for this source" : "Optional. Leave it empty to pass every spot"}>
                 <FilterStep
-                  sub={sub} setSub={setSub} rules={rules} setRules={setRules} groups={groups} source={source} mobile={mobile}
+                  sub={sub} setSub={setSub} rows={rows} setRows={setRows} groups={groups} source={source} mobile={mobile}
                   perDay={rates ? formatPerDay(rates.perDay) : null}
-                  stationCount={preview && (sub.callsigns.length > 0 || sub.group_ids.length > 0) ? preview.station_count : null}
+                  stationCount={preview && picksStations(rules) ? preview.station_count : null}
                 />
               </Step>
               <Arrow />

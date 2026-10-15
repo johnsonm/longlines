@@ -93,18 +93,14 @@ A destination looks like this:
 
 ## Subscriptions
 
-A subscription says which spots you want and where to send them. Empty lists mean "any".
+A subscription says which spots you want and where to send them.
 
 | Field | Type | Notes |
 |---|---|---|
 | `name` | string | Required. |
 | `enabled` | boolean | Defaults to `true`. |
-| `sources` | strings | `pota`, `sotawatch`, `rbn`, `dxcluster`. A DX Cluster spot only matches a subscription that lists `dxcluster`. |
-| `bands` | strings | For example `20m`. |
-| `modes` | strings | For example `cw`, `ssb`, `ft8`. |
-| `callsigns` | strings | Exact calls. Uppercased for you. RBN spots only match subscriptions that name callsigns. |
-| `group_ids` | UUIDs | Callsign groups whose members count as callsigns. |
-| `reference` | string | A park or summit reference to look for, such as `US-1234`. |
+| `sources` | strings | `pota`, `sotawatch`, `rbn`, `dxcluster`. Empty means any. A DX Cluster spot only matches a subscription that lists `dxcluster`. |
+| `rules` | list of lists | The filter. See Rules. Defaults to `[]`, which passes every spot. |
 | `quiet_minutes` | integer | 0, 5, 10, 30 or 60. Defaults to 10. |
 | `destinations` | UUIDs | Zero or more. With none, the subscription matches but delivers nothing. |
 
@@ -113,20 +109,44 @@ A subscription says which spots you want and where to send them. Empty lists mea
 | GET | `/subscriptions` | | All your subscriptions. |
 | POST | `/subscriptions` | All the fields above | The subscription. |
 | GET | `/subscriptions/{id}` | | The subscription. |
-| PUT | `/subscriptions/{id}` | All the fields above | The subscription. `reference` and every list but `group_ids` left out become empty; `group_ids`, `enabled` and `quiet_minutes` left out keep their values (send `"group_ids": []` to clear the groups). |
-| PATCH | `/subscriptions/{id}` | Any of the fields above | The subscription. Fields left out keep their values, and so do `name`, `reference`, `enabled` and `quiet_minutes` sent as `null`. A list can't be `null`: send `[]` to empty it. |
+| PUT | `/subscriptions/{id}` | All the fields above | The subscription. `sources` and `destinations` left out become empty; `rules`, `enabled` and `quiet_minutes` left out keep their values (send `"rules": []` to clear the filter). |
+| PATCH | `/subscriptions/{id}` | Any of the fields above | The subscription. Fields left out keep their values, and so do `name`, `enabled` and `quiet_minutes` sent as `null`. A list can't be `null`: send `[]` to empty it. |
 | DELETE | `/subscriptions/{id}` | | `{"deleted": true}` |
-| POST | `/subscriptions/{id}/callsigns` | `{"callsigns": [...]}` | `{"callsigns": [...]}`, the full list after adding. |
-| POST | `/subscriptions/{id}/callsigns/remove` | `{"callsigns": [...]}` | `{"callsigns": [...]}`, the full list after removing. |
 
-Adding a call that's already there, or removing one that isn't, is not an error. The two
-`callsigns` routes change the list in one step, so two scripts adding calls at the same time don't
-lose each other's changes. A `PATCH` with a new `callsigns` list replaces the whole list.
+### Rules
+
+`rules` is a list of groups, and each group is a list of rules. A spot passes when it passes every
+rule in at least one group: rules in a group are joined by "and", and groups by "or". The web app
+shows the same thing as one list where each rule after the first says And or Or, with And binding
+tighter, so "band is 20m and mode is CW or callsign is W1AW" is:
+
+```json
+[
+  [{"field": "band", "op": "is", "values": ["20m"]}, {"field": "mode", "op": "is", "values": ["cw"]}],
+  [{"field": "callsign", "op": "is", "values": ["W1AW"]}]
+]
+```
+
+| `field` | `op` | `values` |
+|---|---|---|
+| `callsign` | `is`, `is_not` | Calls, uppercased for you. A call matches exactly or by its base call. |
+| `group` | `is`, `is_not` | Callsign group ids. A spot's base call is checked against the members. |
+| `band` | `is`, `is_not` | Bands, for example `20m`. |
+| `mode` | `is`, `is_not` | Modes or mode families, for example `cw`, `ft8`, `digital`. |
+| `reference` | `contains`, `not_contains` | Text to look for in a POTA reference or location or a SOTA summit code, such as `US-NC`. Ignores case. |
+| `frequency` | `is`, `is_not`, `gt`, `lt` | One number, in kHz. `gt` is greater than and `lt` less than. |
+
+`is` passes a spot that has any of the values and `is_not` one that has none of them, so a spot
+with no band passes `band is_not 20m`. A subscription can have at most 50 rules, and each group
+needs at least one.
+
+RBN spots only pass a group that has a `callsign` or `group` rule with `is`, so a subscription
+whose only source is `rbn` needs one in every group.
 
 ## Callsign groups
 
 A group is a named list of up to 1,000 callsigns, such as a club roster. Point subscriptions at a
-group with `group_ids`. Adding a member to the group changes what every subscription using it
+group with a `group` rule. Adding a member to the group changes what every subscription using it
 matches, and you don't need to save the subscriptions again.
 
 Members are stored as base calls: adding `KN4XYZ/P` stores `KN4XYZ`, which matches `KN4XYZ` and
@@ -177,7 +197,8 @@ curl -X POST "$API/groups" -H "Authorization: Bearer $TOKEN" -H "Content-Type: a
 # A subscription for POTA and SOTA spots of any member.
 curl -X POST "$API/subscriptions" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"name": "Members on the air", "sources": ["pota", "sotawatch"],
-       "group_ids": ["<group id>"], "destinations": ["<destination id>"]}'
+       "rules": [[{"field": "group", "op": "is", "values": ["<group id>"]}]],
+       "destinations": ["<destination id>"]}'
 ```
 
 Then, when someone joins or leaves:

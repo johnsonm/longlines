@@ -139,11 +139,11 @@ Deno.test("handleApi runs the route's op as the token and returns its result", a
 
 Deno.test("handleApi wants a JSON object body of the right shape", async () => {
   for (const body of ["not json", "[1]", "null"]) {
-    const res = await run(request("POST", `/api/v1/subscriptions/${ID}/callsigns`, body));
+    const res = await run(request("POST", `/api/v1/groups/${ID}/members`, body));
     assertEquals([res.res.status, res.body], [400, { error: BAD_BODY }]);
   }
   const shape = await run(
-    request("POST", `/api/v1/subscriptions/${ID}/callsigns`, { callsigns: "W1AW" }),
+    request("POST", `/api/v1/groups/${ID}/members`, { callsigns: "W1AW" }),
   );
   assertEquals([shape.res.status, shape.body], [400, {
     error: "callsigns must be a list of strings.",

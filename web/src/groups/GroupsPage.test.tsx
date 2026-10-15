@@ -28,7 +28,8 @@ function group(id: string, overrides: Partial<CallsignGroup> = {}): CallsignGrou
 }
 
 const dest = (id: string, health: Destination["health"]) => ({ id, name: id, health }) as Destination;
-const sub = (name: string, group_ids: string[]) => ({ id: name, name, group_ids }) as SubscriptionWithLinks;
+const sub = (name: string, group_ids: string[], op = "is") =>
+  ({ id: name, name, group_ids, rules: [[{ field: "group", op, values: group_ids }]] }) as unknown as SubscriptionWithLinks;
 
 beforeEach(() => {
   for (const fn of [deleteGroup, listGroups, loadDestinations, loadSubscriptions, saveGroup, saveSubscription]) vi.mocked(fn).mockReset();
@@ -108,14 +109,15 @@ describe("GroupsPage", () => {
   describe("Get alerts", () => {
     it("creates a subscription on the group with the first healthy destination", async () => {
       vi.mocked(loadDestinations).mockResolvedValue([dest("bad", "failing"), dest("good", "ok")]);
-      vi.mocked(loadSubscriptions).mockResolvedValue([sub("Other", ["z"])]);
+      // A subscription that only leaves the group out doesn't count as alerts on it.
+      vi.mocked(loadSubscriptions).mockResolvedValue([sub("Other", ["z"]), sub("Not RARS", ["a"], "is_not")]);
       vi.mocked(saveSubscription).mockResolvedValue("s1");
       const { user, app, reload } = render([group("a", { name: "RARS" })]);
       await user.click(await screen.findByRole("button", { name: "Get alerts" }));
       await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Created RARS on the air"));
       expect(saveSubscription).toHaveBeenCalledWith({
         name: "RARS on the air", enabled: true, quiet_minutes: 30, destinations: ["good"],
-        sources: [], bands: [], modes: [], callsigns: [], reference: "", group_ids: ["a"],
+        sources: [], rules: [[{ field: "group", op: "is", values: ["a"] }]],
       });
       expect(reload).toHaveBeenCalled();
       await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/subscriptions"));

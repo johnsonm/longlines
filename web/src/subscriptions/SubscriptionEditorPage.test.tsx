@@ -26,11 +26,18 @@ function dest(id: string, name: string, overrides: Partial<Destination> = {}): D
 
 function sub(overrides: Partial<SubscriptionWithLinks> = {}): SubscriptionWithLinks {
   return {
-    id: "s1", user_id: "u1", name: "NC parks", enabled: true, sources: ["pota"], bands: ["20m"], modes: [], callsigns: [],
-    reference: "", quiet_minutes: 10, group_ids: [], created_at: "2026-10-01T00:00:00Z", updated_at: "2026-10-01T00:00:00Z",
+    id: "s1", user_id: "u1", name: "NC parks", enabled: true, sources: ["pota"], rules: [[BAND]],
+    quiet_minutes: 10, group_ids: [], created_at: "2026-10-01T00:00:00Z", updated_at: "2026-10-01T00:00:00Z",
     destinations: ["d1"], ...overrides,
   } as SubscriptionWithLinks;
 }
+
+function rule(field: string, op: string, ...values: (string | number)[]) {
+  return { field, op, values };
+}
+
+const BAND = rule("band", "is", "20m");
+const GROUP = rule("group", "is", "g1");
 
 function group(id: string, name: string): CallsignGroup {
   return {
@@ -140,7 +147,21 @@ describe("new subscription", () => {
     expect(save()).toBeEnabled();
     expect(screen.getByText("Type a call and press Enter.")).toBeInTheDocument();
     await user.click(save());
-    expect(saveSubscription).toHaveBeenCalledWith(expect.objectContaining({ sources: ["rbn"], callsigns: ["KK4PWJ"] }));
+    expect(saveSubscription).toHaveBeenCalledWith(expect.objectContaining({ sources: ["rbn"], rules: [[rule("callsign", "is", "KK4PWJ")]] }));
+  });
+
+  it("on RBN, needs a callsign or group in every Or", async () => {
+    const { user } = render({ id: "s1", subs: [sub({ sources: ["rbn"], rules: [[rule("callsign", "is", "W1AW")]] })] });
+    expect(save()).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: "Add rule" }));
+    await user.click(screen.getByRole("combobox", { name: "Join" }));
+    await user.click(await screen.findByRole("option", { name: "Or" }));
+    await user.click(screen.getAllByRole("combobox", { name: "Field" })[1]!);
+    await user.click(await screen.findByRole("option", { name: "Band" }));
+    await user.click(screen.getAllByLabelText("Values")[1]!);
+    await user.click(await screen.findByRole("option", { name: "40m" }));
+    expect(screen.getByText("High volume source: each Or needs a callsign or group rule.")).toBeInTheDocument();
+    expect(save()).toBeDisabled();
   });
 
   it("leaves the per-day sentence out before the stats load", () => {
@@ -165,7 +186,8 @@ describe("new subscription", () => {
 
 describe("edit subscription", () => {
   it("loads the subscription's rules, destinations and preview", async () => {
-    const { tour } = render({ id: "s1", subs: [sub({ destinations: ["d1", "d2"], callsigns: ["W1AW"] })] });
+    const rules = [[BAND, rule("callsign", "is", "W1AW")]];
+    const { tour } = render({ id: "s1", subs: [sub({ destinations: ["d1", "d2"], rules })] });
     expect(tour.report).not.toHaveBeenCalledWith("subscription-form-opened");
     expect(screen.getByRole("heading", { name: "Edit subscription" })).toBeInTheDocument();
     expect(screen.getByText("Pass spots that match all of these rules")).toBeInTheDocument();
@@ -178,7 +200,7 @@ describe("edit subscription", () => {
     expect(screen.getByText("K8ABC US-0817")).toBeInTheDocument();
     expect(screen.queryByText("N4DXX US-0817")).not.toBeInTheDocument();
     expect(screen.getByText("Showing 4 of 7. Preview uses the last 42 POTA spots.")).toBeInTheDocument();
-    expect(previewSubscription).toHaveBeenCalledWith(expect.objectContaining({ sources: ["pota"], bands: ["20m"], callsigns: ["W1AW"] }));
+    expect(previewSubscription).toHaveBeenCalledWith({ sources: ["pota"], rules });
   });
 
   it("adds, changes and deletes rules, and saves them with the repeat window", async () => {
@@ -188,7 +210,7 @@ describe("edit subscription", () => {
     expect(screen.getAllByLabelText("Field")).toHaveLength(2);
     await user.type(screen.getAllByLabelText("Values")[1]!, "w1aw{Enter}");
 
-    // Swap the band rule for a mode rule: its bands are cleared.
+    // Swap the band rule for a mode rule: its values are cleared.
     await user.click(screen.getAllByRole("combobox", { name: "Field" })[0]!);
     await user.click(await screen.findByRole("option", { name: "Mode" }));
     await user.click(screen.getAllByLabelText("Values")[0]!);
@@ -196,7 +218,9 @@ describe("edit subscription", () => {
     expect(screen.getByText("SOTAwatch reports every digital mode as DATA. Choose Any digital to include those spots.")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Add rule" }));
+    // Every row offers every field, used or not.
     await user.click(screen.getAllByRole("combobox", { name: "Field" })[2]!);
+    expect(screen.getAllByRole("option")).toHaveLength(6);
     await user.click(await screen.findByRole("option", { name: "Park, summit, or location" }));
     await user.type(screen.getByPlaceholderText("US-NC, W4C/, US-0817"), "US-NC");
     expect(screen.getByText("Matches POTA references and locations, and SOTA summit codes.")).toBeInTheDocument();
@@ -208,14 +232,61 @@ describe("edit subscription", () => {
     await user.click(save());
 
     expect(saveSubscription).toHaveBeenCalledWith(expect.objectContaining({
-      id: "s1", callsigns: [], bands: [], modes: ["digital"], reference: "US-NC", quiet_minutes: 60, enabled: false,
+      id: "s1", rules: [[rule("mode", "is", "digital"), rule("reference", "contains", "US-NC")]], quiet_minutes: 60, enabled: false,
     }));
     await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Saved changes"));
   });
 
-  it("disables Add rule once every field is used", async () => {
-    const { user } = render({ id: "s1", subs: [sub({ sources: ["rbn"], callsigns: ["W1AW"], bands: [] })] });
-    for (let i = 0; i < 3; i++) await user.click(screen.getByRole("button", { name: "Add rule" }));
+  it("joins rules with And or Or and picks each rule's condition", async () => {
+    const { user } = render({ id: "s1" });
+    expect(screen.queryByRole("combobox", { name: "Join" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("combobox", { name: "Condition" }));
+    await user.click(await screen.findByRole("option", { name: "is not" }));
+
+    await user.click(screen.getByRole("button", { name: "Add rule" }));
+    await user.click(screen.getByRole("combobox", { name: "Join" }));
+    await user.click(await screen.findByRole("option", { name: "Or" }));
+    expect(screen.getByText("Pass spots that match any of these rules")).toBeInTheDocument();
+    await user.type(screen.getAllByLabelText("Values")[1]!, "w1aw{Enter}");
+
+    // A new rule starts with the last rule's join.
+    await user.click(screen.getByRole("button", { name: "Add rule" }));
+    expect(screen.getAllByRole("combobox", { name: "Join" })[1]).toHaveTextContent("Or");
+    await user.click(screen.getAllByRole("combobox", { name: "Join" })[1]!);
+    await user.click(await screen.findByRole("option", { name: "And" }));
+    expect(screen.getByText("Pass spots that match these rules")).toBeInTheDocument();
+    expect(screen.getByText("And comes before Or: a spot passes when it matches every rule between two Ors.")).toBeInTheDocument();
+
+    await user.click(screen.getAllByRole("combobox", { name: "Field" })[2]!);
+    await user.click(await screen.findByRole("option", { name: "Frequency (kHz)" }));
+    await user.click(screen.getAllByRole("combobox", { name: "Condition" })[2]!);
+    expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual(["is", "is not", "is greater than", "is less than"]);
+    await user.click(screen.getByRole("option", { name: "is greater than" }));
+    await user.type(screen.getByLabelText("kHz"), "14 MHz");
+    expect(screen.getByText("Enter a frequency in kHz, such as 14074.")).toBeInTheDocument();
+    await user.type(screen.getByLabelText(/^Name/), "x");
+    expect(save()).toBeDisabled();
+    await user.clear(screen.getByLabelText("kHz"));
+    await user.type(screen.getByLabelText("kHz"), "14000");
+    expect(save()).toBeEnabled();
+
+    const rules = [[rule("band", "is_not", "20m")], [rule("callsign", "is", "W1AW"), rule("frequency", "gt", 14000)]];
+    await waitFor(() => expect(previewSubscription).toHaveBeenLastCalledWith({ sources: ["pota"], rules }));
+    await user.click(save());
+    expect(saveSubscription).toHaveBeenCalledWith(expect.objectContaining({ rules }));
+  });
+
+  it("joins the next rule up to nothing when the first is deleted", async () => {
+    const { user } = render({ id: "s1", subs: [sub({ rules: [[BAND], [rule("mode", "is", "cw")]] })] });
+    expect(screen.getByRole("combobox", { name: "Join" })).toHaveTextContent("Or");
+    await user.click(screen.getByRole("button", { name: "Delete Band rule" }));
+    expect(screen.queryByRole("combobox", { name: "Join" })).not.toBeInTheDocument();
+    await user.click(save());
+    expect(saveSubscription).toHaveBeenCalledWith(expect.objectContaining({ rules: [[rule("mode", "is", "cw")]] }));
+  });
+
+  it("disables Add rule at 50 rules", () => {
+    render({ id: "s1", subs: [sub({ rules: [Array.from({ length: 50 }, () => BAND)] })] });
     expect(screen.getByRole("button", { name: "Add rule" })).toBeDisabled();
   });
 
@@ -253,8 +324,9 @@ describe("edit subscription", () => {
   });
 
   it("lays rules out stacked on a phone", () => {
-    render({ id: "s1", mobile: true });
-    expect(screen.getByLabelText("Condition")).toHaveValue("is");
+    render({ id: "s1", mobile: true, subs: [sub({ rules: [[BAND, rule("mode", "is", "cw")]] })] });
+    expect(screen.getAllByRole("combobox", { name: "Condition" })[0]).toHaveTextContent("is");
+    expect(screen.getByRole("combobox", { name: "Join" })).toHaveTextContent("And");
   });
 });
 
@@ -298,21 +370,22 @@ describe("callsign groups", () => {
     await user.click(await screen.findByRole("option", { name: "Callsign group" }));
     await user.click(screen.getAllByLabelText("Values")[1]!);
     await user.click(await screen.findByRole("option", { name: "RARS members" }));
-    await waitFor(() => expect(previewSubscription).toHaveBeenLastCalledWith(expect.objectContaining({ group_ids: ["g2"] })));
+    const rules = [[BAND, rule("group", "is", "g2")]];
+    await waitFor(() => expect(previewSubscription).toHaveBeenLastCalledWith({ sources: ["pota"], rules }));
     expect(await screen.findByText("Matches 12 stations from your groups and callsigns.")).toBeInTheDocument();
     await user.click(save());
-    expect(saveSubscription).toHaveBeenCalledWith(expect.objectContaining({ group_ids: ["g2"] }));
+    expect(saveSubscription).toHaveBeenCalledWith(expect.objectContaining({ rules }));
   });
 
   it("counts one station in the singular", async () => {
     vi.mocked(previewSubscription).mockResolvedValue(preview({ station_count: 1 }));
-    render({ id: "s1", subs: [sub({ group_ids: ["g1"] })] });
+    render({ id: "s1", subs: [sub({ rules: [[GROUP]] })] });
     expect(await screen.findByText("Matches 1 station from your groups and callsigns.")).toBeInTheDocument();
   });
 
   it("links to Groups when the account has none", async () => {
     vi.mocked(listGroups).mockResolvedValue([]);
-    const { user } = render({ id: "s1", subs: [sub({ group_ids: ["g1"] })] });
+    const { user } = render({ id: "s1", subs: [sub({ rules: [[GROUP]] })] });
     const link = await screen.findByRole("link", { name: "Create a group" });
     await user.click(link);
     expect(screen.getByTestId("location")).toHaveTextContent("/groups");
@@ -320,9 +393,9 @@ describe("callsign groups", () => {
 
   it("keeps the groups when the list doesn't load", async () => {
     vi.mocked(listGroups).mockRejectedValue(new Error("x"));
-    const { user } = render({ id: "s1", subs: [sub({ group_ids: ["g1"] })] });
+    const { user } = render({ id: "s1", subs: [sub({ rules: [[GROUP]] })] });
     expect(await screen.findByText("Couldn't load your groups.")).toBeInTheDocument();
     await user.click(save());
-    expect(saveSubscription).toHaveBeenCalledWith(expect.objectContaining({ group_ids: ["g1"] }));
+    expect(saveSubscription).toHaveBeenCalledWith(expect.objectContaining({ rules: [[GROUP]] }));
   });
 });

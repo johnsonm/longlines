@@ -6,6 +6,7 @@ import type { Database, Json } from "./database.types";
 import type { LatestStats, StatsPayload } from "../stats/types";
 import type { CallsignProfile } from "../profile/types";
 import type { CallsignGroup, GroupInput, NormalizedCallsigns } from "../groups/types";
+import type { Rules } from "../subscriptions/model";
 
 type Tables = Database["public"]["Tables"];
 type Views = Database["public"]["Views"];
@@ -252,11 +253,7 @@ export async function loadSubscriptions(): Promise<SubscriptionWithLinks[]> {
 
 export interface SubscriptionFilter {
   sources: string[];
-  bands: string[];
-  modes: string[];
-  callsigns: string[];
-  reference: string;
-  group_ids: string[];
+  rules: Rules;
 }
 
 export interface SubscriptionInput extends SubscriptionFilter {
@@ -287,7 +284,7 @@ export async function setSubscriptionEnabled(id: string, enabled: boolean): Prom
 export interface Preview {
   count: number;
   spots: RecentSpot[];
-  // Distinct base calls across the typed calls and the caller's selected groups, counted in SQL.
+  // Distinct base calls across the "is" callsign rules and the members of "is" group rules, counted in SQL.
   station_count: number;
   // How many recent spots of the filter's sources were checked: "7 of the last 42 POTA spots".
   window_size: number;

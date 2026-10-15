@@ -20,6 +20,8 @@ export interface Route {
   input: "none" | "fields" | "body";
   /** Keys that, when present in the body, must be arrays of strings. */
   arrays?: readonly string[];
+  /** Keys that, when present in the body, must be arrays; SQL checks what they hold. */
+  lists?: readonly string[];
   /** Scalar keys and their JSON type. Null is allowed: SQL reads it as left out. */
   scalars?: Readonly<Record<string, Scalar>>;
   /** Keys the body must have. Without them an add or remove would do nothing and still succeed. */
@@ -36,7 +38,7 @@ export type RouteMatch =
 /** Most strings one list in a request may hold. A group holds at most 1,000 calls, which SQL enforces. */
 export const MAX_LIST_ITEMS = 2000;
 
-const SUBSCRIPTION_ARRAYS = ["sources", "bands", "modes", "callsigns", "destinations", "group_ids"];
+const SUBSCRIPTION_ARRAYS = ["sources", "destinations"];
 const CALLSIGN_ARRAYS = ["callsigns"];
 
 const read = (op: string): Route => ({ op, scope: "read", input: "none", status: 200 });
@@ -44,12 +46,14 @@ const read = (op: string): Route => ({ op, scope: "read", input: "none", status:
 const write = (
   op: string,
   input: Route["input"] = "none",
-  more: Partial<Pick<Route, "arrays" | "scalars" | "required" | "status">> = {},
+  more: Partial<Pick<Route, "arrays" | "lists" | "scalars" | "required" | "status">> = {},
 ): Route => ({ op, scope: "write", input, status: 200, ...more });
 
+// rules is a list of AND groups, each a list of rules; normalize_subscription_rules checks the rest.
 const SUB = {
   arrays: SUBSCRIPTION_ARRAYS,
-  scalars: { name: "string", reference: "string", enabled: "boolean", quiet_minutes: "number" },
+  lists: ["rules"],
+  scalars: { name: "string", enabled: "boolean", quiet_minutes: "number" },
 } as const;
 const DEST = { scalars: { type: "string", name: "string", url: "string" } } as const;
 const GROUP = { arrays: CALLSIGN_ARRAYS, scalars: { name: "string" } } as const;
@@ -72,8 +76,6 @@ export const ROUTES: ReadonlyArray<readonly [string, string, Route]> = [
   ["PUT",    "/v1/subscriptions/:id",              write("replace_subscription", "body", SUB)],
   ["PATCH",  "/v1/subscriptions/:id",              write("patch_subscription", "body", SUB)],
   ["DELETE", "/v1/subscriptions/:id",              write("delete_subscription")],
-  ["POST",   "/v1/subscriptions/:id/callsigns",    write("add_subscription_callsigns", "fields", CALLS)],
-  ["POST",   "/v1/subscriptions/:id/callsigns/remove", write("remove_subscription_callsigns", "fields", CALLS)],
 
   ["GET",    "/v1/groups",                         read("list_groups")],
   ["POST",   "/v1/groups",                         write("create_group", "fields", { ...GROUP, ...CREATED })],
@@ -140,6 +142,10 @@ export function checkBody(route: Route, body: JsonObject): string | null {
     if (value.length > MAX_LIST_ITEMS) {
       return `${key} can hold at most ${MAX_LIST_ITEMS.toLocaleString("en-US")} items per request.`;
     }
+  }
+  for (const key of route.lists ?? []) {
+    const value = body[key];
+    if (value !== undefined && !Array.isArray(value)) return `${key} must be a list.`;
   }
   for (const [key, type] of Object.entries(route.scalars ?? {})) {
     const value = body[key];

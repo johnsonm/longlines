@@ -2,29 +2,64 @@ import type { Destination, SubscriptionInput, SubscriptionWithLinks } from "../l
 import type { CallsignGroup } from "../groups/types";
 import { LIVE_SOURCES, modeLabel, SOURCES, type SourceInfo } from "../sources/sources";
 
+export type RuleField = "callsign" | "group" | "band" | "mode" | "reference" | "frequency";
+export type RuleOp = "is" | "is_not" | "contains" | "not_contains" | "gt" | "lt";
+export type Join = "and" | "or";
+
+/** One stored rule, as normalize_subscription_rules writes it. Frequency values are numbers (kHz). */
+// A type, not an interface, so it is assignable to supabase-js's Json.
+export type Rule = {
+  field: RuleField;
+  op: RuleOp;
+  values: (string | number)[];
+};
+
+/** subscriptions.rules: AND groups, ORed. [] passes every spot. */
+export type Rules = Rule[][];
+
 /**
- * The filter's rule rows. Each maps onto one column of the subscription, so a field appears at
- * most once and rules always combine with "all": spot_matches ANDs the columns and ORs the values
- * inside one.
+ * A row of the builder. Rows read as one list where each row after the first is joined to the one
+ * before by And or Or, And binding tighter: "A and B or C" is stored as [[A, B], [C]]. A row keeps
+ * its values as typed until it is saved.
  */
-export type RuleField = "callsign" | "group" | "band" | "mode" | "reference";
+export interface RuleRow {
+  key: number;
+  join: Join;
+  field: RuleField;
+  op: RuleOp;
+  values: string[];
+}
 
 export interface FieldInfo {
   id: RuleField;
   label: string;
-  condition: string;
+  ops: readonly RuleOp[];
 }
 
 export const FIELDS: readonly FieldInfo[] = [
-  { id: "callsign", label: "Callsign", condition: "is" },
-  { id: "group", label: "Callsign group", condition: "is in" },
-  { id: "band", label: "Band", condition: "is" },
-  { id: "mode", label: "Mode", condition: "is" },
-  { id: "reference", label: "Park, summit, or location", condition: "contains" },
+  { id: "callsign", label: "Callsign", ops: ["is", "is_not"] },
+  { id: "group", label: "Callsign group", ops: ["is", "is_not"] },
+  { id: "band", label: "Band", ops: ["is", "is_not"] },
+  { id: "mode", label: "Mode", ops: ["is", "is_not"] },
+  { id: "reference", label: "Park, summit, or location", ops: ["contains", "not_contains"] },
+  { id: "frequency", label: "Frequency (kHz)", ops: ["is", "is_not", "gt", "lt"] },
 ];
 
 export function fieldInfo(id: RuleField): FieldInfo {
   return FIELDS.find((f) => f.id === id) ?? FIELDS[0]!;
+}
+
+/** "is", "is not in", "is greater than": the condition as the builder and the cards show it. */
+export function opLabel(field: RuleField, op: RuleOp): string {
+  const group = field === "group";
+  switch (op) {
+    case "is": return group ? "is in" : "is";
+    case "is_not": return group ? "is not in" : "is not";
+    case "contains": return "contains";
+    case "not_contains": return "does not contain";
+    case "gt": return "is greater than";
+    case "lt": return "is less than";
+  }
 }
 
 /** Park and summit references exist only on POTA and SOTAwatch spots. */
@@ -33,56 +68,109 @@ export function fieldsFor(sources: string[]): RuleField[] {
   return FIELDS.map((f) => f.id).filter((f) => f !== "reference" || refs);
 }
 
-export function hasValues(sub: SubscriptionInput, field: RuleField): boolean {
-  switch (field) {
-    case "callsign": return sub.callsigns.length > 0;
-    case "group": return sub.group_ids.length > 0;
-    case "band": return sub.bands.length > 0;
-    case "mode": return sub.modes.length > 0;
-    case "reference": return sub.reference.trim() !== "";
-  }
+/** normalize_subscription_rules refuses more. */
+export const MAX_RULES = 50;
+
+let nextKey = 1;
+
+/** A new row: the first field not used yet (or the first field), its first condition, no values. */
+export function newRow(available: RuleField[], rows: RuleRow[], join: Join = "and"): RuleRow {
+  const field = available.find((f) => !rows.some((r) => r.field === f)) ?? available[0] ?? "callsign";
+  return { key: nextKey++, join, field, op: fieldInfo(field).ops[0]!, values: [] };
 }
 
-/** Fields that hold values, in display order: the rule rows an existing subscription starts with. */
-export function rulesOf(sub: SubscriptionInput): RuleField[] {
-  return FIELDS.map((f) => f.id).filter((f) => hasValues(sub, f));
+/** The row with another field: its first condition and no values, since values don't carry over. */
+export function withField(row: RuleRow, field: RuleField): RuleRow {
+  return { ...row, field, op: fieldInfo(field).ops[0]!, values: [] };
 }
 
-/** The subscription with one rule's values removed, for deleting a row or changing its field. */
-export function clearField(sub: SubscriptionInput, field: RuleField): SubscriptionInput {
-  switch (field) {
-    case "callsign": return { ...sub, callsigns: [] };
-    case "group": return { ...sub, group_ids: [] };
-    case "band": return { ...sub, bands: [] };
-    case "mode": return { ...sub, modes: [] };
-    case "reference": return { ...sub, reference: "" };
+/** A frequency as typed, in kHz, or null when it isn't a positive number. */
+export function parseKhz(text: string): number | null {
+  const t = text.trim();
+  if (!/^\d{1,7}(\.\d{1,3})?$/.test(t)) return null;
+  const n = Number(t);
+  return n > 0 ? n : null;
+}
+
+/** A row's values ready to store, or null when it has none yet (or no valid frequency). */
+function storedValues(row: RuleRow): (string | number)[] | null {
+  if (row.field === "frequency") {
+    const khz = parseKhz(row.values[0] ?? "");
+    return khz === null ? null : [khz];
   }
+  const values = row.values.map((v) => v.trim()).filter(Boolean);
+  return values.length ? values : null;
+}
+
+/** A frequency row with text that isn't a number: shown as an error, and the page won't save. */
+export function rowInvalid(row: RuleRow): boolean {
+  return row.field === "frequency" && (row.values[0] ?? "").trim() !== "" && storedValues(row) === null;
+}
+
+/** The rows of stored rules, each group's first row joined by Or. */
+export function rowsOf(rules: Rules): RuleRow[] {
+  return rules.flatMap((group, g) =>
+    group.map((r, i) => ({
+      key: nextKey++, join: (g > 0 && i === 0 ? "or" : "and") as Join, field: r.field, op: r.op, values: r.values.map(String),
+    })),
+  );
+}
+
+/**
+ * The rules to store from the rows. Rows without values yet don't count, and neither does a group
+ * of only such rows, so an unfinished row never widens the filter.
+ */
+export function rulesOf(rows: RuleRow[]): Rules {
+  const groups: Rule[][] = [];
+  let current: Rule[] = [];
+  rows.forEach((row, i) => {
+    if (i > 0 && row.join === "or") {
+      groups.push(current);
+      current = [];
+    }
+    const values = storedValues(row);
+    if (values) current.push({ field: row.field, op: row.op, values });
+  });
+  groups.push(current);
+  return groups.filter((g) => g.length > 0);
+}
+
+/** Does every group name stations, with a callsign or group rule that is "is"? False for no rules. */
+export function namesStations(rules: Rules): boolean {
+  return rules.length > 0 && rules.every((g) => g.some((r) => (r.field === "callsign" || r.field === "group") && r.op === "is"));
+}
+
+/** Are there callsign or group rules that pick stations? The preview's station count is shown then. */
+export function picksStations(rules: Rules): boolean {
+  return rules.some((g) => g.some((r) => (r.field === "callsign" || r.field === "group") && r.op === "is"));
+}
+
+/** Does a rule pass spots of this value outright, as a one-rule "callsign is" or "group is in" subscription would? */
+export function hasPositiveRule(rules: Rules, field: "callsign" | "group", value: string): boolean {
+  return rules.some((g) => g.some((r) => r.field === field && r.op === "is" && r.values.includes(value)));
 }
 
 export interface RuleSummary {
+  /** How the rule joins the one before it; null for the first. */
+  join: Join | null;
   label: string;
   values: string[];
 }
 
-/** "Band is 20m", "Callsign group is in Friends": the card's filter lines. Group names need the group list. */
-export function ruleSummaries(sub: SubscriptionInput, groups: Pick<CallsignGroup, "id" | "name">[] | null): RuleSummary[] {
+/** "Band is 20m", "or Callsign group is in Friends": the card's filter lines. Group names need the group list. */
+export function ruleSummaries(rules: Rules, groups: Pick<CallsignGroup, "id" | "name">[] | null): RuleSummary[] {
   const out: RuleSummary[] = [];
-  for (const field of rulesOf(sub)) {
-    const f = fieldInfo(field);
-    const label = `${f.label} ${f.condition}`;
-    switch (field) {
-      case "callsign": out.push({ label, values: sub.callsigns }); break;
-      case "group": {
-        const names = (groups ?? []).filter((g) => sub.group_ids.includes(g.id)).map((g) => g.name);
-        // Left out until the names load, rather than showing ids.
-        if (names.length) out.push({ label, values: names });
-        break;
+  rules.forEach((group, g) => {
+    group.forEach((r, i) => {
+      let values = r.values.map(String);
+      if (r.field === "group") {
+        // Ids aren't shown: until the names load the group's values are left out.
+        values = (groups ?? []).filter((x) => values.includes(x.id)).map((x) => x.name);
       }
-      case "band": out.push({ label, values: sub.bands }); break;
-      case "mode": out.push({ label, values: sub.modes.map(modeLabel) }); break;
-      case "reference": out.push({ label, values: [sub.reference.trim()] }); break;
-    }
-  }
+      if (r.field === "mode") values = values.map(modeLabel);
+      out.push({ join: out.length === 0 ? null : g > 0 && i === 0 ? "or" : "and", label: `${fieldInfo(r.field).label} ${opLabel(r.field, r.op)}`, values });
+    });
+  });
   return out;
 }
 
@@ -110,22 +198,23 @@ export function pickableSource(id: string | null): SourceInfo | null {
 }
 
 /**
- * RBN spots only match subscriptions that name callsigns, and the database refuses an RBN-only
- * subscription without them (subscriptions_rbn_needs_callsign). The page says so before saving.
+ * RBN spots only pass a group of rules that names stations, and the database refuses an RBN-only
+ * subscription unless every group does (subscriptions_rbn_needs_callsign). The page says so before saving.
  */
-export function needsCallsign(sub: SubscriptionInput): boolean {
-  return sub.sources.length === 1 && sub.sources[0] === "rbn" && sub.callsigns.length === 0 && sub.group_ids.length === 0;
+export function needsCallsign(sources: string[], rules: Rules): boolean {
+  return sources.length === 1 && sources[0] === "rbn" && !namesStations(rules);
 }
 
 export const blankSub = (source: string): SubscriptionInput => ({
-  name: "", enabled: true, sources: [source], bands: [], modes: [], callsigns: [], reference: "", quiet_minutes: 10, destinations: [],
-  group_ids: [],
+  name: "", enabled: true, sources: [source], rules: [], quiet_minutes: 10, destinations: [],
 });
 
 export function toInput(s: SubscriptionWithLinks): SubscriptionInput {
   return {
-    id: s.id, name: s.name, enabled: s.enabled, sources: s.sources, bands: s.bands, modes: s.modes, callsigns: s.callsigns,
-    reference: s.reference, quiet_minutes: s.quiet_minutes, destinations: s.destinations, group_ids: s.group_ids,
+    id: s.id, name: s.name, enabled: s.enabled, sources: s.sources,
+    // jsonb in the generated types; written only by normalize_subscription_rules, so it has this shape.
+    rules: s.rules as unknown as Rules,
+    quiet_minutes: s.quiet_minutes, destinations: s.destinations,
   };
 }
 

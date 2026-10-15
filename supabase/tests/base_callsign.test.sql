@@ -41,10 +41,10 @@ select ok(is_self_spot('VE3/KK4PWJ', 'KK4PWJ/QRP'), 'is_self_spot follows the ne
 select has_index('public', 'raw_spots', 'raw_spots_base_callsign_time_idx', 'raw_spots has the base callsign index');
 
 -- The RBN watchlist: exact or base, enabled subscriptions accepting the source.
-insert into subscriptions (id, user_id, name, enabled, sources, bands, modes, callsigns, reference, quiet_minutes)
-values (gen_random_uuid(), '11111111-1111-1111-1111-111111111111', 'base', true, '{rbn}', '{}', '{}', '{KK4PWJ}', '', 0),
-       (gen_random_uuid(), '11111111-1111-1111-1111-111111111111', 'exact', true, '{}', '{}', '{}', '{W1AW/P}', '', 0),
-       (gen_random_uuid(), '11111111-1111-1111-1111-111111111111', 'off', false, '{rbn}', '{}', '{}', '{K9OFF}', '', 0);
+insert into subscriptions (id, user_id, name, enabled, sources, rules, quiet_minutes)
+values (gen_random_uuid(), '11111111-1111-1111-1111-111111111111', 'base', true, '{rbn}', '[[{"field":"callsign","op":"is","values":["KK4PWJ"]}]]', 0),
+       (gen_random_uuid(), '11111111-1111-1111-1111-111111111111', 'exact', true, '{}', '[[{"field":"callsign","op":"is","values":["W1AW/P"]}]]', 0),
+       (gen_random_uuid(), '11111111-1111-1111-1111-111111111111', 'off', false, '{rbn}', '[[{"field":"callsign","op":"is","values":["K9OFF"]}]]', 0);
 select is(array(select watched_among('rbn', array['KK4PWJ/P', 'W4/KK4PWJ', 'W1AW', 'W1AW/P', 'K9OFF', 'N0NE'])),
   array['KK4PWJ/P', 'W1AW/P', 'W4/KK4PWJ'],
   'watched_among: base-call matches, exact /P only, disabled subscriptions ignored');

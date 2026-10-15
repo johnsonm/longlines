@@ -13,19 +13,19 @@ select ok(exists (select 1 from ingest_state where source = 'rbn'), 'ingest_stat
 select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
 create temp table d as select * from create_destination('webhook', 'Hook', 'https://hooks.example.com/a');
 create temp table subs as
-select save_subscription(jsonb_build_object('name','Me on RBN','sources',array['rbn'],'callsigns',array['kk4pwj'],'quiet_minutes',0,'destinations',array[(select id from d)])) as mine,
-       save_subscription(jsonb_build_object('name','Anything on 20m CW','bands',array['20m'],'modes',array['cw'],'quiet_minutes',0,'destinations',array[(select id from d)])) as any_source,
-       save_subscription(jsonb_build_object('name','W1AW anywhere','callsigns',array['W1AW'],'quiet_minutes',0,'destinations',array[(select id from d)])) as any_source_call,
-       save_subscription(jsonb_build_object('name','POTA only','sources',array['pota'],'callsigns',array['N4DXX'],'quiet_minutes',0,'destinations',array[(select id from d)])) as pota_only,
-       save_subscription(jsonb_build_object('name','Paused','sources',array['rbn'],'callsigns',array['K9OFF'],'enabled',false,'quiet_minutes',0,'destinations',array[(select id from d)])) as paused;
+select save_subscription(jsonb_build_object('name','Me on RBN','sources',array['rbn'],'rules','[[{"field":"callsign","op":"is","values":["kk4pwj"]}]]'::jsonb,'quiet_minutes',0,'destinations',array[(select id from d)])) as mine,
+       save_subscription(jsonb_build_object('name','Anything on 20m CW','rules','[[{"field":"band","op":"is","values":["20m"]},{"field":"mode","op":"is","values":["cw"]}]]'::jsonb,'quiet_minutes',0,'destinations',array[(select id from d)])) as any_source,
+       save_subscription(jsonb_build_object('name','W1AW anywhere','rules','[[{"field":"callsign","op":"is","values":["W1AW"]}]]'::jsonb,'quiet_minutes',0,'destinations',array[(select id from d)])) as any_source_call,
+       save_subscription(jsonb_build_object('name','POTA only','sources',array['pota'],'rules','[[{"field":"callsign","op":"is","values":["N4DXX"]}]]'::jsonb,'quiet_minutes',0,'destinations',array[(select id from d)])) as pota_only,
+       save_subscription(jsonb_build_object('name','Paused','sources',array['rbn'],'rules','[[{"field":"callsign","op":"is","values":["K9OFF"]}]]'::jsonb,'enabled',false,'quiet_minutes',0,'destinations',array[(select id from d)])) as paused;
 create temp table rgrp as
 select save_callsign_group('{"name":"RBN club","callsigns":["N4GRP"]}') as club,
        save_callsign_group('{"name":"Paused club","callsigns":["K9GRP"]}') as paused,
        save_callsign_group('{"name":"POTA club","callsigns":["W9POT"]}') as pota;
 create temp table rsubs as
-select save_subscription(jsonb_build_object('name','Club on RBN','sources',array['rbn'],'group_ids',array[(select club from rgrp)],'quiet_minutes',0,'destinations',array[(select id from d)])) as club,
-       save_subscription(jsonb_build_object('name','Paused club','sources',array['rbn'],'group_ids',array[(select paused from rgrp)],'enabled',false,'quiet_minutes',0,'destinations',array[(select id from d)])) as paused,
-       save_subscription(jsonb_build_object('name','POTA club','sources',array['pota'],'group_ids',array[(select pota from rgrp)],'quiet_minutes',0,'destinations',array[(select id from d)])) as pota;
+select save_subscription(jsonb_build_object('name','Club on RBN','sources',array['rbn'],'rules',jsonb_build_array(jsonb_build_array(jsonb_build_object('field','group','op','is','values',jsonb_build_array((select club from rgrp))))),'quiet_minutes',0,'destinations',array[(select id from d)])) as club,
+       save_subscription(jsonb_build_object('name','Paused club','sources',array['rbn'],'rules',jsonb_build_array(jsonb_build_array(jsonb_build_object('field','group','op','is','values',jsonb_build_array((select paused from rgrp))))),'enabled',false,'quiet_minutes',0,'destinations',array[(select id from d)])) as paused,
+       save_subscription(jsonb_build_object('name','POTA club','sources',array['pota'],'rules',jsonb_build_array(jsonb_build_array(jsonb_build_object('field','group','op','is','values',jsonb_build_array((select pota from rgrp))))),'quiet_minutes',0,'destinations',array[(select id from d)])) as pota;
 
 select throws_ok(
   format($$select save_subscription(jsonb_build_object('name','Bad','sources',array['rbn'],'destinations',array[%L]))$$, (select id from d)),

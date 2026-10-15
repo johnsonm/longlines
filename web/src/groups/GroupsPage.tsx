@@ -9,6 +9,7 @@ import NotificationsActiveIcon from "@mui/icons-material/NotificationsActive";
 import { useNavigate } from "react-router";
 import { PageTitle } from "../layout/PageTitle";
 import { deleteGroup, listGroups, loadDestinations, loadSubscriptions, saveSubscription } from "../lib/api";
+import { hasPositiveRule, toInput } from "../subscriptions/model";
 import { errorText, useNotify } from "../app/hooks";
 import { GroupDialog } from "./GroupDialog";
 import { CARD_CHIPS, groupMeta, spotLines } from "./model";
@@ -59,7 +60,7 @@ export function GroupsPage({ reload }: Props) {
   const getAlerts = (g: CallsignGroup) => run(g.id, "Couldn't save the subscription.", async () => {
     // Read fresh rather than from the app's copy, which may not have loaded yet.
     const [dests, subs] = await Promise.all([loadDestinations(), loadSubscriptions()]);
-    const existing = subs.find((s) => s.group_ids.includes(g.id));
+    const existing = subs.find((s) => hasPositiveRule(toInput(s).rules, "group", g.id));
     if (existing) {
       notify(`You already have ${existing.name}.`);
       void navigate("/subscriptions");
@@ -75,7 +76,7 @@ export function GroupsPage({ reload }: Props) {
     const name = `${g.name} on the air`;
     await saveSubscription({
       name, enabled: true, quiet_minutes: 30, destinations: [dest.id],
-      sources: [], bands: [], modes: [], callsigns: [], reference: "", group_ids: [g.id],
+      sources: [], rules: [[{ field: "group", op: "is", values: [g.id] }]],
     });
     await reload();
     notify(`Created ${name}`);

@@ -20,10 +20,28 @@ create temp table da as select * from create_destination('discord', 'A discord',
 create temp table db as select * from create_destination('webhook', 'A hook', 'https://hooks.example.com/a');
 reset role;
 
--- Helper to build a subscription row for predicate tests without inserting.
+-- Helpers to build a subscription row for predicate tests without inserting.
+-- pg_temp.sub takes the old filter's shape (sources, bands, modes, calls,
+-- reference) and builds the one AND group of rules those columns meant.
+create or replace function pg_temp.rsub(p_sources text[], p_rules jsonb)
+returns subscriptions language sql as $$
+  select jsonb_populate_record(null::subscriptions, jsonb_build_object(
+    'id', gen_random_uuid(), 'user_id', '11111111-1111-1111-1111-111111111111', 'name', 'x', 'enabled', true,
+    'sources', p_sources, 'rules', p_rules, 'quiet_minutes', 0, 'created_at', now(), 'updated_at', now(),
+    'group_ids', '{}'::uuid[]));
+$$;
 create or replace function pg_temp.sub(p_sources text[], p_bands text[], p_modes text[], p_calls text[], p_ref text)
 returns subscriptions language sql as $$
-  select (gen_random_uuid(), '11111111-1111-1111-1111-111111111111', 'x', true, p_sources, p_bands, p_modes, p_calls, p_ref, 0, now(), now(), '{}'::uuid[])::subscriptions;
+  select pg_temp.rsub(p_sources, coalesce((
+    select jsonb_build_array(jsonb_agg(r))
+    from (values
+      (case when cardinality(p_bands) > 0 then jsonb_build_object('field', 'band', 'op', 'is', 'values', p_bands) end),
+      (case when cardinality(p_modes) > 0 then jsonb_build_object('field', 'mode', 'op', 'is', 'values', p_modes) end),
+      (case when cardinality(p_calls) > 0 then jsonb_build_object('field', 'callsign', 'op', 'is', 'values', p_calls) end),
+      (case when p_ref <> '' then jsonb_build_object('field', 'reference', 'op', 'contains', 'values', jsonb_build_array(p_ref)) end)
+    ) v(r)
+    where r is not null
+    having count(*) > 0), '[]'::jsonb));
 $$;
 create or replace function pg_temp.spot(p_source text, p_call text, p_band text, p_mode text, p_ref text, p_loc text, p_summit text, p_family text default null)
 returns raw_spots language sql as $$
@@ -55,8 +73,8 @@ select ok(not spot_matches(pg_temp.sub('{}','{}','{}','{}','W4C/'), pg_temp.spot
 -- match_pending_spots end to end.
 select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
 create temp table subs as
-select save_subscription(jsonb_build_object('name','NC parks','sources',array['pota'],'reference','US-NC','quiet_minutes',10,'destinations',array[(select id from da)])) as nc,
-       save_subscription(jsonb_build_object('name','CW anywhere','modes',array['cw'],'quiet_minutes',0,'destinations',array[(select id from da),(select id from db)])) as cw,
+select save_subscription(jsonb_build_object('name','NC parks','sources',array['pota'],'rules','[[{"field":"reference","op":"contains","values":["US-NC"]}]]'::jsonb,'quiet_minutes',10,'destinations',array[(select id from da)])) as nc,
+       save_subscription(jsonb_build_object('name','CW anywhere','rules','[[{"field":"mode","op":"is","values":["cw"]}]]'::jsonb,'quiet_minutes',0,'destinations',array[(select id from da),(select id from db)])) as cw,
        save_subscription(jsonb_build_object('name','Paused','quiet_minutes',0,'enabled',false,'destinations',array[(select id from db)])) as paused;
 
 reset role;
@@ -92,8 +110,8 @@ select is(match_pending_spots(), 2, 'after the window both subscriptions match, 
 
 -- Preview uses the same predicate over recent spots.
 select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
-select is((select count from preview_subscription('{"sources":["pota"],"reference":"us-nc"}')), 5::bigint, 'preview counts matching recent spots');
-select is((select jsonb_array_length(spots) from preview_subscription('{"sources":["pota"],"reference":"us-nc"}')), 5, 'preview returns the matching spots');
+select is((select count from preview_subscription('{"sources":["pota"],"rules":[[{"field":"reference","op":"contains","values":["us-nc"]}]]}')), 5::bigint, 'preview counts matching recent spots');
+select is((select jsonb_array_length(spots) from preview_subscription('{"sources":["pota"],"rules":[[{"field":"reference","op":"contains","values":["us-nc"]}]]}')), 5, 'preview returns the matching spots');
 select is((select window_size from preview_subscription('{"sources":["pota"]}')), 5::bigint, 'preview samples only the filter''s sources');
 select is((select window_size from preview_subscription('{"sources":["sotawatch"]}')), 1::bigint, 'a SOTA preview is not sampled from POTA spots');
 select is((select window_size from preview_subscription('{}')), 6::bigint, 'no sources samples every recent spot');
@@ -111,9 +129,21 @@ select pg_temp.as_user('22222222-2222-2222-2222-222222222222');
 create temp table other_grp as select save_callsign_group('{"name":"Other","callsigns":["W9OTH"]}') as id;
 reset role;
 
+-- Typed calls OR groups, as the old callsigns + group_ids filter: one AND group each.
+create or replace function pg_temp.call_group_rules(p_calls text[], p_groups uuid[])
+returns jsonb language sql as $$
+  select coalesce(jsonb_agg(g), '[]'::jsonb)
+  from (values
+    (case when cardinality(p_calls) > 0
+          then jsonb_build_array(jsonb_build_object('field', 'callsign', 'op', 'is', 'values', p_calls)) end),
+    (case when cardinality(p_groups) > 0
+          then jsonb_build_array(jsonb_build_object('field', 'group', 'op', 'is', 'values', p_groups)) end)
+  ) v(g)
+  where g is not null;
+$$;
 create or replace function pg_temp.gsub(p_calls text[], p_groups uuid[], p_sources text[] default '{}')
 returns subscriptions language sql as $$
-  select (gen_random_uuid(), '11111111-1111-1111-1111-111111111111', 'x', true, p_sources, '{}'::text[], '{}'::text[], p_calls, '', 0, now(), now(), p_groups)::subscriptions;
+  select pg_temp.rsub(p_sources, pg_temp.call_group_rules(p_calls, p_groups));
 $$;
 
 select ok(spot_matches(pg_temp.gsub('{}', array[(select club from grp)]), pg_temp.spot('pota','N4GRP','20m','ssb',null,null,null)), 'a group member matches');
@@ -130,9 +160,9 @@ select ok(spot_matches(pg_temp.gsub('{}', array[(select club from grp)], '{rbn}'
 select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
 create temp table gsubs as
 select save_subscription(jsonb_build_object('name','Two groups','sources',array['pota'],'quiet_minutes',0,
-         'group_ids',array[(select club from grp),(select friends from grp)],'destinations',array[(select id from dg)])) as two,
+         'rules',pg_temp.call_group_rules('{}', array[(select club from grp),(select friends from grp)]),'destinations',array[(select id from dg)])) as two,
        save_subscription(jsonb_build_object('name','Empty group','sources',array['pota'],'quiet_minutes',0,
-         'group_ids',array[(select empty from grp)],'destinations',array[(select id from dg)])) as empty;
+         'rules',pg_temp.call_group_rules('{}', array[(select empty from grp)]),'destinations',array[(select id from dg)])) as empty;
 reset role;
 
 select count(*) from ingest_spots(jsonb_build_array(
@@ -150,16 +180,16 @@ select is((select count(*) from deliveries where subscription_id = (select empty
 
 select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
 select is((select array(select distinct x ->> 'callsign' from jsonb_array_elements(p.spots) x order by 1)
-           from preview_subscription(jsonb_build_object('group_ids', array[(select club from grp), (select friends from grp)])) p),
+           from preview_subscription(jsonb_build_object('rules', pg_temp.call_group_rules('{}', array[(select club from grp), (select friends from grp)]))) p),
   array['KK4PWJ', 'KK4PWJ/P', 'N4GRP'], 'preview matches through groups');
 select is((select array(select distinct x ->> 'callsign' from jsonb_array_elements(p.spots) x order by 1)
-           from preview_subscription(jsonb_build_object('callsigns', array['N4DXX'], 'group_ids', array[(select id from other_grp)])) p),
+           from preview_subscription(jsonb_build_object('rules', pg_temp.call_group_rules(array['N4DXX'], array[(select id from other_grp)]))) p),
   array['N4DXX'], 'preview ignores another user''s group id');
-select is((select station_count from preview_subscription(jsonb_build_object('callsigns', array['KK4PWJ/P', 'w1aw'],
-             'group_ids', array[(select club from grp), (select friends from grp), (select id from other_grp)]))),
+select is((select station_count from preview_subscription(jsonb_build_object('rules', pg_temp.call_group_rules(array['KK4PWJ/P', 'w1aw'],
+             array[(select club from grp), (select friends from grp), (select id from other_grp)])))),
   4::bigint, 'station_count: distinct base calls across typed calls and own groups, not another user''s');
 select is((select station_count from preview_subscription('{}')), 0::bigint, 'station_count is 0 with no calls or groups');
-select is((select station_count from preview_subscription('{"group_ids":["not-a-uuid"]}')), 0::bigint,
+select is((select station_count from preview_subscription('{"rules":[[{"field":"group","op":"is","values":["not-a-uuid"]}]]}')), 0::bigint,
   'a malformed group id is ignored like another user''s');
 reset role;
 

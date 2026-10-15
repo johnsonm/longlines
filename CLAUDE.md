@@ -125,8 +125,8 @@ relay on pushes to main; nothing else deploys automatically.
 - Matching lives in SQL (`spot_matches`, `match_pending_spots`); never re-implement the predicate in
   TypeScript. The preview RPC and the matcher must stay on the same function.
 - A DX Cluster spot matches only subscriptions whose `sources` lists `dxcluster`; an empty sources
-  list ("any source") does not include it. The rule lives in `source_matches`. RBN spots match only subscriptions that name callsigns,
-  typed or through a callsign group.
+  list ("any source") does not include it. The rule lives in `source_matches`. An RBN spot passes only an AND group of rules
+  that names stations (a `callsign` or `group` rule with op `is`, `rules_name_stations`).
 - The worker (`supabase/functions/deliver`) only talks to the database through the
   `claim_deliveries` / `mark_deliveries_*` / `delay_deliveries` RPCs so delivery rows, queue
   messages and destination health change atomically.
@@ -199,9 +199,9 @@ relay on pushes to main; nothing else deploys automatically.
   never `create table ... partition of`) and runs `runIngest` only over watched callsigns. A
   migration that indexes `rbn_spots` partition by partition first takes
   `lock table rbn_spots in share update exclusive mode`, so `maintain_rbn_spots` cannot add or drop a
-  partition mid-build; that lock does not block inserts. `spot_matches` lets an RBN spot match only
-  subscriptions that name callsigns, typed or through a group (`callsigns` or `group_ids` non-empty);
-  keep that guard if the predicate changes, and keep `watched_among` on the same rule.
+  partition mid-build; that lock does not block inserts. `spot_matches` lets an RBN spot pass only an
+  AND group of rules that names stations (`rules_name_stations`); keep that guard if the predicate
+  changes, and keep `watched_among` reading only positive callsign and group rules.
 - Be polite: exactly one machine (`fly scale count 1`), reconnect backoff never below 30 s, no
   tests that connect to RBN. Tests use the captured fixture or a local TCP server.
 - Merges to main deploy the relay through Fly's GitHub integration (set up in the Fly dashboard,
@@ -277,13 +277,12 @@ relay on pushes to main; nothing else deploys automatically.
 
 ## Callsign group rules
 
-- Membership is live: a subscription stores `group_ids`, never a copy of the calls, so editing a
-  group changes every subscription that uses it. Never copy members into `subscriptions.callsigns`.
+- Membership is live: a `group` rule stores group ids, never a copy of the calls, so editing a
+  group changes every subscription that uses it. Never copy members into a `callsign` rule.
 - Members are base calls (`base_callsign()`, enforced by a check constraint), at most 1,000 per
   group. `save_callsign_group` is the only write path and `normalize_group_callsigns` the only
   normaliser; the web never works out a base call or enforces the cap itself.
-- The callsign filter is off only when `callsigns` and `group_ids` are both empty. A subscription
-  whose groups are all empty matches nothing; never let it fall back to "any station".
+- A `group is` rule whose groups are all empty passes nothing; never let it fall back to "any station".
 - `delete_callsign_group` refuses a group any subscription uses, as with destinations; keep the
   guard and keep Delete disabled in the UI while `subscription_count > 0`.
 - `preview_subscription` keeps only the caller's own group ids before matching and counting, so it
@@ -291,6 +290,22 @@ relay on pushes to main; nothing else deploys automatically.
 - Membership and station counts are resolved only in SQL (`group_matches`, `watched_among`,
   `station_count` from the preview). The web shows group names and SQL's numbers and never tests
   a call against a group's members.
+
+## Subscription rules
+
+- A subscription's filter is `subscriptions.rules`: AND groups, ORed (`[[A, B], [C]]` is "A and B or
+  C"; And binds tighter). Each rule is `{field, op, values}`; the fields and ops are listed at the top
+  of `20261014000500_subscription_rules.sql` and in `docs/API.md`. `[]` passes every spot. The
+  source stays its own column (`sources`), not a rule.
+- `normalize_subscription_rules` is the only validator and normaliser; `save_subscription` and
+  `preview_subscription` both go through it. `group_ids` is derived from the rules (every group
+  named, `is` or `is_not`) and written only by `save_subscription`; never set it elsewhere.
+- Matching is `rule_matches` per rule inside `spot_matches`; never evaluate rules in TypeScript.
+  The web's `model.ts` only converts builder rows to rules (`rulesOf` drops rows without values) and
+  mirrors the RBN guard as a form check (`needsCallsign`).
+- `save_subscription` refuses the old filter keys (`bands`, `modes`, `callsigns`, `reference`,
+  `group_ids`) and keeps stored rules when `rules` is left out, so a request can't silently widen a
+  subscription to every spot.
 
 ## Management API rules
 
