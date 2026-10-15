@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { aprsTypeLabel, compact, dayLabel, fillOpacity, fmt, hasData, hourLabel, midnightTicks, slotLabel, topStates, updatedCaption, weekday } from "./format";
+import {
+  aprsTypeLabel, compact, countryDetail, countryTotal, dayLabel, fillOpacity, fmt, logFillOpacity, hasData, hourLabel, midnightTicks, slotLabel, topStates, updatedCaption,
+  weekday,
+} from "./format";
 import type { AprsPacketType, LatestStats, StatsPayload } from "./types";
 
 const payload = (spots: number): StatsPayload => ({
@@ -13,6 +16,7 @@ const payload = (spots: number): StatsPayload => ({
   busiestSlot: { day: "2026-09-28", hour: 0 },
   daily: [],
   potaByState: {},
+  countries: [],
   sotaAssociations: [],
   bands: [],
   modes: [],
@@ -118,6 +122,29 @@ describe("topStates", () => {
   it("defaults to ten entries", () => {
     const byState = Object.fromEntries(Array.from({ length: 51 }, (_, i) => [`S${String(i).padStart(2, "0")}`, i]));
     expect(topStates(byState)).toHaveLength(10);
+  });
+});
+
+describe("logFillOpacity", () => {
+  it("spreads a wide range of totals across the scale", () => {
+    expect(logFillOpacity(1_000_000, 1_000_000)).toBeCloseTo(1);
+    // Linear, a thousandth of the max is the palest shade; on the log scale it sits halfway.
+    expect(logFillOpacity(1000, 1_000_000)).toBeCloseTo(0.12 + 0.88 * (Math.log1p(1000) / Math.log1p(1_000_000)));
+    expect(logFillOpacity(1000, 1_000_000)).toBeGreaterThan(0.5);
+  });
+  it("is 0 for zero values and when there is no activity at all", () => {
+    expect(logFillOpacity(0, 100)).toBe(0);
+    expect(logFillOpacity(0, 0)).toBe(0);
+  });
+});
+
+describe("countryTotal and countryDetail", () => {
+  const c = { code: "DE", pota: 1200, sota: 5, dx: 300, rbn: 12000 };
+  it("sums every source", () => {
+    expect(countryTotal(c)).toBe(13505);
+  });
+  it("lists each source in the order of Spots processed", () => {
+    expect(countryDetail(c)).toBe("12,000 RBN, 300 DX Cluster, 1,200 POTA, 5 SOTA");
   });
 });
 

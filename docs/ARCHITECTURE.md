@@ -281,6 +281,10 @@ flowchart LR
   AH[(aprs_packet_hours)] --> F
   AR --> F
   RR --> F
+  R -->|once per complete day| UC[rollup_country_day]
+  RR --> UC
+  UC --> CD[(country_daily_spots)]
+  CD --> F
   F --> S[(stats_snapshots)]
   S -->|newest row, one query| W[Stats page]
 ```
@@ -370,6 +374,18 @@ the day ends. It refuses a day whose rows no longer add up to its `aprs_packet_h
 `maintain_aprs_packets()` keeps a day in the Stats window until `aprs_rollup_days` shows a rollup
 at least an hour after the day ended. A day older than the window drops without one, so a failing
 refresh cannot hold packets forever.
+
+## Spots by country
+
+`countries` feeds the world map: spots per country of the station on the air, for POTA, SOTAwatch,
+DX Cluster and RBN (APRS packets are not spots). The country is the cty.dat entity that
+`cty_lookup()` gives for the call as spotted, so VP2E/K1ABC counts in Anguilla, mapped to ISO
+3166-1 alpha-2 by `cty_entity_countries` (England and Scotland are both GB, Alaska is US).
+Three entities with no country (Spratly, Scarborough Reef, SMOM) are left out, as is any call
+cty.dat cannot place. `rollup_country_day(day)` resolves each distinct call of a day once into
+`country_daily_spots`, reading RBN from `rbn_daily_stations`, on the same schedule as the RBN days;
+it skips a day while no cty.dat is loaded. The web joins alpha-2 to the atlas's numeric ids
+(`web/src/stats/countries.ts`) and names countries with `Intl.DisplayNames`.
 
 The payload's TypeScript shape is `StatsPayload` in `web/src/stats/types.ts`; the pgTAP suite
 `supabase/tests/stats_snapshot.test.sql` pins both the shape and the numbers.

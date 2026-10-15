@@ -21,6 +21,11 @@ export const PAYLOAD: StatsPayload = {
     day, pota: 1000 + i, sota: 300 + i, rbn: 24000, aprs: 250000, dx: 40,
   })),
   potaByState: { NC: 900, CA: 700, TX: 0 },
+  countries: [
+    { code: "US", pota: 9000, sota: 1500, dx: 2000, rbn: 90000 },
+    { code: "DE", pota: 400, sota: 100, dx: 900, rbn: 30000 },
+    { code: "MT", pota: 3, sota: 0, dx: 12, rbn: 0 },
+  ],
   sotaAssociations: [{ code: "W4C", spots: 120 }, { code: "W7A", spots: 90 }],
   bands: [{ band: "40m", pota: 3000, sota: 500 }, { band: "20m", pota: 5000, sota: 900 }],
   modes: [{ label: "CW", percent: 40 }, { label: "SSB", percent: 35 }, { label: "FT8/FT4", percent: 25 }],
@@ -169,6 +174,27 @@ describe("StatsPage", () => {
     expect(screen.getByText("Packet types")).toBeInTheDocument();
     expect(screen.getByText("What APRS stations sent")).toBeInTheDocument();
     expect(screen.getByText(/RBN and APRS run 100 times the volume of POTA or more/)).toBeInTheDocument();
+  });
+
+  it("shows spots by country", () => {
+    vi.mocked(useStats).mockReturnValue({ stats: STATS, loading: false, error: null });
+    renderPage(<StatsPage />);
+    expect(screen.getByText("Activity by country")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Map of spots by country" })).toBeInTheDocument();
+    expect(screen.getByText("Busiest countries")).toBeInTheDocument();
+    expect(screen.getByText("1. United States")).toBeInTheDocument();
+    expect(screen.getByText("102,500")).toBeInTheDocument();
+    // Malta is too small for the atlas but still listed.
+    expect(screen.getByText("3. Malta")).toBeInTheDocument();
+  });
+
+  it("renders a snapshot written before countries existed", () => {
+    const { countries: _countries, ...old } = PAYLOAD;
+    const stats = { ...STATS, payload: old } as unknown as LatestStats;
+    vi.mocked(useStats).mockReturnValue({ stats, loading: false, error: null });
+    renderPage(<StatsPage />);
+    expect(screen.getByRole("img", { name: "Map of spots by country" })).toBeInTheDocument();
+    expect(screen.queryByText("1. United States")).not.toBeInTheDocument();
   });
 
   it("renders a snapshot written before APRS figures existed", () => {

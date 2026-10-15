@@ -10,11 +10,16 @@ import { Link as RouterLink } from "react-router";
 import { PageTitle } from "../layout/PageTitle";
 import { lookupPath } from "../profile/format";
 import { ChartCard, GRID, Kpi } from "./parts";
-import { aprsTypeLabel, compact, dayLabel, fmt, hasData, hourLabel, midnightTicks, slotLabel, topStates, updatedCaption, weekday } from "./format";
+import { countryName } from "./countries";
+import {
+  aprsTypeLabel, compact, countryTotal, dayLabel, fmt, hasData, hourLabel, midnightTicks, slotLabel, topStates, updatedCaption,
+  weekday,
+} from "./format";
 import { stateName } from "./stateShapes";
 import type { StatsPayload } from "./types";
 import { UsStateMap } from "./UsStateMap";
 import { useStats } from "./useStats";
+import { WorldMap } from "./WorldMap";
 
 // A callsign cell links to the station's profile, /call/<base>. The row's base is the base call SQL
 // worked out (TypeScript never does).
@@ -98,6 +103,8 @@ function Dashboard({ payload }: { payload: StatsPayload }) {
   const weekdays = payload.daily.map((d) => weekday(d.day));
   const bands = payload.bands.map((b) => b.band);
   const busiest = topStates(payload.potaByState);
+  // countries is busiest first already. A snapshot written before 20261015000100 has none.
+  const countries = payload.countries ?? [];
   // Also covers fields missing from a snapshot written before they existed (the newest row
   // keeps its old shape until the next hourly refresh), so an older payload renders 0, not a crash.
   const count = (v: number | null | undefined) => fmt(v ?? 0);
@@ -230,6 +237,31 @@ function Dashboard({ payload }: { payload: StatsPayload }) {
                   secondaryAction={<Typography variant="body2" color="text.secondary">{fmt(s.spots)}</Typography>}
                 >
                   <ListItemText primary={`${i + 1}. ${stateName(s.code)}`} />
+                </ListItem>
+              ))}
+            </List>
+          </Grid>
+        </Grid>
+      </ChartCard>
+
+      <ChartCard
+        title="Activity by country"
+        subheader="POTA, SOTA, DX Cluster and RBN spots by the country of the station on the air. Darker means more activity."
+      >
+        <Grid container spacing={3} sx={{ alignItems: "center" }}>
+          <Grid size={{ xs: 12, md: 8 }}>
+            <WorldMap countries={countries} />
+          </Grid>
+          <Grid size={{ xs: 12, md: 4 }}>
+            <Typography variant="subtitle2" gutterBottom>Busiest countries</Typography>
+            <List dense disablePadding>
+              {countries.slice(0, 10).map((c, i) => (
+                <ListItem
+                  key={c.code}
+                  disableGutters
+                  secondaryAction={<Typography variant="body2" color="text.secondary">{fmt(countryTotal(c))}</Typography>}
+                >
+                  <ListItemText primary={`${i + 1}. ${countryName(c.code)}`} />
                 </ListItem>
               ))}
             </List>

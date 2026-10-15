@@ -216,12 +216,6 @@ from seed_days d,
 where t.spot_time < now()
 on conflict do nothing;
 
--- The first snapshot, so the page has data before the hourly cron runs. The
--- migrations' own refresh already ran on empty tables and marked every window
--- day as rolled up, so the RBN rollups are cleared first.
-delete from rbn_rollup_days;
-perform public.refresh_stats_snapshot();
-
 -- Callsign rollups for the seeded days, as the hourly job would have made.
 -- They refuse to run without cty.dat, so load the few countries the seeded
 -- spotters come from (import-cty loads the real file; it never runs here).
@@ -246,6 +240,14 @@ perform public.load_cty('seed',
     {"pattern":"OH","exact":false,"entity":"OH","continent":"EU","cq_zone":15,"itu_zone":18},
     {"pattern":"JA","exact":false,"entity":"JA","continent":"AS","cq_zone":25,"itu_zone":45}]');
 perform public.backfill_callsign_rollups();
+
+-- The first snapshot, so the page has data before the hourly cron runs. The
+-- migrations' own refresh already ran on empty tables and marked every window
+-- day as rolled up, so the RBN and country rollups are cleared first. It runs
+-- after load_cty so the world map has countries.
+delete from rbn_rollup_days;
+delete from country_rollup_days;
+perform public.refresh_stats_snapshot();
 
 -- The branch may reuse this connection, so leave nothing temporary behind.
 drop table seed_days, seed_states, seed_parks, seed_pota_activations, seed_pota_spots,
