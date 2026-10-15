@@ -547,7 +547,7 @@ notes for the next session. Earlier entries are never edited.
   successful claim. Hand step after merge: `supabase functions deploy deliver`, which needs
   session 2's migration pushed to hosted first (the loop calls `throttle_destination`). Brad has
   still not noted the 30-day `deliver` invocation count.
-- 2026-10-15, session 4 (PR #TBD): the sender process. Landed `sender/`: `main.ts` (process shell:
+- 2026-10-15, session 4 (PR #198): the sender process. Landed `sender/`: `main.ts` (process shell:
   config, `openSenderDb`, `startSender`, SIGINT/SIGTERM to `shutdown()` then exit 0, exit 1 on a
   rejected `done` or a start failure), `config.ts`, `db.ts` (the only module importing
   `npm:postgres@3.4.9`, with the dependency comment; `SENDER_RPCS` is the allowlist with each
