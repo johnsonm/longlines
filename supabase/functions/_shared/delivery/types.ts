@@ -18,6 +18,8 @@ export interface DeliverySpot {
   pota_park_name: string | null;
   pota_location: string | null;
   sota_summit_ref: string | null;
+  wwff_reference: string | null;
+  wwff_reference_name: string | null;
 }
 
 /** A browser push subscription. The endpoint and keys are capability secrets. */

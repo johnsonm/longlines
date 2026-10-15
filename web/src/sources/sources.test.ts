@@ -34,7 +34,7 @@ describe("SOURCES catalog fields", () => {
   });
 
   it("gives planned sources no stats key", () => {
-    expect(planned.map((s) => s.id)).toEqual(["pskreporter", "wwff"]);
+    expect(planned.map((s) => s.id)).toEqual(["pskreporter"]);
     for (const s of planned) expect(s.statsKey).toBeNull();
   });
 
@@ -59,6 +59,7 @@ describe("SOURCES catalog fields", () => {
     const names = (id: string) => findLiveSource(id)!.schema!.map((f) => f.name);
     expect(names("pota").slice(-3)).toEqual(["pota_reference", "pota_park_name", "pota_location"]);
     expect(names("sotawatch").at(-1)).toBe("sota_summit_ref");
+    expect(names("wwff").slice(-2)).toEqual(["wwff_reference", "wwff_reference_name"]);
     expect(names("rbn").at(-1)).toBe("comment");
   });
 
@@ -71,7 +72,8 @@ describe("SOURCES catalog fields", () => {
 
   it("finds live sources only", () => {
     expect(findLiveSource("rbn")?.title).toBe("Reverse Beacon Network");
-    expect(findLiveSource("wwff")).toBeUndefined();
+    expect(findLiveSource("wwff")?.statsKey).toBe("wwff");
+    expect(findLiveSource("pskreporter")).toBeUndefined();
     expect(findLiveSource("nope")).toBeUndefined();
     expect(findLiveSource(undefined)).toBeUndefined();
   });

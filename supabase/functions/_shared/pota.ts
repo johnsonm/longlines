@@ -105,6 +105,8 @@ export const pota: SourceAdapter = {
         pota_park_name: optionalString(raw["name"]),
         pota_location: optionalString(raw["locationDesc"]),
         sota_summit_ref: null,
+        wwff_reference: null,
+        wwff_reference_name: null,
         raw_payload: raw,
       },
     };

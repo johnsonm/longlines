@@ -6,7 +6,7 @@ import { COUNTRY_SHAPES, WORLD_VIEWBOX } from "./countryShapes";
 import { countryDetail, countryTotal, fmt, logFillOpacity } from "./format";
 import type { CountrySpots } from "./types";
 
-const NONE: CountrySpots = { code: "", pota: 0, sota: 0, dx: 0, rbn: 0 };
+const NONE: CountrySpots = { code: "", pota: 0, sota: 0, wwff: 0, dx: 0, rbn: 0 };
 
 /**
  * Choropleth of spots per country on a log scale, the world counterpart of

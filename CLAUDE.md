@@ -4,10 +4,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Long Lines ingests ham radio spots from POTA, SOTAwatch and the Reverse Beacon Network into
-Supabase. Phase 1 was ingest-to-storage only; the scope exclusions in `docs/ARCHITECTURE.md` and the
-original spec are deliberate. Do not add auth, RLS, UI, consumers, notifications, cross-source
-dedup, or new sources without being asked.
+Long Lines ingests ham radio spots from POTA, SOTAwatch, WWFF, DX Cluster and the Reverse Beacon
+Network (plus APRS-IS packets) into Supabase. Phase 1 was ingest-to-storage only; the scope
+exclusions in `docs/ARCHITECTURE.md` and the original spec are deliberate. Do not add auth, RLS,
+UI, consumers, notifications, cross-source dedup, or new sources without being asked.
 
 Everything runs on Supabase: Postgres (pg_cron, pg_net, pgmq) plus Deno Edge Functions in
 strict TypeScript. The one exception is `relay/`, a Deno process on Fly.io that holds telnet streams
@@ -52,14 +52,14 @@ Local invocation: `curl -X POST http://127.0.0.1:54321/functions/v1/ingest-pota 
 
 ## Architecture
 
-- `supabase/functions/_shared/ingest.ts` is the orchestrator; `ingest-pota/index.ts` and
-  `ingest-sotawatch/index.ts` are three-line shells around `serve.ts`. The other entrypoints are
-  `Deno.serve` shells around `_shared/handlers/*.ts`, which take their clients and sender as
-  arguments so tests can pass fakes (`__tests__/fake_supabase.ts`). Behavior changes go in
+- `supabase/functions/_shared/ingest.ts` is the orchestrator; `ingest-pota/index.ts`,
+  `ingest-sotawatch/index.ts` and `ingest-wwff/index.ts` are three-line shells around `serve.ts`.
+  The other entrypoints are `Deno.serve` shells around `_shared/handlers/*.ts`, which take their
+  clients and sender as arguments so tests can pass fakes (`__tests__/fake_supabase.ts`). Behavior changes go in
   `_shared`, never in the entrypoints.
 - Every function directory needs its own `deno.json`: `supabase functions deploy` bundles with it
   as the import map, not the root one. `__tests__/function_config.test.ts` fails CI without it.
-- Source adapters (`pota.ts`, `sotawatch.ts`) implement `SourceAdapter` from `types.ts`:
+- Source adapters (`pota.ts`, `sotawatch.ts`, `wwff.ts`) implement `SourceAdapter` from `types.ts`:
   `parseFeed` and `normalize` are pure and tested against fixtures; only `fetchSpots`/`fetchEpoch`
   do I/O. `normalize` returns `{kind: "skip"}` for intentional drops and throws for unprocessable
   spots; the orchestrator turns throws into `ingest_failures` rows without aborting the run.
@@ -70,8 +70,9 @@ Local invocation: `curl -X POST http://127.0.0.1:54321/functions/v1/ingest-pota 
   `ON CONFLICT DO NOTHING RETURNING`, and a second CTE calls `pgmq.send_batch`. The second CTE
   is cross-joined into the result on purpose; an unreferenced CTE would never run.
 - Dedup is the unique constraint `(source, source_spot_id, content_hash)`. The hash field order
-  per source is fixed (see `ARCHITECTURE.md`); changing it would make every existing spot look
-  new on the next run.
+  per source is fixed (see `ARCHITECTURE.md`; WWFF's is `spot_time, activator, reference,
+  frequency_khz, mode, remarks`); changing it would make every existing spot look new on the next
+  run.
 - Cron jobs read the project URL and service-role key from Vault
   (`scripts/setup-db-settings.sql` creates them once). Migrations never contain secrets.
 
@@ -115,6 +116,11 @@ relay on pushes to main; nothing else deploys automatically.
   per day by `cty_lookup` on each distinct call as spotted, never per refresh. DXCC entities map to
   ISO alpha-2 only in `cty_entity_countries`; `web/src/stats/countries.test.ts` checks it covers
   every entity of the cty.dat fixture, so a new entity needs a row there.
+- WWFF is a peer of POTA and SOTA: wherever the payload or the page has a POTA and a SOTA figure
+  (totals, `daily`/`hourly`/`bands`/`countries` keys, top lists, `in_window`, copy), it has a WWFF
+  one too. `wwffPrograms` (top 10 by the reference prefix before `-`) is the counterpart of
+  `sotaAssociations`. Snapshots older than WWFF lack its keys; the page reads them with `?? 0` /
+  `?? []`.
 - The Stats page is deliberately fixed: no controls beyond tooltips, one request per hour of use
   (`web/src/stats/cache.ts` keeps a snapshot until the next refresh is due; never poll).
   Do not add filters, date pickers, sorting or MUI X Pro components.
@@ -131,9 +137,10 @@ relay on pushes to main; nothing else deploys automatically.
 - A subscription is live only while `enabled` and linked to at least one destination. Saving with
   none is allowed; `match_pending_spots` and `watched_among` both skip it, and `enabled` is kept
   so it starts once a destination is added. Keep that check in both if either changes.
-- A DX Cluster spot matches only subscriptions whose `sources` lists `dxcluster`; an empty sources
-  list ("any source") does not include it. The rule lives in `source_matches`. An RBN spot passes only an AND group of rules
-  that names stations (a `callsign` or `group` rule with op `is`, `rules_name_stations`).
+- DX Cluster and WWFF spots match only subscriptions whose `sources` lists `dxcluster` / `wwff`;
+  an empty sources list ("any source") includes neither (WWFF overlaps POTA heavily and there is no
+  cross-source dedup). The rule lives in `source_matches`. An RBN spot passes only an AND group of
+  rules that names stations (a `callsign` or `group` rule with op `is`, `rules_name_stations`).
 - The worker (`supabase/functions/deliver`) only talks to the database through the
   `claim_deliveries` / `mark_deliveries_*` / `delay_deliveries` RPCs so delivery rows, queue
   messages and destination health change atomically.
@@ -228,8 +235,9 @@ relay on pushes to main; nothing else deploys automatically.
 
 ## Archive rules
 
-- Slice length lives only in `archive_slice_minutes(source)` (APRS-IS 5 minutes, RBN 10, others 60). A slice's
-  rows, columns and order are chosen in SQL (`archive_columns`, column arrays), never in
+- Slice length lives only in `archive_slice_minutes(source)` (APRS-IS 5 minutes, RBN 10; POTA,
+  SOTAwatch, DX Cluster and WWFF 60). `ARCHIVE_ORDER` is pota, sotawatch, dxcluster, wwff, rbn.
+  A slice's rows, columns and order are chosen in SQL (`archive_columns`, column arrays), never in
   TypeScript; the `archive` function only encodes Parquet, uploads and logs. One file per slice at
   `<source>/year=YYYY/month=MM/day=DD/HHMM.parquet`. A column change goes in `archive_columns` and
   `ARCHIVE_SCHEMAS` (`_shared/archive.ts`) together; a test compares them.
@@ -288,7 +296,8 @@ relay on pushes to main; nothing else deploys automatically.
   calls `cached_band_map()`: one shared row in `band_map_cache`, rebuilt at most every 30 seconds
   under an advisory lock. Never query `raw_spots` per visitor, add a cron job for it, or use
   Realtime. The client polls every 30 seconds, and only while the tab is visible.
-- POTA, SOTAwatch and DX Cluster only. Never RBN, APRS-IS or `raw_payload`. One row per
+- POTA, SOTAwatch and DX Cluster only. Never RBN, APRS-IS or `raw_payload`. WWFF stays off until
+  Brad makes that product call. One row per
   `base_callsign` per band, and hidden calls are left out. The shape is `BandMapPayload`
   (`web/src/bandmap/types.ts`), pinned by `supabase/tests/band_map.test.sql`; change the SQL, the
   type and the test together.
@@ -399,7 +408,8 @@ screens and for notification text.
 ## Conventions
 
 - Time-dependent functions take `now: Date` so tests pin the clock. The POTA and SOTAwatch
-  fixtures were captured 2026-10-05 ~13:45Z, the RBN telnet fixture 2026-10-11 14:54-14:56Z; tests
+  fixtures were captured 2026-10-05 ~13:45Z, the RBN telnet fixture 2026-10-11 14:54-14:56Z, the
+  WWFF fixture (`wwff-spots.json`) 2026-10-15 ~18:27Z; tests
   set `NOW` inside the five-minute window of the spots they expect to keep.
 - Mode canonicalization, the comment hint and `mode_family` live in `_shared/modes.ts`. SQL only
   compares strings against `mode` and `mode_family`; never re-derive the family in SQL or the web.

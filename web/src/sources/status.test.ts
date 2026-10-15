@@ -21,7 +21,7 @@ describe("sourceStatus", () => {
     expect(sourceStatus(pota, null)).toBe("connected");
   });
   it("is planned for a planned source whatever the health", () => {
-    expect(sourceStatus(SOURCES.find((s) => s.id === "wwff")!, [])).toBe("planned");
+    expect(sourceStatus(SOURCES.find((s) => s.id === "pskreporter")!, [])).toBe("planned");
   });
   it("labels each status", () => {
     expect(STATUS_LABEL).toEqual({ connected: "Connected", delayed: "Delayed", planned: "Not yet available" });

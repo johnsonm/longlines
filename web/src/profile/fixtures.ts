@@ -20,10 +20,14 @@ export const HEARD: HeardProfile = {
     { label: "CW", spots: 1200, percent: 97 }, { label: "SSB", spots: 34, percent: 3 }, { label: "FT8/FT4", spots: 0, percent: 0 },
     { label: "FM", spots: 0, percent: 0 }, { label: "Other", spots: 0, percent: 0 },
   ],
-  activations: [{ program: "POTA", references: 3, activations: 5 }, { program: "SOTA", references: 2, activations: 2 }],
+  activations: [
+    { program: "POTA", references: 3, activations: 5 }, { program: "SOTA", references: 2, activations: 2 },
+    { program: "WWFF", references: 1, activations: 1 },
+  ],
   references: [
     { reference: "US-0817", name: "Pisgah National Forest", program: "POTA", location: "US-NC", activations: 3, spots: 80, lastDay: "2026-10-12" },
     { reference: "W4C/CM-001", name: "Mount Mitchell", program: "SOTA", location: null, activations: 1, spots: 9, lastDay: "2026-10-10" },
+    { reference: "KFF-5268", name: "T.M. Goodwin", program: "WWFF", location: null, activations: 1, spots: 6, lastDay: "2026-10-08" },
   ],
   activationsByLocation: { "US-NC": 4, "US-VA": 1 },
   reach: [{ country: "United States", continent: "NA", spots: 900 }, { country: "Germany", continent: "EU", spots: 200 }],

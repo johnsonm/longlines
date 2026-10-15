@@ -3,7 +3,7 @@
 -- Pins the payload shape: CallsignProfile in web/src/profile/types.ts.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(75);
+select plan(77);
 
 create or replace function pg_temp.d(p_offset int) returns date language sql as $$
   select (now() at time zone 'utc')::date + p_offset;
@@ -293,6 +293,23 @@ select is((select array_agg(e ->> 'spotter' order by o) from jsonb_array_element
   (select array_agg(format('SK%s', lpad(i::text, 2, '0')) order by i) from generate_series(1, 25) as i),
   'recentSpots breaks ties at the cutoff by every column it shows, so the same rows give the same 25');
 select is(jsonb_array_length(callsign_profile('N0TIE') #> '{heard,recentSpots}'), 25, 'and still keeps 25');
+
+-- WWFF is a third program on the profile, with the reference's name and no location.
+insert into raw_spots (source, source_spot_id, content_hash, spot_time, callsign, spotter, frequency_khz, band, mode,
+                       mode_family, comment, wwff_reference, wwff_reference_name, raw_payload)
+values ('wwff', 'w1', 'w1', pg_temp.at(-1, '10:00:00'), 'K1WWF/P', 'W1AW', 14244, '20m', 'ssb', 'phone', '',
+        'KFF-1234', 'Falls Lake', '{}'),
+       ('wwff', 'w2', 'w2', pg_temp.at(-1, '15:00:00'), 'K1WWF/P', 'W1AW', 14244, '20m', 'ssb', 'phone', '',
+        'KFF-5678', null, '{}');
+select is(callsign_profile('K1WWF') #> '{heard,activations}',
+  '[{"program": "WWFF", "references": 2, "activations": 2}]'::jsonb, 'activations count WWFF references');
+select is(callsign_profile('K1WWF') #> '{heard,references}',
+  jsonb_build_array(
+    jsonb_build_object('reference', 'KFF-1234', 'name', 'Falls Lake', 'program', 'WWFF', 'location', null,
+                       'activations', 1, 'spots', 1, 'lastDay', pg_temp.d(-1)),
+    jsonb_build_object('reference', 'KFF-5678', 'name', null, 'program', 'WWFF', 'location', null,
+                       'activations', 1, 'spots', 1, 'lastDay', pg_temp.d(-1))),
+  'WWFF references carry their names; a day''s ties go by reference');
 
 -- Access.
 select ok(not exists (

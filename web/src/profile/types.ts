@@ -4,7 +4,7 @@
 // supabase/tests/callsign_profile.test.sql; change all three together.
 //
 // Times are ISO UTC ("2026-10-12T14:32:00Z"), days YYYY-MM-DD, months YYYY-MM.
-// Sources are source ids as stored ("pota", "sotawatch", "rbn", "dxcluster",
+// Sources are source ids as stored ("pota", "sotawatch", "wwff", "rbn", "dxcluster",
 // and any added later). All-time figures come from the rollups plus a live
 // read of the days not rolled up yet.
 
@@ -55,7 +55,7 @@ export type HeardProfile = {
   bands: { band: string; spots: number }[]; // the Stats bands, 160m … 2m, zero-filled
   modes: { label: ModeLabel; spots: number; percent: number }[]; // the five labels in order; integer percents sum to 100 (all 0 with no spots)
   // Activations: one per reference per UTC day.
-  activations: { program: string; references: number; activations: number }[]; // per program ("POTA", "SOTA"), by name
+  activations: { program: string; references: number; activations: number }[]; // per program ("POTA", "SOTA", "WWFF"), by name
   references: {
     reference: string;
     name: string | null;

@@ -2,7 +2,7 @@ import type { AprsPacketType } from "./aprs.ts";
 import type { ModeFamily } from "./modes.ts";
 import type { LicenseLoad, UlsCounts, UlsKind, UlsRow } from "./uls.ts";
 
-export type Source = "pota" | "sotawatch" | "rbn" | "dxcluster" | "aprs";
+export type Source = "pota" | "sotawatch" | "rbn" | "dxcluster" | "aprs" | "wwff";
 
 /** A JSON object as received from an upstream feed. Fields are validated at use. */
 export type JsonObject = Record<string, unknown>;
@@ -27,6 +27,8 @@ export interface NormalizedSpot {
   pota_park_name: string | null;
   pota_location: string | null;
   sota_summit_ref: string | null;
+  wwff_reference: string | null;
+  wwff_reference_name: string | null;
   raw_payload: JsonObject;
 }
 

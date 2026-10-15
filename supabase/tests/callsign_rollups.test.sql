@@ -1,7 +1,7 @@
 -- pgTAP: spot_stream and the callsign rollups (20261012000040).
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(46);
+select plan(49);
 
 create or replace function pg_temp.d(p_offset int) returns date language sql as $$
   select (now() at time zone 'utc')::date + p_offset;
@@ -190,6 +190,18 @@ select is((select array_agg((grain, spots)::text) from callsign_reach where base
   array['(month,6)'], 'reach: old day rows become one month row');
 select is((select count(*) from callsign_activity where grain = 'day' and period = pg_temp.d(-4))::int,
   (select count(*) from callsign_activity where period = pg_temp.d(-4))::int, 'recent day rows are kept');
+
+-- WWFF is the third program: a WWFF spot rolls up as a reference with its name and no location.
+insert into raw_spots (source, source_spot_id, content_hash, spot_time, callsign, spotter, frequency_khz, band, mode,
+                       mode_family, comment, wwff_reference, wwff_reference_name, raw_payload)
+values ('wwff', 'w1', 'w1', pg_temp.at(-10, '10:00:00'), 'K1WWF/P', 'W1AW', 14244, '20m', 'ssb', 'phone', '',
+        'KFF-1234', 'Falls Lake', '{}');
+select is((select (program, reference, reference_name, reference_location)::text from spot_stream where source = 'wwff'),
+  '(WWFF,KFF-1234,"Falls Lake",)', 'a WWFF row carries its reference and name');
+select is(rollup_callsign_day(pg_temp.d(-10)), 1::bigint, 'a day with a WWFF spot rolls up');
+select is((select array_agg((program, reference, name, location, days, spots)::text)
+           from callsign_references where base = 'K1WWF'),
+  array['(WWFF,KFF-1234,"Falls Lake",,1,1)'], 'references: a WWFF reference under its program');
 
 -- Refusals: a day whose RBN spots were retired, and any day without cty.dat.
 select pg_temp.raw('pota', 'r7', pg_temp.at(-20, '10:00:00'), 'K1GONE', 'W1AW', 14062, '20m', 'cw', 'cw');

@@ -99,7 +99,7 @@ A subscription says which spots you want and where to send them.
 |---|---|---|
 | `name` | string | Required. |
 | `enabled` | boolean | Defaults to `true`. |
-| `sources` | strings | `pota`, `sotawatch`, `rbn`, `dxcluster`. Empty means any. A DX Cluster spot only matches a subscription that lists `dxcluster`. |
+| `sources` | strings | `pota`, `sotawatch`, `wwff`, `rbn`, `dxcluster`. Empty means any. A DX Cluster spot only matches a subscription that lists `dxcluster`, and a WWFF spot one that lists `wwff`. |
 | `rules` | list of lists | The filter. See Rules. Defaults to `[]`, which passes every spot. |
 | `quiet_minutes` | integer | 0, 5, 10, 30 or 60. Defaults to 10. |
 | `destinations` | UUIDs | Zero or more. With none, the subscription stays off whatever `enabled` says, and starts once it has one. |
@@ -133,7 +133,7 @@ tighter, so "band is 20m and mode is CW or callsign is W1AW" is:
 | `group` | `is`, `is_not` | Callsign group ids. A spot's base call is checked against the members. |
 | `band` | `is`, `is_not` | Bands, for example `20m`. |
 | `mode` | `is`, `is_not` | Modes or mode families, for example `cw`, `ft8`, `digital`. |
-| `reference` | `contains`, `not_contains` | Text to look for in a POTA reference or location or a SOTA summit code, such as `US-NC`. Ignores case. |
+| `reference` | `contains`, `not_contains` | Text to look for in a POTA reference or location, a SOTA summit code or a WWFF reference, such as `US-NC` or `KFF-`. Ignores case. |
 | `frequency` | `is`, `is_not`, `gt`, `lt` | One number, in kHz. `gt` is greater than and `lt` less than. |
 
 `is` passes a spot that has any of the values and `is_not` one that has none of them, so a spot
@@ -167,7 +167,7 @@ The two `members` routes change the list in one step, so two scripts adding memb
 time don't lose each other's changes.
 
 A group looks like this. `on_air` counts the members spotted in the last 30 minutes and carries the
-newest of those spots.
+newest of those spots; its `reference` is the POTA, SOTA or WWFF reference, whichever the spot has.
 
 ```json
 {

@@ -13,14 +13,14 @@ vi.mock("../stats/useStats", () => ({ useStats: vi.fn() }));
 const health = (source: string, age: number | null) => ({ source, seconds_since_last_success: age }) as IngestHealth;
 const hourly = Array.from({ length: 168 }, (_, i) => ({
   hour: new Date(Date.UTC(2026, 9, 7) + i * 3_600_000).toISOString().replace(".000", ""),
-  pota: 36, sota: 5, rbn: 62_520, aprs: 330_000, dx: 56,
+  pota: 36, sota: 5, wwff: 12, rbn: 62_520, aprs: 330_000, dx: 56,
 }));
 const STATS = { payload: { hourly }, generatedAt: "2026-10-14T15:00:00Z" } as unknown as LatestStats;
 
 beforeEach(() => {
   setMobile(false);
   vi.mocked(loadIngestHealth).mockReset().mockResolvedValue([
-    health("pota", 20), health("sotawatch", 600), health("rbn", 30), health("dxcluster", 40), health("aprs", 50),
+    health("pota", 20), health("sotawatch", 600), health("rbn", 30), health("dxcluster", 40), health("aprs", 50), health("wwff", 45),
   ]);
   vi.mocked(useStats).mockReturnValue({ stats: STATS, loading: false, error: null });
 });
@@ -34,7 +34,7 @@ describe("SourcesPage", () => {
     expect(screen.getByText("Where spots come from. Pick a source to see what it sends and what you can do with it.")).toBeInTheDocument();
     // The high volume alert lives only on RBN's and APRS-IS's detail pages.
     expect(screen.queryByText(/callsign filter/)).not.toBeInTheDocument();
-    expect(tiles()).toEqual(["Parks on the Air", "SOTA", "Reverse Beacon Network", "DX Cluster", "APRS-IS", "PSK Reporter", "WWFF"]);
+    expect(tiles()).toEqual(["Parks on the Air", "SOTA", "Reverse Beacon Network", "DX Cluster", "APRS-IS", "WWFF", "PSK Reporter"]);
     expect(await screen.findByText("Delayed")).toBeInTheDocument(); // SOTA: 600 s > 3 × 30 s
   });
 
@@ -44,13 +44,15 @@ describe("SourcesPage", () => {
     expect(screen.getByText("62,520 spots/hour")).toBeInTheDocument();
     expect(screen.getByText("330,000 spots/hour")).toBeInTheDocument();
     expect(screen.getByText("56 spots/hour")).toBeInTheDocument();
+    expect(screen.getByText("12 spots/hour")).toBeInTheDocument();
   });
 
   it("links live tiles to their pages and leaves planned ones unlinked", () => {
     renderPage(<SourcesPage />);
     expect(screen.getByRole("link", { name: /Parks on the Air/ })).toHaveAttribute("href", "/sources/pota");
     expect(screen.getByRole("link", { name: /APRS-IS/ })).toHaveAttribute("href", "/sources/aprs");
-    expect(screen.queryByRole("link", { name: /WWFF/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /WWFF/ })).toHaveAttribute("href", "/sources/wwff");
+    expect(screen.queryByRole("link", { name: /PSK Reporter/ })).not.toBeInTheDocument();
   });
 
   it("filters by search, trimming and ignoring case", async () => {
@@ -65,9 +67,9 @@ describe("SourcesPage", () => {
   it("filters by chip and says when nothing matches", async () => {
     const { user } = renderPage(<SourcesPage />);
     await user.click(screen.getByRole("button", { name: "Not yet available" }));
-    expect(tiles()).toEqual(["PSK Reporter", "WWFF"]);
+    expect(tiles()).toEqual(["PSK Reporter"]);
     await user.click(screen.getByRole("button", { name: "Connected" }));
-    expect(tiles()).toHaveLength(5);
+    expect(tiles()).toHaveLength(6);
     await user.type(screen.getByLabelText("Search sources"), "zzz");
     expect(screen.getByText("No sources match.")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "All" }));
@@ -80,7 +82,7 @@ describe("SourcesPage", () => {
     renderPage(<SourcesPage />);
     expect(await screen.findByText("Couldn't load source health.")).toBeInTheDocument();
     expect(screen.queryByText("Delayed")).not.toBeInTheDocument();
-    expect(screen.getAllByText("Connected").length).toBeGreaterThanOrEqual(5);
+    expect(screen.getAllByText("Connected").length).toBeGreaterThanOrEqual(6);
   });
 
   it("hides rates while there is no snapshot", () => {

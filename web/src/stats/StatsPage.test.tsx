@@ -10,34 +10,36 @@ vi.mock("./useStats", () => ({ useStats: vi.fn() }));
 
 export const PAYLOAD: StatsPayload = {
   totals: {
-    spots: 12345, potaSpots: 10000, sotaSpots: 2345,
-    activations: 1500, potaActivations: 1200, sotaActivations: 300,
-    chasers: 4321, potaChasers: 4000, sotaChasers: 321,
+    spots: 13000, potaSpots: 10000, sotaSpots: 2345, wwffSpots: 655,
+    activations: 1600, potaActivations: 1200, sotaActivations: 300, wwffActivations: 100,
+    chasers: 4400, potaChasers: 4000, sotaChasers: 321, wwffChasers: 79,
     activators: 812, references: 640,
   },
   peakHour: 14,
   busiestSlot: { day: "2026-10-03", hour: 15 },
   daily: ["2026-09-29", "2026-09-30", "2026-10-01", "2026-10-02", "2026-10-03", "2026-10-04", "2026-10-05"].map((day, i) => ({
-    day, pota: 1000 + i, sota: 300 + i, rbn: 24000, aprs: 250000, dx: 40,
+    day, pota: 1000 + i, sota: 300 + i, wwff: 90 + i, rbn: 24000, aprs: 250000, dx: 40,
   })),
   potaByState: { NC: 900, CA: 700, TX: 0 },
   countries: [
-    { code: "US", pota: 9000, sota: 1500, dx: 2000, rbn: 90000 },
-    { code: "DE", pota: 400, sota: 100, dx: 900, rbn: 30000 },
-    { code: "MT", pota: 3, sota: 0, dx: 12, rbn: 0 },
+    { code: "US", pota: 9000, sota: 1500, wwff: 300, dx: 2000, rbn: 90000 },
+    { code: "DE", pota: 400, sota: 100, wwff: 600, dx: 900, rbn: 30000 },
+    { code: "MT", pota: 3, sota: 0, wwff: 0, dx: 12, rbn: 0 },
   ],
   sotaAssociations: [{ code: "W4C", spots: 120 }, { code: "W7A", spots: 90 }],
-  bands: [{ band: "40m", pota: 3000, sota: 500 }, { band: "20m", pota: 5000, sota: 900 }],
+  wwffPrograms: [{ code: "KFF", spots: 300 }, { code: "ONFF", spots: 120 }],
+  bands: [{ band: "40m", pota: 3000, sota: 500, wwff: 200 }, { band: "20m", pota: 5000, sota: 900, wwff: 400 }],
   modes: [{ label: "CW", percent: 40 }, { label: "SSB", percent: 35 }, { label: "FT8/FT4", percent: 25 }],
   topActivators: [{ callsign: "KK4PWJ/P", base: "KK4PWJ", references: 9, activations: 11, spots: 120, topBand: "20m" },
     { callsign: "W1AW", base: "W1AW", references: 2, activations: 2, spots: 10, topBand: null }],
   topReferences: [
     { reference: "US-0817", name: "Pisgah National Forest", program: "POTA", activations: 14, spots: 80 },
     { reference: "W4C/CM-001", name: null, program: "SOTA", activations: 6, spots: 40 },
+    { reference: "KFF-5268", name: "T.M. Goodwin", program: "WWFF", activations: 4, spots: 30 },
   ],
   hourly: Array.from({ length: 168 }, (_, i) => ({
     hour: new Date(Date.UTC(2026, 8, 29) + i * 3_600_000).toISOString().replace(".000", ""),
-    pota: 50, sota: 10, rbn: 1000, aprs: 10000, dx: 2,
+    pota: 50, sota: 10, wwff: 5, rbn: 1000, aprs: 10000, dx: 2,
   })),
   rbn: {
     spots: 168000, skimmers: 312,
@@ -79,10 +81,10 @@ describe("StatsPage", () => {
     vi.mocked(useStats).mockReturnValue({ stats: STATS, loading: false, error: null });
     renderPage(<StatsPage />);
     expect(screen.getByText("All times UTC. Updated hourly, last at 13:00 UTC Oct 5.")).toBeInTheDocument();
-    expect(screen.getByText("1,930,345")).toBeInTheDocument();
-    expect(screen.getByText("168,000 RBN, 1,750,000 APRS, 10,000 POTA, 2,345 SOTA")).toBeInTheDocument();
-    expect(screen.getByText("1,200 POTA, 300 SOTA")).toBeInTheDocument();
-    expect(screen.getByText("4,000 POTA, 321 SOTA")).toBeInTheDocument();
+    expect(screen.getByText("1,931,000")).toBeInTheDocument();
+    expect(screen.getByText("168,000 RBN, 1,750,000 APRS, 10,000 POTA, 2,345 SOTA, 655 WWFF")).toBeInTheDocument();
+    expect(screen.getByText("1,200 POTA, 300 SOTA, 100 WWFF")).toBeInTheDocument();
+    expect(screen.getByText("4,000 POTA, 321 SOTA, 79 WWFF")).toBeInTheDocument();
     expect(screen.getByText("14:00")).toBeInTheDocument();
     expect(screen.getByText("Busiest slot: Sat 15:00")).toBeInTheDocument();
     expect(screen.getByText("1. North Carolina")).toBeInTheDocument();
@@ -95,9 +97,9 @@ describe("StatsPage", () => {
   it("shows ingest volume across every source", () => {
     vi.mocked(useStats).mockReturnValue({ stats: STATS, loading: false, error: null });
     renderPage(<StatsPage />);
-    // 1,930,345 spots and packets over 10,080 minutes; every hour of the fixture is 50 + 10 + 1,000 + 10,000.
+    // 1,931,000 spots and packets over 10,080 minutes; every hour of the fixture is 50 + 10 + 5 + 1,000 + 10,000.
     expect(screen.getByText("192/min")).toBeInTheDocument();
-    expect(screen.getByText("Peak hour: 11,060 spots")).toBeInTheDocument();
+    expect(screen.getByText("Peak hour: 11,065 spots")).toBeInTheDocument();
     expect(screen.getByText("312")).toBeInTheDocument();
     expect(screen.getByText("Spots processed per hour")).toBeInTheDocument();
     // One per-day chart per source; the RBN subheader sums its seven days.
@@ -131,20 +133,22 @@ describe("StatsPage", () => {
     setMobile(true);
     vi.mocked(useStats).mockReturnValue({ stats: STATS, loading: false, error: null });
     renderPage(<StatsPage />);
-    expect(screen.getByText("Most spotted parks and summits")).toBeInTheDocument();
+    expect(screen.getByText("Most spotted parks, summits and WWFF references")).toBeInTheDocument();
   });
 
   it("renders a snapshot written before activations and chasers existed", () => {
     // After a migration the newest row keeps its old shape until the next hourly refresh.
     const totals: Record<string, number> = { ...PAYLOAD.totals };
-    for (const key of ["activations", "potaActivations", "sotaActivations", "chasers", "potaChasers", "sotaChasers"]) {
+    for (const key of [
+      "activations", "potaActivations", "sotaActivations", "wwffActivations", "chasers", "potaChasers", "sotaChasers", "wwffChasers",
+    ]) {
       delete totals[key];
     }
     const stats = { ...STATS, payload: { ...PAYLOAD, totals } } as unknown as LatestStats;
     vi.mocked(useStats).mockReturnValue({ stats, loading: false, error: null });
     renderPage(<StatsPage />);
-    expect(screen.getByText("1,930,345")).toBeInTheDocument();
-    expect(screen.getAllByText("0 POTA, 0 SOTA")).toHaveLength(2);
+    expect(screen.getByText("1,931,000")).toBeInTheDocument();
+    expect(screen.getAllByText("0 POTA, 0 SOTA, 0 WWFF")).toHaveLength(2);
   });
 
   it("renders a snapshot written before RBN figures and the hourly series existed", () => {
@@ -153,8 +157,8 @@ describe("StatsPage", () => {
     const stats = { ...STATS, payload: { ...old, daily } } as unknown as LatestStats;
     vi.mocked(useStats).mockReturnValue({ stats, loading: false, error: null });
     renderPage(<StatsPage />);
-    expect(screen.getByText("12,345")).toBeInTheDocument();
-    expect(screen.getByText("0 RBN, 0 APRS, 10,000 POTA, 2,345 SOTA")).toBeInTheDocument();
+    expect(screen.getByText("13,000")).toBeInTheDocument();
+    expect(screen.getByText("0 RBN, 0 APRS, 10,000 POTA, 2,345 SOTA, 655 WWFF")).toBeInTheDocument();
     expect(screen.getByText("Peak hour: 0 spots")).toBeInTheDocument();
     expect(screen.queryByText("Spots processed per hour")).not.toBeInTheDocument();
   });
@@ -183,7 +187,8 @@ describe("StatsPage", () => {
     expect(screen.getByRole("img", { name: "Map of spots by country" })).toBeInTheDocument();
     expect(screen.getByText("Busiest countries")).toBeInTheDocument();
     expect(screen.getByText("1. United States")).toBeInTheDocument();
-    expect(screen.getByText("102,500")).toBeInTheDocument();
+    expect(screen.getByText("102,800")).toBeInTheDocument();
+    expect(screen.getByText("POTA, SOTA, WWFF, DX Cluster and RBN spots by the country of the station on the air. Darker means more activity.")).toBeInTheDocument();
     // Malta is too small for the atlas but still listed.
     expect(screen.getByText("3. Malta")).toBeInTheDocument();
   });
@@ -204,10 +209,44 @@ describe("StatsPage", () => {
     const stats = { ...STATS, payload: { ...old, daily, hourly } } as unknown as LatestStats;
     vi.mocked(useStats).mockReturnValue({ stats, loading: false, error: null });
     renderPage(<StatsPage />);
-    expect(screen.getByText("180,345")).toBeInTheDocument();
-    expect(screen.getByText("168,000 RBN, 0 APRS, 10,000 POTA, 2,345 SOTA")).toBeInTheDocument();
-    expect(screen.getByText("Peak hour: 1,060 spots")).toBeInTheDocument();
+    expect(screen.getByText("181,000")).toBeInTheDocument();
+    expect(screen.getByText("168,000 RBN, 0 APRS, 10,000 POTA, 2,345 SOTA, 655 WWFF")).toBeInTheDocument();
+    expect(screen.getByText("Peak hour: 1,065 spots")).toBeInTheDocument();
     expect(screen.getByText("0 packets")).toBeInTheDocument();
     expect(screen.getByText("APRS packets")).toBeInTheDocument();
+  });
+
+  it("shows WWFF next to POTA and SOTA", () => {
+    vi.mocked(useStats).mockReturnValue({ stats: STATS, loading: false, error: null });
+    renderPage(<StatsPage />);
+    expect(screen.getByText("Peak POTA/SOTA/WWFF hour")).toBeInTheDocument();
+    expect(screen.getByText("Unique POTA, SOTA and WWFF callsigns")).toBeInTheDocument();
+    expect(screen.getByText("Parks, summits and WWFF")).toBeInTheDocument();
+    // The WWFF per-day chart sums 90 + 91 + ... + 96.
+    expect(screen.getByText("651 spots")).toBeInTheDocument();
+    expect(screen.getByText("WWFF bands")).toBeInTheDocument();
+    expect(screen.getByText("Where WWFF activators are operating")).toBeInTheDocument();
+    expect(screen.getByText("Top WWFF programs")).toBeInTheDocument();
+    expect(screen.getByText("Programs with the most WWFF spots")).toBeInTheDocument();
+    expect(screen.getByText("Share of POTA, SOTA and WWFF spots")).toBeInTheDocument();
+    expect(screen.getByText("By number of parks, summits and WWFF references activated")).toBeInTheDocument();
+    expect(screen.getByText("KFF-5268")).toBeInTheDocument();
+  });
+
+  it("renders a snapshot written before WWFF existed", () => {
+    const { wwffPrograms: _programs, ...old } = PAYLOAD;
+    const { wwffSpots: _s, wwffActivations: _a, wwffChasers: _c, ...totals } = PAYLOAD.totals;
+    const daily = PAYLOAD.daily.map(({ wwff: _w, ...d }) => d);
+    const hourly = PAYLOAD.hourly.map(({ wwff: _w, ...h }) => h);
+    const bands = PAYLOAD.bands.map(({ wwff: _w, ...b }) => b);
+    const countries = PAYLOAD.countries.map(({ wwff: _w, ...c }) => c);
+    const stats = { ...STATS, payload: { ...old, totals, daily, hourly, bands, countries } } as unknown as LatestStats;
+    vi.mocked(useStats).mockReturnValue({ stats, loading: false, error: null });
+    renderPage(<StatsPage />);
+    expect(screen.getByText("168,000 RBN, 1,750,000 APRS, 10,000 POTA, 2,345 SOTA, 0 WWFF")).toBeInTheDocument();
+    expect(screen.getByText("Peak hour: 11,060 spots")).toBeInTheDocument();
+    expect(screen.getByText("0 spots")).toBeInTheDocument();
+    expect(screen.getByText("102,500")).toBeInTheDocument();
+    expect(screen.getByText("Top WWFF programs")).toBeInTheDocument();
   });
 });
