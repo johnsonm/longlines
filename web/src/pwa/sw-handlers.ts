@@ -63,6 +63,9 @@ export interface RegistrationLike {
   };
 }
 
+// App code must not import this module: sw.js would then share a chunk with the
+// app and stop being standalone (vite.config.ts fails the build). The page
+// matches the same string literal.
 export const SUBSCRIPTION_CHANGED = "push-subscription-changed";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -106,9 +109,9 @@ export async function handlePush(data: unknown, notifications: NotificationTarge
     badge: "/badge-72.png",
     actions: push.actions ?? [],
     silent,
-    // A replacement for the same tag alerts again, unless the notification is silent:
-    // browsers throw on silent and renotify together.
-    renotify: !silent && (push.renotify ?? true),
+    // A replacement for the same tag alerts again. Browsers throw on renotify
+    // with silent or with an empty tag, so it is never sent with either.
+    renotify: !silent && push.tag !== "" && (push.renotify ?? true),
   });
 }
 
@@ -138,13 +141,16 @@ export async function handleNotificationClick(
   }
   if (target.protocol !== "https:" && target.protocol !== "http:") return;
   if (target.origin === origin) {
-    // Only windows this worker controls can be navigated.
-    const windows = await clients.matchAll({ type: "window" });
-    const open = windows.find((w) => w.url.startsWith(origin));
+    // Same-origin windows this worker controls; only those can be navigated.
+    const [open] = await clients.matchAll({ type: "window" });
     if (open) {
-      await open.focus();
-      await open.navigate(target.href);
-      return;
+      try {
+        await open.focus();
+        await open.navigate(target.href);
+        return;
+      } catch {
+        // The window closed or left this worker's control; open a new one instead.
+      }
     }
   }
   await clients.openWindow(target.href);

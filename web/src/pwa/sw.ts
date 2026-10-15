@@ -5,6 +5,10 @@ import { handleNotificationClick, handlePush, handleSubscriptionChange } from ".
 
 declare const self: ServiceWorkerGlobalScope;
 
+// Nothing is cached, so a new worker can take over at once instead of waiting
+// for every window (an installed app is rarely closed) to go away.
+void self.skipWaiting();
+
 self.addEventListener("push", (event) => {
   let data: unknown;
   try {

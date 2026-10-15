@@ -12,4 +12,5 @@ createRoot(document.getElementById("root")!).render(
   </StrictMode>,
 );
 
-void registerServiceWorker();
+// After load, so the worker's fetch doesn't compete with first render.
+window.addEventListener("load", () => void registerServiceWorker());

@@ -87,6 +87,12 @@ describe("handlePush", () => {
     expect(target.shown[0]![1]).toMatchObject({ silent: true, renotify: false });
   });
 
+  it("never asks for renotify without a tag", async () => {
+    const target = notifications();
+    await handlePush({ ...PUSH, tag: "" }, target);
+    expect(target.shown[0]![1]).toMatchObject({ tag: "", renotify: false });
+  });
+
   it.each([
     ["no data", undefined],
     ["a string", "hello"],
@@ -125,15 +131,23 @@ describe("handleNotificationClick", () => {
   const data = { url: "/call/K4SWL", sourceUrl: "https://pota.app/#/park/US-2763" };
 
   it("focuses an open window and navigates it to the profile", async () => {
-    const other = windowClient("https://example.com/");
     const app = windowClient(`${ORIGIN}/stats`);
-    const c = clients([other, app]);
+    const c = clients([app]);
     await handleNotificationClick("", data, c, ORIGIN);
     expect(c.matchAll).toHaveBeenCalledWith({ type: "window" });
     expect(app.focus).toHaveBeenCalled();
     expect(app.navigate).toHaveBeenCalledWith(`${ORIGIN}/call/K4SWL`);
-    expect(other.navigate).not.toHaveBeenCalled();
     expect(c.openWindow).not.toHaveBeenCalled();
+  });
+
+  it("opens a window when the open one can't be navigated", async () => {
+    const app = windowClient(`${ORIGIN}/stats`);
+    app.navigate = vi.fn(async () => {
+      throw new TypeError("not controlled");
+    });
+    const c = clients([app]);
+    await handleNotificationClick("", data, c, ORIGIN);
+    expect(c.openWindow).toHaveBeenCalledWith(`${ORIGIN}/call/K4SWL`);
   });
 
   it("opens a window when none is open", async () => {

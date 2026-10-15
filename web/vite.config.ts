@@ -1,6 +1,21 @@
 /// <reference types="vitest/config" />
-import { defineConfig, loadEnv } from "vite";
+import { defineConfig, loadEnv, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
+
+// /sw.js is registered as a classic worker, which cannot load other chunks. If
+// the app ever imports from src/pwa/sw-handlers.ts, Rolldown would split the
+// shared code out and sw.js would start with an import; fail the build instead.
+function standaloneServiceWorker(): Plugin {
+  return {
+    name: "standalone-service-worker",
+    generateBundle(_options, bundle) {
+      const sw = bundle["sw.js"];
+      if (sw?.type === "chunk" && (sw.imports.length > 0 || sw.dynamicImports.length > 0)) {
+        this.error(`sw.js must be self-contained but imports ${[...sw.imports, ...sw.dynamicImports].join(", ")}`);
+      }
+    },
+  };
+}
 
 export default defineConfig(({ mode }) => {
   // Vite only exposes VITE_* variables to the browser. The Supabase/Vercel
@@ -18,7 +33,7 @@ export default defineConfig(({ mode }) => {
     console.warn("vite: SUPABASE_URL / SUPABASE_ANON_KEY (or VITE_ equivalents) are not set; the app will fail at startup.");
   }
   return {
-    plugins: [react()],
+    plugins: [react(), standaloneServiceWorker()],
     define: {
       "import.meta.env.VITE_SUPABASE_URL": JSON.stringify(url),
       "import.meta.env.VITE_SUPABASE_ANON_KEY": JSON.stringify(anonKey),

@@ -936,5 +936,7 @@ optional actions; the service worker never formats text), `notificationclick` fo
 Long Lines window and navigates it, or opens one (a source site always gets its own window), and
 `pushsubscriptionchange` re-subscribes with the old key and posts `push-subscription-changed` to
 open windows. The worker never holds a session or token, so re-registering the device is the
-page's job; with no window open, the next load re-registers and the old endpoint is pruned on its
-first 410.
+page's job (the push UI listens for that message and re-registers on every load); the old
+endpoint is pruned on its first 410. The worker calls `skipWaiting()` at startup, since there is
+no cache for a new version to keep consistent, and the build fails if `sw.js` would import another
+chunk: it is registered as a classic worker.
