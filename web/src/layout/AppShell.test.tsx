@@ -22,11 +22,8 @@ describe("AppShell", () => {
     expect(screen.queryByRole("button", { name: "Open navigation" })).not.toBeInTheDocument();
   });
 
-  it("puts Groups between Subscriptions and Destinations", async () => {
+  it("highlights Groups and navigates on to Destinations", async () => {
     const { user } = renderPage(shell(), { route: "/groups" });
-    const labels = screen.getAllByRole("button").map((b) => b.textContent);
-    expect(labels.indexOf("Groups")).toBe(labels.indexOf("Subscriptions") + 1);
-    expect(labels.indexOf("Destinations")).toBe(labels.indexOf("Groups") + 1);
     expect(screen.getByRole("button", { name: "Groups" })).toHaveClass("Mui-selected");
     await user.click(screen.getByRole("button", { name: "Destinations" }));
     expect(screen.getByTestId("location")).toHaveTextContent("/destinations");
@@ -81,10 +78,11 @@ describe("AppShell", () => {
     await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Couldn't sign out. Try again."));
   });
 
-  it("lists Callsign lookup after Stats and keeps it highlighted on profiles", () => {
+  it("lists the sections in order and keeps Callsign lookup highlighted on profiles", () => {
     renderPage(shell(), { route: "/call/KK4PWJ" });
     const labels = screen.getAllByRole("button").map((b) => b.textContent);
-    expect(labels.indexOf("Callsign lookup")).toBe(labels.indexOf("Stats") + 1);
+    const order = ["Sources", "Subscriptions", "Destinations", "Groups", "Band map", "Callsign lookup", "Stats", "API tokens"];
+    expect(labels.filter((l) => order.includes(l ?? ""))).toEqual(order);
     expect(screen.getByRole("button", { name: "Callsign lookup" })).toHaveClass("Mui-selected");
   });
 

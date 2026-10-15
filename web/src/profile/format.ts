@@ -10,7 +10,6 @@ import { fmt } from "../stats/format";
 import { stateName } from "../stats/stateShapes";
 import type { CallsignProfile, HeardProfile, ProfileSpot } from "./types";
 
-const DAY = 24 * 60 * 60 * 1000;
 const TIME = new Intl.DateTimeFormat("en-US", { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: "UTC" });
 const DATE = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
 const MONTH_DAY = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
@@ -53,19 +52,58 @@ export function shortDay(day: string): string {
   return `${d.getUTCMonth() + 1}/${d.getUTCDate()}`;
 }
 
-/** "Last heard 14:32 UTC today on 14.062 MHz CW"; "yesterday", or the date, for older spots. */
-export function lastHeardLabel(last: NonNullable<HeardProfile["lastHeard"]>, now: Date): string {
-  const at = new Date(last.time);
-  const day = last.time.slice(0, 10);
-  const when = day === now.toISOString().slice(0, 10)
-    ? "today"
-    : day === new Date(now.getTime() - DAY).toISOString().slice(0, 10)
-    ? "yesterday"
+/** A spot this recent puts the "On the air now" chip in the header; the same window as Groups. */
+const ON_AIR_MS = 30 * 60 * 1000;
+
+export function onAirNow(time: string, now: Date): boolean {
+  return now.getTime() - new Date(time).getTime() <= ON_AIR_MS;
+}
+
+/** "14062.0 kHz". */
+export function frequencyLabel(khz: number): string {
+  return `${khz.toFixed(1)} kHz`;
+}
+
+/** "2 min ago (14:30 UTC)", "3 h ago (11:30 UTC)"; the date instead past a day: "Oct 5 (09:05 UTC)". */
+export function lastHeardWhen(time: string, now: Date): string {
+  const at = new Date(time);
+  const minutes = Math.max(0, Math.floor((now.getTime() - at.getTime()) / 60000));
+  const ago = minutes < 1
+    ? "just now"
+    : minutes < 60
+    ? `${minutes} min ago`
+    : minutes < 1440
+    ? `${Math.floor(minutes / 60)} h ago`
     : at.getUTCFullYear() === now.getUTCFullYear()
     ? MONTH_DAY.format(at)
     : DATE.format(at);
-  const mode = last.mode ? ` ${last.mode.toUpperCase()}` : "";
-  return `Last heard ${TIME.format(at)} UTC ${when} on ${(last.frequencyKhz / 1000).toFixed(3)} MHz${mode}`;
+  return `${ago} (${TIME.format(at)} UTC)`;
+}
+
+/**
+ * The recent spot behind lastHeard, for its band, source, reference and
+ * spotter. Null when lastHeard is older than the recent spots (7 days).
+ */
+export function lastHeardSpot(heard: HeardProfile): ProfileSpot | null {
+  const last = heard.lastHeard;
+  if (!last) return null;
+  return heard.recentSpots.find((s) => s.time === last.time && s.frequencyKhz === last.frequencyKhz) ?? null;
+}
+
+/** "Activating US-2763, Falls Lake SRA. Spotted by K3XYZ."; either sentence alone, or "". */
+export function lastHeardDetail(spot: ProfileSpot, heard: HeardProfile): string {
+  const parts: string[] = [];
+  if (spot.reference) {
+    const name = heard.references.find((r) => r.reference === spot.reference)?.name;
+    parts.push(`Activating ${spot.reference}${name ? `, ${name}` : ""}.`);
+  }
+  if (spot.spotter) parts.push(`Spotted by ${spot.spotter}.`);
+  return parts.join(" ");
+}
+
+/** QRZ's page for a call. QRZ may not have one; the link goes there anyway. */
+export function qrzUrl(callsign: string): string {
+  return `https://www.qrz.com/db/${encodeURIComponent(callsign)}`;
 }
 
 /** The header's place chip: the licensed state, else the country of the prefix. */
