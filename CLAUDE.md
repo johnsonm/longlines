@@ -270,6 +270,10 @@ relay on pushes to main; nothing else deploys automatically.
   and stores only an HMAC (`_shared/hmac.ts`, key imported once per isolate).
 - A `verify_jwt = false` function never imports `isServiceRole`, which trusts an unverified JWT
   claim; `function_config.test.ts` walks every such function's imports and fails if one does.
+- The header flag comes from `web/src/profile/flags.ts`, a table keyed by cty.dat entity name
+  (cty.dat has no ISO codes); `flags.test.ts` fails when the cty.dat fixture gains an entity the
+  table lacks. Flags are flag-icons SVGs served as separate assets (`assetsInlineLimit` in
+  `web/vite.config.ts` keeps them out of the bundle); never import the package's CSS.
 - Every callsign the web shows links to `/call/<base>`, with the base call coming from SQL:
   `topActivators[].base` in the Stats payload, `rbn.topStations` ranked by base call, the
   profile's own `callsign`. The web never works out a base call. A link built from a call as typed

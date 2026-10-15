@@ -165,14 +165,15 @@ the window is now all time is marked (changed).
 - Chips heading: "Busy this week". The chips are the current Stats snapshot's top activators.
 
 **Profile page**
-- **Header (changed 2026-10-15):** the callsign, then the name, with chips for class and state
-  or country. Buttons: "Get alerts for KK4PWJ" ("Sign in to get alerts" when signed out), "Share"
+- **Header (changed 2026-10-15):** the callsign with the flag of its cty.dat entity beside it
+  (`web/src/profile/flags.ts` maps entity names to flags; an entity without one shows no flag),
+  then the name, with chips for class and state or country. Buttons: "Get alerts for KK4PWJ" ("Sign in to get alerts" when signed out), "Share"
   and "QRZ" (opens `qrz.com/db/<call>`, which may have no page for the call). A "Last heard" band
   below shows "On the air now" for a spot in the last 30 minutes, the frequency ("14062.0 kHz"),
   chips for mode, band and source, "2 min ago (14:30 UTC)", and "Activating US-2763, Falls Lake
   SRA. Spotted by K3XYZ." Band, source, reference and spotter come from the matching recent spot,
   so a station last heard more than 7 days ago shows only frequency, mode and time. The canonical
-  URL closes the card in small text.
+  URL is not printed; Share copies it.
 - **KPIs:**
   - Spots ("All time" (changed))
   - Days on the air

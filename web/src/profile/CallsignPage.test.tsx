@@ -118,11 +118,19 @@ describe("CallsignPage states", () => {
     renderAt("/call/G4ABC");
     expect(screen.getByRole("heading", { name: "G4ABC" })).toBeInTheDocument();
     expect(screen.getByText("England")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "England" })).toHaveAttribute("src", expect.stringMatching(/gb-eng\.svg$/));
     expect(screen.getByText("No FCC record. This looks like a callsign issued outside the United States.")).toBeInTheDocument();
     expect(screen.getByText("Long Lines hasn't heard G4ABC on the air yet.")).toBeInTheDocument();
     expect(screen.queryByText("Activity")).not.toBeInTheDocument();
     expect(screen.queryByText(/Last heard/)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Share" })).toBeInTheDocument();
+  });
+
+  it("shows no flag for a call cty.dat places nowhere", () => {
+    profileIs({ ...NOT_HEARD, callsign: "1A0KM", country: null });
+    renderAt("/call/1A0KM");
+    expect(screen.getByRole("heading", { name: "1A0KM" })).toBeInTheDocument();
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
   });
 
   it("says no FCC record found for a US prefix", () => {
@@ -155,7 +163,8 @@ describe("CallsignPage profile", () => {
     expect(screen.queryByText("On the air now")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "QRZ" })).toHaveAttribute("href", "https://www.qrz.com/db/KK4PWJ");
     expect(screen.getByText("Also heard as KK4PWJ/P")).toBeInTheDocument();
-    expect(screen.getByText(`${window.location.origin}/call/KK4PWJ`)).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "United States" })).toHaveAttribute("src", expect.stringMatching(/us\.svg$/));
+    expect(screen.queryByText(`${window.location.origin}/call/KK4PWJ`)).not.toBeInTheDocument();
     expect(screen.getByText("1,234")).toBeInTheDocument();
     expect(screen.getByText("All time")).toBeInTheDocument();
     expect(screen.getByText("Since Oct 5, 2026")).toBeInTheDocument();
