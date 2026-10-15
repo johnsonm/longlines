@@ -1,18 +1,20 @@
 // The archive worker, called by pg_cron with the service-role key (Vault):
 // every 10 minutes for the default sources, and every 5 minutes with
 // {"sources": ["aprs"]} for APRS-IS. Runs runArchive over the slice RPCs and
-// the archive bucket and returns its summary; 500 when any slice failed, so the
-// failure shows up in net._http_response.
+// the archive bucket (B2) and returns its summary; 500 when any slice failed or
+// the bucket is not configured, so the failure shows up in net._http_response.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { archiveSources, runArchive } from "../archive.ts";
 import { isServiceRole } from "../auth.ts";
-import { createArchiveDb, createArchiveStore } from "../db.ts";
-import type { Source } from "../types.ts";
+import { createArchiveDb } from "../db.ts";
+import type { ArchiveStore, Source } from "../types.ts";
 
 export interface ArchiveDeps {
   serviceRoleKey: string | undefined;
   db: () => SupabaseClient;
+  /** Throws when the LONGLINES_ARCHIVE_S3_* secrets are missing or bad. */
+  store: () => ArchiveStore;
 }
 
 export async function handleArchive(
@@ -32,13 +34,16 @@ export async function handleArchive(
     const message = error instanceof Error ? error.message : String(error);
     return Response.json({ error: `Bad request: ${message}` }, { status: 400 });
   }
-  const client = deps.db();
-  const summary = await runArchive(
-    createArchiveDb(client),
-    createArchiveStore(client),
-    now,
-    sources,
-  );
+  let store: ArchiveStore;
+  try {
+    store = deps.store();
+  } catch (error) {
+    // Nothing is lost: every slice stays pending until a run can upload it.
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(message);
+    return Response.json({ error: message }, { status: 500 });
+  }
+  const summary = await runArchive(createArchiveDb(deps.db()), store, now, sources);
   console.log(JSON.stringify(summary));
   return Response.json(summary, { status: summary.errors.length > 0 ? 500 : 200 });
 }

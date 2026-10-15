@@ -60,7 +60,7 @@ authenticates with a shared secret and never holds
 a Supabase key. An RBN spot only matches subscriptions that name callsigns, so a broad "any
 source, 20m CW" subscription is not flooded with other people's watchlist hits. The relay also holds the
 APRS-IS full feed: every packet on the network goes into `aprs_packets` (about two days in the
-database, everything in the Storage archive) for later analysis. APRS packets are not spots and
+database, everything in the B2 archive) for later analysis. APRS packets are not spots and
 never reach matching. See
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) ("Streaming sources: the relay").
 
@@ -77,7 +77,7 @@ atomically. Failures back off for 24 hours and then drop; five in a row mark the
 failing. Rate limits delay rather than fail. Outbound URLs are checked in SQL at creation and
 again in the worker, with DNS resolved, so private addresses are never reached.
 
-**Archive.** Every spot from every source is also written to a private Storage bucket as Parquet,
+**Archive.** Every spot from every source is also written to a private Backblaze B2 bucket as Parquet,
 one file per slice (five minutes for APRS-IS, ten for RBN, an hour for the others) in
 `<source>/year=/month=/day=` folders, by the `archive` function every 10 minutes. DuckDB, pandas or Spark read the files directly. RBN days leave the database
 only after their archive matches.

@@ -2,7 +2,6 @@ import { assertEquals, assertRejects, assertThrows } from "@std/assert";
 import {
   createAprsDb,
   createArchiveDb,
-  createArchiveStore,
   createIngestDb,
   createRbnDb,
   createServiceClient,
@@ -222,23 +221,5 @@ Deno.test("archive RPC errors are thrown with the function name", async () => {
     () => db.logArchive({ source: "rbn", ...SLICE, row_count: 0, bytes: null, object_path: null }),
     Error,
     "log_archive failed: boom",
-  );
-});
-
-Deno.test("createArchiveStore uploads Parquet to the private archive bucket, replacing any object", async () => {
-  const { client, calls } = fakeSupabase();
-  const bytes = new Uint8Array([1, 2, 3]);
-  await createArchiveStore(client).upload("rbn/year=2026/month=10/day=11/1410.parquet", bytes);
-  assertEquals(calls.storage, [{
-    bucket: "archive",
-    path: "rbn/year=2026/month=10/day=11/1410.parquet",
-    body: bytes,
-    options: { contentType: "application/vnd.apache.parquet", upsert: true },
-  }]);
-  const failing = fakeSupabase({ storageUpload: boom });
-  await assertRejects(
-    () => createArchiveStore(failing.client).upload("p", bytes),
-    Error,
-    "archive upload failed for p: boom",
   );
 });
