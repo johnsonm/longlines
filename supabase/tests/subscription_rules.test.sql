@@ -176,6 +176,8 @@ insert into subscriptions (user_id, name, enabled, sources, rules, quiet_minutes
      jsonb_build_array(jsonb_build_object('field', 'group', 'op', 'is_not', 'values', array[(select rivals from grp)]))), 0),
   ('11111111-1111-1111-1111-111111111111', 'off', false, '{rbn}', '[[{"field":"callsign","op":"is","values":["K9OFF"]}]]', 0),
   ('11111111-1111-1111-1111-111111111111', 'pota', true, '{pota}', '[[{"field":"callsign","op":"is","values":["N4POT"]}]]', 0);
+insert into subscription_destinations (subscription_id, destination_id)
+select s.id, (select id from dest) from subscriptions s;
 select is(array(select watched_among('rbn', array['W1AW', 'K9NOT', 'K9OFF', 'N4POT', 'N4GRP/P', 'K4NEG', 'N0NE'])),
   array['N4GRP/P', 'W1AW'],
   'watched_among: only positive callsign and group rules of enabled subscriptions accepting the source');

@@ -128,6 +128,9 @@ relay on pushes to main; nothing else deploys automatically.
 
 - Matching lives in SQL (`spot_matches`, `match_pending_spots`); never re-implement the predicate in
   TypeScript. The preview RPC and the matcher must stay on the same function.
+- A subscription is live only while `enabled` and linked to at least one destination. Saving with
+  none is allowed; `match_pending_spots` and `watched_among` both skip it, and `enabled` is kept
+  so it starts once a destination is added. Keep that check in both if either changes.
 - A DX Cluster spot matches only subscriptions whose `sources` lists `dxcluster`; an empty sources
   list ("any source") does not include it. The rule lives in `source_matches`. An RBN spot passes only an AND group of rules
   that names stations (a `callsign` or `group` rule with op `is`, `rules_name_stations`).
