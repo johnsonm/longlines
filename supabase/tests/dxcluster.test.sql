@@ -18,10 +18,10 @@ create temp table d as select * from create_destination('webhook', 'Hook', 'http
 create temp table d2 as select * from create_destination('webhook', 'Hook 2', 'https://hooks.example.com/b');
 create temp table d3 as select * from create_destination('webhook', 'Hook 3', 'https://hooks.example.com/c');
 create temp table subs as
-select save_subscription(jsonb_build_object('name','DX on 20m','sources',array['dxcluster'],'bands',array['20m'],'quiet_minutes',0,'destinations',array[(select id from d)])) as dx_only,
-       save_subscription(jsonb_build_object('name','Anything on 20m','bands',array['20m'],'quiet_minutes',0,'destinations',array[(select id from d)])) as any_source,
-       save_subscription(jsonb_build_object('name','SV8/DJ0MY anywhere','callsigns',array['SV8/DJ0MY'],'quiet_minutes',0,'destinations',array[(select id from d3)])) as any_source_call,
-       save_subscription(jsonb_build_object('name','DX and POTA','sources',array['pota','dxcluster'],'modes',array['ssb'],'quiet_minutes',0,'destinations',array[(select id from d2)])) as mixed;
+select save_subscription(jsonb_build_object('name','DX on 20m','sources',array['dxcluster'],'rules','[[{"field":"band","op":"is","values":["20m"]}]]'::jsonb,'quiet_minutes',0,'destinations',array[(select id from d)])) as dx_only,
+       save_subscription(jsonb_build_object('name','Anything on 20m','rules','[[{"field":"band","op":"is","values":["20m"]}]]'::jsonb,'quiet_minutes',0,'destinations',array[(select id from d)])) as any_source,
+       save_subscription(jsonb_build_object('name','SV8/DJ0MY anywhere','rules','[[{"field":"callsign","op":"is","values":["SV8/DJ0MY"]}]]'::jsonb,'quiet_minutes',0,'destinations',array[(select id from d3)])) as any_source_call,
+       save_subscription(jsonb_build_object('name','DX and POTA','sources',array['pota','dxcluster'],'rules','[[{"field":"mode","op":"is","values":["ssb"]}]]'::jsonb,'quiet_minutes',0,'destinations',array[(select id from d2)])) as mixed;
 reset role;
 
 select is((select count(*) from ingest_spots(jsonb_build_array(

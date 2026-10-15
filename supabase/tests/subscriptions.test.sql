@@ -2,7 +2,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(17);
+select plan(18);
 
 select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
 create temp table da as select * from create_destination('discord', 'A discord', 'https://discord.com/api/webhooks/1/a');
@@ -14,22 +14,26 @@ create temp table dz as select * from create_destination('discord', 'B discord',
 -- Create.
 select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
 create temp table s1 as select save_subscription(jsonb_build_object(
-  'name', 'NC parks', 'sources', array['pota'], 'bands', '{}'::text[], 'modes', array['CW', 'ssb'],
-  'callsigns', array[' kk4pwj ', 'w1aw'], 'reference', 'us-nc', 'quiet_minutes', 10,
+  'name', 'NC parks', 'sources', array['pota'],
+  'rules', '[[{"field":"mode","op":"is","values":["CW","ssb"]},
+              {"field":"callsign","op":"is","values":[" kk4pwj ","w1aw"]},
+              {"field":"reference","op":"contains","values":["us-nc"]}]]'::jsonb,
+  'quiet_minutes', 10,
   'destinations', array[(select id from da), (select id from db)])) as id;
 
 select is((select count(*) from subscriptions), 1::bigint, 'subscription created');
-select is((select modes from subscriptions), array['cw', 'ssb'], 'modes are lowercased');
-select is((select callsigns from subscriptions), array['KK4PWJ', 'W1AW'], 'callsigns are uppercased and trimmed');
-select is((select reference from subscriptions), 'us-nc', 'reference stored as typed');
+select is((select rules -> 0 -> 0 -> 'values' from subscriptions), '["cw", "ssb"]'::jsonb, 'modes are lowercased');
+select is((select rules -> 0 -> 1 -> 'values' from subscriptions), '["KK4PWJ", "W1AW"]'::jsonb, 'callsigns are uppercased and trimmed');
+select is((select rules -> 0 -> 2 -> 'values' from subscriptions), '["us-nc"]'::jsonb, 'reference stored as typed');
 select is((select count(*) from subscription_destinations where subscription_id = (select id from s1)), 2::bigint, 'both destinations linked');
 
 -- Update replaces the links and keeps the id.
 select is(save_subscription(jsonb_build_object('id', (select id from s1), 'name', 'NC parks v2', 'enabled', false,
-  'sources', '{}'::text[], 'bands', array['20m'], 'modes', '{}'::text[], 'callsigns', '{}'::text[], 'reference', '',
+  'sources', '{}'::text[], 'rules', '[[{"field":"band","op":"is","values":["20m"]}]]'::jsonb,
   'quiet_minutes', 0, 'destinations', array[(select id from db)])), (select id from s1), 'update returns the same id');
 select is((select name from subscriptions), 'NC parks v2', 'update changed the name');
 select is((select enabled from subscriptions), false, 'update changed enabled');
+select is((select rules from subscriptions), '[[{"op": "is", "field": "band", "values": ["20m"]}]]'::jsonb, 'update replaced the rules');
 select is((select array_agg(destination_id) from subscription_destinations), array[(select id from db)], 'update replaced the links');
 
 -- Validation.

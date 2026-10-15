@@ -30,7 +30,7 @@ select set_eq(
 select set_eq(
   $$select proname::text from public_functions
     where not exists (select 1 from unnest(coalesce(proconfig, '{}')) c where c like 'search_path=%')$$,
-  array['mode_bucket', 'is_self_spot', 'spot_matches', 'source_matches', 'callsign_matches', 'int_array_sum'],
+  array['mode_bucket', 'is_self_spot', 'source_matches', 'callsign_matches', 'int_array_sum'],
   'only the inlined SQL helpers and the aggregate run without a pinned search_path');
 
 -- Revoking a new function from public is enough to close it to clients.

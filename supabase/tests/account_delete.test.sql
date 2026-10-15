@@ -9,7 +9,7 @@ select plan(8);
 select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
 create temp table d as select * from create_destination('discord', 'A discord', 'https://discord.com/api/webhooks/1/a');
 create temp table g as select save_callsign_group('{"name":"Club","callsigns":["W1AW"]}') as id;
-select save_subscription(jsonb_build_object('name', 'all', 'group_ids', array[(select id from g)], 'destinations', array[(select id from d)]));
+select save_subscription(jsonb_build_object('name', 'all', 'rules', jsonb_build_array(jsonb_build_array(jsonb_build_object('field', 'group', 'op', 'is', 'values', jsonb_build_array((select id from g))))), 'destinations', array[(select id from d)]));
 select id from create_api_token('Sync', 'write', null);
 select register_push_device('https://fcm.googleapis.com/fcm/send/a',
   'BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4', 'BTBZMqHH6r4Tts7J_aSIgg', 'Phone');

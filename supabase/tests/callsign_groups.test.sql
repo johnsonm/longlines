@@ -137,25 +137,28 @@ select lives_ok($$ alter table callsign_group_members add constraint callsign_gr
 select lives_ok(format($f$ select save_callsign_group('{"id":"%s","name":"Club roster","callsigns":["KK4PWJ","N0CALL"]}') $f$,
   (select id from g1)), 'the rewritten group saves back');
 
--- Subscriptions: group ids must be the caller's.
+-- Subscriptions: group rules must name the caller's groups; group_ids is derived from the rules.
+create function pg_temp.group_rule(p_ids uuid[]) returns jsonb language sql as $$
+  select jsonb_build_array(jsonb_build_array(jsonb_build_object('field', 'group', 'op', 'is', 'values', to_jsonb(p_ids))))
+$$;
 select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
 create temp table da as select * from create_destination('discord', 'A discord', 'https://discord.com/api/webhooks/1/a');
-create temp table s1 as select save_subscription(jsonb_build_object('name', 'Club', 'group_ids', array[(select id from g1)],
+create temp table s1 as select save_subscription(jsonb_build_object('name', 'Club', 'rules', pg_temp.group_rule(array[(select id from g1)]),
   'destinations', array[(select id from da)])) as id;
-select is((select group_ids from subscriptions where id = (select id from s1)), array[(select id from g1)], 'group ids saved');
-select throws_ok(format($f$ select save_subscription('{"name":"x","group_ids":["%s"],"destinations":["%s"]}') $f$,
-  gen_random_uuid(), (select id from da)), 'P0001', 'Group not found.', 'an unknown group id is refused');
-select throws_ok(format($f$ select save_subscription('{"name":"x","group_ids":["%s","%s"],"destinations":["%s"]}') $f$,
-  (select id from g1), gen_random_uuid(), (select id from da)), 'P0001', 'Group not found.', 'one unknown group among owned ones is refused');
+select is((select group_ids from subscriptions where id = (select id from s1)), array[(select id from g1)], 'group ids derived from the rules');
+select throws_ok(format('select save_subscription(%L)', jsonb_build_object('name', 'x', 'rules', pg_temp.group_rule(array[gen_random_uuid()]),
+  'destinations', array[(select id from da)])), 'P0001', 'Group not found.', 'an unknown group id is refused');
+select throws_ok(format('select save_subscription(%L)', jsonb_build_object('name', 'x', 'rules', pg_temp.group_rule(array[(select id from g1), gen_random_uuid()]),
+  'destinations', array[(select id from da)])), 'P0001', 'Group not found.', 'one unknown group among owned ones is refused');
 select is(save_subscription(jsonb_build_object('id', (select id from s1), 'name', 'Club v2',
-  'destinations', array[(select id from da)])), (select id from s1), 'an update without group_ids saves');
+  'destinations', array[(select id from da)])), (select id from s1), 'an update without rules saves');
 select is((select group_ids from subscriptions where id = (select id from s1)), array[(select id from g1)],
-  'an update without group_ids keeps the groups');
+  'an update without rules keeps the groups');
 select is(save_subscription(jsonb_build_object('id', (select id from s1), 'name', 'Club',
-  'group_ids', '[]'::jsonb, 'destinations', array[(select id from da)])), (select id from s1), 'an empty group_ids saves');
-select is((select group_ids from subscriptions where id = (select id from s1)), '{}'::uuid[], 'an empty group_ids clears the groups');
+  'rules', '[]'::jsonb, 'destinations', array[(select id from da)])), (select id from s1), 'empty rules save');
+select is((select group_ids from subscriptions where id = (select id from s1)), '{}'::uuid[], 'empty rules clear the groups');
 select is(save_subscription(jsonb_build_object('id', (select id from s1), 'name', 'Club',
-  'group_ids', array[(select id from g1), (select id from g1)], 'destinations', array[(select id from da)])),
+  'rules', pg_temp.group_rule(array[(select id from g1), (select id from g1)]), 'destinations', array[(select id from da)])),
   (select id from s1), 'a repeated group id saves');
 select is((select group_ids from subscriptions where id = (select id from s1)), array[(select id from g1)], 'group ids are de-duplicated');
 
@@ -196,7 +199,7 @@ select is((select (on_air ->> 'count')::int from listed where name = 'Club roste
 
 -- RBN reports stations by callsign; a group is a list of them.
 create temp table s_rbn as select save_subscription(jsonb_build_object('name', 'RBN club', 'sources', array['rbn'],
-  'group_ids', array[(select id from g1)], 'destinations', array[(select id from da)])) as id;
+  'rules', pg_temp.group_rule(array[(select id from g1)]), 'destinations', array[(select id from da)])) as id;
 select is((select group_ids from subscriptions where id = (select id from s_rbn)), array[(select id from g1)],
   'an RBN subscription can name a group instead of callsigns');
 select throws_ok(format($f$ select save_subscription('{"name":"x","sources":["rbn"],"destinations":["%s"]}') $f$, (select id from da)),
@@ -220,8 +223,8 @@ select throws_ok(format('select save_callsign_group(%L)', jsonb_build_object('id
   'callsigns', array['K1ABC'])), 'P0001', 'Group not found.', 'other user cannot save over the group');
 select throws_ok(format('select delete_callsign_group(%L)', (select id from g1)), 'P0001', 'Group not found.', 'other user cannot delete');
 create temp table dz as select * from create_destination('discord', 'B discord', 'https://discord.com/api/webhooks/2/b');
-select throws_ok(format($f$ select save_subscription('{"name":"x","group_ids":["%s"],"destinations":["%s"]}') $f$,
-  (select id from g1), (select id from dz)), 'P0001', 'Group not found.', 'other user cannot subscribe to the group');
+select throws_ok(format('select save_subscription(%L)', jsonb_build_object('name', 'x', 'rules', pg_temp.group_rule(array[(select id from g1)]),
+  'destinations', array[(select id from dz)])), 'P0001', 'Group not found.', 'other user cannot subscribe to the group');
 select lives_ok($$ select save_callsign_group('{"name":"Club roster"}') $$, 'names are unique per account, not globally');
 reset role;
 select is((select name from callsign_groups where id = (select id from g1)), 'Club roster', 'the owner''s group is untouched');
@@ -239,7 +242,7 @@ select throws_ok($$ delete from callsign_group_members $$, '42501', null, 'direc
 
 -- Once no subscription lists the group, it can be deleted.
 select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
-select lives_ok(format($f$ select save_subscription('{"id":"%s","name":"Club","group_ids":[],"destinations":["%s"]}') $f$,
+select lives_ok(format($f$ select save_subscription('{"id":"%s","name":"Club","rules":[],"destinations":["%s"]}') $f$,
   (select id from s1), (select id from da)), 'the subscription drops the group');
 select lives_ok(format('select delete_callsign_group(%L)', (select id from g1)), 'a group no longer in use can be deleted');
 

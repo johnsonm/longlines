@@ -2,7 +2,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(53);
+select plan(56);
 
 -- ---------------------------------------------------------------------------
 -- Tokens
@@ -91,16 +91,18 @@ create temp table dest as
   select (pg_temp.call('create_destination', '{"type":"webhook","name":"Hook","url":"https://example.com/h"}') ->> 'id')::uuid as id;
 create temp table sub as
   select (pg_temp.call('create_subscription', jsonb_build_object('body', jsonb_build_object(
-    'name', 'Club', 'callsigns', '["w1aw"]'::jsonb, 'destinations', jsonb_build_array((select id from dest))))) ->> 'id')::uuid as id;
+    'name', 'Club', 'rules', '[[{"field": "callsign", "op": "is", "values": ["w1aw"]}]]'::jsonb, 'destinations', jsonb_build_array((select id from dest))))) ->> 'id')::uuid as id;
 
 select ok(not (pg_temp.call('list_destinations') -> 0 ?| array['url', 'signing_secret']),
   'listed destinations carry neither url nor signing_secret');
-select is(pg_temp.call('add_subscription_callsigns', jsonb_build_object('id', (select id from sub),
-  'callsigns', '["kn4xyz", " K4ABC ", "W1AW"]'::jsonb)) -> 'callsigns',
-  '["K4ABC", "KN4XYZ", "W1AW"]'::jsonb, 'callsigns are added once each, trimmed and uppercased');
-select is(pg_temp.call('remove_subscription_callsigns', jsonb_build_object('id', (select id from sub),
-  'callsigns', '["w1aw", "N0NE"]'::jsonb)) -> 'callsigns',
-  '["K4ABC", "KN4XYZ"]'::jsonb, 'callsigns are removed case-insensitively; unknown ones are ignored');
+select ok((select s ? 'rules' and not s ?| array['group_ids', 'callsigns', 'bands', 'modes', 'reference']
+            from (select pg_temp.call('get_subscription', jsonb_build_object('id', (select id from sub))) as s) t),
+  'a subscription shows its rules, not group_ids or the old filter columns');
+-- A subscription has no single callsign list any more; the per-call ops are gone.
+select throws_ok(format($$ select pg_temp.call('add_subscription_callsigns', '{"id": "%s", "callsigns": ["K4ABC"]}') $$,
+  (select id from sub)), 'Unknown operation.');
+select throws_ok(format($$ select pg_temp.call('remove_subscription_callsigns', '{"id": "%s", "callsigns": ["W1AW"]}') $$,
+  (select id from sub)), 'Unknown operation.');
 create temp table grp as
   select (pg_temp.call('create_group', '{"name": "Members", "callsigns": ["w1aw"]}') ->> 'id')::uuid as id;
 select is(pg_temp.call('add_group_members', jsonb_build_object('id', (select id from grp),
@@ -113,19 +115,26 @@ select is(pg_temp.call('remove_group_members', jsonb_build_object('id', (select 
 select is(pg_temp.call('update_group', jsonb_build_object('id', (select id from grp), 'name', 'Club')) -> 'callsigns',
   '["KN4XYZ"]'::jsonb, 'renaming a group keeps its members');
 select is(pg_temp.call('patch_subscription', jsonb_build_object('id', (select id from sub),
-  'body', '{"quiet_minutes": 30}'::jsonb)) -> 'callsigns', '["K4ABC", "KN4XYZ"]'::jsonb,
+  'body', '{"quiet_minutes": 30}'::jsonb)) -> 'rules', '[[{"field": "callsign", "op": "is", "values": ["W1AW"]}]]'::jsonb,
   'a patch keeps the fields it does not name');
--- Set a reference first, in its own statement, so the null patch below has something to keep.
+-- Set a reference rule first, in its own statement, so the null patch below has something to keep.
 select pg_temp.call('patch_subscription', jsonb_build_object('id', (select id from sub),
-  'body', '{"reference": "US-1234"}'::jsonb));
+  'body', '{"rules": [[{"field": "reference", "op": "contains", "values": ["US-1234"]}]]}'::jsonb));
 create temp table nulled as
   select pg_temp.call('patch_subscription', jsonb_build_object('id', (select id from sub),
-    'body', '{"name": null, "reference": null, "enabled": null, "quiet_minutes": null, "callsigns": ["w1aw"]}'::jsonb)) as s;
+    'body', '{"name": null, "rules": null, "enabled": null, "quiet_minutes": null, "sources": ["POTA"]}'::jsonb)) as s;
 grant all on nulled to authenticated;
-select is((select s ->> 'reference' from nulled), 'US-1234', 'a null reference in a patch keeps the stored one');
+select is((select s -> 'rules' from nulled), '[[{"field": "reference", "op": "contains", "values": ["US-1234"]}]]'::jsonb,
+  'null rules in a patch keep the stored ones');
 select ok((select s ->> 'name' <> '' from nulled), 'a null name in a patch keeps the stored one');
-select is((select s -> 'callsigns' from nulled), '["W1AW"]'::jsonb,
+select is((select s -> 'sources' from nulled), '["pota"]'::jsonb,
   'a patch that mixes nulls with a list still applies the list');
+select is(pg_temp.call('replace_subscription', jsonb_build_object('id', (select id from sub),
+  'body', '{"name": "Club", "sources": []}'::jsonb)) -> 'rules',
+  '[[{"field": "reference", "op": "contains", "values": ["US-1234"]}]]'::jsonb,
+  'a PUT without rules keeps the stored rules rather than widening to every spot');
+select throws_ok(format($$ select pg_temp.call('replace_subscription', '{"id": "%s", "body": {"name": "Club", "callsigns": ["W1AW"]}}') $$,
+  (select id from sub)), 'Filters are rules now: send rules instead of bands, modes, callsigns, reference or group_ids.');
 create temp table renamed as
   select pg_temp.call('update_group', jsonb_build_object('id', (select id from grp), 'name', null,
     'callsigns', '["kn4xyz", "w1aw"]'::jsonb)) as g;
@@ -171,7 +180,7 @@ create temp table other as select * from create_api_token('Other', 'write', null
 reset role;
 select throws_ok(format($$ select api_call((select id from other), 'get_subscription', '{"id": "%s"}') $$,
   (select id from sub)), 'Subscription not found.');
-select throws_ok(format($$ select api_call((select id from other), 'add_subscription_callsigns', '{"id": "%s", "callsigns": ["N0CALL"]}') $$,
+select throws_ok(format($$ select api_call((select id from other), 'patch_subscription', '{"id": "%s", "body": {"rules": []}}') $$,
   (select id from sub)), 'Subscription not found.');
 
 select * from finish();
