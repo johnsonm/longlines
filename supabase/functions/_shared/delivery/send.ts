@@ -45,8 +45,11 @@ export interface SendResult {
   /** Deliveries confirmed sent, counted from the start of the batch. */
   sent: number;
   error?: string;
-  /** Present when the rest should wait rather than count as a failure. */
-  retryAfterSeconds?: number;
+  /**
+   * Present when the rest should wait rather than count as a failure: the
+   * service's Retry-After, or null when it gave none and SQL picks the delay.
+   */
+  retryAfterSeconds?: number | null;
   /** Push only: subscriptions the push service says are gone (404/410), to prune. */
   expiredEndpoints?: string[];
   /** Push only. */
@@ -211,12 +214,27 @@ export async function sendWebhook(
         error: `Webhook redirected (HTTP ${response.status}); redirects are not followed`,
       };
     }
+    if (response.status === 429) {
+      // Alive, just too fast: the destination is throttled, never failed.
+      return {
+        ok: false,
+        sent,
+        error: "Webhook HTTP 429 (rate limited)",
+        retryAfterSeconds: webhookRetryAfterSeconds(response),
+      };
+    }
     if (!response.ok) {
       return { ok: false, sent, error: `Webhook HTTP ${response.status}` };
     }
     sent += payload.deliveries.length;
   }
   return { ok: true, sent };
+}
+
+/** A webhook's Retry-After in whole seconds, or null when it sent none it could use. */
+function webhookRetryAfterSeconds(response: Response): number | null {
+  const seconds = Number(response.headers.get("retry-after"));
+  return Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds) : null;
 }
 
 /** Send with the function that matches the destination's type. */
