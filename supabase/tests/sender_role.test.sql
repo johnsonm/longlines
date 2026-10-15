@@ -1,10 +1,10 @@
 -- pgTAP: the outbound sender's role (20261015000200 sender_role). The role
 -- may execute exactly the sender RPC allowlist and nothing else in public,
--- has no table privileges and no usage on pgmq. Session 2 appends
--- throttle_destination and delivery_queue_stats to the allowlist below.
+-- has no table privileges and no usage on pgmq. The allowlist gained
+-- throttle_destination and delivery_queue_stats in 20261015000400.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(13);
+select plan(15);
 
 select ok(exists (
   select 1 from pg_roles
@@ -29,7 +29,7 @@ where n.nspname = 'public'
 select set_eq(
   $$select proname::text from public_functions where has_function_privilege('delivery_sender', oid, 'execute')$$,
   array['claim_deliveries', 'mark_deliveries_sent', 'mark_deliveries_failed',
-        'prune_push_devices', 'record_push_results'],
+        'prune_push_devices', 'record_push_results', 'throttle_destination', 'delivery_queue_stats'],
   'delivery_sender may execute exactly the sender RPC allowlist');
 
 select is(
@@ -69,6 +69,9 @@ set local role delivery_sender;
 
 select lives_ok($$ select * from public.claim_deliveries(1, 60) $$, 'the role can claim');
 select lives_ok($$ select public.mark_deliveries_sent(array[]::bigint[], array[]::bigint[]) $$, 'the role can ack');
+select throws_ok($$ select public.throttle_destination('00000000-0000-0000-0000-000000000000', array[]::bigint[], null) $$,
+  'P0001', 'Destination not found.', 'the role can throttle (the call reaches the function)');
+select lives_ok($$ select * from public.delivery_queue_stats() $$, 'the role can read queue stats');
 select throws_ok($$ select count(*) from public.deliveries $$, '42501', null, 'the role cannot read deliveries');
 select throws_ok($$ select * from pgmq.metrics('deliveries_queue') $$, '42501', null, 'the role cannot reach pgmq');
 select throws_ok($$ select public.delay_deliveries(array[]::bigint[], 1) $$, '42501', null, 'delay_deliveries stays service_role only');
