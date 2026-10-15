@@ -122,12 +122,14 @@ SQL:
 
 Web (`web/src/profile/`):
 
-- The Activations KPI always lists all three programs, with zeros: "3 parks, 2 summits, 1 WWFF
-  reference". `activationsDetail` seeds `WWFF` next to `POTA` and `SOTA`. It keeps the noun it
+- The activations KPI is labelled "Days at parks/summits/WWFF" (upstream it is now "Days at
+  parks/summits"). Its detail always lists all three programs, with zeros: "3 parks, 2 summits,
+  1 WWFF reference". `activationsDetail` seeds `WWFF` next to `POTA` and `SOTA`. It keeps the noun it
   already uses, "WWFF reference(s)", because WWFF areas are not all parks or reserves.
 - The source colors give `wwff` its own entry, `success`. DX Cluster keeps `info`.
-- The "Where they've activated" subheader becomes "Parks, summits and WWFF references". The
-  references table already has a Program column.
+- The references card is now titled "Where they've been spotted" upstream, with the subheader
+  "Parks and summits, most recent first". That subheader becomes "Parks, summits and WWFF
+  references, most recent first". The references table already has a Program column.
 - The activity-by-location map stays POTA-only, because only POTA has state locations.
 
 ### Stats

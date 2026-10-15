@@ -112,7 +112,7 @@ function Dashboard({ payload }: { payload: StatsPayload }) {
   const axis = (v: unknown) => compact(Number(v));
   const rbn = payload.rbn ?? NO_RBN;
   const aprs = payload.aprs ?? NO_APRS;
-  // WWFF keys are missing from a snapshot written before 20261015000400.
+  // WWFF keys are missing from a snapshot written before 20261015001000.
   const wwffPrograms = payload.wwffPrograms ?? [];
   const hourly = payload.hourly ?? [];
   const hours = hourly.map((h) => new Date(h.hour));

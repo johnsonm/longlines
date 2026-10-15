@@ -1,4 +1,4 @@
--- pgTAP: WWFF as a source (20261015000400): the source checks, the
+-- pgTAP: WWFF as a source (20261015001000): the source checks, the
 -- ingest_state row and cron job, the two WWFF columns through ingest, opt-in
 -- matching, the reference rule, the read models and spot_stream, and hourly
 -- archiving from raw_spots.
