@@ -5,6 +5,7 @@ import { supabase, SUPABASE_ANON_KEY, SUPABASE_URL } from "../supabase";
 import type { Database, Json } from "./database.types";
 import type { LatestStats, StatsPayload } from "../stats/types";
 import type { CallsignProfile } from "../profile/types";
+import type { BandMapPayload } from "../bandmap/types";
 import type { CallsignGroup, GroupInput, NormalizedCallsigns } from "../groups/types";
 import type { Rules } from "../subscriptions/model";
 
@@ -369,4 +370,15 @@ export async function loadLatestStats(): Promise<LatestStats | null> {
 export async function loadCallsignProfile(callsign: string): Promise<CallsignProfile> {
   const query = new URLSearchParams({ callsign });
   return fetchFunction<CallsignProfile>(`callsign-profile?${query.toString()}`, { headers: { apikey: SUPABASE_ANON_KEY } });
+}
+
+// ---- Band map ---------------------------------------------------------------
+
+/**
+ * Stations spotted in the last 5 minutes, from the public band-map Edge
+ * Function, which works signed out, so no session is sent. Every visitor shares
+ * one result cached for 30 seconds in SQL (cached_band_map).
+ */
+export async function loadBandMap(): Promise<BandMapPayload> {
+  return fetchFunction<BandMapPayload>("band-map", { headers: { apikey: SUPABASE_ANON_KEY } });
 }

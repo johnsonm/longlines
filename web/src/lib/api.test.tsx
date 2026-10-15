@@ -418,3 +418,21 @@ describe("callsign profiles", () => {
     await expect(api.loadCallsignProfile("W1AW")).rejects.toMatchObject({ code: "429" });
   });
 });
+
+describe("band map", () => {
+  it("GETs the band-map function with no session", async () => {
+    fake.client.auth.getSession.mockClear();
+    const payload = { bands: [], generated_at: "2026-10-14T13:45:00+00:00" };
+    const fetchMock = respond(200, payload);
+    expect(await api.loadBandMap()).toEqual(payload);
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("https://proj.supabase.co/functions/v1/band-map");
+    expect(init).toEqual({ headers: { apikey: "anon-key" } });
+    expect(fake.client.auth.getSession).not.toHaveBeenCalled();
+  });
+
+  it("rejects with the function's message", async () => {
+    respond(500, { error: "The band map is unavailable right now." });
+    await expect(api.loadBandMap()).rejects.toMatchObject({ message: "The band map is unavailable right now.", code: "500" });
+  });
+});

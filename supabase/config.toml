@@ -424,6 +424,12 @@ verify_jwt = false
 [functions.callsign-profile]
 verify_jwt = false
 
+# band-map serves the public band map to signed-out browsers. It checks no
+# caller identity; every visitor shares one 30-second cache in SQL
+# (_shared/handlers/band_map.ts).
+[functions.band-map]
+verify_jwt = false
+
 # api is the management API for scripts. Callers send a personal API token
 # (ll_...), not a JWT, and the function checks it itself (_shared/handlers/api.ts).
 [functions.api]

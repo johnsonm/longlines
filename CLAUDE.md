@@ -275,6 +275,24 @@ relay on pushes to main; nothing else deploys automatically.
   profile's own `callsign`. The web never works out a base call. A link built from a call as typed
   (`lookupPath`) works only because the profile page swaps it for the base the profile returns.
 
+## Band map rules
+
+- `/band-map` is public (`PublicRoute`). Its data comes only from the `band-map` function, which
+  calls `cached_band_map()`: one shared row in `band_map_cache`, rebuilt at most every 30 seconds
+  under an advisory lock. Never query `raw_spots` per visitor, add a cron job for it, or use
+  Realtime. The client polls every 30 seconds, and only while the tab is visible.
+- POTA, SOTAwatch and DX Cluster only. Never RBN, APRS-IS or `raw_payload`. One row per
+  `base_callsign` per band, and hidden calls are left out. The shape is `BandMapPayload`
+  (`web/src/bandmap/types.ts`), pinned by `supabase/tests/band_map.test.sql`; change the SQL, the
+  type and the test together.
+- Strips are stock MUI X `ScatterChart`s with `ChartsReferenceLine` segments: no custom SVG,
+  absolute positioning, canvas, label layout or Pro components (so no zoom). Keep the Voronoi
+  click. A crowd (`CROWD_DIVISOR` in `model.ts`) opens the "N stations near" menu. The source
+  chips filter on the client and never refetch.
+- Source colors and lanes live in `SOURCES` (`model.ts`): DX Cluster `success` at the bottom,
+  POTA `primary` in the middle, SOTA `secondary` on top, all from `theme.palette`, never hex. The
+  band plan (`web/src/lib/bandplan.ts`) is for display only and never decides a spot's mode.
+
 ## Callsign group rules
 
 - Membership is live: a `group` rule stores group ids, never a copy of the calls, so editing a
