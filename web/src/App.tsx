@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ComponentProps, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ComponentProps, type ReactNode } from "react";
 import { createTheme, CssBaseline, LinearProgress, Snackbar, ThemeProvider, useMediaQuery } from "@mui/material";
 import { Navigate, Route, Routes, useLocation, useParams, useSearchParams } from "react-router";
 import { SpeedInsights } from "@vercel/speed-insights/react";
@@ -26,9 +26,10 @@ import { CallsignPage } from "./profile/CallsignPage";
 import { loadDestinations, loadSubscriptions, type Destination, type SubscriptionWithLinks } from "./lib/api";
 import type { TimePrefs } from "./lib/time";
 
+// Both schemes, so useColorScheme() can pick light, dark or system; MUI keeps the choice in localStorage.
+const theme = createTheme({ colorSchemes: { light: true, dark: true } });
+
 export default function App() {
-  const dark = useMediaQuery("(prefers-color-scheme: dark)");
-  const theme = useMemo(() => createTheme({ palette: { mode: dark ? "dark" : "light" } }), [dark]);
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />

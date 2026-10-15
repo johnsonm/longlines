@@ -1,7 +1,8 @@
 import { useState, type FormEvent, type ReactNode } from "react";
 import {
   AppBar, Avatar, Badge, Box, Button, Container, Divider, Drawer, IconButton, InputBase, List,
-  ListItemButton, ListItemIcon, ListItemText, Menu, MenuItem, Paper, Toolbar, Typography, useMediaQuery, useTheme,
+  ListItemButton, ListItemIcon, ListItemText, Menu, MenuItem, Paper, ToggleButton, ToggleButtonGroup, Toolbar, Typography,
+  useColorScheme, useMediaQuery, useTheme,
 } from "@mui/material";
 import MenuIcon from "@mui/icons-material/Menu";
 import SensorsIcon from "@mui/icons-material/Sensors";
@@ -13,6 +14,9 @@ import InsightsIcon from "@mui/icons-material/Insights";
 import PersonSearchIcon from "@mui/icons-material/PersonSearch";
 import KeyIcon from "@mui/icons-material/Key";
 import SearchIcon from "@mui/icons-material/Search";
+import LightModeIcon from "@mui/icons-material/LightMode";
+import DarkModeIcon from "@mui/icons-material/DarkMode";
+import SettingsBrightnessIcon from "@mui/icons-material/SettingsBrightness";
 import { useLocation, useNavigate } from "react-router";
 import { useApp } from "../app/hooks";
 import { signOut } from "../lib/api";
@@ -118,6 +122,8 @@ export function AppShell({ children, destinationsFailing }: { children: ReactNod
               <Typography variant="body2" color="text.secondary">{session?.user.email}</Typography>
             </Box>
             <Divider />
+            <ThemeSwitch />
+            <Divider />
             <MenuItem onClick={() => go("account")}>Account</MenuItem>
             <MenuItem onClick={() => void handleSignOut()}>Sign out</MenuItem>
           </Menu>
@@ -137,6 +143,35 @@ export function AppShell({ children, destinationsFailing }: { children: ReactNod
           {children}
         </Container>
       </Box>
+    </Box>
+  );
+}
+
+const MODES = [
+  { mode: "light", label: "Light", icon: <LightModeIcon fontSize="small" /> },
+  { mode: "system", label: "Automatic", icon: <SettingsBrightnessIcon fontSize="small" /> },
+  { mode: "dark", label: "Dark", icon: <DarkModeIcon fontSize="small" /> },
+] as const;
+
+/** Light, automatic (follows the device) or dark; MUI stores the choice per browser. */
+function ThemeSwitch() {
+  const { mode, setMode } = useColorScheme();
+  return (
+    <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 2, px: 2, py: 1 }}>
+      <Typography variant="body2">Theme</Typography>
+      <ToggleButtonGroup
+        size="small"
+        exclusive
+        value={mode ?? "system"}
+        onChange={(_, next: (typeof MODES)[number]["mode"] | null) => next && setMode(next)}
+        aria-label="Theme"
+      >
+        {MODES.map((m) => (
+          <ToggleButton key={m.mode} value={m.mode} aria-label={m.label} title={m.label}>
+            {m.icon}
+          </ToggleButton>
+        ))}
+      </ToggleButtonGroup>
     </Box>
   );
 }
