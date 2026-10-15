@@ -24,12 +24,12 @@ import { lookupPath } from "../profile/format";
 
 const NAV = [
   { id: "sources", label: "Sources", icon: <SensorsIcon /> },
-  { id: "band-map", label: "Band map", icon: <GraphicEqIcon /> },
   { id: "subscriptions", label: "Subscriptions", icon: <FilterListIcon /> },
-  { id: "groups", label: "Groups", icon: <GroupsIcon /> },
   { id: "destinations", label: "Destinations", icon: <SendIcon /> },
-  { id: "stats", label: "Stats", icon: <InsightsIcon /> },
+  { id: "groups", label: "Groups", icon: <GroupsIcon /> },
+  { id: "band-map", label: "Band map", icon: <GraphicEqIcon /> },
   { id: "lookup", label: "Callsign lookup", icon: <PersonSearchIcon /> },
+  { id: "stats", label: "Stats", icon: <InsightsIcon /> },
   { id: "api-tokens", label: "API tokens", icon: <KeyIcon /> },
 ];
 const DRAWER = 232;
