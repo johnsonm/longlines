@@ -14,7 +14,6 @@ import {
 } from "../lib/api";
 import type { CallsignGroup } from "../groups/types";
 import { errorText, useNotify } from "../app/hooks";
-import { useTour } from "../tour/hooks";
 import { sourceName } from "../sources/sources";
 import { linkedDestinations, quietLabel, ruleSummaries, singleSource, toInput } from "./model";
 import { SourcePickerDialog } from "./SourcePickerDialog";
@@ -67,7 +66,6 @@ function hitsText(sub: SubscriptionWithLinks, preview: Preview | undefined): str
 export function SubscriptionsPage({ subs, dests, loading, reload, mobile }: Props) {
   const notify = useNotify();
   const navigate = useNavigate();
-  const tour = useTour();
   const [picking, setPicking] = useState(false);
   const [previews, setPreviews] = useState<Record<string, Preview>>({});
   // Names for the group rule lines. null until loaded, and if loading fails.
@@ -101,15 +99,12 @@ export function SubscriptionsPage({ subs, dests, loading, reload, mobile }: Prop
 
   const startNew = () => {
     setPicking(true);
-    tour.report("subscription-dialog-opened");
   };
 
   const cancelPick = () => {
     setPicking(false);
-    tour.report("subscription-dialog-closed");
   };
 
-  // The editor reports subscription-form-opened when it mounts; the tour's picker step expects this move.
   const pick = (source: string) => void navigate(`/subscriptions/new?source=${encodeURIComponent(source)}`);
 
   const remove = async (s: SubscriptionWithLinks) => {
@@ -142,7 +137,7 @@ export function SubscriptionsPage({ subs, dests, loading, reload, mobile }: Prop
               : "A subscription takes spots from one source, filters them, and sends the ones that pass to zero or more destinations."}
           </Typography>
         </Box>
-        <Button variant="contained" startIcon={<AddIcon />} onClick={startNew} data-tour="new-subscription" fullWidth={mobile} sx={{ flexShrink: 0 }}>
+        <Button variant="contained" startIcon={<AddIcon />} onClick={startNew} fullWidth={mobile} sx={{ flexShrink: 0 }}>
           New subscription
         </Button>
       </Stack>

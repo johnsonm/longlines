@@ -1,5 +1,5 @@
 // Renders a component inside the providers every page expects: a theme, a
-// MemoryRouter, and stub App and Tour contexts whose callbacks are vi.fn()s.
+// MemoryRouter, and a stub App context whose callbacks are vi.fn()s.
 
 import type { ReactElement, ReactNode } from "react";
 import { createTheme, ThemeProvider } from "@mui/material";
@@ -10,7 +10,6 @@ import type { Session } from "@supabase/supabase-js";
 import { vi } from "vitest";
 import { AppContext, type AppContextValue } from "../app/context";
 import type { Profile } from "../lib/api";
-import { TourContext, type TourValue } from "../tour/context";
 import { LocationProbe } from "./LocationProbe";
 
 export const PROFILE: Profile = {
@@ -45,28 +44,22 @@ export function appValue(overrides: Partial<AppContextValue> = {}): AppContextVa
   };
 }
 
-export function tourValue(overrides: Partial<TourValue> = {}): TourValue {
-  return { active: false, destinationId: null, start: vi.fn(), report: vi.fn(), ...overrides };
-}
-
 export interface Options {
   app?: Partial<AppContextValue>;
-  tour?: Partial<TourValue>;
   route?: string;
   state?: unknown;
 }
 
 export interface Rendered extends RenderResult {
   app: AppContextValue;
-  tour: TourValue;
   user: UserEvent;
 }
 
-export function wrap(children: ReactNode, app: AppContextValue, tour: TourValue): ReactElement {
+export function wrap(children: ReactNode, app: AppContextValue): ReactElement {
   return (
     <ThemeProvider theme={createTheme()}>
       <AppContext.Provider value={app}>
-        <TourContext.Provider value={tour}>{children}</TourContext.Provider>
+        {children}
       </AppContext.Provider>
     </ThemeProvider>
   );
@@ -74,7 +67,6 @@ export function wrap(children: ReactNode, app: AppContextValue, tour: TourValue)
 
 export function renderPage(ui: ReactElement, options: Options = {}): Rendered {
   const app = appValue(options.app);
-  const tour = tourValue(options.tour);
   const route = options.route ?? "/";
   // No per-keystroke timer: typing into MUI inputs is slow enough under coverage instrumentation.
   const user = userEvent.setup({ delay: null });
@@ -88,8 +80,7 @@ export function renderPage(ui: ReactElement, options: Options = {}): Rendered {
         <LocationProbe />
       </MemoryRouter>,
       app,
-      tour,
     ),
   );
-  return { ...result, app, tour, user };
+  return { ...result, app, user };
 }

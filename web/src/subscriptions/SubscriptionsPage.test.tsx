@@ -146,9 +146,8 @@ describe("SubscriptionsPage", () => {
 
 describe("Pick your source", () => {
   it("lists live sources with rates and planned ones disabled, then opens the editor", async () => {
-    const { user, tour } = render([]);
+    const { user } = render([]);
     await user.click(screen.getByRole("button", { name: "New subscription" }));
-    expect(tour.report).toHaveBeenCalledWith("subscription-dialog-opened");
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByText("Pick your source")).toBeInTheDocument();
     expect(within(dialog).getByText("36 / hour")).toBeInTheDocument();
@@ -167,14 +166,13 @@ describe("Pick your source", () => {
     expect(where).toHaveAttribute("data-search", "?source=rbn");
   });
 
-  it("shows no rates before the stats load, and Cancel tells the tour", async () => {
+  it("shows no rates before the stats load, and Cancel closes the picker", async () => {
     vi.mocked(useStats).mockReturnValue({ stats: null, loading: true, error: null });
-    const { user, tour } = render([]);
+    const { user } = render([]);
     await user.click(screen.getByRole("button", { name: "New subscription" }));
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).queryByText(/\/ hour/)).not.toBeInTheDocument();
     await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
-    expect(tour.report).toHaveBeenCalledWith("subscription-dialog-closed");
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 });
