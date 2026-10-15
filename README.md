@@ -159,12 +159,16 @@ select source, count(*) from raw_spots group by source;
 select * from pgmq.metrics('spot_events');
 ```
 
-To push spots through matching and delivery, run the matcher and then the worker:
+To push spots through matching and delivery, run the matcher, then start the sender, which polls
+the queue every few seconds and sends to Discord, webhooks and push devices (Ctrl+C stops it):
 
 ```sh
 npm run db:match
-npm run invoke:deliver
+npm run sender
 ```
+
+The sender connects to the stack's Postgres and allows plain-http destinations on this machine; it
+reads the VAPID keys from `supabase/functions/.env` when that file has them.
 
 RBN spots arrive through the relay rather than an invoke. To run it against the local stack,
 serve the functions with a relay secret and start the relay with the same value:
@@ -237,8 +241,9 @@ project's containers, volumes and network (other projects' stacks are left alone
 | `supabase:types` | Regenerates `web/src/lib/database.types.ts`. |
 | `supabase:studio` / `supabase:mail` | Opens Studio or the mail catcher (macOS `open`). |
 | `supabase:nuke` | Removes this project's Docker containers, volumes and network. Wipes local data. |
-| `invoke:pota` / `invoke:sotawatch` / `invoke:wwff` / `invoke:deliver` | Calls the function with the local service-role key, as cron does when hosted. |
+| `invoke:pota` / `invoke:sotawatch` / `invoke:wwff` | Calls the function with the local service-role key, as cron does when hosted. |
 | `db:match` | Runs `match_pending_spots()` once. |
+| `sender` | Runs the outbound sender (`sender/main.ts`) against the local stack. Opt in; not part of `dev:full`. |
 | `db:psql` | Opens psql in the database container (`psql` is not installed with the CLI). |
 | `test:all` / `test:all:fresh` / `test:deno` / `test:db` | The checks described above. |
 | `dev` / `test` / `lint` / `build` | Vite, Vitest, oxlint, and `tsc -b` + `vite build` for the web app alone. |
