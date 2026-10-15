@@ -276,11 +276,14 @@ function HuntingCard({ hunting }: { hunting: HeardProfile["hunting"] }) {
   );
 }
 
+// SQL sends up to 100, newest first; the card shows the latest few.
+const RECENT_REFERENCES = 10;
+
 const REFERENCE_COLUMNS: GridColDef[] = [
   { field: "reference", headerName: "Reference", width: 110, sortable: false },
   { field: "name", headerName: "Name", flex: 1, minWidth: 120, sortable: false },
   { field: "program", headerName: "Program", width: 80, sortable: false },
-  { field: "activations", headerName: "Times", type: "number", width: 70, sortable: false },
+  { field: "activations", headerName: "Days", type: "number", width: 70, sortable: false },
   { field: "last", headerName: "Last", width: 110, sortable: false },
 ];
 
@@ -318,7 +321,7 @@ function Heard({ profile, heard, prefs }: { profile: CallsignProfile; heard: Hea
           <Kpi label="Heard from" value={plural(heard.countries, "country", "countries")} detail={plural(heard.continents, "continent", "continents")} />
         </Grid>
         <Grid size={{ xs: 6, md: 3 }}>
-          <Kpi label="Activations" value={fmt(totalActivations(heard.activations))} detail={activationsDetail(heard.activations)} />
+          <Kpi label="Days at parks/summits" value={fmt(totalActivations(heard.activations))} detail={activationsDetail(heard.activations)} />
         </Grid>
       </Grid>
 
@@ -396,17 +399,17 @@ function Heard({ profile, heard, prefs }: { profile: CallsignProfile; heard: Hea
       </Grid>
 
       {heard.references.length > 0 && (
-        <ChartCard title="Where they've activated" subheader="Parks and summits">
+        <ChartCard title="Where they've been spotted" subheader="Parks and summits, most recent first">
           <Grid container spacing={3}>
             {hasMap && (
               <Grid size={{ xs: 12, md: 6 }}>
-                <UsStateMap values={states} unit="activations" />
+                <UsStateMap values={states} unit="days spotted" />
               </Grid>
             )}
             <Grid size={{ xs: 12, md: hasMap ? 6 : 12 }}>
               <DataGrid
                 {...GRID}
-                rows={heard.references.map((r) => ({ id: `${r.program} ${r.reference}`, ...r, name: r.name ?? "", last: dateLabel(r.lastDay) }))}
+                rows={heard.references.slice(0, RECENT_REFERENCES).map((r) => ({ id: `${r.program} ${r.reference}`, ...r, name: r.name ?? "", last: dateLabel(r.lastDay) }))}
                 columns={REFERENCE_COLUMNS}
                 columnVisibilityModel={{ name: !mobile, program: !mobile }}
               />
