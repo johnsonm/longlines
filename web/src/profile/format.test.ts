@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
-  activationsDetail, dateLabel, lastHeardLabel, lookupPath, monthLabel, noLicenseMessage, otherForms, placeLabel, plural,
-  profileUrl, shortDay, sourceSeries, sourcesDetail, spotRows, totalActivations, usStates,
+  activationsDetail, dateLabel, frequencyLabel, lastHeardDetail, lastHeardSpot, lastHeardWhen, lookupPath, monthLabel,
+  noLicenseMessage, onAirNow, otherForms, placeLabel, plural, profileUrl, qrzUrl, shortDay, sourceSeries, sourcesDetail,
+  spotRows, totalActivations, usStates,
 } from "./format";
 import type { HeardProfile } from "./types";
 
@@ -31,13 +32,42 @@ describe("profile format", () => {
     expect(shortDay("2026-10-05")).toBe("10/5");
   });
 
-  it("says when and where a station was last heard", () => {
-    const last = { time: "2026-10-12T14:32:10Z", frequencyKhz: 14062, mode: "cw" };
-    expect(lastHeardLabel(last, NOW)).toBe("Last heard 14:32 UTC today on 14.062 MHz CW");
-    expect(lastHeardLabel({ ...last, time: "2026-10-11T23:59:00Z" }, NOW)).toBe("Last heard 23:59 UTC yesterday on 14.062 MHz CW");
-    expect(lastHeardLabel({ ...last, time: "2026-10-05T09:05:00Z", mode: null }, NOW)).toBe("Last heard 09:05 UTC Oct 5 on 14.062 MHz");
-    expect(lastHeardLabel({ ...last, time: "2025-12-31T00:00:00Z", frequencyKhz: 7031.2 }, NOW))
-      .toBe("Last heard 00:00 UTC Dec 31, 2025 on 7.031 MHz CW");
+  it("says how long ago a station was last heard", () => {
+    expect(lastHeardWhen("2026-10-12T17:59:40Z", NOW)).toBe("just now (17:59 UTC)");
+    expect(lastHeardWhen("2026-10-12T17:58:00Z", NOW)).toBe("2 min ago (17:58 UTC)");
+    expect(lastHeardWhen("2026-10-12T14:32:10Z", NOW)).toBe("3 h ago (14:32 UTC)");
+    expect(lastHeardWhen("2026-10-05T09:05:00Z", NOW)).toBe("Oct 5 (09:05 UTC)");
+    expect(lastHeardWhen("2025-12-31T00:00:00Z", NOW)).toBe("Dec 31, 2025 (00:00 UTC)");
+  });
+
+  it("is on the air now for half an hour after a spot", () => {
+    expect(onAirNow("2026-10-12T17:30:00Z", NOW)).toBe(true);
+    expect(onAirNow("2026-10-12T17:29:59Z", NOW)).toBe(false);
+  });
+
+  it("formats the last frequency in kHz", () => {
+    expect(frequencyLabel(14062)).toBe("14062.0 kHz");
+    expect(frequencyLabel(7031.25)).toBe("7031.3 kHz");
+  });
+
+  it("finds the recent spot behind lastHeard and describes it", () => {
+    const spot = { time: "2026-10-12T14:32:00Z", callsign: "KK4PWJ", frequencyKhz: 14062, band: "20m", mode: "cw", reference: "US-0817", source: "pota", spotter: "N4XYZ" };
+    const heard = {
+      lastHeard: { time: spot.time, frequencyKhz: 14062, mode: "cw" },
+      recentSpots: [{ ...spot, frequencyKhz: 7031 }, spot],
+      references: [{ reference: "US-0817", name: "Pisgah National Forest" }],
+    } as unknown as HeardProfile;
+    expect(lastHeardSpot(heard)).toBe(spot);
+    expect(lastHeardSpot({ ...heard, recentSpots: [] })).toBeNull();
+    expect(lastHeardSpot({ ...heard, lastHeard: null })).toBeNull();
+    expect(lastHeardDetail(spot, heard)).toBe("Activating US-0817, Pisgah National Forest. Spotted by N4XYZ.");
+    expect(lastHeardDetail({ ...spot, reference: "US-9999" }, heard)).toBe("Activating US-9999. Spotted by N4XYZ.");
+    expect(lastHeardDetail({ ...spot, reference: null }, heard)).toBe("Spotted by N4XYZ.");
+    expect(lastHeardDetail({ ...spot, reference: null, spotter: null }, heard)).toBe("");
+  });
+
+  it("links to the call on QRZ", () => {
+    expect(qrzUrl("KK4PWJ")).toBe("https://www.qrz.com/db/KK4PWJ");
   });
 
   it("names the state from the license, else the country of the prefix", () => {

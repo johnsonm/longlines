@@ -52,6 +52,11 @@ function renderAt(path: string, options: { account?: AlertAccount; app?: Partial
   return { app, user, where: () => screen.getByTestId("location") };
 }
 
+/** The header card, so its chips don't collide with chart labels. */
+function header() {
+  return within(screen.getByRole("heading", { name: "KK4PWJ" }).closest<HTMLElement>(".MuiCard-root")!);
+}
+
 beforeEach(() => {
   vi.mocked(useCallsignProfile).mockReset();
   vi.mocked(saveSubscription).mockReset().mockResolvedValue("s1");
@@ -143,7 +148,13 @@ describe("CallsignPage profile", () => {
     expect(screen.getAllByText("Alex R Example").length).toBe(2);
     expect(screen.getAllByText("Amateur Extra").length).toBe(2);
     expect(screen.getByText("North Carolina")).toBeInTheDocument();
-    expect(screen.getByText(/^Last heard 14:32 UTC .* on 14\.062 MHz CW$/)).toBeInTheDocument();
+    expect(screen.getByText("Last heard")).toBeInTheDocument();
+    expect(screen.getByText("14062.0 kHz")).toBeInTheDocument();
+    expect(header().getByText("CW")).toBeInTheDocument();
+    expect(screen.getByText(/^Oct 12(, 2026)? \(14:32 UTC\)$/)).toBeInTheDocument();
+    expect(screen.getByText("Activating US-0817, Pisgah National Forest. Spotted by N4XYZ.")).toBeInTheDocument();
+    expect(screen.queryByText("On the air now")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "QRZ" })).toHaveAttribute("href", "https://www.qrz.com/db/KK4PWJ");
     expect(screen.getByText("Also heard as KK4PWJ/P")).toBeInTheDocument();
     expect(screen.getByText(`${window.location.origin}/call/KK4PWJ`)).toBeInTheDocument();
     expect(screen.getByText("1,234")).toBeInTheDocument();
@@ -155,6 +166,29 @@ describe("CallsignPage profile", () => {
     expect(screen.getByText("From the FCC Universal Licensing System. Refreshed weekly.")).toBeInTheDocument();
     expect(screen.getByText("Mar 1, 2036")).toBeInTheDocument();
     expect(screen.getByText("NC")).toBeInTheDocument();
+  });
+
+  it("says a station spotted in the last half hour is on the air now", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-12T14:34:00Z"));
+    try {
+      renderAt("/call/KK4PWJ");
+      expect(screen.getByText("On the air now")).toBeInTheDocument();
+      expect(screen.getByText("2 min ago (14:32 UTC)")).toBeInTheDocument();
+      expect(header().getByText("20m")).toBeInTheDocument();
+      expect(header().getByText("POTA")).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("shows only the frequency and mode when the last spot is older than the recent spots", () => {
+    profileIs({ ...FULL, heard: { ...HEARD, recentSpots: [] } });
+    renderAt("/call/KK4PWJ");
+    expect(screen.getByText("14062.0 kHz")).toBeInTheDocument();
+    expect(screen.queryByText(/^Activating/)).not.toBeInTheDocument();
+    expect(header().queryByText("20m")).not.toBeInTheDocument();
+    expect(header().getByText("CW")).toBeInTheDocument();
   });
 
   it("renders every section", () => {
@@ -271,7 +305,7 @@ describe("Get alerts", () => {
     vi.mocked(loadDestinations).mockResolvedValue([{ ...DEST, id: "bad", health: "failing" }, DEST]);
     const alerts = account();
     const { user, app, where } = renderAt("/call/KK4PWJ", { account: alerts });
-    await user.click(screen.getByRole("button", { name: "Get alerts" }));
+    await user.click(screen.getByRole("button", { name: "Get alerts for KK4PWJ" }));
     await waitFor(() => expect(where()).toHaveTextContent("/subscriptions"));
     expect(saveSubscription).toHaveBeenCalledWith({
       name: "KK4PWJ on the air", enabled: true, quiet_minutes: 30, destinations: ["d1"],
@@ -286,7 +320,7 @@ describe("Get alerts", () => {
       { id: "s9", name: "Pisgah regulars", callsigns: ["W1AW", "KK4PWJ"] } as SubscriptionWithLinks,
     ]);
     const { user, app, where } = renderAt("/call/KK4PWJ", { account: account() });
-    await user.click(screen.getByRole("button", { name: "Get alerts" }));
+    await user.click(screen.getByRole("button", { name: "Get alerts for KK4PWJ" }));
     await waitFor(() => expect(where()).toHaveTextContent("/subscriptions"));
     expect(app.notify).toHaveBeenCalledWith("You already have Pisgah regulars.");
     expect(saveSubscription).not.toHaveBeenCalled();
@@ -295,7 +329,7 @@ describe("Get alerts", () => {
   it("does not count a subscription to a portable form as covering the base call", async () => {
     vi.mocked(loadSubscriptions).mockResolvedValue([{ id: "s9", name: "Portable", callsigns: ["KK4PWJ/P"] } as SubscriptionWithLinks]);
     const { user } = renderAt("/call/KK4PWJ", { account: account() });
-    await user.click(screen.getByRole("button", { name: "Get alerts" }));
+    await user.click(screen.getByRole("button", { name: "Get alerts for KK4PWJ" }));
     await waitFor(() => expect(saveSubscription).toHaveBeenCalled());
   });
 
@@ -305,7 +339,7 @@ describe("Get alerts", () => {
   ])("sends a user with %s to add one", async (_label, dests) => {
     vi.mocked(loadDestinations).mockResolvedValue(dests as Destination[]);
     const { user, app, where } = renderAt("/call/KK4PWJ", { account: account() });
-    await user.click(screen.getByRole("button", { name: "Get alerts" }));
+    await user.click(screen.getByRole("button", { name: "Get alerts for KK4PWJ" }));
     await waitFor(() => expect(where()).toHaveTextContent("/destinations"));
     expect(app.notify).toHaveBeenCalledWith("Add a destination to start getting alerts.");
     expect(saveSubscription).not.toHaveBeenCalled();
@@ -314,7 +348,7 @@ describe("Get alerts", () => {
   it("reads destinations at the click, not from a list that may not have loaded", async () => {
     const { user } = renderAt("/call/KK4PWJ", { account: account() });
     expect(loadDestinations).not.toHaveBeenCalled();
-    await user.click(screen.getByRole("button", { name: "Get alerts" }));
+    await user.click(screen.getByRole("button", { name: "Get alerts for KK4PWJ" }));
     await waitFor(() => expect(saveSubscription).toHaveBeenCalled());
     expect(loadDestinations).toHaveBeenCalledTimes(1);
   });
@@ -322,16 +356,16 @@ describe("Get alerts", () => {
   it("reports a failed save and stays on the profile", async () => {
     vi.mocked(saveSubscription).mockRejectedValue(new Error("Destination not found."));
     const { user, app, where } = renderAt("/call/KK4PWJ", { account: account() });
-    await user.click(screen.getByRole("button", { name: "Get alerts" }));
+    await user.click(screen.getByRole("button", { name: "Get alerts for KK4PWJ" }));
     await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Destination not found."));
     expect(where()).toHaveTextContent("/call/KK4PWJ");
-    expect(screen.getByRole("button", { name: "Get alerts" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Get alerts for KK4PWJ" })).toBeEnabled();
   });
 
   it("reports a failed destination load", async () => {
     vi.mocked(loadDestinations).mockRejectedValue(new Error("Couldn't load destinations."));
     const { user, app } = renderAt("/call/KK4PWJ", { account: account() });
-    await user.click(screen.getByRole("button", { name: "Get alerts" }));
+    await user.click(screen.getByRole("button", { name: "Get alerts for KK4PWJ" }));
     await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Couldn't load destinations."));
     expect(saveSubscription).not.toHaveBeenCalled();
   });

@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import {
-  Alert, Box, Button, Card, CardContent, Chip, Grid, LinearProgress, Link, List, ListItem, ListItemText, Stack, Table, TableBody,
+  Alert, Box, Button, Card, CardContent, Chip, Divider, Grid, LinearProgress, Link, List, ListItem, ListItemText, Stack, Table, TableBody,
   TableCell, TableRow, Typography, useMediaQuery, useTheme, type Theme,
 } from "@mui/material";
 import NotificationsActiveIcon from "@mui/icons-material/NotificationsActive";
+import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import ShareIcon from "@mui/icons-material/Share";
 // MUI X Charts and Data Grid are the MIT community packages, fixed and read-only as on the Stats page.
 import { BarChart, PieChart } from "@mui/x-charts";
@@ -19,8 +20,9 @@ import { compact, fmt } from "../stats/format";
 import { ChartCard, GRID, Kpi } from "../stats/parts";
 import { UsStateMap } from "../stats/UsStateMap";
 import {
-  activationsDetail, dateLabel, lastHeardLabel, lookupPath, monthLabel, noLicenseMessage, otherForms, placeLabel, plural,
-  profileUrl, shortDay, sourceSeries, sourcesDetail, spotRows, totalActivations, usStates,
+  activationsDetail, dateLabel, frequencyLabel, lastHeardDetail, lastHeardSpot, lastHeardWhen, lookupPath, monthLabel,
+  noLicenseMessage, onAirNow, otherForms, placeLabel, plural, profileUrl, qrzUrl, shortDay, sourceSeries, sourcesDetail,
+  spotRows, totalActivations, usStates,
 } from "./format";
 import { LookupForm } from "./LookupForm";
 import type { CallsignProfile, HeardProfile, License } from "./types";
@@ -79,18 +81,21 @@ function Invalid({ callsign, message }: { callsign: string; message: string }) {
   );
 }
 
+// Each source keeps one color across the page, matching Stats where they overlap.
+const SOURCE_COLORS: Record<string, "primary" | "secondary" | "warning" | "info"> = {
+  pota: "primary", sotawatch: "secondary", rbn: "warning", dxcluster: "info",
+};
+
 function Header({ profile, account }: { profile: CallsignProfile; account?: AlertAccount }) {
   const { notify } = useApp();
   const navigate = useNavigate();
   const location = useLocation();
   const mobile = useMediaQuery((t: Theme) => t.breakpoints.down("sm"));
   const [busy, setBusy] = useState(false);
-  const [now] = useState(() => new Date());
-  const { callsign, license } = profile;
+  const { callsign, license, heard } = profile;
   const url = profileUrl(window.location.origin, callsign);
   const place = placeLabel(profile);
-  const lastHeard = profile.heard?.lastHeard;
-  const others = profile.heard ? otherForms(profile.heard, callsign) : [];
+  const others = heard ? otherForms(heard, callsign) : [];
 
   const share = async () => {
     if (typeof navigator.share === "function") {
@@ -156,24 +161,54 @@ function Header({ profile, account }: { profile: CallsignProfile; account?: Aler
             <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap", mt: 1 }}>
               {license?.operatorClass && <Chip size="small" label={license.operatorClass} />}
               {place && <Chip size="small" label={place} />}
-              {lastHeard && (
-                <Chip size="small" color="success" variant="outlined" label={lastHeardLabel(lastHeard, now)} sx={{ maxWidth: "100%" }} />
-              )}
             </Stack>
             {others.length > 0 && (
               <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>Also heard as {others.join(", ")}</Typography>
             )}
           </Box>
-          <Stack direction="row" spacing={1} sx={{ flexShrink: 0, alignItems: "flex-start" }}>
+          <Stack direction="row" spacing={1} useFlexGap sx={{ flexShrink: 0, flexWrap: "wrap", alignItems: "flex-start" }}>
             <Button variant="contained" startIcon={<NotificationsActiveIcon />} disabled={busy} onClick={() => void getAlerts()}>
-              {account ? "Get alerts" : "Sign in to get alerts"}
+              {account ? `Get alerts for ${callsign}` : "Sign in to get alerts"}
             </Button>
             <Button variant="outlined" startIcon={<ShareIcon />} onClick={() => void share()}>Share</Button>
+            <Button variant="outlined" startIcon={<OpenInNewIcon />} href={qrzUrl(callsign)} target="_blank" rel="noopener noreferrer">
+              QRZ
+            </Button>
           </Stack>
         </Stack>
-        <Typography variant="caption" color="text.secondary" component="p" sx={{ mt: 1, overflowWrap: "anywhere" }}>{url}</Typography>
+      </CardContent>
+      {heard?.lastHeard && <LastHeard heard={heard} last={heard.lastHeard} />}
+      <Divider />
+      <CardContent>
+        <Typography variant="caption" color="text.secondary" component="p" sx={{ overflowWrap: "anywhere" }}>{url}</Typography>
       </CardContent>
     </Card>
+  );
+}
+
+/** The header's middle band: where and when the station was last spotted. */
+function LastHeard({ heard, last }: { heard: HeardProfile; last: NonNullable<HeardProfile["lastHeard"]> }) {
+  const [now] = useState(() => new Date());
+  const spot = lastHeardSpot(heard);
+  const detail = spot ? lastHeardDetail(spot, heard) : "";
+  return (
+    <>
+      <Divider />
+      <CardContent>
+        <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
+          <Typography variant="overline" color="text.secondary">Last heard</Typography>
+          {onAirNow(last.time, now) && <Chip size="small" color="success" label="On the air now" />}
+        </Stack>
+        <Typography variant="h4" component="p">{frequencyLabel(last.frequencyKhz)}</Typography>
+        <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap", alignItems: "center", mt: 1 }}>
+          {last.mode && <Chip size="small" variant="outlined" label={last.mode.toUpperCase()} />}
+          {spot?.band && <Chip size="small" variant="outlined" label={spot.band} />}
+          {spot && <Chip size="small" color={SOURCE_COLORS[spot.source] ?? "default"} label={sourceName(spot.source)} />}
+          <Typography variant="body2" color="text.secondary">{lastHeardWhen(last.time, now)}</Typography>
+        </Stack>
+        {detail && <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>{detail}</Typography>}
+      </CardContent>
+    </>
   );
 }
 
@@ -254,11 +289,6 @@ const HEARD_BY_COLUMNS: GridColDef[] = [
   { field: "snr", headerName: "Best SNR", width: 90, sortable: false },
   { field: "topBand", headerName: "Top band", width: 90, sortable: false },
 ];
-
-// Each source keeps one color across the page, matching Stats where they overlap.
-const SOURCE_COLORS: Record<string, "primary" | "secondary" | "warning" | "info"> = {
-  pota: "primary", sotawatch: "secondary", rbn: "warning", dxcluster: "info",
-};
 
 function Heard({ profile, heard, prefs }: { profile: CallsignProfile; heard: HeardProfile; prefs: TimePrefs }) {
   const theme = useTheme();
