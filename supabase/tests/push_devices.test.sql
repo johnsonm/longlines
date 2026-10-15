@@ -181,6 +181,8 @@ select count(*) from ingest_spots(jsonb_build_array(
   jsonb_build_object('source','pota','source_spot_id','s1','content_hash','h1','spot_time',now(),'callsign','KK4PWJ/P',
     'frequency_khz',14062,'band','20m','mode','cw','comment','','pota_reference','US-2763','pota_location','US-NC','raw_payload','{}'::jsonb)));
 select is(match_pending_spots(), 3, 'three deliveries queued');
+-- Buckets start empty and refill from creation (now() in a transaction): fill them.
+update destinations set claim_tokens_at = now() - interval '1 minute';
 create temp table claimed as
   select c.*, dest.type from claim_deliveries(200, 60) c join destinations dest on dest.id = (c.destination ->> 'id')::uuid;
 select is((select jsonb_agg(d order by d ->> 'endpoint') from claimed, jsonb_array_elements(destination -> 'devices') d
