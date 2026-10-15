@@ -1,4 +1,4 @@
--- Preview seed data: a synthetic week of POTA, SOTAwatch and RBN spots so the
+-- Preview seed data: a synthetic week of POTA, SOTAwatch, WWFF and RBN spots so the
 -- Stats page (and the Sources and recent-spot views) have something to show on
 -- a Supabase preview branch or a fresh local stack, where no ingest runs.
 --
@@ -11,7 +11,7 @@
 -- are made up (W-style calls with an S suffix, "Seed" park names) so nobody
 -- mistakes them for real activity. setseed() makes every run the same.
 --
--- Shapes, not real volumes: about 450 POTA and 70 SOTA activations a day with
+-- Shapes, not real volumes: about 450 POTA, 70 SOTA and 80 WWFF activations a day with
 -- weekend bumps and a daily cycle, and about 55,000 RBN spots a day (the real
 -- feed is ~1.5M; this keeps a preview branch small). The pgTAP suites clear
 -- the tables they count, so they pass with or without this data.
@@ -180,6 +180,41 @@ from seed_sota_activations a,
                           else (array['40m', '40m', '20m', '20m', '30m', '17m', '60m', '2m'])[1 + floor(random() * 8 + 0 * s)::int] end as band) as b
 where t.spot_time < now()
   and not (b.band = '2m' and a.mode <> 'fm' and a.mode <> 'cw');
+
+-- WWFF ------------------------------------------------------------------------
+
+-- Two kinds, as on the real feed: one POTA activation in eight at a US park is a
+-- WWFF activation too (its first three spots, a KFF reference named after the
+-- park), and about 25 a day are European, in the morning UTC.
+insert into raw_spots (source, source_spot_id, content_hash, spot_time, callsign, spotter, frequency_khz, band, mode, mode_family,
+                       comment, wwff_reference, wwff_reference_name, raw_payload)
+select 'wwff', 'seed-wwff-k-' || p.id || '-' || p.s, md5('seed-wwff-k-' || p.id || '-' || p.s), p.spot_time + interval '20 seconds',
+       p.callsign, p.spotter, pg_temp.freq(p.band, p.mode, p.s), p.band, p.mode, pg_temp.family(p.mode), '',
+       'KFF-' || substr(p.reference, 4), p.name, '{"seed": true}'
+from seed_pota_spots p
+where p.id % 8 = 0 and p.reference like 'US-%' and p.s <= 3 and p.spot_time < now();
+
+insert into raw_spots (source, source_spot_id, content_hash, spot_time, callsign, spotter, frequency_khz, band, mode, mode_family,
+                       comment, wwff_reference, wwff_reference_name, raw_payload)
+select 'wwff', 'seed-wwff-eu-' || d.d || '-' || g || '-' || s, md5('seed-wwff-eu-' || d.d || '-' || g || '-' || s), t.spot_time,
+       x.callsign,
+       case when s = 1 then x.callsign
+            else pg_temp.seed_call(pg_temp.skewed(400, 1.5, s + g), array['ON', 'DL', 'G', 'OK', 'SP', 'F', 'I']) end,
+       pg_temp.freq(x.band, x.mode, s), x.band, x.mode, pg_temp.family(x.mode),
+       case when s = 3 then 'Re-spotted via RBN' else '' end,
+       x.program || '-' || lpad((1 + (g * 37 + (d.d + 7) * 11) % 400)::text, 4, '0'),
+       (array['Seed Heath', 'Seed Dunes', 'Seed Marsh', 'Seed Forest', 'Seed Valley'])[1 + g % 5], '{"seed": true}'
+from seed_days d,
+     lateral generate_series(1, case when d.dow in (6, 7) then 35 else 25 end) as g,
+     lateral (select (array['ON', 'DL', 'G', 'OK', 'SP', 'F', 'I'])[1 + g % 7] as pfx,
+                     (array['ONFF', 'DLFF', 'GFF', 'OKFF', 'SPFF', 'FFF', 'IFF'])[1 + g % 7] as program) as pr,
+     lateral (select pg_temp.seed_call(pg_temp.skewed(90, 1.3, g), array[pr.pfx]) || case when g % 2 = 0 then '/P' else '' end as callsign,
+                     pr.program,
+                     (array['cw', 'cw', 'ssb', 'ssb', 'ft8'])[1 + g % 5] as mode,
+                     (array['40m', '40m', '20m', '20m', '30m', '17m'])[1 + (g + d.d + 7) % 6] as band) as x,
+     lateral generate_series(1, 2 + g % 4) as s,
+     lateral (select d.day_start + make_interval(secs => ((8 + g % 6) * 3600 + s * 400 + g * 7)::int) as spot_time) as t
+where t.spot_time < now();
 
 -- RBN -------------------------------------------------------------------------
 
