@@ -102,7 +102,7 @@ A subscription says which spots you want and where to send them.
 | `sources` | strings | `pota`, `sotawatch`, `wwff`, `rbn`, `dxcluster`. Empty means any. A DX Cluster spot only matches a subscription that lists `dxcluster`, and a WWFF spot one that lists `wwff`. |
 | `rules` | list of lists | The filter. See Rules. Defaults to `[]`, which passes every spot. |
 | `quiet_minutes` | integer | 0, 5, 10, 30 or 60. Defaults to 10. |
-| `destinations` | UUIDs | Zero or more. With none, the subscription matches but delivers nothing. |
+| `destinations` | UUIDs | Zero or more. With none, the subscription stays off whatever `enabled` says, and starts once it has one. |
 
 | Method | Path | Body | Returns |
 |---|---|---|---|

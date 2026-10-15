@@ -67,7 +67,7 @@ never reach matching. See
 
 **Match.** `match_pending_spots()` is a Postgres function on a one-minute cron, also poked after
 every successful ingest. It joins a batch of `spot_events` against every enabled subscription
-using the `spot_matches` predicate, applies each subscription's per-callsign quiet window, and
+that has a destination, using the `spot_matches` predicate, applies each subscription's per-callsign quiet window, and
 writes one `deliveries` row per destination and spot. The web app's live preview calls the same
 predicate, so what you see while editing a subscription is exactly what will be delivered.
 

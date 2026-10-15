@@ -197,7 +197,12 @@ function Editor({ initial, dests, reload, prefs, mobile }: EditorProps) {
               />
               <FormControlLabel
                 label="Enabled" labelPlacement="start" sx={{ flexShrink: 0 }}
-                control={<Switch checked={sub.enabled} onChange={(e) => setSub({ ...sub, enabled: e.target.checked })} />}
+                control={
+                  <Switch
+                    checked={sub.enabled && sub.destinations.length > 0} disabled={sub.destinations.length === 0}
+                    onChange={(e) => setSub({ ...sub, enabled: e.target.checked })}
+                  />
+                }
               />
             </Stack>
 
@@ -220,7 +225,7 @@ function Editor({ initial, dests, reload, prefs, mobile }: EditorProps) {
                     <Paper variant="outlined" sx={{ p: 2 }}>
                       <Typography variant="subtitle2">No destinations yet</Typography>
                       <Typography variant="body2" color="text.secondary">
-                        That is fine. The subscription still matches spots, and you can add a destination whenever you are ready.
+                        That is fine. The subscription stays off until it has a destination, so add one whenever you are ready.
                       </Typography>
                     </Paper>
                   ) : (
