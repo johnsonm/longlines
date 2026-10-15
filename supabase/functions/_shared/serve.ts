@@ -1,7 +1,7 @@
 // HTTP shells shared by the ingest functions: run the orchestrator, return the
 // summary as JSON, or a 500 whose body and log line carry the error.
 //
-// Pulled sources (POTA, SOTAwatch) are invoked by pg_cron with the service-role
+// Pulled sources (POTA, SOTAwatch, WWFF) are invoked by pg_cron with the service-role
 // key. Pushed sources (RBN, DX Cluster, APRS-IS) are invoked by the relay, which holds
 // only the relay secret, with POST batches of lines.
 
