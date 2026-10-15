@@ -35,6 +35,8 @@ interface Props {
   /** Set when editing; otherwise `source` names the new subscription's source. */
   id?: string;
   source?: string | null;
+  /** With `source`: the callsign a profile's Get alerts starts the filter with. */
+  callsign?: string | null;
   subs: SubscriptionWithLinks[];
   dests: Destination[];
   loading: boolean;
@@ -43,8 +45,8 @@ interface Props {
   mobile: boolean;
 }
 
-/** /subscriptions/new?source=… and /subscriptions/:id. An unknown id or source goes back to the list. */
-export function SubscriptionEditorPage({ id, source, subs, loading, ...rest }: Props) {
+/** /subscriptions/new?source=…[&callsign=…] and /subscriptions/:id. An unknown id or source goes back to the list. */
+export function SubscriptionEditorPage({ id, source, callsign, subs, loading, ...rest }: Props) {
   if (id) {
     const existing = subs.find((s) => s.id === id);
     if (!existing) return loading ? <LinearProgress /> : <Navigate to="/subscriptions" replace />;
@@ -52,7 +54,8 @@ export function SubscriptionEditorPage({ id, source, subs, loading, ...rest }: P
   }
   const picked = pickableSource(source ?? null);
   if (!picked) return <Navigate to="/subscriptions" replace />;
-  return <Editor key={picked.id} initial={blankSub(picked.id)} {...rest} />;
+  const call = callsign?.trim() || null;
+  return <Editor key={`${picked.id}:${call ?? ""}`} initial={blankSub(picked.id, call)} {...rest} />;
 }
 
 function Step({ n, title, subheader, children }: { n: number; title: string; subheader: string; children: ReactNode }) {

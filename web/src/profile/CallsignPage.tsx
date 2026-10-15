@@ -11,8 +11,8 @@ import { BarChart, PieChart } from "@mui/x-charts";
 import { DataGrid, type GridColDef } from "@mui/x-data-grid";
 import { Navigate, useLocation, useNavigate, useParams } from "react-router";
 import { errorText, useApp } from "../app/hooks";
-import { ApiError, loadDestinations, loadSubscriptions, saveSubscription } from "../lib/api";
-import { hasPositiveRule, toInput } from "../subscriptions/model";
+import { ApiError } from "../lib/api";
+import { SourcePickerDialog } from "../subscriptions/SourcePickerDialog";
 import type { TimePrefs } from "../lib/time";
 import { PageTitle } from "../layout/PageTitle";
 import { SpotsTable } from "../sources/SpotsTable";
@@ -32,26 +32,20 @@ import { useCallsignProfile } from "./useCallsignProfile";
 
 const CONTACT_EMAIL = (import.meta.env.VITE_CONTACT_EMAIL as string | undefined) ?? "";
 
-/** What Get alerts needs from a signed-in user; absent when signed out. */
-export interface AlertAccount {
-  /** Refreshes the app's destinations and subscriptions after Get alerts creates one. */
-  reload: () => Promise<void>;
-}
-
 /**
  * /call/:callsign. The URL is made canonical in two steps: input is trimmed and
  * uppercased here, then swapped for the base call the profile comes back with
  * (KK4PWJ/P becomes KK4PWJ), which SQL works out, never TypeScript.
  */
-export function CallsignPage({ prefs, account }: { prefs: TimePrefs; account?: AlertAccount }) {
+export function CallsignPage({ prefs, signedIn = false }: { prefs: TimePrefs; signedIn?: boolean }) {
   const raw = useParams()["*"] ?? "";
   const path = lookupPath(raw.replace(/^\/+|\/+$/g, ""));
   if (!path) return <Navigate to="/lookup" replace />;
   if (path !== lookupPath(raw) || raw !== raw.toUpperCase()) return <Navigate to={path} replace />;
-  return <Profile key={raw} callsign={raw} prefs={prefs} account={account} />;
+  return <Profile key={raw} callsign={raw} prefs={prefs} signedIn={signedIn} />;
 }
 
-function Profile({ callsign, prefs, account }: { callsign: string; prefs: TimePrefs; account?: AlertAccount }) {
+function Profile({ callsign, prefs, signedIn }: { callsign: string; prefs: TimePrefs; signedIn: boolean }) {
   const { profile, error, loading } = useCallsignProfile(callsign);
   const navigate = useNavigate();
 
@@ -66,7 +60,7 @@ function Profile({ callsign, prefs, account }: { callsign: string; prefs: TimePr
   const heard = profile.heard && profile.heard.spots > 0 ? profile.heard : null;
   return (
     <Stack spacing={3} useFlexGap>
-      <Header profile={profile} account={account} />
+      <Header profile={profile} signedIn={signedIn} />
       {heard ? <Heard profile={profile} heard={heard} prefs={prefs} /> : <NotHeard profile={profile} />}
       <Footer email={CONTACT_EMAIL} />
     </Stack>
@@ -88,12 +82,12 @@ const SOURCE_COLORS: Record<string, "primary" | "secondary" | "warning" | "info"
   pota: "primary", sotawatch: "secondary", rbn: "warning", dxcluster: "info", wwff: "success",
 };
 
-function Header({ profile, account }: { profile: CallsignProfile; account?: AlertAccount }) {
+function Header({ profile, signedIn }: { profile: CallsignProfile; signedIn: boolean }) {
   const { notify } = useApp();
   const navigate = useNavigate();
   const location = useLocation();
   const mobile = useMediaQuery((t: Theme) => t.breakpoints.down("sm"));
-  const [busy, setBusy] = useState(false);
+  const [picking, setPicking] = useState(false);
   const { callsign, license, heard } = profile;
   const url = profileUrl(window.location.origin, callsign);
   const place = placeLabel(profile);
@@ -117,41 +111,14 @@ function Header({ profile, account }: { profile: CallsignProfile; account?: Aler
     }
   };
 
-  const getAlerts = async () => {
-    if (!account) {
-      void navigate("/signin", { state: { from: location.pathname } });
-      return;
-    }
-    setBusy(true);
-    try {
-      // Read fresh rather than from the app's copy, which may not have loaded yet.
-      const [dests, subs] = await Promise.all([loadDestinations(), loadSubscriptions()]);
-      const existing = subs.find((s) => hasPositiveRule(toInput(s).rules, "callsign", callsign));
-      if (existing) {
-        notify(`You already have ${existing.name}.`);
-        void navigate("/subscriptions");
-        return;
-      }
-      // save_subscription requires a destination, and a paused or failing one would deliver nothing.
-      const dest = dests.find((d) => d.health === "ok");
-      if (!dest) {
-        notify("Add a destination to start getting alerts.");
-        void navigate("/destinations");
-        return;
-      }
-      const name = `${callsign} on the air`;
-      await saveSubscription({
-        name, enabled: true, quiet_minutes: 30, destinations: [dest.id],
-        sources: [], rules: [[{ field: "callsign", op: "is", values: [callsign] }]],
-      });
-      await account.reload();
-      notify(`Created ${name}`);
-      void navigate("/subscriptions");
-    } catch (err) {
-      notify(errorText(err, "Couldn't save the subscription."));
-      setBusy(false);
-    }
+  const getAlerts = () => {
+    if (!signedIn) void navigate("/signin", { state: { from: location.pathname } });
+    else setPicking(true);
   };
+
+  // The editor opens on the picked source with this call as its filter; nothing is saved until the user saves there.
+  const pick = (source: string) =>
+    void navigate(`/subscriptions/new?source=${encodeURIComponent(source)}&callsign=${encodeURIComponent(callsign)}`);
 
   return (
     <Card variant="outlined">
@@ -172,8 +139,8 @@ function Header({ profile, account }: { profile: CallsignProfile; account?: Aler
             )}
           </Box>
           <Stack direction="row" spacing={1} useFlexGap sx={{ flexShrink: 0, flexWrap: "wrap", alignItems: "flex-start" }}>
-            <Button variant="contained" startIcon={<NotificationsActiveIcon />} disabled={busy} onClick={() => void getAlerts()}>
-              {account ? `Get alerts for ${callsign}` : "Sign in to get alerts"}
+            <Button variant="contained" startIcon={<NotificationsActiveIcon />} onClick={getAlerts}>
+              {signedIn ? `Get alerts for ${callsign}` : "Sign in to get alerts"}
             </Button>
             <Button variant="outlined" startIcon={<ShareIcon />} onClick={() => void share()}>Share</Button>
             <Button variant="outlined" startIcon={<OpenInNewIcon />} href={qrzUrl(callsign)} target="_blank" rel="noopener noreferrer">
@@ -183,6 +150,7 @@ function Header({ profile, account }: { profile: CallsignProfile; account?: Aler
         </Stack>
       </CardContent>
       {heard?.lastHeard && <LastHeard heard={heard} last={heard.lastHeard} />}
+      {picking && <SourcePickerDialog open fullScreen={mobile} onClose={() => setPicking(false)} onContinue={pick} />}
     </Card>
   );
 }
