@@ -82,7 +82,8 @@ begin
   assert exists (select 1 from cron.job where jobname = 'maintain-aprs-packets'),
     'maintain-aprs-packets should be scheduled';
 
-  -- Archive: the slice RPCs answer, the job is scheduled, the bucket is private.
+  -- Archive: the slice RPCs answer, the job is scheduled, the local stand-in bucket is
+  -- private (hosted, the archive is in Backblaze B2).
   assert (select row_count from public.archive_columns('rbn', now() - interval '1 day', now() + interval '1 minute')) >= 1,
     'archive_columns should see the smoke rbn row';
   assert (select row_count from public.archive_columns('aprs', now() - interval '1 day', now() + interval '1 minute')) >= 1,

@@ -12,7 +12,6 @@ import type {
   ArchiveDb,
   ArchiveLogEntry,
   ArchiveSlice,
-  ArchiveStore,
   IngestDb,
   InsertedSpot,
   LicenseDb,
@@ -184,18 +183,6 @@ export function createArchiveDb(client: SupabaseClient): ArchiveDb {
         p_object_path: entry.object_path,
       });
       if (error) throw new Error(`log_archive failed: ${error.message}`);
-    },
-  };
-}
-
-export function createArchiveStore(client: SupabaseClient): ArchiveStore {
-  return {
-    async upload(path: string, bytes: Uint8Array): Promise<void> {
-      const { error } = await client.storage.from("archive").upload(path, bytes, {
-        contentType: "application/vnd.apache.parquet",
-        upsert: true,
-      });
-      if (error) throw new Error(`archive upload failed for ${path}: ${error.message}`);
     },
   };
 }

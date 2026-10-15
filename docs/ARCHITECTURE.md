@@ -512,15 +512,16 @@ flowchart LR
   CRONA[pg_cron every 5 min: sources aprs] -- "service-role key" --> A
   A -- "rpc archive_pending_slices" --> P[(due slices)]
   A -- "rpc archive_columns" --> N[(rbn_spots / aprs_packets / raw_spots)]
-  A -- "encode Parquet, upload" --> S[[Storage bucket: archive]]
+  A -- "encode Parquet, signed PUT" --> S[[Backblaze B2 bucket]]
   A -- "rpc log_archive" --> L[(archive_log)]
   M[maintain_rbn_spots daily] -- "rbn_day_archived, retire_rbn_day" --> N
   MA[maintain_aprs_packets daily] -- "aprs_day_archived, retire_aprs_day" --> N
 ```
 
-Every spot of every source is kept for analytics as Parquet in a private Storage bucket, `archive`
+Every spot of every source is kept for analytics as Parquet in a private Backblaze B2 bucket
 (specs `docs/superpowers/specs/2026-10-11-rbn-firehose-archive-design.md` with its measurement
-amendment, and `docs/superpowers/specs/2026-10-14-archive-parquet-design.md`). Slices archived
+amendment, `docs/superpowers/specs/2026-10-14-archive-parquet-design.md` and
+`docs/superpowers/specs/2026-10-14-archive-b2-design.md`). Slices archived
 before 2026-10-14 are gzipped NDJSON at `<source>/YYYY/MM/DD/HHMM.ndjson.gz` until a one-off
 migration rewrites them.
 
@@ -543,6 +544,12 @@ migration rewrites them.
   minutes (two minutes off the 10-minute grid) with `{"sources": ["aprs"]}`; two 30,000-packet
   slices a run measured at about 0.2 s, and a backlog clears at about twice real time. The
   function answers 400 to a body naming an unknown source.
+- **The bucket.** Uploads are one SigV4-signed S3 `PutObject` each (`_shared/s3.ts`, WebCrypto,
+  no dependency; tests pin AWS's published signatures), path-style to the endpoint and bucket in
+  the `LONGLINES_ARCHIVE_S3_*` function secrets (`_shared/archive_store.ts`). Hosted, that is B2
+  with a key restricted to the bucket and `writeFiles`; locally, the stack's Storage S3 endpoint
+  and its `archive` bucket stand in. Missing secrets make a run answer 500 before it reads a
+  slice. The old Supabase Storage bucket was copied over once (`docs/OPERATIONS.md`).
 - **Logged only when stored.** A slice gets its `archive_log` row (count, bytes, path) only after
   the upload succeeds; a failure leaves it pending for the next run. Empty slices are logged with
   `row_count = 0` and no object, so a gap in `archive_log` always means "not archived".

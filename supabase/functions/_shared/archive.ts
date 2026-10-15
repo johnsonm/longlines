@@ -1,5 +1,5 @@
 // The archive job: every 10 minutes, write each finished slice of each source
-// to Storage as a Parquet file and record it in archive_log. Postgres decides
+// to the archive bucket (Backblaze B2) as a Parquet file and record it in archive_log. Postgres decides
 // which slices are due and builds their column arrays (archive_pending_slices,
 // archive_columns); this module only encodes Parquet, uploads and logs, so a run
 // stays inside the Edge Function's 2 s CPU budget. A slice is logged only after
