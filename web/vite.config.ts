@@ -42,6 +42,10 @@ export default defineConfig(({ mode }) => {
     // In dev the app registers /src/pwa/sw.ts; this lets it take the root scope.
     server: { headers: { "Service-Worker-Allowed": "/" } },
     build: {
+      // Every flag-icons SVG stays a file of its own, fetched only when a
+      // profile shows it (src/profile/flags.ts); inlining would put hundreds
+      // of flags into the main bundle.
+      assetsInlineLimit: (file) => (file.includes("/flag-icons/") ? false : undefined),
       rolldownOptions: {
         // The service worker is a second entry with a fixed name: browsers find
         // it at /sw.js, and vercel.json serves that path no-cache.

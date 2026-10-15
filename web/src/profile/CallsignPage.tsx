@@ -25,6 +25,7 @@ import {
   noLicenseMessage, onAirNow, otherForms, placeLabel, plural, profileUrl, qrzUrl, shortDay, sourceSeries, sourcesDetail,
   spotRows, totalActivations, usStates,
 } from "./format";
+import { Flag } from "./Flag";
 import { LookupForm } from "./LookupForm";
 import type { CallsignProfile, HeardProfile, License } from "./types";
 import { useCallsignProfile } from "./useCallsignProfile";
@@ -157,7 +158,10 @@ function Header({ profile, account }: { profile: CallsignProfile; account?: Aler
       <CardContent>
         <Stack direction={{ xs: "column", sm: "row" }} spacing={2} sx={{ justifyContent: "space-between" }}>
           <Box sx={{ minWidth: 0 }}>
-            <Typography variant={mobile ? "h4" : "h3"} component="h1">{callsign}</Typography>
+            <Stack direction="row" spacing={1.5} useFlexGap sx={{ alignItems: "center", flexWrap: "wrap" }}>
+              <Typography variant={mobile ? "h4" : "h3"} component="h1">{callsign}</Typography>
+              <Flag country={profile.country?.name} />
+            </Stack>
             {license?.name && <Typography variant="h6" color="text.secondary">{license.name}</Typography>}
             <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap", mt: 1 }}>
               {license?.operatorClass && <Chip size="small" label={license.operatorClass} />}
@@ -179,10 +183,6 @@ function Header({ profile, account }: { profile: CallsignProfile; account?: Aler
         </Stack>
       </CardContent>
       {heard?.lastHeard && <LastHeard heard={heard} last={heard.lastHeard} />}
-      <Divider />
-      <CardContent>
-        <Typography variant="caption" color="text.secondary" component="p" sx={{ overflowWrap: "anywhere" }}>{url}</Typography>
-      </CardContent>
     </Card>
   );
 }
