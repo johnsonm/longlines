@@ -55,9 +55,12 @@ export interface Rendered extends RenderResult {
   user: UserEvent;
 }
 
+// The app's color schemes, so useColorScheme() works in tests.
+const THEME = createTheme({ colorSchemes: { light: true, dark: true } });
+
 export function wrap(children: ReactNode, app: AppContextValue): ReactElement {
   return (
-    <ThemeProvider theme={createTheme()}>
+    <ThemeProvider theme={THEME}>
       <AppContext.Provider value={app}>
         {children}
       </AppContext.Provider>

@@ -55,6 +55,20 @@ describe("AppShell", () => {
     expect(screen.getByTestId("location")).toHaveTextContent("/account");
   });
 
+  it("switches between light, dark and automatic themes", async () => {
+    const { user } = renderPage(shell(), { route: "/sources" });
+    await user.click(screen.getAllByRole("button", { name: "Account menu" })[0]!);
+    expect(screen.getByRole("button", { name: "Automatic" })).toHaveAttribute("aria-pressed", "true");
+    await user.click(screen.getByRole("button", { name: "Dark" }));
+    expect(screen.getByRole("button", { name: "Dark" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Automatic" })).toHaveAttribute("aria-pressed", "false");
+    // Clicking the selected mode again keeps it.
+    await user.click(screen.getByRole("button", { name: "Dark" }));
+    expect(screen.getByRole("button", { name: "Dark" })).toHaveAttribute("aria-pressed", "true");
+    await user.click(screen.getByRole("button", { name: "Light" }));
+    expect(screen.getByRole("button", { name: "Light" })).toHaveAttribute("aria-pressed", "true");
+  });
+
   it("signs out, and reports a failure", async () => {
     const { user, app } = renderPage(shell(), { route: "/sources" });
     await user.click(screen.getAllByRole("button", { name: "Account menu" })[0]!);
