@@ -484,4 +484,6 @@ notes for the next session. Earlier entries are never edited.
   and goes away with `run.ts`. Hand step before `supabase db push`: on hosted, confirm
   `pg_get_userbyid(proowner)` for `public.claim_deliveries` is `postgres` and
   `has_table_privilege('postgres', 'pgmq.q_deliveries_queue', 'update')` is true (locally
-  `postgres` owns the queue table). Brad has still not noted the 30-day `deliver` invocation count.
+  `postgres` owns the queue table). Brad confirmed it true on hosted on 2026-10-15, so the only
+  step left after merge is `supabase db push`. Brad has still not noted the 30-day `deliver`
+  invocation count.
