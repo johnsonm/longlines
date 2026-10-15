@@ -1,7 +1,7 @@
 // Pure presentation helpers for the Stats page. Everything here is testable
 // in node: no React, no supabase-js.
 
-import type { AprsPacketType, LatestStats } from "./types";
+import type { AprsPacketType, CountrySpots, LatestStats } from "./types";
 
 export const fmt = (n: number): string => n.toLocaleString("en-US");
 
@@ -73,6 +73,23 @@ export function topStates(byState: Record<string, number>, limit = 10): { code: 
 export function fillOpacity(value: number, max: number): number {
   if (value <= 0 || max <= 0) return 0;
   return 0.12 + 0.88 * (value / max);
+}
+
+/**
+ * fillOpacity on a log scale, for the world map: a week's country totals run
+ * from one spot to millions (RBN hears the US most of all), so a linear scale
+ * would leave every country but a handful at the palest shade.
+ */
+export function logFillOpacity(value: number, max: number): number {
+  return fillOpacity(Math.log1p(Math.max(0, value)), Math.log1p(Math.max(0, max)));
+}
+
+/** A country's spots from every source. */
+export const countryTotal = (c: CountrySpots): number => c.pota + c.sota + c.dx + c.rbn;
+
+/** Per-source detail for a country, in the order of the Spots processed figure. */
+export function countryDetail(c: CountrySpots): string {
+  return `${fmt(c.rbn)} RBN, ${fmt(c.dx)} DX Cluster, ${fmt(c.pota)} POTA, ${fmt(c.sota)} SOTA`;
 }
 
 const APRS_TYPE_LABELS: Record<AprsPacketType, string> = {

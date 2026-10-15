@@ -111,6 +111,10 @@ relay on pushes to main; nothing else deploys automatically.
   `supabase/tests/stats_snapshot.test.sql`; change the SQL, the type and the test together.
   A trigger on `stats_snapshots` (`stats_snapshots_drop_hidden`) removes calls in
   `hidden_callsigns` from `topActivators` and `rbn.topStations`, so a top list can hold fewer than eight.
+- `countries` (the world map) comes from `country_daily_spots`, which `rollup_country_day` fills once
+  per day by `cty_lookup` on each distinct call as spotted, never per refresh. DXCC entities map to
+  ISO alpha-2 only in `cty_entity_countries`; `web/src/stats/countries.test.ts` checks it covers
+  every entity of the cty.dat fixture, so a new entity needs a row there.
 - The Stats page is deliberately fixed: no controls beyond tooltips, one request per hour of use
   (`web/src/stats/cache.ts` keeps a snapshot until the next refresh is due; never poll).
   Do not add filters, date pickers, sorting or MUI X Pro components.

@@ -4,7 +4,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(150);
+select plan(156);
 
 -- Start from empty tables so every count below is exact. Both are empty on a
 -- fresh CI database; locally the cron jobs may have filled them. deliveries
@@ -24,6 +24,11 @@ delete from aprs_daily_stations;
 delete from aprs_daily_igates;
 delete from aprs_daily_types;
 delete from aprs_rollup_days;
+delete from country_daily_spots;
+delete from country_rollup_days;
+delete from cty_prefixes;
+delete from cty_entities;
+delete from cty_load;
 
 -- Day k of the window (0 = oldest, 6 = yesterday, 7 = today) at hour h UTC,
 -- derived from the current UTC date so the test is stable at any time of day.
@@ -126,6 +131,26 @@ update raw_spots set mode_family = case
   when mode in ('ft8', 'ft4')               then 'digital'
 end;
 
+-- Countries. With no cty.dat loaded the country rollup changes nothing and marks nothing, so the
+-- day is retried once import-cty has run.
+select is(rollup_country_day((pg_temp.at_utc(1, 0) at time zone 'utc')::date), false, 'rollup_country_day refuses to run without cty.dat');
+select is((select count(*) from country_rollup_days), 0::bigint, 'a refused country day is not marked');
+-- The entities the in-window calls come from; DX1ABC is the Philippines' DX prefix.
+select load_cty('test',
+  '[{"prefix":"K","name":"United States","continent":"NA","cq_zone":5,"itu_zone":8,"lat":37.6,"lon":-91.87},
+    {"prefix":"VE","name":"Canada","continent":"NA","cq_zone":5,"itu_zone":9,"lat":44.35,"lon":-78.75},
+    {"prefix":"SP","name":"Poland","continent":"EU","cq_zone":15,"itu_zone":28,"lat":52.28,"lon":18.67},
+    {"prefix":"JA","name":"Japan","continent":"AS","cq_zone":25,"itu_zone":45,"lat":36.4,"lon":138.38},
+    {"prefix":"DU","name":"Philippines","continent":"OC","cq_zone":27,"itu_zone":50,"lat":13.0,"lon":122.0}]',
+  '[{"pattern":"K","exact":false,"entity":"K","continent":"NA","cq_zone":5,"itu_zone":8},
+    {"pattern":"W","exact":false,"entity":"K","continent":"NA","cq_zone":5,"itu_zone":8},
+    {"pattern":"N","exact":false,"entity":"K","continent":"NA","cq_zone":5,"itu_zone":8},
+    {"pattern":"VE","exact":false,"entity":"VE","continent":"NA","cq_zone":5,"itu_zone":9},
+    {"pattern":"SP","exact":false,"entity":"SP","continent":"EU","cq_zone":15,"itu_zone":28},
+    {"pattern":"SQ","exact":false,"entity":"SP","continent":"EU","cq_zone":15,"itu_zone":28},
+    {"pattern":"JA","exact":false,"entity":"JA","continent":"AS","cq_zone":25,"itu_zone":45},
+    {"pattern":"DX","exact":false,"entity":"DU","continent":"OC","cq_zone":27,"itu_zone":50}]');
+
 -- Refresh and window.
 select lives_ok('select pg_temp.refresh()', 'refresh runs');
 select is((select count(*) from stats_snapshots), 1::bigint, 'refresh inserts exactly one row');
@@ -182,7 +207,18 @@ select is((pg_temp.snap() #>> '{potaByState,GA}')::int, 1, 'a space after the co
 select is((pg_temp.snap() #>> '{potaByState,WY}')::int, 0, 'an untouched state is 0 (the out-of-window WY spots do not leak in)');
 select is((select sum(value::int) from jsonb_each_text(pg_temp.snap() -> 'potaByState')), 13::bigint, 'non-US locations are ignored');
 
--- sotaAssociations: prefix before '/', busiest first.
+-- countries: where the station on the air is, by the call as spotted. W4/G4OBK operates from the
+-- US, so its two SOTA spots count there, not in England. RBN counts every firehose spot (K1ABC/P
+-- included) and none of raw_spots' watched copy; today and eight days ago are out. Ties go by code.
+select is(pg_temp.snap() -> 'countries',
+          '[{"code":"US","pota":9,"sota":2,"dx":0,"rbn":6},{"code":"PL","pota":0,"sota":4,"dx":0,"rbn":0},
+            {"code":"CA","pota":1,"sota":0,"dx":0,"rbn":0},{"code":"JP","pota":0,"sota":0,"dx":0,"rbn":1},
+            {"code":"PH","pota":0,"sota":0,"dx":1,"rbn":0}]'::jsonb,
+          'countries: per-source spots per ISO country, busiest first');
+select is((select count(*) from country_rollup_days), 7::bigint, 'every window day is marked once cty.dat is loaded');
+select is((select count(*) from cty_entity_countries where country = 'GB'), 4::bigint, 'England, Scotland, Wales and Northern Ireland are all GB');
+select is((select country from cty_entity_countries where entity = 'KL'), 'US', 'Alaska is US');
+
 select is(pg_temp.snap() -> 'sotaAssociations', '[{"code":"SP","spots":4},{"code":"W4C","spots":2}]'::jsonb, 'W4C/CM-001 rolls up to association W4C');
 
 -- bands: twelve fixed entries; 70cm and null are excluded here but counted in totals.
