@@ -24,6 +24,16 @@ export default defineConfig(({ mode }) => {
       "import.meta.env.VITE_SUPABASE_ANON_KEY": JSON.stringify(anonKey),
       "import.meta.env.VITE_CONTACT_EMAIL": JSON.stringify(contactEmail),
     },
+    // In dev the app registers /src/pwa/sw.ts; this lets it take the root scope.
+    server: { headers: { "Service-Worker-Allowed": "/" } },
+    build: {
+      rolldownOptions: {
+        // The service worker is a second entry with a fixed name: browsers find
+        // it at /sw.js, and vercel.json serves that path no-cache.
+        input: { main: "index.html", sw: "src/pwa/sw.ts" },
+        output: { entryFileNames: (chunk) => (chunk.name === "sw" ? "sw.js" : "assets/[name]-[hash].js") },
+      },
+    },
     test: {
       // Pure modules run in node. Anything that renders (*.test.tsx) runs in
       // jsdom; it can't be the default because Vite applies its browser file
@@ -52,6 +62,8 @@ export default defineConfig(({ mode }) => {
           "src/lib/database.types.ts",
           // Mounts <App /> into index.html; nothing to assert.
           "src/main.tsx",
+          // Event listeners that hand the real worker globals to sw-handlers.ts, which is tested.
+          "src/pwa/sw.ts",
         ],
         reporter: ["text-summary", "text", "lcov"],
         thresholds: { lines: 80, statements: 80, functions: 80, branches: 80 },

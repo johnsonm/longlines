@@ -922,3 +922,19 @@ preview beside them. A source page's Create subscription button goes straight to
 - **RBN** still needs typed calls or a group (the `subscriptions_rbn_needs_callsign` trigger); the
   editor starts an RBN subscription with an empty Callsign rule and keeps Save disabled until it
   has a call or a group.
+
+# Installable app and service worker
+
+The web app is an installable PWA (`web/public/manifest.webmanifest`, icons rendered once from
+`favicon.svg` and committed) with a service worker that exists only for push. `web/src/pwa/sw.ts`
+is a second build entry emitted unhashed as `/sw.js`, which `vercel.json` serves
+`Cache-Control: no-cache`; `register.ts` registers it on load (the TypeScript source as a module
+worker in dev). It has three handlers and no `fetch` handler, so it caches nothing and a deploy
+can't strand a stale bundle. Their logic is in `sw-handlers.ts`, typed against small interfaces
+and tested in node: `push` shows the notification the worker built (title, body, tag, tap URL and
+optional actions; the service worker never formats text), `notificationclick` focuses an open
+Long Lines window and navigates it, or opens one (a source site always gets its own window), and
+`pushsubscriptionchange` re-subscribes with the old key and posts `push-subscription-changed` to
+open windows. The worker never holds a session or token, so re-registering the device is the
+page's job; with no window open, the next load re-registers and the old endpoint is pruned on its
+first 410.

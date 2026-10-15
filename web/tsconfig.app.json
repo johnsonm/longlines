@@ -24,5 +24,7 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src"]
+  "include": ["src"],
+  // The service worker compiles against the WebWorker lib in tsconfig.sw.json.
+  "exclude": ["src/pwa/sw.ts"]
 }

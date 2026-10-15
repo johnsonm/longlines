@@ -143,19 +143,19 @@ PR 2 is safe to merge alone. PR 3 is safe to merge alone: existing push destinat
 
 **Files:** `web/src/pwa/sw.ts`, `web/src/pwa/sw-handlers.ts` (+ test), `web/src/pwa/register.ts` (+ test), `web/src/main.tsx`, `web/vite.config.ts`, `web/tsconfig.json`, `web/tsconfig.app.json`, `web/tsconfig.sw.json`, `web/vercel.json`, `docs/ARCHITECTURE.md`.
 
-- [ ] `sw-handlers.ts`: pure functions typed against small structural interfaces (not the WebWorker lib) so they compile under the app tsconfig and test in node:
+- [x] `sw-handlers.ts`: pure functions typed against small structural interfaces (not the WebWorker lib) so they compile under the app tsconfig and test in node:
   - `handlePush(data, notifications)`: parse `{title, body, tag, url, sourceUrl?, actions?, silent?, renotify?}`; ignore malformed data; `showNotification(title, {body, tag, data: {url, sourceUrl}, icon: "/icon-192.png", badge: "/badge-72.png", actions, silent, renotify})`. `actions` is `[{action: "profile", title: "Open profile"}, {action: "source", title: "Open on {Source}"}]` when the payload carries them; the worker decides, the service worker displays.
   - `handleNotificationClick(action, data, clients, origin)`: `action === "source"` opens `data.sourceUrl`, else `data.url`; focus an open window and `navigate`, else `openWindow`.
   - `handleSubscriptionChange(registration, oldSubscription, clients)`: re-subscribe with the same key, then `postMessage({type: "push-subscription-changed"})` to every client (decision 13).
-- [ ] `sw.ts`: `declare const self: ServiceWorkerGlobalScope`, three listeners with `waitUntil`, imports only `./sw-handlers.ts`. No `fetch` listener.
-- [ ] `tsconfig.sw.json` with `lib: ["ES2023", "WebWorker"]` including `src/pwa/sw.ts` and `sw-handlers.ts`; reference it from `tsconfig.json`; exclude `src/pwa/sw.ts` from `tsconfig.app.json`.
-- [ ] `vite.config.ts`: `build.rollupOptions.input = { main: "index.html", sw: "src/pwa/sw.ts" }`, `output.entryFileNames` returning `sw.js` for the `sw` chunk and the hashed pattern otherwise. Add `src/pwa/sw.ts` to the coverage exclude with a comment.
-- [ ] `register.ts`: `registerServiceWorker(nav = navigator)`; in dev register `/src/pwa/sw.ts` with `{type: "module"}`, in prod `/sw.js`; call it from `main.tsx` after render.
-- [ ] `vercel.json`: `headers` for `/sw.js` (`Cache-Control: no-cache`, `Service-Worker-Allowed: /`) and `/manifest.webmanifest` (`Content-Type: application/manifest+json`); rewrites untouched.
-- [ ] Tests (node): push well-formed and malformed; click with and without an open window, with and without `action`; subscription change posting to two clients; register in dev, prod and without `serviceWorker`.
-- [ ] `npm run build`, then check `dist/sw.js` exists and `grep -c "^import" dist/sw.js` is 0.
-- [ ] ARCHITECTURE: one paragraph on the PWA and the service worker's three handlers.
-- [ ] Commit `PWA: service worker for push, registered on load, emitted as /sw.js`; gates; push `push-pwa`; open PR 2. PR text includes the Vercel preview check (Chrome's Installable audit, `/sw.js` served `no-cache`).
+- [x] `sw.ts`: `declare const self: ServiceWorkerGlobalScope`, three listeners with `waitUntil`, imports only `./sw-handlers.ts`. No `fetch` listener.
+- [x] `tsconfig.sw.json` with `lib: ["ES2023", "WebWorker"]` including `src/pwa/sw.ts` and `sw-handlers.ts`; reference it from `tsconfig.json`; exclude `src/pwa/sw.ts` from `tsconfig.app.json`.
+- [x] `vite.config.ts`: `build.rollupOptions.input = { main: "index.html", sw: "src/pwa/sw.ts" }`, `output.entryFileNames` returning `sw.js` for the `sw` chunk and the hashed pattern otherwise. Add `src/pwa/sw.ts` to the coverage exclude with a comment.
+- [x] `register.ts`: `registerServiceWorker(nav = navigator)`; in dev register `/src/pwa/sw.ts` with `{type: "module"}`, in prod `/sw.js`; call it from `main.tsx` after render.
+- [x] `vercel.json`: `headers` for `/sw.js` (`Cache-Control: no-cache`, `Service-Worker-Allowed: /`) and `/manifest.webmanifest` (`Content-Type: application/manifest+json`); rewrites untouched.
+- [x] Tests (node): push well-formed and malformed; click with and without an open window, with and without `action`; subscription change posting to two clients; register in dev, prod and without `serviceWorker`.
+- [x] `npm run build`, then check `dist/sw.js` exists and `grep -c "^import" dist/sw.js` is 0.
+- [x] ARCHITECTURE: one paragraph on the PWA and the service worker's three handlers.
+- [x] Commit `PWA: service worker for push, registered on load, emitted as /sw.js`; gates; push `push-pwa`; open PR 2. PR text includes the Vercel preview check (Chrome's Installable audit, `/sw.js` served `no-cache`).
 
 ---
 
