@@ -17,7 +17,9 @@
 | Area | State |
 | --- | --- |
 | Schema and worker for one push destination per account, fixed text, every device (`20261014000100`, `webpush.ts`, `sendPush`, `pushNotifications`, send-test, API) | Merged in #157; applied to hosted |
-| PWA shell (manifest, icons, service worker, `/sw.js`, Vercel headers) | Not started |
+| Spec amendment (Part 0) | Merged in #183 with the template model; the field-pick change is in the follow-up docs PR with this plan revision |
+| PWA shell (manifest, icons, service worker, `/sw.js`, Vercel headers) | Merged in #184 |
+| Schema and worker for page 5 (Part 2) | In progress on `push-schema-2` (three commits, no PR yet), built on templates; needs the rework below before PR 3 opens |
 | Any push UI | Not started. `DEST_TYPES` has Discord and webhook only; the Destinations page is a `List`, not page 1's card grid |
 | Hosted VAPID secrets, redeploy of `deliver`, `send-test`, `api` | Unknown (this machine's CLI isn't linked). Brad's step |
 | `VAPID_PUBLIC_KEY` in Vercel env | Not set; nothing reads it yet |
@@ -50,7 +52,7 @@ Run each part in a fresh Claude Code session opened in the worktree `/home/brad-
 | --- | --- | --- | --- | --- |
 | 0 | Task 0 | Spec amendment recording Brad's decisions, CLAUDE.md push rules updated | `push-spec-2` | Spec PR, reviewed before Parts 2–5 |
 | 1 | Tasks 1–2 | Manifest, icons, `index.html`, `sw.ts`, `register.ts`, Vite input, Vercel headers | `push-pwa` | PR 2 (can run before Part 0 is approved; nothing in it depends on the decisions) |
-| 2 | Tasks 3–5 | Migration `20261015000100_push_destinations_v2.sql`, worker, send-test, API, tests | `push-schema-2` | PR 3 |
+| 2 | Tasks 3–5 | Migration `20261015000200_push_destinations_v2.sql`, worker, send-test, API, tests | `push-schema-2` | PR 3 |
 | 3 | Tasks 6–8 | `api.ts`, `pwa/push.ts`, Destinations card grid, type picker | `push-ui` | PR 4 (draft) |
 | 4 | Tasks 9–11 | Push destination editor page, devices card, Add a device dialog, preview | `push-ui` | PR 4 (draft) |
 | 5 | Tasks 12–13 | Install app, refresh on load, sign-out cleanup, docs, gates, end to end | `push-ui` | PR 4 (ready) |
@@ -161,7 +163,7 @@ PR 2 is safe to merge alone. PR 3 is safe to merge alone: existing push destinat
 
 ## Part 2: Schema, worker and API for page 5 (PR 3, branch `push-schema-2`)
 
-### Task 3: Migration `20261015000100_push_destinations_v2.sql`
+### Task 3: Migration `20261015000200_push_destinations_v2.sql`
 
 **Files:** the migration, `supabase/tests/push_destinations.test.sql` (new), `supabase/tests/push_devices.test.sql`, `supabase/tests/advisor.test.sql`, `supabase/tests/management_api.test.sql`, `supabase/tests/account_delete.test.sql`, `supabase/seed.sql`, `scripts/smoke-test.sql` if it lists tables.
 
@@ -373,6 +375,28 @@ Use these word for word. Substitutions applied everywhere: **"connection(s)" →
 - #158 (per-device retry) stays open; the 15-to-240-minute TTL window makes it low priority.
 - Discord and webhook editors (page 1 shows none), the Connections rename (page 3), and any change to notification shaping beyond what page 5 draws.
 - Device management through the Management API.
+
+## Rework after the field-pick change (2026-10-15)
+
+Part 2 ran before Brad replaced templates with field picks. Its branch `push-schema-2` (migration
+`20261015000200`, not applied anywhere, no PR) implements `title_template`, `body_template`,
+`render_push_template`, `push_template_fields` and a text preview RPC. Before PR 3 opens, a session
+reworks those commits in place to decision 4: `title_fields`/`body_fields`, `render_push_field` and
+`render_push_fields`, `push_fields()`, the field checks and their errors, `preview_push_notification`
+taking two field lists, and `format.ts` passing the SQL text through. Everything else on the branch
+(membership, enabled, unique names, urgency, TTL, quiet hours, blocked devices, duplicate, API) stays.
+
+### Part 2 rework prompt
+
+```
+Work in the worktree /home/brad-bazemore/Dev/longlines-push-web on branch push-schema-2 (`git fetch origin && git merge origin/main` first; main now carries the field-pick revision of the plan and the spec).
+
+Brad changed the notification content design on 2026-10-15: no templates and no custom text. The title and the body are each an ordered pick of spot fields with fixed renderings, joined in SQL. Read docs/superpowers/plans/2026-10-15-push-pwa-and-ui.md: decision 4, "Review Focus", the "Rework after the field-pick change" section, and the Settings, Rendering, preview-RPC and pgTAP bullets of Task 3 plus the format.ts and send-test bullets of Task 4. Read the spec amendment's "Schema" section and its decision 4.
+
+The three commits on push-schema-2 implement templates (`title_template`, `body_template`, `render_push_template`, `push_template_fields`, `p_title text, p_body text`). Rework them in place, as new commits: the migration supabase/migrations/20261015000200_push_destinations_v2.sql (unapplied, so edit it directly), supabase/tests/push_destinations.test.sql and the other suites, format.ts, test_delivery.ts and their tests, docs/API.md, docs/ARCHITECTURE.md and docs/OPERATIONS.md where they mention templates. Regenerate web/src/lib/database.types.ts. Grep the branch for "template" when done; only the spec's history should still say it.
+
+Gates: `deno task coverage`, `deno task check`, `deno task lint`, `supabase db reset && supabase test db`, `scripts/smoke-test.sql`, then `cd web && npm run test:all`. Run /code-review. Then push with `git push -u origin push-schema-2` and open PR 3 per the plan's "Branches and PRs". Don't merge, deploy or set secrets.
+```
 
 ## Prompts: one per part
 

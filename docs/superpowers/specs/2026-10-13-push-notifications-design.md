@@ -22,11 +22,13 @@ Brad gave no answers in Part 0, so every decision below is the plan's proposal a
 **Many push destinations per account, each with its own devices, notification text and delivery
 settings** (decision 1) replaces "one push destination per account, fanning out to every device".
 Devices still belong to the account (`push_devices`). Each push destination picks some of them, so
-a user can have "POTA on my phone", "SOTA on my phone" and "Desktop alerts" side by side. Templates
-are rendered in SQL, so the worker and the editor's preview show the same text; the worker keeps
-only the per-run "3 spots then a summary" shaping.
+a user can have "POTA on my phone", "SOTA on my phone" and "Desktop alerts" side by side.
+Notification text is **not a template** (Brad, 2026-10-15): the user picks which spot fields appear
+in the title and the body and in what order, and SQL joins their fixed renderings. There is no free
+text, so nothing to parse and nothing a user can inject. The worker and the editor's preview call
+the same SQL; the worker keeps only the per-run "3 spots then a summary" shaping.
 
-### Schema (migration `20261015000100_push_destinations_v2.sql`)
+### Schema (migration `20261015000200_push_destinations_v2.sql`)
 
 `20261014000100` is applied to hosted and stays as is; the new migration builds on it.
 
@@ -51,16 +53,18 @@ only the per-run "3 spots then a summary" shaping.
 - **Membership.** `push_destination_devices (destination_id, device_id)`, both cascading, RLS on with
   no policies and client grants revoked. The migration enrols every existing device in its owner's
   existing push destination, so nothing that works today stops working.
-- **Settings.** `push_destination_settings`, one row per push destination, same RLS pattern: title
-  and body templates, tap target (`profile` or `source`), action buttons, urgency (`low`, `normal`,
+- **Settings.** `push_destination_settings`, one row per push destination, same RLS pattern:
+  `title_fields` and `body_fields` (ordered lists of field names), tap target (`profile` or `source`), action buttons, urgency (`low`, `normal`,
   `high`), drop-if-offline seconds (300, 900, 1800, 3600, 14400), replace same station, sound, quiet
   hours on/off, from, until, and quiet mode (`silent` or `skip`). `push_default_settings()` holds
-  the defaults (decision 7 and the default templates in Copy). A trigger on `destinations` inserts
-  them for every new push row, and the migration backfills existing ones. The title is at most 120
-  characters, the body 300, and only fields from `push_template_fields()` are allowed; an unknown
-  one raises "Unknown field {name}.".
-- **Rendering, in SQL only.** `render_push_template(template, spot)` replaces fields (decision 4)
-  and tidies the separators a missing field leaves behind. `spot_source_url(spot)` returns the POTA
+  the defaults (decisions 4 and 7). A trigger on `destinations` inserts them for every new push row,
+  and the migration backfills existing ones. A check constraint and `save_push_destination` require
+  every name to be in `push_fields()`, no name twice in a list, 1 to 4 title fields and 0 to 8 body
+  fields; otherwise "Unknown field {name}.", "Pick 1 to 4 fields for the title." or "Pick up to 8
+  fields for the body.".
+- **Rendering, in SQL only.** `render_push_field(field, spot)` gives one field its fixed rendering
+  (decision 4), null when the spot lacks it; `render_push_fields(fields, spot, joiner)` renders a
+  list in order, skips nulls and joins (a space for the title, " · " for the body). `spot_source_url(spot)` returns the POTA
   park page or the SOTA summit page, otherwise null. `push_quiet_now(settings, timezone, at)` handles
   ranges that cross midnight, in the account time zone (`profiles.timezone`).
 - **`claim_deliveries`.** For push, `devices` are the destination's members with `blocked_at is
@@ -73,17 +77,17 @@ only the per-run "3 spots then a summary" shaping.
   `save_push_destination(p_id, p_name, p_enabled, p_settings, p_device_ids)` creates when `p_id` is
   null, validates the settings, rejects devices that aren't the caller's with "Device not found."
   and replaces membership. `get_push_destination(p_id)` returns settings and `device_ids`.
-  `duplicate_destination(p_id)` (decision 9). `preview_push_notification(p_title, p_body,
-  p_spot_id)` renders against a `raw_spots` row, or `push_sample_spot()` when null, through the same
-  `render_push_template` that `claim_deliveries` calls. None of them returns an endpoint or a key.
+  `duplicate_destination(p_id)` (decision 9). `preview_push_notification(p_title_fields,
+  p_body_fields, p_spot_id)` renders against a `raw_spots` row, or `push_sample_spot()` when null,
+  through the same `render_push_fields` that `claim_deliveries` calls, after the same field checks. None of them returns an endpoint or a key.
 - **Worker.** `send.ts` takes `Urgency` and `TTL` from the destination's settings (today's values
   when absent). `deliver.ts` drops a push delivery older than that destination's TTL instead of the
   fixed 15 minutes. `format.ts` passes the SQL-rendered text through and only builds tags, actions,
-  `silent`/`renotify` and the summary; it never interpolates a template. A spot in quiet hours with
+  `silent`/`renotify` and the summary; it never joins spot fields itself. A spot in quiet hours with
   "Don't send" is marked sent without a request: never retried, never a failure.
 - **Send test.** Devices come from the destination's members, not the owner's. `send-test` takes
   an optional `spot_id` and renders through `preview_push_notification`, so the test shows the
-  saved template.
+  saved fields.
 - **Management API.** `api_destination_json` gains `enabled` and, for push, `push` (the settings
   and a `device_count`, never devices). `PATCH` accepts `enabled`. `POST /destinations` with
   `"type": "push"` always works. Devices stay browser-only.
@@ -96,13 +100,19 @@ only the per-run "3 spots then a summary" shaping.
    webhook cards don't show the switch (page 1), but the API exposes `enabled` for all. *Proposed.*
 3. **Unique names** per account across every destination type, case-insensitive, with hosted
    duplicates renamed as above. *Proposed.*
-4. **Template fields and formatting.** `{callsign}`, `{frequency}`, `{band}`, `{mode}`, `{source}`,
-   `{reference}`, `{place_name}`, `{state}`, `{spotter}`, `{comment}`, `{time}`. `{frequency}` is
-   MHz with three decimals ("14.062"), as page 5 draws it, although the app shows kHz elsewhere.
-   `{reference}` is the POTA reference or SOTA summit; `{place_name}` the park name; `{state}` the
-   part after the dash of `pota_location` ("US-NC" becomes "NC"); `{source}` the source label;
-   `{time}` the UTC clock; `{mode}` upper case. A missing field becomes nothing, then the renderer
-   tidies ", ,", " ." and doubled spaces, so "POTA US-2763, , NC." never appears. *Proposed.*
+4. **Fields, not templates** (Brad, 2026-10-15, decided). The title and the body are each an
+   ordered list of fields from `callsign`, `frequency`, `band`, `mode`, `source`, `reference`,
+   `place_name`, `state`, `spotter`, `comment` and `time`. No custom text anywhere: a template
+   engine would have to accept arbitrary text, and a user could put anything into a notification.
+   Each field has one fixed rendering: `callsign` as is; `frequency` "14062.0 kHz" (kHz with one
+   decimal like the rest of the app, not the canvas's "14.062"); `band` "20m"; `mode` upper case;
+   `source` the source label; `reference` the POTA reference or SOTA summit; `place_name` the park
+   name; `state` the part after the dash of `pota_location` ("US-NC" becomes "NC"); `spotter`
+   "Spotted by K3XYZ"; `comment` as is; `time` the UTC clock. Title fields are joined with a space,
+   body fields with " · ". A field the spot lacks is skipped. Defaults: title `callsign, frequency,
+   mode`; body `source, reference, place_name, state, spotter`, rendering "KK4PWJ 14062.0 kHz CW" /
+   "POTA · US-2763 · Falls Lake SRA · NC · Spotted by K3XYZ". Limits: title 1 to 4 fields, body
+   0 to 8, no field twice in a list. *Renderings, joiners and limits proposed.*
 5. **When tapped, open.** Callsign profile (`/call/<base>`, the default) or Source site
    (`spot_source_url`; RBN and DX Cluster spots fall back to the profile). URLs are built in SQL.
    *Proposed.*
@@ -155,7 +165,7 @@ only the per-run "3 spots then a summary" shaping.
 - **Open question 6** (Add without this device) is closed: the editor saves a destination with zero
   devices and shows "No devices yet".
 - In **Copy** below, the page 5 strings that follow win wherever page 5 shows a screen. The fixed
-  spot title and body under Notifications become the default templates; the summary text, the
+  spot title and body under Notifications are replaced by the default field picks (decision 4); the summary text, the
   install strings page 5 doesn't show and the error strings stay. "You already have push
   notifications." goes.
 
@@ -196,14 +206,15 @@ listed here comes from Copy at the end of this file.
   - Row caption: {agent}[, installed app] · last delivery {age} ago | {agent} · no deliveries yet | {agent} · notifications blocked in this browser
   - Chips: This device · Blocked; icon buttons: Rename device · Remove device; button: Add a device
   - Empty: No devices yet · Add the device you are on now, or open Long Lines on your phone to add it. A destination needs at least one device to deliver. · Add this device · Add my phone
-- Notification content card: Notification content · Write the title and body using fields from the spot
-  - Title helper: Shown in bold. Phones cut off long titles.
-  - Body helper: A field the spot does not have is left out. place_name is the park or summit.
-  - Insert a field; chips: {callsign} {frequency} {band} {mode} {source} {reference} {place_name} {state} {spotter} {comment} {time}
+- Notification content card (copy amended for field picks; the canvas still shows free-text templates): Notification content · Pick which fields appear in the title and the body, and in what order
+  - Title helper: Shown in bold. Phones cut off long titles. Pick 1 to 4 fields.
+  - Body helper: A field the spot does not have is left out. Place name is the park or summit. Pick up to 8 fields.
+  - Add a field; chips: Callsign · Frequency · Band · Mode · Source · Reference · Place name · State · Spotter · Comment · Time
+  - Picker buttons: Move {field} up · Move {field} down · Remove {field}
   - When tapped, open: Callsign profile · Source site
   - Show action buttons · Open profile, Open on the source site.
-  - Button: Reset to default text
-  - Default title: {callsign} on {frequency} {mode}; default body: {source} {reference}, {place_name}, {state}. Spotted by {spotter}.
+  - Button: Reset to default fields
+  - Default title fields: Callsign, Frequency, Mode; default body fields: Source, Reference, Place name, State, Spotter
 - Delivery card: Delivery · How notifications behave on the device
   - Urgency (Low · Normal · High) · High can wake a sleeping phone. Normal fits most subscriptions.
   - Drop if the device is offline for (5 minutes · 15 minutes · 30 minutes · 1 hour · 4 hours) · Old spots are rarely useful. Late notifications are dropped, not queued.
@@ -233,6 +244,8 @@ listed here comes from Copy at the end of this file.
 **Errors (new)**
 - A destination named {name} already exists. Choose a different name.
 - Unknown field {name}.
+- Pick 1 to 4 fields for the title.
+- Pick up to 8 fields for the body.
 
 ## Purpose
 
