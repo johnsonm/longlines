@@ -82,9 +82,29 @@ export function isPrivateIp(ip: string): boolean {
   return false;
 }
 
-/** Hostname without IPv6 brackets, lowercase. */
+/** Hostname without IPv6 brackets or a trailing dot, lowercase. */
 export function hostOf(url: URL): string {
-  return url.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  return url.hostname.replace(/^\[|\]$/g, "").replace(/\.$/, "").toLowerCase();
+}
+
+// Name suffixes that only ever resolve inside a private network: Fly's 6PN
+// (.internal, .flycast), mDNS and home networks (.local, .localdomain,
+// .home.arpa) and the rest of .arpa. The same list is in
+// validate_destination_url() in SQL; change both together. The sender runs
+// on Fly, so a webhook at *.internal would reach another Fly app.
+const DENIED_HOST_SUFFIXES = [
+  ".internal",
+  ".flycast",
+  ".local",
+  ".localdomain",
+  ".home.arpa",
+  ".arpa",
+];
+
+/** True for localhost names and names under a private-only suffix. */
+export function isDeniedHostname(host: string): boolean {
+  return host === "localhost" || host.endsWith(".localhost") ||
+    DENIED_HOST_SUFFIXES.some((suffix) => host.endsWith(suffix));
 }
 
 /** Throws with a user-facing message when the URL must not be used for the type. */
@@ -106,9 +126,7 @@ export function assertSafeDestinationUrl(type: "discord" | "webhook", url: strin
     }
     return parsed;
   }
-  if (
-    host === "localhost" || host.endsWith(".localhost") || (isIpLiteral(host) && isPrivateIp(host))
-  ) {
+  if (isDeniedHostname(host) || (isIpLiteral(host) && isPrivateIp(host))) {
     throw new Error("That address is not allowed.");
   }
   return parsed;

@@ -427,3 +427,23 @@ notes for the next session. Earlier entries are never edited.
 
 - 2026-10-15, spec: design approved after four review rounds (decisions recorded above; the
   review notes doc is the record). No code yet.
+- 2026-10-15, session 1 (PR #188): role and SSRF hardening. Landed: `20261015000200_sender_role.sql`
+  (role `delivery_sender` guarded on `pg_roles`, nologin, connection limit 4, the three role
+  settings, usage on `public`, execute on `claim_deliveries`, `mark_deliveries_sent`,
+  `mark_deliveries_failed`, `prune_push_devices`, `record_push_results`);
+  `supabase/tests/sender_role.test.sql`; `20261015000300_destination_url_denylist.sql`
+  (`validate_destination_url` refuses the six suffixes after stripping a trailing dot) with ten
+  cases in `destinations.test.sql`; `isDeniedHostname` / `DENIED_HOST_SUFFIXES` in `urlsafety.ts`
+  with tests, and `fdaa::1`, `fdaa:0:1::3`, `169.254.169.254` pinned private. Deviations: none in
+  behavior; `hostOf` now also strips a trailing dot, which only widens the worker-side push check
+  on endpoints SQL already validated. Notes for session 2: (1) add
+  `grant execute on function public.throttle_destination(uuid, bigint[], int) to delivery_sender`
+  and the same for `delivery_queue_stats()` in the migration that creates them, and append both
+  names to the `set_eq` list in `sender_role.test.sql`. (2) The runner's `postgres` user is not a
+  superuser: `sender_role.test.sql` does `grant delivery_sender to current_user` inside its
+  transaction before `set local role`; reuse that pattern for any as-the-role assertion. (3) pg_net
+  grants usage on schema `net` and execute on `net.http_delete(...)` to PUBLIC, so the sender role
+  inherits both; that cannot be excluded per role and is left for Brad to decide on the hosted
+  `net` grants. The role test leaves `net` out of its schema list for that reason. (4) Hand step
+  after merge: `supabase db push`. Brad has not yet noted the 30-day `deliver` invocation count
+  from the dashboard in this log.
