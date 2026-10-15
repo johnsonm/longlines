@@ -14,7 +14,8 @@ source.
 | Question | Decision |
 | --- | --- |
 | "Any source" | Opt-in only, like DX Cluster. A subscription gets WWFF spots only if its `sources` lists `wwff`. About half of WWFF spots are US `KFF` references that are usually POTA activations too, so including WWFF in "any source" would send existing subscribers duplicate alerts. |
-| Scope | The full source in one PR: ingest, matching, the reference filter, delivery and push text, archive, the catalog tile going live with a detail page and rates, WWFF in profile activations, and the Stats top lists. |
+| Scope | The full source in one PR: ingest, matching, the reference filter, delivery and push text, archive, the catalog tile going live with a detail page and rates, profiles and Stats. |
+| Stats and profiles | WWFF is a peer of POTA and SOTA. Everywhere the Stats page or a profile shows POTA and SOTA, it shows WWFF too: KPI figures, charts, top lists and copy. |
 
 ## Upstream
 
@@ -108,22 +109,73 @@ There is no relay change and no firehose table.
 
 ### Profiles
 
-`spot_stream` adds a `'WWFF'` arm to `program`. `reference` coalesces `wwff_reference` after POTA
-and SOTA, and `reference_name` coalesces `wwff_reference_name`. The rollups and `callsign_profile`
-are generic over program, and the web already renders unknown programs as "N WWFF references", so
-neither needs code changes. The new arm reaches only days rolled up after the deploy; days already
-rolled up are never re-rolled.
+SQL:
+
+- `spot_stream` adds a `'WWFF'` arm to `program`. `reference` coalesces `wwff_reference` after POTA
+  and SOTA, and `reference_name` coalesces `wwff_reference_name`.
+- The rollups and `callsign_profile` are generic over program, so WWFF activations, references,
+  sources and last heard come through with no SQL change beyond `spot_stream`.
+- The new arm reaches only days rolled up after the deploy. Days already rolled up are never
+  re-rolled, and a profile's live (today) part picks WWFF up at once.
+- `callsign_profile.test.sql` and `callsign_rollups.test.sql` add WWFF cases next to the POTA and
+  SOTA ones.
+
+Web (`web/src/profile/`):
+
+- The Activations KPI always lists all three programs, with zeros: "3 parks, 2 summits, 1 WWFF
+  reference". `activationsDetail` seeds `WWFF` next to `POTA` and `SOTA`. It keeps the noun it
+  already uses, "WWFF reference(s)", because WWFF areas are not all parks or reserves.
+- The source colors give `wwff` its own entry, `success`. DX Cluster keeps `info`.
+- The "Where they've activated" subheader becomes "Parks, summits and WWFF references". The
+  references table already has a Program column.
+- The activity-by-location map stays POTA-only, because only POTA has state locations.
 
 ### Stats
 
-- `daily` and `hourly` gain a `wwff` key. The catalog rates read `hourly[].wwff` through
-  `statsKey: "wwff"`.
-- `topActivators` counts WWFF references and activations alongside POTA and SOTA.
-  `topReferences` gains a WWFF arm whose name comes from `wwff_reference_name`. `Program` becomes
-  `"POTA" | "SOTA" | "WWFF"`.
-- The totals, band chart and country chart are unchanged. WWFF does not get its own KPI.
+The rule: WWFF appears wherever POTA and SOTA each appear. The payload changes are:
+
+| Payload | Change |
+| --- | --- |
+| `totals` | Adds `wwffSpots`, `wwffActivations` and `wwffChasers`. `spots`, `activations`, `chasers`, `activators` and `references` include WWFF. |
+| `peakHour`, `busiestSlot`, `modes` | Computed over POTA, SOTA and WWFF (`in_window` gains `wwff`). |
+| `daily`, `hourly` | Gain a `wwff` key. The catalog rates read `hourly[].wwff` through `statsKey: "wwff"`. |
+| `bands` | `{ band, pota, sota, wwff }`. |
+| `wwffPrograms` (new) | Top 10 national programs by spots, keyed on the reference prefix before `-` (`KFF`, `ONFF`, `DLFF`). This is WWFF's counterpart of `sotaAssociations`. |
+| `countries` | `CountrySpots` gains `wwff`. `rollup_country_day` and the `country_daily_spots` source check include `wwff`. |
+| `topActivators` | Counts WWFF references and activations alongside POTA and SOTA. |
+| `topReferences` | Gains a WWFF arm whose name comes from `wwff_reference_name`. `Program` becomes `"POTA" \| "SOTA" \| "WWFF"`. |
+
+On the page, WWFF's color is `info`. The palette's other colors are taken: POTA is primary, SOTA
+secondary, RBN warning and APRS success. The copy changes are:
+
+| Element | Copy |
+| --- | --- |
+| "Spots processed" KPI detail | "... POTA, ... SOTA, ... WWFF" |
+| Activations KPI detail | "... POTA, ... SOTA, ... WWFF" |
+| Chasers KPI detail | "... POTA, ... SOTA, ... WWFF" |
+| Peak hour KPI label | "Peak POTA/SOTA/WWFF hour" |
+| Activators KPI detail | "Unique POTA, SOTA and WWFF callsigns" |
+| References KPI label | "Parks, summits and WWFF" (detail unchanged: "Unique references activated") |
+| "Spots per day" | Gains a WWFF chart: five cards, `xs 12 / sm 6 / md 4` |
+| Band charts | Gain "WWFF bands", "Where WWFF activators are operating": four cards, `xs 12 / md 6` |
+| New chart next to "Top SOTA associations" | "Top WWFF programs", "Programs with the most WWFF spots". The associations, programs and Modes cards sit at `md 4` each. |
+| Modes subheader | "Share of POTA, SOTA and WWFF spots" |
+| Country card subheader | "POTA, SOTA, WWFF, DX Cluster and RBN spots ..." |
+| `countryDetail` | Adds "... WWFF" after SOTA. `countryTotal` adds `wwff`. |
+| "Most active activators" subheader | "By number of parks, summits and WWFF references activated" |
+| "Most spotted parks and summits" title | "Most spotted parks, summits and WWFF references" |
+| Hourly total | Adds `wwff`. |
+
+"POTA activity by state" stays POTA-only, as SOTA has no state chart either.
+
+These are the page and docs changes:
+
+- Snapshots written before this migration have no `wwff` keys. The page reads them with
+  `?? 0` / `?? []`, as it already does for `aprs`.
 - Per the Phase 3 rules, `refresh_stats_snapshot_at`, `StatsPayload` and `stats_snapshot.test.sql`
   change together.
+- The ARCHITECTURE Stats section and CLAUDE.md's Phase 3 rules gain WWFF wherever they name POTA
+  and SOTA.
 
 ### Catalog (`web/src/sources/sources.ts`)
 
@@ -139,7 +191,7 @@ The `wwff` entry goes live with this copy:
   - "Long Lines stores every WWFF spot, keeps the reference and its name, and shows them on profiles and in Stats. Only subscriptions that pick WWFF get them."
 - showsUp:
   - "Callsign profile: last heard, references, activity"
-  - "Stats: most spotted references, top activators"
+  - "Stats: top WWFF programs, most spotted parks, summits and WWFF references"
   - "Subscription filters: Bands, Modes, Callsigns, Callsign groups, Park, summit, or location contains"
 - schema: `deliveredSchema("wwff", {}, [wwff_reference "WWFF reference.", wwff_reference_name "Reference name."])`.
   Every other source's `example` gains the two keys as null.
@@ -167,7 +219,6 @@ picker) change to treat it as live, and PSK Reporter becomes the only planned so
   opt-in keeps existing users from seeing duplicates.
 - **Band map.** It stays POTA, SOTA and DX Cluster. Adding WWFF is a small follow-up (a lane, a
   color, `band_map_snapshot`'s source list), but it is a separate product call.
-- **Country rollups** (`rollup_country_day`), the band chart and a WWFF KPI on Stats.
 - **Coordinates.** They stay in `raw_payload`.
 
 ## Rollout
