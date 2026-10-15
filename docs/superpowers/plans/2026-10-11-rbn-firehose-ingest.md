@@ -1,67 +1,99 @@
 # RBN Firehose Ingest (PR 1) Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development
+> (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use
+> checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Store every RBN spot the relay receives in a day-partitioned `rbn_spots` table, while only watched callsigns continue into `raw_spots` and alerting.
+**Goal:** Store every RBN spot the relay receives in a day-partitioned `rbn_spots` table, while only
+watched callsigns continue into `raw_spots` and alerting.
 
-**Architecture:** The relay stops filtering and forwards every spot line in batches of up to 1,000. `ingest-rbn` turns each line into an `rbn_spots` row and bulk-inserts the batch through one RPC, then runs the existing `runIngest` over only the watched lines so matching and delivery are unchanged. A daily pg_cron job keeps partitions created four days ahead and moves any rows that fell into the default partition.
+**Architecture:** The relay stops filtering and forwards every spot line in batches of up to 1,000.
+`ingest-rbn` turns each line into an `rbn_spots` row and bulk-inserts the batch through one RPC,
+then runs the existing `runIngest` over only the watched lines so matching and delivery are
+unchanged. A daily pg_cron job keeps partitions created four days ahead and moves any rows that fell
+into the default partition.
 
-**Tech Stack:** Postgres 17 (Supabase, pg_cron, declarative partitioning), Deno 2 Edge Functions in strict TypeScript, the Deno relay in `relay/`, pgTAP, `deno test`.
+**Tech Stack:** Postgres 17 (Supabase, pg_cron, declarative partitioning), Deno 2 Edge Functions in
+strict TypeScript, the Deno relay in `relay/`, pgTAP, `deno test`.
 
-**Spec:** `docs/superpowers/specs/2026-10-11-rbn-firehose-archive-design.md` (this plan covers the spec's "Rollout" PR 1: data model for `rbn_spots`, ingest path, partition creation. Archive, `archive_log`, retention drops and `archive_status` are PR 2 and a separate plan.)
+**Spec:** `docs/superpowers/specs/2026-10-11-rbn-firehose-archive-design.md` (this plan covers the
+spec's "Rollout" PR 1: data model for `rbn_spots`, ingest path, partition creation. Archive,
+`archive_log`, retention drops and `archive_status` are PR 2 and a separate plan.)
 
 ## Global Constraints
 
-- Strict TypeScript, no JavaScript files, no `any` without a justifying comment, no new runtime dependencies.
-- Applied migrations are never edited. This plan adds `supabase/migrations/20261011000003_rbn_spots.sql` (`20261011000002` is taken by the open stats-fix branch).
-- Every new table, partition and function has `anon` and `authenticated` revoked; functions are executable by `service_role` only. Every partition has RLS enabled with no policies.
-- `rbn_spots` unique key is exactly `(spot_time, spotter, callsign, frequency_khz)`; partitions are named `rbn_spots_YYYYMMDD` by UTC day plus `rbn_spots_default`.
-- Relay batches: `maxBatch` 1,000, `flushMs` 10 s, `heartbeatMs` 60 s, `maxBuffer` 50,000. `ingest-rbn` rejects bodies over 1,000 lines (existing `MAX_LINES`).
-- Lines are stored in `rbn_spots` regardless of age. Only the alert path (`runIngest`) applies the five-minute `too_old` cutoff.
-- Parsing lives in `supabase/functions/_shared/rbn.ts`; the relay never parses beyond calling `parseRbnLine`.
+- Strict TypeScript, no JavaScript files, no `any` without a justifying comment, no new runtime
+  dependencies.
+- Applied migrations are never edited. This plan adds
+  `supabase/migrations/20261011000003_rbn_spots.sql` (`20261011000002` is taken by the open
+  stats-fix branch).
+- Every new table, partition and function has `anon` and `authenticated` revoked; functions are
+  executable by `service_role` only. Every partition has RLS enabled with no policies.
+- `rbn_spots` unique key is exactly `(spot_time, spotter, callsign, frequency_khz)`; partitions are
+  named `rbn_spots_YYYYMMDD` by UTC day plus `rbn_spots_default`.
+- Relay batches: `maxBatch` 1,000, `flushMs` 10 s, `heartbeatMs` 60 s, `maxBuffer` 50,000.
+  `ingest-rbn` rejects bodies over 1,000 lines (existing `MAX_LINES`).
+- Lines are stored in `rbn_spots` regardless of age. Only the alert path (`runIngest`) applies the
+  five-minute `too_old` cutoff.
+- Parsing lives in `supabase/functions/_shared/rbn.ts`; the relay never parses beyond calling
+  `parseRbnLine`.
 - The relay holds only `LONGLINES_RELAY_SECRET`, never a Supabase key. No test connects to RBN.
-- `deno fmt` line width is 100. Run `supabase db reset` before `supabase test db`; another session may share the local stack.
+- `deno fmt` line width is 100. Run `supabase db reset` before `supabase test db`; another session
+  may share the local stack.
 - Never run `supabase db push`, `supabase functions deploy`, `fly deploy` or `fly secrets set`.
 
 ## Review Focus
 
-1. The daily job missed a few days, so a day's rows sit in `rbn_spots_default` when that day's partition is created: creation must move them, not fail (Task 1, test "rows waiting in the default partition move into the new partition").
-2. The relay retries a batch whose first attempt was stored but timed out: no duplicate rows, and a batch with the same spot twice stores it once (Task 1 dedup tests; Task 3 "a retried batch").
-3. One batch mixes banners, bad `received_at`, watched and unwatched spots: every parseable line reaches `rbn_spots`, only watched ones reach `raw_spots`, each bad line becomes exactly one `ingest_failures` row (Task 3 "stores every line and alerts only watched callsigns").
-4. A 2359Z spot received just after midnight UTC belongs to the previous day and its partition (Task 2 "midnight").
-5. Supabase is down for half an hour: the relay buffers up to 50,000 lines, drops only the oldest beyond that and reports `dropped`; when lines finally arrive they are stored but not alerted (Task 5 "defaults"; Task 3 "late lines").
+1. The daily job missed a few days, so a day's rows sit in `rbn_spots_default` when that day's
+   partition is created: creation must move them, not fail (Task 1, test "rows waiting in the
+   default partition move into the new partition").
+2. The relay retries a batch whose first attempt was stored but timed out: no duplicate rows, and a
+   batch with the same spot twice stores it once (Task 1 dedup tests; Task 3 "a retried batch").
+3. One batch mixes banners, bad `received_at`, watched and unwatched spots: every parseable line
+   reaches `rbn_spots`, only watched ones reach `raw_spots`, each bad line becomes exactly one
+   `ingest_failures` row (Task 3 "stores every line and alerts only watched callsigns").
+4. A 2359Z spot received just after midnight UTC belongs to the previous day and its partition (Task
+   2 "midnight").
+5. Supabase is down for half an hour: the relay buffers up to 50,000 lines, drops only the oldest
+   beyond that and reports `dropped`; when lines finally arrive they are stored but not alerted
+   (Task 5 "defaults"; Task 3 "late lines").
 
 ---
 
 ## File Structure
 
-| File | Responsibility |
-| --- | --- |
-| `supabase/migrations/20261011000003_rbn_spots.sql` (create) | `rbn_spots` table, default partition, `create_rbn_spots_partition`, `maintain_rbn_spots`, `ingest_rbn_spots`, cron job, grants. |
-| `supabase/tests/rbn_spots.test.sql` (create) | pgTAP for the migration. |
-| `scripts/smoke-test.sql` (modify) | One `ingest_rbn_spots` round trip. |
-| `supabase/functions/_shared/types.ts` (modify) | `RbnSpotRow`, `RbnDb`, `IngestSummary.stored`. |
-| `supabase/functions/_shared/rbn.ts` (modify) | `parseRelayBody`, `rbnComment`, `rbnSpotRow` (pure). |
-| `supabase/functions/_shared/db.ts` (modify) | `createRbnDb` over the `ingest_rbn_spots` RPC. |
-| `supabase/functions/_shared/rbn_push.ts` (create) | `runRbnPush`: store all lines, alert watched ones. |
-| `supabase/functions/_shared/serve.ts` (modify) | `pushIngestHandler` / `servePush` take a run function instead of an adapter factory. |
-| `supabase/functions/ingest-rbn/index.ts` (modify) | `servePush("rbn", runRbnPush)`. |
-| `relay/feeds.ts`, `relay/main.ts`, `relay/forwarder.ts`, `relay/functions.ts`, `relay/health.ts` (modify) | Forward every spot line; new defaults; `dropped` in health. |
-| `relay/watchlist.ts` (delete) | No longer used. |
-| `web/src/lib/database.types.ts` (regenerate) | Generated types. |
-| `docs/ARCHITECTURE.md`, `docs/OPERATIONS.md`, `README.md`, `CLAUDE.md` (modify) | Describe full ingest. |
+| File                                                                                                      | Responsibility                                                                                                                  |
+| --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `supabase/migrations/20261011000003_rbn_spots.sql` (create)                                               | `rbn_spots` table, default partition, `create_rbn_spots_partition`, `maintain_rbn_spots`, `ingest_rbn_spots`, cron job, grants. |
+| `supabase/tests/rbn_spots.test.sql` (create)                                                              | pgTAP for the migration.                                                                                                        |
+| `scripts/smoke-test.sql` (modify)                                                                         | One `ingest_rbn_spots` round trip.                                                                                              |
+| `supabase/functions/_shared/types.ts` (modify)                                                            | `RbnSpotRow`, `RbnDb`, `IngestSummary.stored`.                                                                                  |
+| `supabase/functions/_shared/rbn.ts` (modify)                                                              | `parseRelayBody`, `rbnComment`, `rbnSpotRow` (pure).                                                                            |
+| `supabase/functions/_shared/db.ts` (modify)                                                               | `createRbnDb` over the `ingest_rbn_spots` RPC.                                                                                  |
+| `supabase/functions/_shared/rbn_push.ts` (create)                                                         | `runRbnPush`: store all lines, alert watched ones.                                                                              |
+| `supabase/functions/_shared/serve.ts` (modify)                                                            | `pushIngestHandler` / `servePush` take a run function instead of an adapter factory.                                            |
+| `supabase/functions/ingest-rbn/index.ts` (modify)                                                         | `servePush("rbn", runRbnPush)`.                                                                                                 |
+| `relay/feeds.ts`, `relay/main.ts`, `relay/forwarder.ts`, `relay/functions.ts`, `relay/health.ts` (modify) | Forward every spot line; new defaults; `dropped` in health.                                                                     |
+| `relay/watchlist.ts` (delete)                                                                             | No longer used.                                                                                                                 |
+| `web/src/lib/database.types.ts` (regenerate)                                                              | Generated types.                                                                                                                |
+| `docs/ARCHITECTURE.md`, `docs/OPERATIONS.md`, `README.md`, `CLAUDE.md` (modify)                           | Describe full ingest.                                                                                                           |
 
 ---
 
 ### Task 1: `rbn_spots` schema, partitions and bulk-insert RPC
 
 **Files:**
+
 - Create: `supabase/migrations/20261011000003_rbn_spots.sql`
 - Create: `supabase/tests/rbn_spots.test.sql`
 - Modify: `scripts/smoke-test.sql`
 
 **Interfaces:**
-- Produces: table `public.rbn_spots`; `public.create_rbn_spots_partition(p_day date) returns void`; `public.maintain_rbn_spots() returns void`; `public.ingest_rbn_spots(p_rows jsonb) returns int` (rows inserted). RPC row keys: `spot_time, received_at, spotter, callsign, frequency_khz, band, mode, mode_family, snr, speed, speed_unit, spot_type, line`.
+
+- Produces: table `public.rbn_spots`; `public.create_rbn_spots_partition(p_day date) returns void`;
+  `public.maintain_rbn_spots() returns void`; `public.ingest_rbn_spots(p_rows jsonb) returns int`
+  (rows inserted). RPC row keys:
+  `spot_time, received_at, spotter, callsign, frequency_khz, band, mode, mode_family, snr, speed, speed_unit, spot_type, line`.
 
 Requires the local stack: `supabase start` (Docker running).
 
@@ -142,8 +174,8 @@ rollback;
 
 - [ ] **Step 2: Run it to verify it fails**
 
-Run: `supabase db reset && supabase test db 2>&1 | grep -A3 rbn_spots.test`
-Expected: FAIL (`function maintain_rbn_spots() does not exist`).
+Run: `supabase db reset && supabase test db 2>&1 | grep -A3 rbn_spots.test` Expected: FAIL
+(`function maintain_rbn_spots() does not exist`).
 
 - [ ] **Step 3: Write the migration**
 
@@ -275,31 +307,32 @@ select cron.schedule('maintain-rbn-spots', '30 3 * * *', $$ select public.mainta
 
 - [ ] **Step 4: Run the suite to verify it passes**
 
-Run: `supabase db reset && supabase test db 2>&1 | tail -4`
-Expected: `Result: PASS` with `rbn_spots.test.sql .. ok`.
+Run: `supabase db reset && supabase test db 2>&1 | tail -4` Expected: `Result: PASS` with
+`rbn_spots.test.sql .. ok`.
 
 - [ ] **Step 5: Add the smoke-test round trip**
 
-In `scripts/smoke-test.sql`, after the block that asserts `ingest_health` has one row per source, add:
+In `scripts/smoke-test.sql`, after the block that asserts `ingest_health` has one row per source,
+add:
 
 ```sql
-  -- rbn_spots: the bulk RPC inserts and dedups.
-  assert public.ingest_rbn_spots(jsonb_build_array(jsonb_build_object(
-    'spot_time', now(), 'received_at', now(), 'spotter', 'W3LPL', 'callsign', 'SM0KE',
-    'frequency_khz', 14035.1, 'band', '20m', 'mode', 'cw', 'mode_family', 'cw', 'snr', 12,
-    'speed', 22, 'speed_unit', 'WPM', 'spot_type', 'CQ', 'line', 'smoke'))) = 1,
-    'ingest_rbn_spots should insert one row';
-  assert exists (select 1 from cron.job where jobname = 'maintain-rbn-spots'),
-    'maintain-rbn-spots should be scheduled';
+-- rbn_spots: the bulk RPC inserts and dedups.
+assert public.ingest_rbn_spots(jsonb_build_array(jsonb_build_object(
+  'spot_time', now(), 'received_at', now(), 'spotter', 'W3LPL', 'callsign', 'SM0KE',
+  'frequency_khz', 14035.1, 'band', '20m', 'mode', 'cw', 'mode_family', 'cw', 'snr', 12,
+  'speed', 22, 'speed_unit', 'WPM', 'spot_type', 'CQ', 'line', 'smoke'))) = 1,
+  'ingest_rbn_spots should insert one row';
+assert exists (select 1 from cron.job where jobname = 'maintain-rbn-spots'),
+  'maintain-rbn-spots should be scheduled';
 ```
 
-Run: `docker exec -i supabase_db_longlines psql -U postgres -v ON_ERROR_STOP=1 -X < scripts/smoke-test.sql | tail -1`
+Run:
+`docker exec -i supabase_db_longlines psql -U postgres -v ON_ERROR_STOP=1 -X < scripts/smoke-test.sql | tail -1`
 Expected: `smoke test passed`.
 
 - [ ] **Step 6: Lint the schema and commit**
 
-Run: `supabase db lint --fail-on error`
-Expected: `{"results":[],...}`.
+Run: `supabase db lint --fail-on error` Expected: `{"results":[],...}`.
 
 ```bash
 git add supabase/migrations/20261011000003_rbn_spots.sql supabase/tests/rbn_spots.test.sql scripts/smoke-test.sql
@@ -311,18 +344,25 @@ git commit -m "Add rbn_spots, partitioned by UTC day, with a bulk-insert RPC"
 ### Task 2: `rbnSpotRow` and the shared RBN row type
 
 **Files:**
+
 - Modify: `supabase/functions/_shared/types.ts`
 - Modify: `supabase/functions/_shared/rbn.ts`
 - Test: `supabase/functions/_shared/__tests__/rbn.test.ts`
 
 **Interfaces:**
+
 - Consumes: `parseRbnLine`, `spotTimeFromHhmm` (existing in `rbn.ts`).
-- Produces (in `types.ts`): `interface RbnSpotRow { spot_time: string; received_at: string; spotter: string; callsign: string; frequency_khz: number; band: string | null; mode: string | null; mode_family: ModeFamily | null; snr: number; speed: number; speed_unit: "WPM" | "BPS"; spot_type: string; line: string }`; `interface RbnDb { ingestRbnSpots(rows: RbnSpotRow[]): Promise<number> }`; `IngestSummary.stored?: number`.
-- Produces (in `rbn.ts`): `parseRelayBody(body: unknown): JsonObject[]` (throws on bad shape, >1,000 lines); `rbnSpotRow(raw: JsonObject): RbnSpotRow` (throws when unusable; no age check).
+- Produces (in `types.ts`):
+  `interface RbnSpotRow { spot_time: string; received_at: string; spotter: string; callsign: string; frequency_khz: number; band: string | null; mode: string | null; mode_family: ModeFamily | null; snr: number; speed: number; speed_unit: "WPM" | "BPS"; spot_type: string; line: string }`;
+  `interface RbnDb { ingestRbnSpots(rows: RbnSpotRow[]): Promise<number> }`;
+  `IngestSummary.stored?: number`.
+- Produces (in `rbn.ts`): `parseRelayBody(body: unknown): JsonObject[]` (throws on bad shape, >1,000
+  lines); `rbnSpotRow(raw: JsonObject): RbnSpotRow` (throws when unusable; no age check).
 
 - [ ] **Step 1: Write the failing tests**
 
-Append to `supabase/functions/_shared/__tests__/rbn.test.ts` (it already defines `line()`, `item()`, `RECEIVED`) and add `parseRelayBody, rbnSpotRow` to its import from `../rbn.ts`:
+Append to `supabase/functions/_shared/__tests__/rbn.test.ts` (it already defines `line()`, `item()`,
+`RECEIVED`) and add `parseRelayBody, rbnSpotRow` to its import from `../rbn.ts`:
 
 ```ts
 Deno.test("rbnSpotRow maps a fixture line to an rbn_spots row", () => {
@@ -346,12 +386,20 @@ Deno.test("rbnSpotRow maps a fixture line to an rbn_spots row", () => {
 
 Deno.test("rbnSpotRow keeps BPS and marks RTTY digital", () => {
   const row = rbnSpotRow(item(line("DX de LZ7AA-#:   7043.73")));
-  assertEquals([row.mode, row.mode_family, row.speed, row.speed_unit], ["rtty", "digital", 45, "BPS"]);
+  assertEquals([row.mode, row.mode_family, row.speed, row.speed_unit], [
+    "rtty",
+    "digital",
+    45,
+    "BPS",
+  ]);
 });
 
 Deno.test("rbnSpotRow dates a 2359Z spot received after midnight on the previous day", () => {
   const text = "DX de W3LPL-#:  14035.10  K1ABC          CW    12 dB  22 WPM  CQ      2359Z";
-  assertEquals(rbnSpotRow(item(text, "2026-10-12T00:00:10Z")).spot_time, "2026-10-11T23:59:00.000Z");
+  assertEquals(
+    rbnSpotRow(item(text, "2026-10-12T00:00:10Z")).spot_time,
+    "2026-10-11T23:59:00.000Z",
+  );
 });
 
 Deno.test("rbnSpotRow throws on a banner, a missing received_at or a bad one", () => {
@@ -371,8 +419,8 @@ Deno.test("parseRelayBody returns the items and rejects bad shapes and oversize 
 
 - [ ] **Step 2: Run them to verify they fail**
 
-Run: `deno test -P supabase/functions/_shared/__tests__/rbn.test.ts`
-Expected: FAIL (`rbnSpotRow` / `parseRelayBody` not exported).
+Run: `deno test -P supabase/functions/_shared/__tests__/rbn.test.ts` Expected: FAIL (`rbnSpotRow` /
+`parseRelayBody` not exported).
 
 - [ ] **Step 3: Add the types**
 
@@ -403,8 +451,8 @@ export interface RbnSpotRow {
 In `IngestSummary`, after `failed: number;` add:
 
 ```ts
-  /** Rows written to rbn_spots by a push (RBN only). */
-  stored?: number;
+/** Rows written to rbn_spots by a push (RBN only). */
+stored?: number;
 ```
 
 At the end of the file add:
@@ -419,7 +467,8 @@ export interface RbnDb {
 
 - [ ] **Step 4: Implement in `rbn.ts`**
 
-Change the type import to `import type { JsonObject, NormalizeResult, RbnSpotRow, SourceAdapter } from "./types.ts";`.
+Change the type import to
+`import type { JsonObject, NormalizeResult, RbnSpotRow, SourceAdapter } from "./types.ts";`.
 
 Add after `spotTimeFromHhmm`:
 
@@ -476,12 +525,13 @@ export function rbnSpotRow(raw: JsonObject): RbnSpotRow {
 }
 ```
 
-In `rbnAdapter`, replace the whole `parseFeed` body with `return parseRelayBody(feed);`, and in `normalize` replace the `comment` line with `const comment = rbnComment(parsed);`.
+In `rbnAdapter`, replace the whole `parseFeed` body with `return parseRelayBody(feed);`, and in
+`normalize` replace the `comment` line with `const comment = rbnComment(parsed);`.
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
-Run: `deno test -P supabase/functions/_shared/__tests__/rbn.test.ts && deno task check`
-Expected: all pass, no type errors.
+Run: `deno test -P supabase/functions/_shared/__tests__/rbn.test.ts && deno task check` Expected:
+all pass, no type errors.
 
 - [ ] **Step 6: Commit**
 
@@ -495,17 +545,24 @@ git commit -m "Add rbnSpotRow: every relay line as an rbn_spots row"
 ### Task 3: `runRbnPush`: store every line, alert watched ones
 
 **Files:**
+
 - Modify: `supabase/functions/_shared/db.ts`
 - Create: `supabase/functions/_shared/rbn_push.ts`
-- Test: `supabase/functions/_shared/__tests__/db.test.ts`, `supabase/functions/_shared/__tests__/rbn_push.test.ts`
+- Test: `supabase/functions/_shared/__tests__/db.test.ts`,
+  `supabase/functions/_shared/__tests__/rbn_push.test.ts`
 
 **Interfaces:**
-- Consumes: `parseRelayBody`, `rbnSpotRow`, `rbnAdapter` (`rbn.ts`); `runIngest` (`ingest.ts`); `IngestDb`, `WatchlistDb`, `RbnDb`, `RbnSpotRow`, `IngestSummary`, `SpotFailure` (`types.ts`).
-- Produces: `createRbnDb(client: SupabaseClient): RbnDb` (`db.ts`); `type RbnPushDb = IngestDb & WatchlistDb & RbnDb` and `runRbnPush(body: unknown, db: RbnPushDb, now?: Date): Promise<IngestSummary>` (`rbn_push.ts`).
+
+- Consumes: `parseRelayBody`, `rbnSpotRow`, `rbnAdapter` (`rbn.ts`); `runIngest` (`ingest.ts`);
+  `IngestDb`, `WatchlistDb`, `RbnDb`, `RbnSpotRow`, `IngestSummary`, `SpotFailure` (`types.ts`).
+- Produces: `createRbnDb(client: SupabaseClient): RbnDb` (`db.ts`);
+  `type RbnPushDb = IngestDb & WatchlistDb & RbnDb` and
+  `runRbnPush(body: unknown, db: RbnPushDb, now?: Date): Promise<IngestSummary>` (`rbn_push.ts`).
 
 - [ ] **Step 1: Write the failing db test**
 
-Append to `supabase/functions/_shared/__tests__/db.test.ts` and add `createRbnDb` to its import from `../db.ts`, `RbnSpotRow` to its type import:
+Append to `supabase/functions/_shared/__tests__/db.test.ts` and add `createRbnDb` to its import from
+`../db.ts`, `RbnSpotRow` to its type import:
 
 ```ts
 Deno.test("ingestRbnSpots sends the batch to the RPC and returns the inserted count", async () => {
@@ -519,7 +576,11 @@ Deno.test("ingestRbnSpots treats a non-number as 0 and throws on error", async (
   const a = fakeSupabase({ rpc: { ingest_rbn_spots: { data: null } } });
   assertEquals(await createRbnDb(a.client).ingestRbnSpots([]), 0);
   const b = fakeSupabase({ rpc: { ingest_rbn_spots: boom } });
-  await assertRejects(() => createRbnDb(b.client).ingestRbnSpots([]), Error, "ingest_rbn_spots failed: boom");
+  await assertRejects(
+    () => createRbnDb(b.client).ingestRbnSpots([]),
+    Error,
+    "ingest_rbn_spots failed: boom",
+  );
 });
 ```
 
@@ -557,7 +618,11 @@ function fakeDb(options: { watched?: string[]; stored?: number; storeFails?: boo
     ingestSpots(spots) {
       calls.ingested.push(spots);
       return Promise.resolve(
-        spots.map((s, i): InsertedSpot => ({ id: i + 1, source: s.source, source_spot_id: s.source_spot_id })),
+        spots.map((s, i): InsertedSpot => ({
+          id: i + 1,
+          source: s.source,
+          source_spot_id: s.source_spot_id,
+        })),
       );
     },
     recordSpotFailures(failures) {
@@ -581,14 +646,22 @@ function fakeDb(options: { watched?: string[]; stored?: number; storeFails?: boo
 Deno.test("runRbnPush stores every line and alerts only watched callsigns", async () => {
   const { db, calls } = fakeDb();
   const body = {
-    lines: [item(watchedLine), item(otherLine), item("Local users: 586"), item(otherLine, "not a time")],
+    lines: [
+      item(watchedLine),
+      item(otherLine),
+      item("Local users: 586"),
+      item(otherLine, "not a time"),
+    ],
   };
   const summary = await runRbnPush(body, db, NOW);
   assertEquals(calls.stored.length, 1);
   assertEquals(calls.stored[0]!.map((r) => r.callsign), ["CT1JGA/P", "N2GM"]);
   assertEquals(calls.ingested.length, 1);
   assertEquals(calls.ingested[0]!.map((s) => s.callsign), ["CT1JGA/P"]);
-  assertEquals(calls.failures.flat().map((f) => f.error), ["not an RBN spot line", 'invalid timestamp: "not a time"']);
+  assertEquals(calls.failures.flat().map((f) => f.error), [
+    "not an RBN spot line",
+    'invalid timestamp: "not a time"',
+  ]);
   assertEquals([summary.fetched, summary.stored, summary.inserted, summary.failed], [4, 2, 1, 2]);
   assertEquals(calls.success, [["rbn", 1]]);
 });
@@ -635,7 +708,8 @@ Deno.test("runRbnPush records the failure and rethrows on a malformed body", asy
 
 - [ ] **Step 3: Run them to verify they fail**
 
-Run: `deno test -P supabase/functions/_shared/__tests__/rbn_push.test.ts supabase/functions/_shared/__tests__/db.test.ts`
+Run:
+`deno test -P supabase/functions/_shared/__tests__/rbn_push.test.ts supabase/functions/_shared/__tests__/db.test.ts`
 Expected: FAIL (`rbn_push.ts` missing, `createRbnDb` not exported).
 
 - [ ] **Step 4: Implement `createRbnDb`**
@@ -721,7 +795,8 @@ export async function runRbnPush(
 
 - [ ] **Step 6: Run the tests to verify they pass**
 
-Run: `deno test -P supabase/functions/_shared/__tests__/rbn_push.test.ts supabase/functions/_shared/__tests__/db.test.ts && deno task check`
+Run:
+`deno test -P supabase/functions/_shared/__tests__/rbn_push.test.ts supabase/functions/_shared/__tests__/db.test.ts && deno task check`
 Expected: all pass.
 
 - [ ] **Step 7: Commit**
@@ -736,17 +811,23 @@ git commit -m "Store every RBN line in rbn_spots and alert only watched ones"
 ### Task 4: Wire `ingest-rbn` to `runRbnPush`
 
 **Files:**
+
 - Modify: `supabase/functions/_shared/serve.ts`
 - Modify: `supabase/functions/ingest-rbn/index.ts`
 - Test: `supabase/functions/_shared/__tests__/serve.test.ts`
 
 **Interfaces:**
+
 - Consumes: `runRbnPush`, `RbnPushDb` (Task 3); `createRbnDb` (Task 3).
-- Produces: `pushIngestHandler<D extends WatchlistDb>(source: Source, run: (body: unknown, db: D) => Promise<IngestSummary>, deps: { db: () => D; secret: () => string | undefined }): (req: Request) => Promise<Response>`; `servePush(source: Source, run: (body: unknown, db: RbnPushDb) => Promise<IngestSummary>): void`.
+- Produces:
+  `pushIngestHandler<D extends WatchlistDb>(source: Source, run: (body: unknown, db: D) => Promise<IngestSummary>, deps: { db: () => D; secret: () => string | undefined }): (req: Request) => Promise<Response>`;
+  `servePush(source: Source, run: (body: unknown, db: RbnPushDb) => Promise<IngestSummary>): void`.
 
 - [ ] **Step 1: Update the push-handler tests**
 
-In `supabase/functions/_shared/__tests__/serve.test.ts`, replace the `pushHandler` helper with a run-function version and update the POST test. Replace from `function pushHandler(` through the end of that helper with:
+In `supabase/functions/_shared/__tests__/serve.test.ts`, replace the `pushHandler` helper with a
+run-function version and update the POST test. Replace from `function pushHandler(` through the end
+of that helper with:
 
 ```ts
 function pushHandler(
@@ -788,8 +869,8 @@ Deno.test("pushIngestHandler POST turns a run error into a 500 naming the source
 
 - [ ] **Step 2: Run them to verify they fail**
 
-Run: `deno test -P supabase/functions/_shared/__tests__/serve.test.ts`
-Expected: FAIL (type error: `pushIngestHandler` still expects an adapter factory).
+Run: `deno test -P supabase/functions/_shared/__tests__/serve.test.ts` Expected: FAIL (type error:
+`pushIngestHandler` still expects an adapter factory).
 
 - [ ] **Step 3: Change `serve.ts`**
 
@@ -832,7 +913,9 @@ export function pushIngestHandler<D extends WatchlistDb>(
 ): (req: Request) => Promise<Response> {
 ```
 
-Inside it, the POST branch's last line becomes `return respond(source, () => run(body, deps.db()));`. Leave the secret check and GET branch as they are (GET stays for relays not yet redeployed).
+Inside it, the POST branch's last line becomes
+`return respond(source, () => run(body, deps.db()));`. Leave the secret check and GET branch as they
+are (GET stays for relays not yet redeployed).
 
 Replace `servePush` with:
 
@@ -851,7 +934,8 @@ export function servePush(
 }
 ```
 
-Update imports: `createRbnDb` from `./db.ts`; `type RbnPushDb` from `./rbn_push.ts`; `IngestSummary` added to the `./types.ts` type import.
+Update imports: `createRbnDb` from `./db.ts`; `type RbnPushDb` from `./rbn_push.ts`; `IngestSummary`
+added to the `./types.ts` type import.
 
 - [ ] **Step 4: Point the entrypoint at `runRbnPush`**
 
@@ -866,8 +950,7 @@ servePush("rbn", runRbnPush);
 
 - [ ] **Step 5: Run all Deno checks**
 
-Run: `deno task fmt && deno task lint && deno task check && deno task test`
-Expected: all pass.
+Run: `deno task fmt && deno task lint && deno task check && deno task test` Expected: all pass.
 
 - [ ] **Step 6: Commit**
 
@@ -881,34 +964,43 @@ git commit -m "ingest-rbn: run runRbnPush for every relay batch"
 ### Task 5: Relay forwards every spot line
 
 **Files:**
-- Modify: `relay/feeds.ts`, `relay/forwarder.ts`, `relay/functions.ts`, `relay/health.ts`, `relay/main.ts`
+
+- Modify: `relay/feeds.ts`, `relay/forwarder.ts`, `relay/functions.ts`, `relay/health.ts`,
+  `relay/main.ts`
 - Delete: `relay/watchlist.ts`
 - Test: `relay/__tests__/modules.test.ts`, `relay/__tests__/forwarder.test.ts`
 
 **Interfaces:**
+
 - Consumes: `parseRbnLine` (`_shared/rbn.ts`).
-- Produces: `Feed.isSpot(line: string): boolean` (replaces `callsignOf`); `FunctionClient` with only `push(lines: RelayLine[]): Promise<unknown>`; `FeedHealth.dropped: () => number` (replaces `watching`); `Forwarder` defaults `maxBatch` 1,000 and `maxBuffer` 50,000.
+- Produces: `Feed.isSpot(line: string): boolean` (replaces `callsignOf`); `FunctionClient` with only
+  `push(lines: RelayLine[]): Promise<unknown>`; `FeedHealth.dropped: () => number` (replaces
+  `watching`); `Forwarder` defaults `maxBatch` 1,000 and `maxBuffer` 50,000.
 
 - [ ] **Step 1: Update the relay tests**
 
 In `relay/__tests__/modules.test.ts`:
+
 - Delete the import of `Watchlist` and both `Watchlist` tests.
-- Delete the test "functionClient GETs the watchlist with the secret and a User-Agent", and in "functionClient throws on non-2xx and on a malformed watchlist" replace the body with:
+- Delete the test "functionClient GETs the watchlist with the secret and a User-Agent", and in
+  "functionClient throws on non-2xx and on a malformed watchlist" replace the body with:
 
 ```ts
-  await assertRejects(
-    () => functionClient("https://x", "ingest-rbn", "s", fakeFetch(401, "{}").fn).push([]),
-    Error,
-    "HTTP 401",
-  );
+await assertRejects(
+  () => functionClient("https://x", "ingest-rbn", "s", fakeFetch(401, "{}").fn).push([]),
+  Error,
+  "HTTP 401",
+);
 ```
 
-  and rename it to "functionClient throws on non-2xx".
-- Add a User-Agent and secret assertion to "functionClient POSTs a batch as JSON" after the content-type check:
+and rename it to "functionClient throws on non-2xx".
+
+- Add a User-Agent and secret assertion to "functionClient POSTs a batch as JSON" after the
+  content-type check:
 
 ```ts
-  assertEquals(req.headers.get("x-relay-secret"), "s");
-  assertEquals(req.headers.get("user-agent")?.startsWith("LongLines/"), true);
+assertEquals(req.headers.get("x-relay-secret"), "s");
+assertEquals(req.headers.get("user-agent")?.startsWith("LongLines/"), true);
 ```
 
 - Replace the `RBN_FEED.callsignOf` test with:
@@ -922,7 +1014,8 @@ Deno.test("RBN_FEED.isSpot accepts every fixture spot line and nothing else", ()
 });
 ```
 
-- In the `healthHandler` test, replace `watching: () => 2` with `dropped: () => 3` and the assertion `body.feeds[0].watching, 2` with `body.feeds[0].dropped, 3`.
+- In the `healthHandler` test, replace `watching: () => 2` with `dropped: () => 3` and the assertion
+  `body.feeds[0].watching, 2` with `body.feeds[0].dropped, 3`.
 
 Append to `relay/__tests__/forwarder.test.ts`:
 
@@ -947,65 +1040,73 @@ Deno.test("Forwarder defaults: batches of 1,000 and a 50,000-line buffer", async
 
 - [ ] **Step 2: Run them to verify they fail**
 
-Run: `deno test -P relay/__tests__/`
-Expected: FAIL (`isSpot` missing, `dropped` not in `FeedHealth`, defaults are 200/5,000).
+Run: `deno test -P relay/__tests__/` Expected: FAIL (`isSpot` missing, `dropped` not in
+`FeedHealth`, defaults are 200/5,000).
 
 - [ ] **Step 3: Implement the relay changes**
 
 `relay/feeds.ts`: replace the `callsignOf` member of `Feed` with
 
 ```ts
-  /** True for a spot line; banners, prompts and blank lines are not forwarded. */
-  isSpot(line: string): boolean;
+/** True for a spot line; banners, prompts and blank lines are not forwarded. */
+isSpot(line: string): boolean;
 ```
 
-and in `RBN_FEED` replace `callsignOf: ...` with `isSpot: (line) => parseRbnLine(line) !== null,`. Update the file header comment's second sentence to: "Each feed is one telnet connection whose spot lines are all pushed to one Edge Function."
+and in `RBN_FEED` replace `callsignOf: ...` with `isSpot: (line) => parseRbnLine(line) !== null,`.
+Update the file header comment's second sentence to: "Each feed is one telnet connection whose spot
+lines are all pushed to one Edge Function."
 
-`relay/forwarder.ts`: in the constructor defaults set `maxBatch: 1_000` and `maxBuffer: 50_000`, and change the header comment's last sentence to: "the buffer is bounded (50,000 lines, about 50 minutes of RBN) so a long Supabase outage cannot exhaust memory."
+`relay/forwarder.ts`: in the constructor defaults set `maxBatch: 1_000` and `maxBuffer: 50_000`, and
+change the header comment's last sentence to: "the buffer is bounded (50,000 lines, about 50 minutes
+of RBN) so a long Supabase outage cannot exhaust memory."
 
-`relay/functions.ts`: delete `watchlist()` from `FunctionClient` and from the returned object, and change the header comment to `// The relay's call to its Edge Function: push a batch of lines.`
+`relay/functions.ts`: delete `watchlist()` from `FunctionClient` and from the returned object, and
+change the header comment to `// The relay's call to its Edge Function: push a batch of lines.`
 
-`relay/health.ts`: in `FeedHealth` replace `watching: () => number;` with `dropped: () => number;`, and in the report replace `watching: f.watching(),` with `dropped: f.dropped(),`.
+`relay/health.ts`: in `FeedHealth` replace `watching: () => number;` with `dropped: () => number;`,
+and in the report replace `watching: f.watching(),` with `dropped: f.dropped(),`.
 
-`relay/main.ts`: remove the `Watchlist` import, `WATCHLIST_REFRESH_MS`, the `watchlist`, `matched`, `refreshWatchlist` and `firstLoad` declarations and the refresh loop. The `done` promise becomes:
+`relay/main.ts`: remove the `Watchlist` import, `WATCHLIST_REFRESH_MS`, the `watchlist`, `matched`,
+`refreshWatchlist` and `firstLoad` declarations and the refresh loop. The `done` promise becomes:
 
 ```ts
-  const done = Promise.all([
-    every(1_000, () => forwarder.tick()),
-    every(STATS_LOG_MS, () => {
-      if (lines > 0) {
-        log(
-          `${lines} lines, ${spots} spots, ${forwarder.pushed} pushed, ` +
-            `${forwarder.buffered} buffered, ${forwarder.dropped} dropped`,
-        );
-      }
-    }),
-    runTelnet({
-      host: feed.host,
-      port: feed.port,
-      loginCall: config.loginCall,
-      loginPrompt: feed.loginPrompt,
-      status,
-      signal,
-      log,
-      onLine: (line, receivedAt) => {
-        lines += 1;
-        if (!feed.isSpot(line)) return;
-        spots += 1;
-        forwarder.add({ line, received_at: receivedAt.toISOString() });
-      },
-    }),
-  ]).then(() => {});
+const done = Promise.all([
+  every(1_000, () => forwarder.tick()),
+  every(STATS_LOG_MS, () => {
+    if (lines > 0) {
+      log(
+        `${lines} lines, ${spots} spots, ${forwarder.pushed} pushed, ` +
+          `${forwarder.buffered} buffered, ${forwarder.dropped} dropped`,
+      );
+    }
+  }),
+  runTelnet({
+    host: feed.host,
+    port: feed.port,
+    loginCall: config.loginCall,
+    loginPrompt: feed.loginPrompt,
+    status,
+    signal,
+    log,
+    onLine: (line, receivedAt) => {
+      lines += 1;
+      if (!feed.isSpot(line)) return;
+      spots += 1;
+      forwarder.add({ line, received_at: receivedAt.toISOString() });
+    },
+  }),
+]).then(() => {});
 ```
 
-and the health entry uses `dropped: () => forwarder.dropped,` instead of `watching`. Change the file header to: "Long Lines stream relay. Holds one telnet connection per feed and pushes every spot line to the feed's Edge Function, which stores all of them and alerts on watched callsigns."
+and the health entry uses `dropped: () => forwarder.dropped,` instead of `watching`. Change the file
+header to: "Long Lines stream relay. Holds one telnet connection per feed and pushes every spot line
+to the feed's Edge Function, which stores all of them and alerts on watched callsigns."
 
 Delete `relay/watchlist.ts`.
 
 - [ ] **Step 4: Run all Deno checks**
 
-Run: `deno task fmt && deno task lint && deno task check && deno task test`
-Expected: all pass.
+Run: `deno task fmt && deno task lint && deno task check && deno task test` Expected: all pass.
 
 - [ ] **Step 5: Commit**
 
@@ -1019,49 +1120,84 @@ git commit -m "Relay: forward every RBN spot line in batches of up to 1,000"
 ### Task 6: Types, docs and end-to-end verification
 
 **Files:**
+
 - Regenerate: `web/src/lib/database.types.ts`
 - Modify: `docs/ARCHITECTURE.md`, `docs/OPERATIONS.md`, `README.md`, `CLAUDE.md`
 
 **Interfaces:**
+
 - Consumes: everything above.
 
 - [ ] **Step 1: Regenerate database types and run the web checks**
 
 Run:
+
 ```bash
 supabase db reset
 supabase gen types typescript --local > web/src/lib/database.types.ts
 cd web && npm run lint && npm test && SUPABASE_URL=https://example.supabase.co SUPABASE_ANON_KEY=placeholder npm run build
 ```
+
 Expected: lint clean, tests pass, `built in`.
 
 - [ ] **Step 2: Update the docs**
 
 `docs/ARCHITECTURE.md`, section "Streaming sources: the relay":
-- Replace the mermaid diagram's `R -- "GET every 5 min: watched callsigns" --> F` edge with nothing (delete the line), and change the POST edge label to `"POST every line, batches every 10 s, heartbeat every 60 s"`. Add `F -- "rpc ingest_rbn_spots" --> RS[(rbn_spots)]`.
-- Replace the "Watched callsigns only." bullet with:
-  "**Everything is stored; watched callsigns are alerted.** The relay forwards every spot line. `ingest-rbn` writes each batch to `rbn_spots` (one RPC, `ingest_rbn_spots`), a table partitioned by UTC day that keeps seven days in the database and is archived to Storage (spec `docs/superpowers/specs/2026-10-11-rbn-firehose-archive-design.md`). Only lines whose station is in `watched_callsigns('rbn')` continue through `runIngest` into `raw_spots` and the matcher, so alerting sees a few hundred RBN rows a day."
-- Replace the "One parser." bullet's text "The relay filters with `parseRbnLine`" with "The relay drops non-spot lines with `parseRbnLine`".
-- Add a bullet: "**Partitions.** `maintain_rbn_spots()` runs daily at 03:30 UTC and keeps partitions for today and three days ahead. Rows for a day without a partition land in `rbn_spots_default`; `create_rbn_spots_partition` moves them in when it creates that day."
+
+- Replace the mermaid diagram's `R -- "GET every 5 min: watched callsigns" --> F` edge with nothing
+  (delete the line), and change the POST edge label to
+  `"POST every line, batches every 10 s, heartbeat every 60 s"`. Add
+  `F -- "rpc ingest_rbn_spots" --> RS[(rbn_spots)]`.
+- Replace the "Watched callsigns only." bullet with: "**Everything is stored; watched callsigns are
+  alerted.** The relay forwards every spot line. `ingest-rbn` writes each batch to `rbn_spots` (one
+  RPC, `ingest_rbn_spots`), a table partitioned by UTC day that keeps seven days in the database and
+  is archived to Storage (spec `docs/superpowers/specs/2026-10-11-rbn-firehose-archive-design.md`).
+  Only lines whose station is in `watched_callsigns('rbn')` continue through `runIngest` into
+  `raw_spots` and the matcher, so alerting sees a few hundred RBN rows a day."
+- Replace the "One parser." bullet's text "The relay filters with `parseRbnLine`" with "The relay
+  drops non-spot lines with `parseRbnLine`".
+- Add a bullet: "**Partitions.** `maintain_rbn_spots()` runs daily at 03:30 UTC and keeps partitions
+  for today and three days ahead. Rows for a day without a partition land in `rbn_spots_default`;
+  `create_rbn_spots_partition` moves them in when it creates that day."
 
 `docs/OPERATIONS.md`, section "Relay (RBN)":
-- In "Is it running?", add `select count(*) from rbn_spots where spot_time > now() - interval '1 hour';  -- tens of thousands when RBN is busy`.
-- Replace "Why is a watched station not showing up?" step 1's last sentence "The relay picks up changes within five minutes." with "Changes apply to the next batch." and add step 5: "Check `rbn_spots` for the call: if it is there but not in `raw_spots`, the subscription does not watch it; if it is not there, RBN did not hear it."
-- Add a subsection "### rbn_spots size": "About 1.5 million rows and 350 MB a day. Until archiving and retention land (PR 2) nothing is dropped. `select pg_size_pretty(pg_total_relation_size('rbn_spots'));` shows the total; `select tableoid::regclass, count(*) from rbn_spots group by 1 order by 1;` shows rows per day."
 
-`README.md`, "Streaming sources" paragraph: replace "Every five minutes it asks `ingest-rbn` for the callsigns named in enabled subscriptions; it forwards only those stations' spots, in batches every 10 seconds," with "It forwards every spot in batches every 10 seconds;" and after "`ingest-rbn` runs the same orchestrator as the pulled sources." add "It stores every spot in `rbn_spots` (seven days in the database, archived to Storage) and sends only spots of callsigns named in a subscription on to matching."
+- In "Is it running?", add
+  `select count(*) from rbn_spots where spot_time > now() - interval '1 hour';  -- tens of thousands when RBN is busy`.
+- Replace "Why is a watched station not showing up?" step 1's last sentence "The relay picks up
+  changes within five minutes." with "Changes apply to the next batch." and add step 5: "Check
+  `rbn_spots` for the call: if it is there but not in `raw_spots`, the subscription does not watch
+  it; if it is not there, RBN did not hear it."
+- Add a subsection "### rbn_spots size": "About 1.5 million rows and 350 MB a day. Until archiving
+  and retention land (PR 2) nothing is dropped.
+  `select pg_size_pretty(pg_total_relation_size('rbn_spots'));` shows the total;
+  `select tableoid::regclass, count(*) from rbn_spots group by 1 order by 1;` shows rows per day."
 
-`CLAUDE.md`, "Relay rules": replace the bullet starting "It forwards only callsigns from `watched_callsigns(source)`." with:
-"- The relay forwards every spot line. `ingest-rbn` stores all of them in `rbn_spots` (partitioned by UTC day; partitions come from `create_rbn_spots_partition`, never `create table ... partition of`) and runs `runIngest` only over watched callsigns. `spot_matches` lets an RBN spot match only subscriptions that name callsigns; keep that guard if the predicate changes."
+`README.md`, "Streaming sources" paragraph: replace "Every five minutes it asks `ingest-rbn` for the
+callsigns named in enabled subscriptions; it forwards only those stations' spots, in batches every
+10 seconds," with "It forwards every spot in batches every 10 seconds;" and after "`ingest-rbn` runs
+the same orchestrator as the pulled sources." add "It stores every spot in `rbn_spots` (seven days
+in the database, archived to Storage) and sends only spots of callsigns named in a subscription on
+to matching."
+
+`CLAUDE.md`, "Relay rules": replace the bullet starting "It forwards only callsigns from
+`watched_callsigns(source)`." with: "- The relay forwards every spot line. `ingest-rbn` stores all
+of them in `rbn_spots` (partitioned by UTC day; partitions come from `create_rbn_spots_partition`,
+never `create table ... partition of`) and runs `runIngest` only over watched callsigns.
+`spot_matches` lets an RBN spot match only subscriptions that name callsigns; keep that guard if the
+predicate changes."
 
 - [ ] **Step 3: Full local CI**
 
-Run: `supabase db reset && cd web && npm run test:all`
-Expected: every group passes (deno, db, web).
+Run: `supabase db reset && cd web && npm run test:all` Expected: every group passes (deno, db, web).
 
 - [ ] **Step 4: End-to-end against the local stack**
 
-With `supabase start`, `supabase functions serve --env-file <file with LONGLINES_RELAY_SECRET=local>`, a subscription for `CS3B` with sources `{rbn}`, and the fake RBN server from the PR #28 verification replaying `rbn-telnet.txt` with current `HHMM` (scratchpad script), run the relay via `main([{ ...RBN_FEED, host: "127.0.0.1", port: 7300 }])`. Then:
+With `supabase start`,
+`supabase functions serve --env-file <file with LONGLINES_RELAY_SECRET=local>`, a subscription for
+`CS3B` with sources `{rbn}`, and the fake RBN server from the PR #28 verification replaying
+`rbn-telnet.txt` with current `HHMM` (scratchpad script), run the relay via
+`main([{ ...RBN_FEED, host: "127.0.0.1", port: 7300 }])`. Then:
 
 ```sql
 select count(*) from rbn_spots;                               -- expected: 91 (every fixture spot line), less any
@@ -1071,7 +1207,10 @@ select count(*) from deliveries;                              -- expected: 10
 select count(*) from ingest_failures where source = 'rbn';    -- expected: 0
 ```
 
-Then replay the fixture 12 times without pause (~1,100 lines) and confirm the relay sends a 1,000-line batch that is accepted (`ingest-rbn` log shows `"fetched":1000`, HTTP 200), and that `select spot_time, spotter, callsign, frequency_khz, count(*) from rbn_spots group by 1,2,3,4 having count(*) > 1;` returns no rows.
+Then replay the fixture 12 times without pause (~1,100 lines) and confirm the relay sends a
+1,000-line batch that is accepted (`ingest-rbn` log shows `"fetched":1000`, HTTP 200), and that
+`select spot_time, spotter, callsign, frequency_khz, count(*) from rbn_spots group by 1,2,3,4 having count(*) > 1;`
+returns no rows.
 
 - [ ] **Step 5: Commit and open the PR**
 

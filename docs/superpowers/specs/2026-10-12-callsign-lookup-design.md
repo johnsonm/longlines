@@ -16,29 +16,29 @@ everything Long Lines has heard from that station since Long Lines started:
 Profiles are an aggregator. They show **counts and breakdowns, never every spotter forever**. The
 raw record stays in the Storage archive, so later analysis can read it there.
 
-Profiles must pick up new sources automatically. A source added to the system shows up in
-profiles without any profile code changing.
+Profiles must pick up new sources automatically. A source added to the system shows up in profiles
+without any profile code changing.
 
 ## What this document is
 
 The original spec, "Long Lines: Callsign Lookup and Public Profiles", Parts A and B, came with
 screenshots of a mock. It defines the layout, routes, FCC fields, caching, rate limiting, hidden
-callsigns, Get alerts and Share. **It still applies wherever the overrides below don't replace
-it.** No updated `docs/ui-mock.html` exists, so the copy section of this document is the copy
-source for the lookup and profile screens.
+callsigns, Get alerts and Share. **It still applies wherever the overrides below don't replace it.**
+No updated `docs/ui-mock.html` exists, so the copy section of this document is the copy source for
+the lookup and profile screens.
 
 ## Overrides to the original spec
 
-| Topic | Original spec | Decided |
-|---|---|---|
-| History | Last 30 days | All time, served from permanent rollups |
-| Sources | POTA, SOTA and RBN hard-coded | Generic. Profiles read one `spot_stream` view; a source writing `raw_spots` appears automatically. |
-| RBN data | Assumed to be in `raw_spots`; add `snr_db` there | `raw_spots` holds only copies of watched-callsign RBN spots. The full feed is `rbn_spots` (it already has `snr`), kept for 7 days. Rollups make its history permanent. |
-| Matching | Compare subscription callsigns to `base_callsign` | **Exact OR base.** `KK4PWJ` catches `KK4PWJ/P`; a `KK4PWJ/P` subscription still catches only `/P`. The RBN watched filter moves into SQL (`watched_among`). |
-| Where heard from | Not covered | Country and continent of each spotter, taken from a cty.dat prefix table |
-| License data | `fcc_licenses` | `callsign_licenses` with an `authority` column, so other countries' registries can be added later. FCC is the only loader for now. |
-| Heard by | Top 10 RBN skimmers in the window | Top 10 spotters or skimmers over the **last 7 days**, read live. No per-spotter data is kept past retention. |
-| Part B (Stats) | Rework the page for RBN and public access | Already shipped in #38. What remains: callsigns link to profiles, and `rbn.topStations` groups by base callsign. |
+| Topic            | Original spec                                     | Decided                                                                                                                                                                |
+| ---------------- | ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| History          | Last 30 days                                      | All time, served from permanent rollups                                                                                                                                |
+| Sources          | POTA, SOTA and RBN hard-coded                     | Generic. Profiles read one `spot_stream` view; a source writing `raw_spots` appears automatically.                                                                     |
+| RBN data         | Assumed to be in `raw_spots`; add `snr_db` there  | `raw_spots` holds only copies of watched-callsign RBN spots. The full feed is `rbn_spots` (it already has `snr`), kept for 7 days. Rollups make its history permanent. |
+| Matching         | Compare subscription callsigns to `base_callsign` | **Exact OR base.** `KK4PWJ` catches `KK4PWJ/P`; a `KK4PWJ/P` subscription still catches only `/P`. The RBN watched filter moves into SQL (`watched_among`).            |
+| Where heard from | Not covered                                       | Country and continent of each spotter, taken from a cty.dat prefix table                                                                                               |
+| License data     | `fcc_licenses`                                    | `callsign_licenses` with an `authority` column, so other countries' registries can be added later. FCC is the only loader for now.                                     |
+| Heard by         | Top 10 RBN skimmers in the window                 | Top 10 spotters or skimmers over the **last 7 days**, read live. No per-spotter data is kept past retention.                                                           |
+| Part B (Stats)   | Rework the page for RBN and public access         | Already shipped in #38. What remains: callsigns link to profiles, and `rbn.topStations` groups by base callsign.                                                       |
 
 ## Design
 
@@ -55,22 +55,22 @@ source for the lookup and profile screens.
 Supporting pieces:
 
 - `raw_spots.base_callsign` is a stored generated column, indexed together with `spot_time`.
-- `rbn_spots` gets an expression index on the base callsign in the PR whose profile queries read
-  it (building it locks RBN inserts). `raw_spots.spotter` gets one only if a query needs it.
+- `rbn_spots` gets an expression index on the base callsign in the PR whose profile queries read it
+  (building it locks RBN inserts). `raw_spots.spotter` gets one only if a query needs it.
 - Searching `KK4PWJ/P` opens `/call/KK4PWJ`. TypeScript never implements this rule.
 
 ### Spot stream
 
 `spot_stream` is a service-role view. It gives every source one row shape:
 
-| Column | Notes |
-|---|---|
-| `source`, `spot_time` | |
-| `callsign`, `base_callsign` | |
-| `spotter`, `spotter_base` | |
-| `band`, `mode`, `mode_bucket` | |
-| `snr` | |
-| `program`, `reference`, `reference_name`, `reference_location` | |
+| Column                                                         | Notes |
+| -------------------------------------------------------------- | ----- |
+| `source`, `spot_time`                                          |       |
+| `callsign`, `base_callsign`                                    |       |
+| `spotter`, `spotter_base`                                      |       |
+| `band`, `mode`, `mode_bucket`                                  |       |
+| `snr`                                                          |       |
+| `program`, `reference`, `reference_name`, `reference_location` |       |
 
 It unions two inputs:
 
@@ -83,39 +83,39 @@ one function that both Stats and profiles use.
 
 ### Rollups (permanent, service-role only)
 
-| Table | Grain | Used for |
-|---|---|---|
-| `callsign_activity` | period (day or month), base, role (heard or spotter), source, band, mode bucket → spots, `hours[24]` | Totals, sources, bands, modes, hour of day, activity charts, hunting |
-| `callsign_reach` | period, base, source, spotter country, continent → spots | Heard from |
-| `callsign_references` | base, program, reference → name, location, days, spots, first and last day | Activations, state map |
-| `callsign_seen` | base → first and last spot, last frequency and mode, days on air | Header, KPIs |
-| `callsign_variants` | base, callsign → spots, last day | "Also heard as" |
-| `callsign_rollup_days` | day → rolled_at | Marker |
+| Table                  | Grain                                                                                                | Used for                                                             |
+| ---------------------- | ---------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| `callsign_activity`    | period (day or month), base, role (heard or spotter), source, band, mode bucket → spots, `hours[24]` | Totals, sources, bands, modes, hour of day, activity charts, hunting |
+| `callsign_reach`       | period, base, source, spotter country, continent → spots                                             | Heard from                                                           |
+| `callsign_references`  | base, program, reference → name, location, days, spots, first and last day                           | Activations, state map                                               |
+| `callsign_seen`        | base → first and last spot, last frequency and mode, days on air                                     | Header, KPIs                                                         |
+| `callsign_variants`    | base, callsign → spots, last day                                                                     | "Also heard as"                                                      |
+| `callsign_rollup_days` | day → rolled_at                                                                                      | Marker                                                               |
 
 - **Hourly run.** `rollup_callsign_day(day)` runs for every completed day that has no marker, two
-  days at most per run, from its own hourly cron job (`rollup-callsign-days`, 25 past). Yesterday
-  is rolled up at 02:25 UTC, ahead of RBN retention at 03:35. (Amended in PR 3: running inside
-  `maintain_rbn_spots()` would hold its partition locks for the whole rollup, and a cancelled
-  rollup would undo retention.)
+  days at most per run, from its own hourly cron job (`rollup-callsign-days`, 25 past). Yesterday is
+  rolled up at 02:25 UTC, ahead of RBN retention at 03:35. (Amended in PR 3: running inside
+  `maintain_rbn_spots()` would hold its partition locks for the whole rollup, and a cancelled rollup
+  would undo retention.)
 - **Compaction.** Day rows older than 35 days are compacted into month rows.
-- **RBN retention.** An archived RBN day is retired when it has a marker, or once it is 14 days
-  old regardless. The retention half ships first, in `20261012000010`, so no RBN day is lost
-  while the rollups are being built, and a late rollup release cannot stop retention.
+- **RBN retention.** An archived RBN day is retired when it has a marker, or once it is 14 days old
+  regardless. The retention half ships first, in `20261012000010`, so no RBN day is lost while the
+  rollups are being built, and a late rollup release cannot stop retention.
 - **Backfill.** `backfill_callsign_rollups()` is a manual operator step.
 
 ### Live edge
 
-Days without a marker (today, plus yesterday before 03:35) are read live from `spot_stream`
-through the base-callsign indexes. "Heard by" (top 10, last 7 days) and "Recent spots" (newest
-25) are always read live.
+Days without a marker (today, plus yesterday before 03:35) are read live from `spot_stream` through
+the base-callsign indexes. "Heard by" (top 10, last 7 days) and "Recent spots" (newest 25) are
+always read live.
 
 ### Profile access
 
 - `callsign_profile(p_callsign) returns jsonb` is security definer and is not granted to clients.
 - Clients call the `callsign-profile` Edge Function. It:
   - validates input, returning 400 for invalid input
-  - rate-limits each IP to 30 requests a minute, returning 429 with "Too many lookups. Try again
-    in a minute."
+  - rate-limits each IP to 30 requests a minute, returning 429 with "Too many lookups. Try again in
+    a minute."
   - caches profiles in the database for 15 minutes
   - sends `Cache-Control: public, max-age=300`
 - `hidden_callsigns` is managed by the operator. A hidden call returns exactly the not-heard shape
@@ -127,16 +127,16 @@ through the base-callsign indexes. "Heard by" (top 10, last 7 days) and "Recent 
 anyone read a hidden call's license around its profile, so licenses reach clients only through the
 profile function.)
 
-| Column | Notes |
-|---|---|
-| `callsign` | Primary key |
-| `authority` | `FCC` for now |
-| `name` | |
-| `operator_class` | |
-| `status` | |
-| `granted_on`, `expires_on` | |
-| `country`, `state`, `grid` | |
-| `loaded_at` | |
+| Column                     | Notes         |
+| -------------------------- | ------------- |
+| `callsign`                 | Primary key   |
+| `authority`                | `FCC` for now |
+| `name`                     |               |
+| `operator_class`           |               |
+| `status`                   |               |
+| `granted_on`, `expires_on` |               |
+| `country`, `state`, `grid` |               |
+| `loaded_at`                |               |
 
 Loading works like this:
 
@@ -150,29 +150,31 @@ Loading works like this:
 
 ## Copy
 
-The following copy is transcribed from the screenshots of the mock. Wording that changes because
-the window is now all time is marked (changed).
+The following copy is transcribed from the screenshots of the mock. Wording that changes because the
+window is now all time is marked (changed).
 
 **Public app bar:** Long Lines · Stats · Lookup · Sign in. Below `md` these are icons only.
-**Landing page buttons:** "View the last 7 days of activity" · "Look up a callsign".
-**Signed-in nav:** "Callsign lookup", after Stats.
+**Landing page buttons:** "View the last 7 days of activity" · "Look up a callsign". **Signed-in
+nav:** "Callsign lookup", after Stats.
 
 **Lookup page**
+
 - Title: "Callsign lookup"
-- Description (changed): "See what Long Lines has heard from any station: license details from
-  the FCC, plus every spot since Long Lines started. Every profile has its own link you can share."
+- Description (changed): "See what Long Lines has heard from any station: license details from the
+  FCC, plus every spot since Long Lines started. Every profile has its own link you can share."
 - Field placeholder: "Callsign, like KK4PWJ". Button: "Look up".
 - Chips heading: "Busy this week". The chips are the current Stats snapshot's top activators.
 
 **Profile page**
-- **Header (changed 2026-10-15):** the callsign, then the name, with chips for class and state
-  or country. Buttons: "Get alerts for KK4PWJ" ("Sign in to get alerts" when signed out), "Share"
-  and "QRZ" (opens `qrz.com/db/<call>`, which may have no page for the call). A "Last heard" band
-  below shows "On the air now" for a spot in the last 30 minutes, the frequency ("14062.0 kHz"),
-  chips for mode, band and source, "2 min ago (14:30 UTC)", and "Activating US-2763, Falls Lake
-  SRA. Spotted by K3XYZ." Band, source, reference and spotter come from the matching recent spot,
-  so a station last heard more than 7 days ago shows only frequency, mode and time. The canonical
-  URL closes the card in small text.
+
+- **Header (changed 2026-10-15):** the callsign, then the name, with chips for class and state or
+  country. Buttons: "Get alerts for KK4PWJ" ("Sign in to get alerts" when signed out), "Share" and
+  "QRZ" (opens `qrz.com/db/<call>`, which may have no page for the call). A "Last heard" band below
+  shows "On the air now" for a spot in the last 30 minutes, the frequency ("14062.0 kHz"), chips for
+  mode, band and source, "2 min ago (14:30 UTC)", and "Activating US-2763, Falls Lake SRA. Spotted
+  by K3XYZ." Band, source, reference and spotter come from the matching recent spot, so a station
+  last heard more than 7 days ago shows only frequency, mode and time. The canonical URL closes the
+  card in small text.
 - **KPIs:**
   - Spots ("All time" (changed))
   - Days on the air
@@ -197,6 +199,7 @@ the window is now all time is marked (changed).
   addresses. To have this page hidden, email {CONTACT_EMAIL}."
 
 **States**
+
 - Invalid input: a warning and a search box.
 - No license, non-US prefix: "No FCC record. This looks like a callsign issued outside the United
   States."

@@ -31,24 +31,24 @@ Work down the chain.
    select id, status_code, content::text, created
    from net._http_response order by created desc limit 20;
    ```
-   A null `status_code` with an error message usually means the Vault secrets are missing or
-   wrong. Check they exist (values are secrets; do not paste them anywhere):
+   A null `status_code` with an error message usually means the Vault secrets are missing or wrong.
+   Check they exist (values are secrets; do not paste them anywhere):
    ```sql
    select name, created_at from vault.secrets where name like 'longlines_%';
    ```
    A 401 means the service-role key in Vault does not match the project.
-3. Did the function run but fail? `ingest_state.last_error` holds the message, and the Edge
-   Function logs in the dashboard show the same line. Invoke a function by hand to see the
-   summary or error directly:
+3. Did the function run but fail? `ingest_state.last_error` holds the message, and the Edge Function
+   logs in the dashboard show the same line. Invoke a function by hand to see the summary or error
+   directly:
    ```sh
    curl -X POST https://<PROJECT_REF>.supabase.co/functions/v1/ingest-pota \
      -H "Authorization: Bearer <SERVICE_ROLE_KEY>"
    ```
-4. `ingest_state.last_error` says `numeric field overflow`? That was
-   `raw_spots.frequency_khz` at `numeric(10,3)` rejecting 10 GHz spots; migration
-   `20261006000012` widened it. Make sure `supabase db push` has run.
-5. Did the function run and simply skip everything? The response body's `skipped.too_old` counter
-   is high when the upstream feed only had old spots (quiet band, or the function was down and is
+4. `ingest_state.last_error` says `numeric field overflow`? That was `raw_spots.frequency_khz` at
+   `numeric(10,3)` rejecting 10 GHz spots; migration `20261006000012` widened it. Make sure
+   `supabase db push` has run.
+5. Did the function run and simply skip everything? The response body's `skipped.too_old` counter is
+   high when the upstream feed only had old spots (quiet band, or the function was down and is
    catching up). That is normal.
 
 ## Dead letter queue
@@ -73,15 +73,15 @@ select cron.alter_job(job_id := jobid, active := false) from cron.job where jobn
 select cron.alter_job(job_id := jobid, active := true) from cron.job where jobname = 'ingest-pota';
 ```
 
-`cron.unschedule('ingest-pota')` removes the job entirely; re-running the cron migration
-recreates it.
+`cron.unschedule('ingest-pota')` removes the job entirely; re-running the cron migration recreates
+it.
 
 ## Replay a failed spot
 
-A failure is usually a normalizer bug or an upstream shape change. After fixing and redeploying
-the function, the spot will be picked up again on the next run if it is still in the upstream
-feed and under five minutes old. Otherwise, replay by hand with the stored payload: build the
-normalized row yourself and call the same RPC the functions use.
+A failure is usually a normalizer bug or an upstream shape change. After fixing and redeploying the
+function, the spot will be picked up again on the next run if it is still in the upstream feed and
+under five minutes old. Otherwise, replay by hand with the stored payload: build the normalized row
+yourself and call the same RPC the functions use.
 
 ```sql
 select public.ingest_spots(jsonb_build_array(jsonb_build_object(
@@ -124,21 +124,20 @@ Nothing consumes the queue in Phase 1, so `queue_length` grows with `total_messa
 Authentication → URL configuration:
 
 - Site URL: `https://app.longlines.io`
-- Redirect URLs: `https://app.longlines.io`, `https://app.longlines.io/set-password`
-  (add `http://localhost:5173` and `http://localhost:5173/set-password` for local
-  development against the hosted project)
+- Redirect URLs: `https://app.longlines.io`, `https://app.longlines.io/set-password` (add
+  `http://localhost:5173` and `http://localhost:5173/set-password` for local development against the
+  hosted project)
 
 Authentication → Providers → Email: enable "Confirm email". Leave signups on.
 
-Authentication → SMTP: configure a custom SMTP provider. Supabase's built-in
-mailer only delivers to members of your organization and is rate limited, so
-sign-up confirmations and password resets for real users will not arrive
-without it.
+Authentication → SMTP: configure a custom SMTP provider. Supabase's built-in mailer only delivers to
+members of your organization and is rate limited, so sign-up confirmations and password resets for
+real users will not arrive without it.
 
 ## Edge Function deploys
 
-`sign-in` is public (`verify_jwt = false` in `config.toml`); the others require a
-user or service-role JWT. Deploy with:
+`sign-in` is public (`verify_jwt = false` in `config.toml`); the others require a user or
+service-role JWT. Deploy with:
 
 ```sh
 supabase functions deploy sign-in
@@ -159,11 +158,10 @@ Rows older than a day are deleted by the daily housekeeping job.
 
 ## Database tests
 
-`supabase/tests/*.test.sql` are pgTAP suites that run against a fresh local
-database (`supabase db start` or `supabase start`, then `supabase test db`). CI
-runs them on every PR. `supabase/tests/helpers/users.psql` seeds two users and
-an `as_user(uuid)` helper that switches to the `authenticated` role with that
-user's JWT claims, which is how the RLS assertions work.
+`supabase/tests/*.test.sql` are pgTAP suites that run against a fresh local database
+(`supabase db start` or `supabase start`, then `supabase test db`). CI runs them on every PR.
+`supabase/tests/helpers/users.psql` seeds two users and an `as_user(uuid)` helper that switches to
+the `authenticated` role with that user's JWT claims, which is how the RLS assertions work.
 
 ## Delivery
 
@@ -174,8 +172,8 @@ supabase functions deploy deliver
 supabase functions deploy send-test
 ```
 
-`deliver` is called by cron every minute and by the matcher; both use the Vault
-secrets from Phase 1, so nothing new to configure.
+`deliver` is called by cron every minute and by the matcher; both use the Vault secrets from Phase
+1, so nothing new to configure.
 
 ### Is anything flowing?
 
@@ -191,10 +189,9 @@ where jobname in ('match-pending-spots', 'deliver') order by start_time desc lim
 
 ### A destination keeps failing
 
-`destinations.last_error` holds the upstream status or the safety-check
-message. Retries follow 30 s, 1 m, 2 m, 5 m, 15 m, then every 30 m, for 24
-hours; after that the delivery is `dropped`. To stop retrying without deleting
-the destination:
+`destinations.last_error` holds the upstream status or the safety-check message. Retries follow 30
+s, 1 m, 2 m, 5 m, 15 m, then every 30 m, for 24 hours; after that the delivery is `dropped`. To stop
+retrying without deleting the destination:
 
 ```sql
 update destinations set health = 'paused' where id = '<id>';
@@ -202,23 +199,21 @@ update destinations set health = 'paused' where id = '<id>';
 update destinations set health = 'ok', consecutive_failures = 0 where id = '<id>';
 ```
 
-Paused destinations are skipped by the worker; their messages wait in the
-queue and are dropped at 24 hours like any other.
+Paused destinations are skipped by the worker; their messages wait in the queue and are dropped at
+24 hours like any other.
 
 ### Local development
 
-The worker refuses plain-http and private addresses. To exercise delivery
-against a receiver on your own machine, set
-`LONGLINES_ALLOW_INSECURE_DESTINATIONS=1` in `supabase/functions/.env` (read by
-`supabase functions serve`) and insert the destination row directly in SQL;
-`create_destination()` will not accept such a URL. Never set this on the hosted
-project.
+The worker refuses plain-http and private addresses. To exercise delivery against a receiver on your
+own machine, set `LONGLINES_ALLOW_INSECURE_DESTINATIONS=1` in `supabase/functions/.env` (read by
+`supabase functions serve`) and insert the destination row directly in SQL; `create_destination()`
+will not accept such a URL. Never set this on the hosted project.
 
 ### Push notifications
 
-Push sends are signed with a VAPID keypair held only in Edge Function env. Without all three
-values, push deliveries fail with "Push isn't configured on the server." and Discord and webhooks
-carry on as normal.
+Push sends are signed with a VAPID keypair held only in Edge Function env. Without all three values,
+push deliveries fail with "Push isn't configured on the server." and Discord and webhooks carry on
+as normal.
 
 Once per project, generate a pair. The script prints three lines and writes nothing:
 
@@ -237,11 +232,11 @@ supabase functions deploy send-test
 supabase functions deploy api
 ```
 
-Locally, put the same three lines in `supabase/functions/.env`. The web app needs the public key
-too (`VAPID_PUBLIC_KEY` on Vercel); that arrives with the push UI.
+Locally, put the same three lines in `supabase/functions/.env`. The web app needs the public key too
+(`VAPID_PUBLIC_KEY` on Vercel); that arrives with the push UI.
 
-Don't rotate the pair casually. Every browser subscribed with the public key that was current at
-the time, so new keys break every registered device until it subscribes again.
+Don't rotate the pair casually. Every browser subscribed with the public key that was current at the
+time, so new keys break every registered device until it subscribes again.
 
 Is it working?
 
@@ -252,21 +247,21 @@ select label, last_success_at, last_error, last_error_at from push_devices
 where last_error_at > now() - interval '1 day' order by last_error_at desc;
 ```
 
-Endpoints and keys in `push_devices` are capability secrets: don't paste them anywhere. A device
-the push service reports gone (404/410) is deleted on the next send. A push destination with no
-devices fails each run with "Turn on notifications on a device first." and goes `failing` after
-five runs, like any other destination.
+Endpoints and keys in `push_devices` are capability secrets: don't paste them anywhere. A device the
+push service reports gone (404/410) is deleted on the next send. A push destination with no devices
+fails each run with "Turn on notifications on a device first." and goes `failing` after five runs,
+like any other destination.
 
 ### Housekeeping
 
-A daily job (`housekeeping`, 03:00 UTC) deletes deliveries and archived queue
-messages older than 7 days and sign-in attempts older than a day.
+A daily job (`housekeeping`, 03:00 UTC) deletes deliveries and archived queue messages older than 7
+days and sign-in attempts older than a day.
 
 ### Stats snapshot
 
 An hourly job (`refresh-stats-snapshot`, five past every hour) runs `refresh_stats_snapshot()`,
-which inserts one `stats_snapshots` row for the last seven complete UTC days and prunes the table
-to 48 rows. The Stats page shows the newest row; on a fresh project it shows "Not enough data yet"
+which inserts one `stats_snapshots` row for the last seven complete UTC days and prunes the table to
+48 rows. The Stats page shows the newest row; on a fresh project it shows "Not enough data yet"
 until the first run. To refresh by hand:
 
 ```sql
@@ -282,26 +277,22 @@ Create a Vercel project from the GitHub repo with these settings:
 
 - Root directory: `web`
 - Framework preset: Vite (build `npm run build`, output `dist`)
-- Environment variables: with the Supabase ↔ Vercel integration enabled, the
-  project receives `SUPABASE_URL`, `SUPABASE_ANON_KEY` (plus `NEXT_PUBLIC_`
-  copies and the service-role key) automatically. `web/vite.config.ts` maps
-  only the URL and the anon key onto the `VITE_` names the app reads; the
-  service-role key is never read and never reaches the bundle. Without the
-  integration, set `SUPABASE_URL` and `SUPABASE_ANON_KEY` (or the `VITE_`
-  names) by hand.
-- `VITE_CONTACT_EMAIL` (set by hand): the address callsign profiles give for
-  hiding a page ("To have this page hidden, email …"). Without it the footer
-  leaves that sentence out. It is public; it ships in the bundle.
+- Environment variables: with the Supabase ↔ Vercel integration enabled, the project receives
+  `SUPABASE_URL`, `SUPABASE_ANON_KEY` (plus `NEXT_PUBLIC_` copies and the service-role key)
+  automatically. `web/vite.config.ts` maps only the URL and the anon key onto the `VITE_` names the
+  app reads; the service-role key is never read and never reaches the bundle. Without the
+  integration, set `SUPABASE_URL` and `SUPABASE_ANON_KEY` (or the `VITE_` names) by hand.
+- `VITE_CONTACT_EMAIL` (set by hand): the address callsign profiles give for hiding a page ("To have
+  this page hidden, email …"). Without it the footer leaves that sentence out. It is public; it
+  ships in the bundle.
 - Domain: `app.longlines.io`
 
-`web/vercel.json` rewrites every path to `index.html` so client-side routes
-load directly. Nothing else is host-specific; `npm run build` produces a plain
-static site in `web/dist`.
+`web/vercel.json` rewrites every path to `index.html` so client-side routes load directly. Nothing
+else is host-specific; `npm run build` produces a plain static site in `web/dist`.
 
-After the first deploy, make sure Supabase Auth → URL configuration lists
-`https://app.longlines.io` as the Site URL and includes
-`https://app.longlines.io/set-password` in the redirect URLs, or confirmation
-and reset links will not land in the app.
+After the first deploy, make sure Supabase Auth → URL configuration lists `https://app.longlines.io`
+as the Site URL and includes `https://app.longlines.io/set-password` in the redirect URLs, or
+confirmation and reset links will not land in the app.
 
 ## Regenerating database types
 
@@ -316,10 +307,9 @@ The generated file is committed; CI type-checks the app against it.
 
 # Relay (RBN, DX Cluster, APRS-IS)
 
-The relay in `relay/` runs on Fly.io as app `longlines-relay`. It holds one session per feed:
-RBN (`ingest-rbn`), DX Cluster (`ingest-dxcluster`) and, once `APRS_LOGIN_CALL` is set, APRS-IS
-(`ingest-aprs`). Design notes are in `docs/ARCHITECTURE.md`
-("Streaming sources: the relay").
+The relay in `relay/` runs on Fly.io as app `longlines-relay`. It holds one session per feed: RBN
+(`ingest-rbn`), DX Cluster (`ingest-dxcluster`) and, once `APRS_LOGIN_CALL` is set, APRS-IS
+(`ingest-aprs`). Design notes are in `docs/ARCHITECTURE.md` ("Streaming sources: the relay").
 
 ## First deploy
 
@@ -349,21 +339,20 @@ repository root as context (the image needs `supabase/functions/_shared`), the s
 
 When the integration was first connected, Fly's launcher opened a PR (#30) with its own generic
 `fly.toml`, `Dockerfile` and `example.ts`. That config ran a nonexistent `main.ts` as root, added a
-public HTTP service that auto-stops idle machines, and created two machines. Do not merge such a
-PR again; the root `fly.toml` here is the relay's real config.
+public HTTP service that auto-stops idle machines, and created two machines. Do not merge such a PR
+again; the root `fly.toml` here is the relay's real config.
 
 Two things to know about it:
 
 - It is not gated on CI. A merge to `main` deploys whether or not the PR's checks passed, so keep
   `main` protected by the CI checks.
 - Every deploy restarts the machine and opens a new session to RBN. If the integration deploys on
-  every push rather than only when `relay/` or `supabase/functions/_shared/*.ts` change, that is
-  one reconnect per merge.
+  every push rather than only when `relay/` or `supabase/functions/_shared/*.ts` change, that is one
+  reconnect per merge.
 
 It deploys only the relay. Migrations (`supabase db push`) and the `ingest-rbn` function
 (`supabase functions deploy ingest-rbn`) are still applied by hand; do those first when a change
-needs both sides. After the first deploy, check `fly scale show` reports
-one machine.
+needs both sides. After the first deploy, check `fly scale show` reports one machine.
 
 A deploy restarts the machine; the relay pushes what it has buffered before exiting.
 
@@ -379,15 +368,15 @@ select * from ingest_health where source = 'rbn';
 select count(*) from rbn_spots where spot_time > now() - interval '1 hour';  -- tens of thousands when RBN is busy
 ```
 
-`last_success_at` should never be more than about a minute old: the relay pushes a heartbeat
-every 60 seconds even when no watched station was heard. `spots_last_hour` is zero unless a
-watched station was on the air.
+`last_success_at` should never be more than about a minute old: the relay pushes a heartbeat every
+60 seconds even when no watched station was heard. `spots_last_hour` is zero unless a watched
+station was on the air.
 
 ## Why is a watched station not showing up?
 
 1. `select * from watched_among('rbn', array['W1AW/4']);` must return it, with the call as RBN
-   reports it. Only enabled subscriptions whose sources are empty or include RBN contribute.
-   Changes apply to the next batch.
+   reports it. Only enabled subscriptions whose sources are empty or include RBN contribute. Changes
+   apply to the next batch.
 2. A subscription callsign matches the reported call exactly or by base call: `W1AW` catches
    `W1AW/4`, but `W1AW/P` catches only `W1AW/P`.
 3. RBN hears CW and RTTY on port 7000 only. FT8/FT4 is not connected.
@@ -398,8 +387,9 @@ watched station was on the air.
 ## rbn_spots size
 
 About 1.5 million rows and 350 MB a day; seven days (2.5-3 GB) stay in the database. A day is
-retired once the callsign rollups have recorded it (`callsign_rollup_days`, normally at 02:25 UTC the next day)
-or once it is 14 days old. `select pg_size_pretty(pg_total_relation_size('rbn_spots'));` shows the total;
+retired once the callsign rollups have recorded it (`callsign_rollup_days`, normally at 02:25 UTC
+the next day) or once it is 14 days old.
+`select pg_size_pretty(pg_total_relation_size('rbn_spots'));` shows the total;
 `select tableoid::regclass, count(*) from rbn_spots group by 1 order by 1;` shows rows per day.
 
 ## Rotating the relay secret
@@ -422,14 +412,13 @@ deno run --allow-net --allow-env relay/main.ts
 ```
 
 This opens real connections to RBN and the DX Cluster node (and APRS-IS if `APRS_LOGIN_CALL` is
-set); stop it when done. In Docker, use
-`http://host.docker.internal:54321/functions/v1`.
+set); stop it when done. In Docker, use `http://host.docker.internal:54321/functions/v1`.
 
 ## DX Cluster
 
-The second feed. It logs in to a DXSpider node with `RELAY_LOGIN_CALL` and forwards every human
-spot line; skimmer lines a node relays are dropped. The default node is G1FEF-2,
-`dxc.hamserve.uk:7300`, which gives read access without registration. To use another node:
+The second feed. It logs in to a DXSpider node with `RELAY_LOGIN_CALL` and forwards every human spot
+line; skimmer lines a node relays are dropped. The default node is G1FEF-2, `dxc.hamserve.uk:7300`,
+which gives read access without registration. To use another node:
 
 ```sh
 fly secrets set DXCLUSTER_HOST=dxc.nc7j.com DXCLUSTER_PORT=7373   # restarts the machine
@@ -437,10 +426,10 @@ fly secrets unset DXCLUSTER_HOST DXCLUSTER_PORT                    # back to the
 ```
 
 First deploy, in this order: the migration (`supabase db push`, `20261012000020_dxcluster_source`),
-then `supabase functions deploy ingest-dxcluster` (the Supabase GitHub integration does not deploy
-a new function), then the relay. The relay uses the existing `LONGLINES_RELAY_SECRET`. If the
-relay goes first, its pushes fail with 404 until the function exists; the forwarder keeps the
-lines and retries, so nothing is lost unless that lasts for hours.
+then `supabase functions deploy ingest-dxcluster` (the Supabase GitHub integration does not deploy a
+new function), then the relay. The relay uses the existing `LONGLINES_RELAY_SECRET`. If the relay
+goes first, its pushes fail with 404 until the function exists; the forwarder keeps the lines and
+retries, so nothing is lost unless that lasts for hours.
 
 Is it running?
 
@@ -490,14 +479,14 @@ select hour_start, packets from aprs_packet_hours order by hour_start desc limit
 ```
 
 `spots_last_hour` here counts packets: expect a few hundred thousand. The relay's ten-minute stats
-log (`[aprs] ... lines, ... spots, ... pushed, ... buffered, ... dropped`) gives the rate as the relay
-sees it; `dropped` above 0 means Supabase was unreachable for longer than the buffer. APRS-IS sends
-a keepalive about every 20 s, so the relay reconnects after 2 minutes of silence and `/healthz`
-marks the feed unhealthy after 5.
+log (`[aprs] ... lines, ... spots, ... pushed, ... buffered, ... dropped`) gives the rate as the
+relay sees it; `dropped` above 0 means Supabase was unreachable for longer than the buffer. APRS-IS
+sends a keepalive about every 20 s, so the relay reconnects after 2 minutes of silence and
+`/healthz` marks the feed unhealthy after 5.
 
 Size: about 300 bytes a packet with indexes, so roughly 2.5 GB a day at 100 packets a second. The
-database keeps yesterday and today; the B2 archive grows by roughly 0.3 GB a day (measured as gzipped
-NDJSON; not yet re-measured since the archive moved to Parquet).
+database keeps yesterday and today; the B2 archive grows by roughly 0.3 GB a day (measured as
+gzipped NDJSON; not yet re-measured since the archive moved to Parquet).
 
 ```sql
 select pg_size_pretty(sum(pg_total_relation_size(i.inhrelid)))
@@ -511,12 +500,11 @@ Backblaze B2 bucket, written through B2's S3-compatible API.
 
 ## Setup (Backblaze B2)
 
-1. Create a private bucket (B2 console or `b2 bucket create <bucket> allPrivate`). Its
-   endpoint is on the bucket page, e.g. `s3.us-west-004.backblazeb2.com`; the region is the
-   middle part (`us-west-004`).
-2. Create an application key restricted to that bucket with only `writeFiles` (the worker only
-   PUTs; overwriting a re-archived slice needs nothing more). A master key does not work with
-   the S3 API.
+1. Create a private bucket (B2 console or `b2 bucket create <bucket> allPrivate`). Its endpoint is
+   on the bucket page, e.g. `s3.us-west-004.backblazeb2.com`; the region is the middle part
+   (`us-west-004`).
+2. Create an application key restricted to that bucket with only `writeFiles` (the worker only PUTs;
+   overwriting a re-archived slice needs nothing more). A master key does not work with the S3 API.
 
    ```sh
    b2 key create --bucket <bucket> longlines-archive-writer writeFiles
@@ -535,11 +523,11 @@ Backblaze B2 bucket, written through B2's S3-compatible API.
    ```
 
 Until all five are set, every run answers 500 naming the missing ones and slices stay pending;
-nothing is lost, and RBN and APRS-IS days stay in the database until their slices are archived.
-To rotate the key, create a new one, set the two key secrets, then delete the old key.
+nothing is lost, and RBN and APRS-IS days stay in the database until their slices are archived. To
+rotate the key, create a new one, set the two key secrets, then delete the old key.
 
-Locally, `archive` writes to the stack's own Storage through its S3 endpoint (the `archive`
-bucket the migrations create). Put these in `supabase/functions/.env`, with the key and secret
+Locally, `archive` writes to the stack's own Storage through its S3 endpoint (the `archive` bucket
+the migrations create). Put these in `supabase/functions/.env`, with the key and secret
 `supabase status` prints as the S3 access key:
 
 ```sh
@@ -554,9 +542,9 @@ Plain http is accepted only for `127.0.0.1`, `localhost`, `kong` and `host.docke
 
 ## Moving the Storage archive to B2 (one-off, 2026-10)
 
-Slices archived before the switch are in the Supabase Storage bucket `archive`. Object keys are
-the same in both places, so `archive_log.object_path` needs no change. After the deploy above
-(new slices then go only to B2), copy the old objects with rclone from an operator's machine:
+Slices archived before the switch are in the Supabase Storage bucket `archive`. Object keys are the
+same in both places, so `archive_log.object_path` needs no change. After the deploy above (new
+slices then go only to B2), copy the old objects with rclone from an operator's machine:
 
 ```sh
 # ~/.config/rclone/rclone.conf
@@ -585,9 +573,9 @@ rclone check supabase:archive b2:<bucket> --one-way     # every Storage object i
 ```
 
 `--ignore-existing` keeps any slice the new worker has already rewritten in B2. The migration key
-needs more than `writeFiles`, so delete it afterwards. Once `rclone check` is clean, check the
-log against B2 and then delete the Storage bucket (Storage settings, or empty it and delete it
-in the dashboard; SQL cannot delete Storage objects), and delete the Storage S3 access key:
+needs more than `writeFiles`, so delete it afterwards. Once `rclone check` is clean, check the log
+against B2 and then delete the Storage bucket (Storage settings, or empty it and delete it in the
+dashboard; SQL cannot delete Storage objects), and delete the Storage S3 access key:
 
 ```sql
 select source, count(*), sum(bytes) from archive_log where object_path is not null group by 1;
@@ -634,9 +622,9 @@ old (`aprs_day_slices` shows why a day stays).
 
 ## Reading the archive
 
-DuckDB reads the files straight from B2's S3 endpoint. The day folders are Hive-style, so
-`year`, `month` and `day` become columns and a filter on them skips the other folders. Use a
-separate read-only key (`b2 key create --bucket <bucket> longlines-archive-reader listFiles,readFiles`),
+DuckDB reads the files straight from B2's S3 endpoint. The day folders are Hive-style, so `year`,
+`month` and `day` become columns and a filter on them skips the other folders. Use a separate
+read-only key (`b2 key create --bucket <bucket> longlines-archive-reader listFiles,readFiles`),
 never the worker's:
 
 ```sql
@@ -653,9 +641,9 @@ Slices archived before 2026-10-14 are still gzipped NDJSON in the old layout unt
 migration rewrites them; read those with
 `read_json_auto('s3://<bucket>/rbn/2026/10/11/*.ndjson.gz')`.
 
-B2 keys belong on an operator's machine or in the `archive` function's secrets, never in the web
-app or the relay. Downloads are free up to three times the stored size a month; a full-history
-scan from outside B2 counts against that.
+B2 keys belong on an operator's machine or in the `archive` function's secrets, never in the web app
+or the relay. Downloads are free up to three times the stored size a month; a full-history scan from
+outside B2 counts against that.
 
 # Countries (cty.dat)
 
@@ -685,8 +673,8 @@ is failing:
 select version, loaded_at, now() - loaded_at as age from cty_load;   -- age should stay under 7 days
 ```
 
-pg_net keeps responses for only a few hours, so read the reason by running the import by hand
-(the `curl` under "First load"). Its response says what went wrong:
+pg_net keeps responses for only a few hours, so read the reason by running the import by hand (the
+`curl` under "First load"). Its response says what went wrong:
 
 - 401 is the gateway rejecting the Vault JWT.
 - 403 means the token is not the service role.
@@ -705,7 +693,8 @@ The rollups ship as a migration only; there is no function to deploy. Retention 
 without its rollup once it is 14 days old, so every RBN day must be rolled up before the 03:35 UTC
 run on 2026-10-26, when the first RBN day (2026-10-11) turns 14 days old. The hourly
 `rollup-callsign-days` job does this on its own at two days an hour once the migration is live;
-running it by hand shows the result sooner. cty.dat must be loaded first (`select * from
+running it by hand shows the result sooner. cty.dat must be loaded first
+(`select * from
 cty_load;`), or every day is refused.
 
 ```sh
@@ -754,9 +743,8 @@ source, band and mode bucket per day, folded into month rows after 35 days. Chec
 
 ## Rolling a day up again
 
-Not supported: references, days on the air and variants are running totals, so a second pass
-would count the day twice. A day's rollup can only be redone by rebuilding every table from the
-archive.
+Not supported: references, days on the air and variants are running totals, so a second pass would
+count the day twice. A day's rollup can only be redone by rebuilding every table from the archive.
 
 # Licenses (FCC)
 
@@ -764,9 +752,9 @@ How it works is in `docs/ARCHITECTURE.md` ("Licenses (FCC)").
 
 ## First deploy
 
-The relay deploys itself on merge, so the database and function go first. If the relay checks
-before they exist, it logs `[licenses] load failed` and tries again six hours later. Nothing
-breaks in the meantime.
+The relay deploys itself on merge, so the database and function go first. If the relay checks before
+they exist, it logs `[licenses] load failed` and tries again six hours later. Nothing breaks in the
+meantime.
 
 ```sh
 supabase db push                          # 20261012000050_callsign_licenses
@@ -774,10 +762,9 @@ supabase functions deploy load-licenses   # new function: the GitHub integration
 ```
 
 The function uses the existing `LONGLINES_RELAY_SECRET`. The relay's first check runs five minutes
-after it starts; it downloads about 160 MB from the FCC and stages about 1.7M records per file in ~1,000
-requests, which takes several minutes. The unlogged staging tables hold a few hundred MB until
-the swap, or an abandoned load, empties them. The load
-is applied at the next :50.
+after it starts; it downloads about 160 MB from the FCC and stages about 1.7M records per file in
+~1,000 requests, which takes several minutes. The unlogged staging tables hold a few hundred MB
+until the swap, or an abandoned load, empties them. The load is applied at the next :50.
 
 ```sql
 select id, version, status, started_at, ready_at, applied_at, counts, licenses, error
@@ -792,13 +779,15 @@ about eight days old. Relay logs show each step with `[licenses]` (`fly logs`):
 
 - `loading ... (<Last-Modified>)`, then one line per file with staged and skipped counts, then
   `load finished`.
-- `load failed: ...` names the download, parse or function error; the load is `failed` with the
-  same text in `error`. It is retried twelve hours after it started. A load still `loading` long
-  after it started means the relay stopped mid-load (a deploy, a crash); the next `begin` clears it.
+- `load failed: ...` names the download, parse or function error; the load is `failed` with the same
+  text in `error`. It is retried twelve hours after it started. A load still `loading` long after it
+  started means the relay stopped mid-load (a deploy, a crash); the next `begin` clears it.
 
-A load stuck at `ready` past :50 means the cron job failed: `select * from cron.job_run_details
+A load stuck at `ready` past :50 means the cron job failed:
+`select * from cron.job_run_details
 where jobid = (select jobid from cron.job where jobname = 'apply-license-loads') order by start_time
-desc limit 3;`. A `failed` load has the reason in `error`; the previous set stays loaded throughout.
+desc limit 3;`.
+A `failed` load has the reason in `error`; the previous set stays loaded throughout.
 
 ## Turning it off
 
@@ -807,8 +796,9 @@ desc limit 3;`. A `failed` load has the reason in `error`; the previous set stay
 serving the same zip with Range support.
 
 A local run (functions URL on localhost) does not load licenses by default. To exercise the real
-load locally, serve `load-licenses` and set `RELAY_LICENSES=https://data.fcc.gov/download/pub/uls/complete/l_amat.zip`;
-it downloads about 160 MB, so not routinely.
+load locally, serve `load-licenses` and set
+`RELAY_LICENSES=https://data.fcc.gov/download/pub/uls/complete/l_amat.zip`; it downloads about 160
+MB, so not routinely.
 
 # Callsign profiles
 
@@ -822,12 +812,13 @@ Each partition is locked against inserts from its build until the migration comm
 for an older day (the relay buffers about 50 minutes, so just after 00:00 UTC it still sends
 yesterday's) waits until the end. The `ON ONLY` create takes a SHARE lock on the parent, which holds
 up every RBN insert from then until commit; the attach loop after it only changes catalogs, so that
-window is short. Today's partition, built last, is the long wait. Locally, at hosted volume, each full day took about
-16 s, and an insert probe into today's partition every second never waited more than 19 ms while the
-older days built. Today's partition takes about 16 s at the end of a UTC day and a few seconds in the
-early hours, under the API's 8 s timeout that `ingest-rbn` pushes run into; a push that does time out
-is retried by the relay, which buffers about 50 minutes. Prefer the early UTC hours, after retention
-at 03:35 removes old days, and avoid :25, when the rollup job reads `rbn_spots`.
+window is short. Today's partition, built last, is the long wait. Locally, at hosted volume, each
+full day took about 16 s, and an insert probe into today's partition every second never waited more
+than 19 ms while the older days built. Today's partition takes about 16 s at the end of a UTC day
+and a few seconds in the early hours, under the API's 8 s timeout that `ingest-rbn` pushes run into;
+a push that does time out is retried by the relay, which buffers about 50 minutes. Prefer the early
+UTC hours, after retention at 03:35 removes old days, and avoid :25, when the rollup job reads
+`rbn_spots`.
 
 The GitHub integration applies the migration on merge, so merge then, or push it first:
 
@@ -851,7 +842,8 @@ start with `lock table rbn_spots in share update exclusive mode`, which blocks p
 attachment and drops but not inserts.
 
 If a push timed out, the relay logs `push failed` and retries. A gap in RBN rows that outlasts the
-relay's buffer shows in `select date_trunc('minute', spot_time), count(*) from rbn_spots
+relay's buffer shows in
+`select date_trunc('minute', spot_time), count(*) from rbn_spots
 where spot_time > now() - interval '2 hours' group by 1 order by 1;`.
 
 ## Is it working?
@@ -860,8 +852,8 @@ where spot_time > now() - interval '2 hours' group by 1 order by 1;`.
 curl -si "$SUPABASE_URL/functions/v1/callsign-profile?callsign=KK4PWJ" | head -20
 ```
 
-200 with `Cache-Control: public, max-age=300` and the profile; 400 for input that is not a
-callsign; 429 past 30 lookups a minute from one IP; 500 means an RPC failed (the function logs
+200 with `Cache-Control: public, max-age=300` and the profile; 400 for input that is not a callsign;
+429 past 30 lookups a minute from one IP; 500 means an RPC failed (the function logs
 `callsign-profile:` with the error). Clients being throttled now:
 
 ```sql
@@ -874,8 +866,8 @@ where window_start = date_trunc('minute', now()) and lookups > 30;
 ## Which client IP the rate limit sees
 
 The function keys on the header named by the `LONGLINES_CLIENT_IP_HEADER` function secret
-(`cf-connecting-ip` when unset), which the edge proxy sets and a client cannot. If that header holds a
-list, it takes the last entry. Without a usable address there, it uses the last `x-forwarded-for`
+(`cf-connecting-ip` when unset), which the edge proxy sets and a client cannot. If that header holds
+a list, it takes the last entry. Without a usable address there, it uses the last `x-forwarded-for`
 entry, which the nearest proxy appended. A client cannot spoof that, but it may be the proxy's own
 address, so every visitor would share one limit of 30 lookups a minute. The first request that falls
 back in each isolate logs `callsign-profile: no client address in <header>`. It never uses the first
@@ -891,13 +883,14 @@ for i in $(seq 1 31); do
 done   # the 31st must be 429 (earlier if you looked something up in the same minute)
 ```
 
-Leave `cf-connecting-ip` out: Cloudflare, in front of the hosted project, answers 403 to any
-request that sets it, so a client cannot spoof it at all. Checked on 2026-10-13: 429 arrived on
-time. If it does not, the header is passed through from the client: find the one the proxy sets (log
+Leave `cf-connecting-ip` out: Cloudflare, in front of the hosted project, answers 403 to any request
+that sets it, so a client cannot spoof it at all. Checked on 2026-10-13: 429 arrived on time. If it
+does not, the header is passed through from the client: find the one the proxy sets (log
 `req.headers` once) and `supabase secrets set LONGLINES_CLIENT_IP_HEADER=<name>`. Second, clients
-must not share one limit: the function logs must not contain `no client address in`, and after
-that loop a lookup from another network (a phone off Wi-Fi) must still get 200. The `prune-callsign-lookups` job (:15 hourly)
-deletes finished windows and cache entries older than 15 minutes.
+must not share one limit: the function logs must not contain `no client address in`, and after that
+loop a lookup from another network (a phone off Wi-Fi) must still get 200. The
+`prune-callsign-lookups` job (:15 hourly) deletes finished windows and cache entries older than 15
+minutes.
 
 ## Hiding a profile
 
@@ -908,11 +901,10 @@ insert into hidden_callsigns (callsign, note) values ('KK4PWJ', 'email 2026-10-1
 delete from hidden_callsigns where callsign = 'KK4PWJ';   -- show it again
 ```
 
-A hidden call gets the not-heard page with no license from the next lookup on; the cache is
-skipped for it. Browsers and CDNs may still hold the old page for up to 5 minutes.
-The Stats snapshot drops hidden calls from its top lists (a trigger on `stats_snapshots`) from the
-next hourly refresh on; to drop a newly hidden call now, run
-`update stats_snapshots set payload = payload;`.
+A hidden call gets the not-heard page with no license from the next lookup on; the cache is skipped
+for it. Browsers and CDNs may still hold the old page for up to 5 minutes. The Stats snapshot drops
+hidden calls from its top lists (a trigger on `stats_snapshots`) from the next hourly refresh on; to
+drop a newly hidden call now, run `update stats_snapshots set payload = payload;`.
 
 ## A profile looks stale
 

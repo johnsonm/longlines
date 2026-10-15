@@ -13,18 +13,18 @@ RBN. That volume shapes everything below.
 
 ## Decisions (Brad)
 
-| Question | Decision |
-| --- | --- |
-| Database window | About two days. Everything is kept in Storage as gzipped NDJSON. A day leaves the database only when every slice is archived with the database's count. |
-| Parse depth | Header and packet type only: source, destination, digipeater path, q-construct, igate, and the data-type identifier. The TNC2 line is stored exactly as received, for later decoding. |
-| Alerting | None. APRS-IS is stored and archived only: no `raw_spots`, matcher, subscription option, Stats or profiles. Any of these can be a follow-up. |
+| Question        | Decision                                                                                                                                                                              |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Database window | About two days. Everything is kept in Storage as gzipped NDJSON. A day leaves the database only when every slice is archived with the database's count.                               |
+| Parse depth     | Header and packet type only: source, destination, digipeater path, q-construct, igate, and the data-type identifier. The TNC2 line is stored exactly as received, for later decoding. |
+| Alerting        | None. APRS-IS is stored and archived only: no `raw_spots`, matcher, subscription option, Stats or profiles. Any of these can be a follow-up.                                          |
 
 ## Shape
 
 The flow is relay → `ingest-aprs` → `ingest_aprs_packets` → `aprs_packets`. That table is
-partitioned by UTC day on `received_at`, then archived and retired, the same pattern as
-`rbn_spots`. `docs/ARCHITECTURE.md` ("APRS-IS", "The spot archive") has the details, and
-`docs/OPERATIONS.md` ("APRS-IS") the runbook.
+partitioned by UTC day on `received_at`, then archived and retired, the same pattern as `rbn_spots`.
+`docs/ARCHITECTURE.md` ("APRS-IS", "The spot archive") has the details, and `docs/OPERATIONS.md`
+("APRS-IS") the runbook.
 
 - **Relay.** The relay needs a plain TCP line decoder (UTF-8, no telnet IAC). It also needs a login
   line sent after the server's `# ...` banner: `user CALL pass -1 vers LongLines 0.1`. The feed is
@@ -43,12 +43,12 @@ partitioned by UTC day on `received_at`, then archived and retired, the same pat
 The archive cost was measured on a synthetic two-slice run: 60,000 packets of about 120 characters
 each, in an isolated local database.
 
-| Measure | Result |
-| --- | --- |
-| `archive_ndjson`, one 30,000-packet slice, in Postgres | ~110 ms |
-| NDJSON per slice | 9.4 MB |
+| Measure                                                           | Result     |
+| ----------------------------------------------------------------- | ---------- |
+| `archive_ndjson`, one 30,000-packet slice, in Postgres            | ~110 ms    |
+| NDJSON per slice                                                  | 9.4 MB     |
 | Parse the RPC body and gzip both slices, process CPU (three runs) | 173-183 ms |
-| Gzipped, both slices | 1.9 MB |
+| Gzipped, both slices                                              | 1.9 MB     |
 
 Two slices per run is well inside the 2 s Edge Function CPU limit, so five-minute slices stand.
 
@@ -64,8 +64,8 @@ These estimates assume 100 packets a second.
   plan's 8 GB, disk is $0.125/GB-month, so APRS-IS adds roughly $0.60-1 a month.
 - **Storage:** ~0.3 GB a day, ~8.5 GB a month, kept indefinitely. Pro includes 100 GB.
 
-The real rate is checked after the first day from the relay's stats log and `aprs_packet_hours`.
-If it is far from 100 a second, the slice length or the window changes.
+The real rate is checked after the first day from the relay's stats log and `aprs_packet_hours`. If
+it is far from 100 a second, the slice length or the window changes.
 
 ## Rollout
 
