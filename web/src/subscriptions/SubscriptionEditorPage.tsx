@@ -15,7 +15,6 @@ import {
 import type { CallsignGroup } from "../groups/types";
 import { formatSpotTime, type TimePrefs } from "../lib/time";
 import { errorText, useNotify } from "../app/hooks";
-import { useTour } from "../tour/hooks";
 import { sourceName, type SourceInfo } from "../sources/sources";
 import { spotReference } from "../sources/spots";
 import { SourceMark } from "../sources/SourceMark";
@@ -88,7 +87,6 @@ interface EditorProps {
 function Editor({ initial, dests, reload, prefs, mobile }: EditorProps) {
   const notify = useNotify();
   const navigate = useNavigate();
-  const { report } = useTour();
   const isNew = !initial.id;
   const [sub, setSub] = useState(initial);
   // The builder's rows; sub.rules is what they store, worked out on preview and save.
@@ -108,10 +106,6 @@ function Editor({ initial, dests, reload, prefs, mobile }: EditorProps) {
   const rules = useMemo(() => rulesOf(rows), [rows]);
   const missingCall = needsCallsign(sub.sources, rules);
   const invalid = rows.some(rowInvalid);
-
-  useEffect(() => {
-    if (isNew) report("subscription-form-opened");
-  }, [isNew, report]);
 
   useEffect(() => {
     let active = true;
@@ -154,8 +148,6 @@ function Editor({ initial, dests, reload, prefs, mobile }: EditorProps) {
       await saveSubscription({ ...sub, name: sub.name.trim(), rules });
       await reload();
       notify(isNew ? `Created ${sub.name.trim()}` : "Saved changes");
-      // Reported before navigating, so the tour moves on before it sees the page change.
-      if (isNew) report("subscription-created");
       void navigate("/subscriptions");
     } catch (err) {
       notify(errorText(err, "Couldn't save the subscription."));
@@ -163,10 +155,7 @@ function Editor({ initial, dests, reload, prefs, mobile }: EditorProps) {
     }
   };
 
-  const cancel = () => {
-    report("subscription-form-cancelled");
-    void navigate("/subscriptions");
-  };
+  const cancel = () => void navigate("/subscriptions");
 
   const chosen = linkedDestinations(sub.destinations, dests);
   const remaining = dests
@@ -181,7 +170,7 @@ function Editor({ initial, dests, reload, prefs, mobile }: EditorProps) {
   const actions = (
     <Stack direction="row" spacing={1}>
       <Button onClick={cancel} disabled={busy}>Cancel</Button>
-      <Button variant="contained" disabled={!sub.name.trim() || missingCall || invalid || busy} onClick={() => void save()} data-tour="subscription-save">
+      <Button variant="contained" disabled={!sub.name.trim() || missingCall || invalid || busy} onClick={() => void save()}>
         Save subscription
       </Button>
     </Stack>

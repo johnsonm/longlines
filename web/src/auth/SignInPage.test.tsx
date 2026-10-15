@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { screen, waitFor } from "@testing-library/react";
 import { renderPage } from "../test/render";
 import { setMobile } from "../test/media";
-import { WELCOME_KEY } from "../app/hooks";
 import { callsignAvailable, signIn, signUp } from "../lib/api";
 import { SignInPage } from "./SignInPage";
 
@@ -111,25 +110,14 @@ describe("SignInPage: create account", () => {
     expect(callsignAvailable).not.toHaveBeenCalled();
   });
 
-  it("creates the account, remembers the welcome tour and shows the email step", async () => {
+  it("creates the account and shows the email step", async () => {
     const { user } = await openSignUp();
     await fill(user);
     await user.click(screen.getByRole("button", { name: "Create account" }));
     await waitFor(() => expect(where()).toHaveTextContent("/check-email"));
     expect(callsignAvailable).toHaveBeenCalledWith("KK4PWJ");
     expect(signUp).toHaveBeenCalledWith({ callsign: "KK4PWJ", name: "Brad", email: "brad@example.com", password: "hunter22" });
-    expect(localStorage.getItem(WELCOME_KEY)).toBe("KK4PWJ");
     expect(JSON.parse(where().dataset.state ?? "null")).toEqual({ email: "brad@example.com" });
-  });
-
-  it("still signs up when storage is unavailable", async () => {
-    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
-      throw new Error("blocked");
-    });
-    const { user } = await openSignUp();
-    await fill(user);
-    await user.click(screen.getByRole("button", { name: "Create account" }));
-    await waitFor(() => expect(where()).toHaveTextContent("/check-email"));
   });
 
   it("refuses a taken callsign", async () => {

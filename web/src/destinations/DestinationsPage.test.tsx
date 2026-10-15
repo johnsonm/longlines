@@ -29,18 +29,16 @@ function render(dests: Destination[], subs: SubscriptionWithLinks[] = [], loadin
   const reload = vi.fn(() => Promise.resolve());
   const r = renderPage(<DestinationsPage dests={dests} subs={subs} loading={loading} reload={reload} />, {
     route: "/destinations",
-    tour: { destinationId: "a" },
   });
   return { ...r, reload };
 }
 
 describe("DestinationsPage", () => {
   it("shows the empty state and opens the add dialog from it", async () => {
-    const { user, tour } = render([]);
+    const { user } = render([]);
     expect(screen.getByText("No destinations yet.")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Add your first destination" }));
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
-    expect(tour.report).toHaveBeenCalledWith("destination-dialog-opened");
   });
 
   it("shows a progress bar while loading", () => {
@@ -62,16 +60,14 @@ describe("DestinationsPage", () => {
     expect(screen.getByText(/Dest a has returned errors for the last 4 deliveries/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Delete Dest a" })).toBeDisabled();
     expect(screen.getAllByRole("button", { name: "Rotate secret" })).toHaveLength(2);
-    expect(screen.getAllByRole("button", { name: "Send test" })[0]).toHaveAttribute("data-tour", "send-test");
   });
 
-  it("sends a test and reports it to the tour", async () => {
+  it("sends a test", async () => {
     vi.mocked(sendTest).mockResolvedValue(undefined);
-    const { user, app, tour } = render([dest("a")]);
+    const { user, app } = render([dest("a")]);
     await user.click(screen.getByRole("button", { name: "Send test" }));
     expect(sendTest).toHaveBeenCalledWith("a");
     await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Test spot sent to Dest a"));
-    expect(tour.report).toHaveBeenCalledWith("test-sent");
   });
 
   it("reports action errors", async () => {
@@ -83,7 +79,7 @@ describe("DestinationsPage", () => {
 
   it("rotates a webhook secret and shows it once", async () => {
     vi.mocked(rotateSigningSecret).mockResolvedValue("whsec_rotated");
-    const { user, tour } = render([dest("a")]);
+    const { user } = render([dest("a")]);
     await user.click(screen.getByRole("button", { name: "Rotate secret" }));
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByText("Signing secret for Dest a")).toBeInTheDocument();
@@ -93,9 +89,8 @@ describe("DestinationsPage", () => {
     await user.keyboard("{Escape}");
     await user.click(document.querySelector(".MuiBackdrop-root:not(.MuiBackdrop-invisible)")!);
     expect(screen.getByLabelText("Signing secret")).toHaveValue("whsec_rotated");
-    expect(tour.report).not.toHaveBeenCalledWith("secret-dismissed");
     await user.click(within(dialog).getByRole("button", { name: "Done" }));
-    expect(tour.report).toHaveBeenCalledWith("secret-dismissed");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 
   it("deletes an unused destination", async () => {
@@ -109,7 +104,7 @@ describe("DestinationsPage", () => {
 
   it("adds a webhook destination and shows its signing secret", async () => {
     vi.mocked(createDestination).mockResolvedValue({ id: "n", type: "webhook", name: "Hook", url_display: "x", signing_secret: "whsec_1" });
-    const { user, app, tour, reload } = render([]);
+    const { user, app, reload } = render([]);
     await user.click(screen.getByRole("button", { name: "Add destination" }));
     const dialog = await screen.findByRole("dialog");
     const add = within(dialog).getByRole("button", { name: "Add destination" });
@@ -120,32 +115,31 @@ describe("DestinationsPage", () => {
     await user.click(add);
     expect(createDestination).toHaveBeenCalledWith("webhook", "Hook", "https://example.com/spots");
     expect(await screen.findByText("Signing secret for Hook")).toBeInTheDocument();
-    expect(tour.report).toHaveBeenCalledWith("destination-created", { destinationId: "n", secret: true });
     expect(app.notify).toHaveBeenCalledWith("Added Hook");
     await waitFor(() => expect(reload).toHaveBeenCalled());
   });
 
   it("names a Discord destination after its type when left blank", async () => {
     vi.mocked(createDestination).mockResolvedValue({ id: "n", type: "discord", name: "Discord channel", url_display: "x", signing_secret: null });
-    const { user, tour } = render([]);
+    const { user, app } = render([]);
     await user.click(screen.getByRole("button", { name: "Add destination" }));
     const dialog = await screen.findByRole("dialog");
     await user.type(within(dialog).getByLabelText("Discord webhook URL"), "https://discord.com/api/webhooks/1/x");
     await user.click(within(dialog).getByRole("button", { name: "Add destination" }));
     expect(createDestination).toHaveBeenCalledWith("discord", "Discord channel", "https://discord.com/api/webhooks/1/x");
-    await waitFor(() => expect(tour.report).toHaveBeenCalledWith("destination-created", { destinationId: "n", secret: false }));
+    await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Added Discord channel"));
     expect(screen.queryByText(/Signing secret for/)).not.toBeInTheDocument();
   });
 
   it("shows create errors in the dialog and can be cancelled", async () => {
     vi.mocked(createDestination).mockRejectedValue(new Error("That URL isn't a Discord webhook."));
-    const { user, tour } = render([]);
+    const { user } = render([]);
     await user.click(screen.getByRole("button", { name: "Add destination" }));
     const dialog = await screen.findByRole("dialog");
     await user.type(within(dialog).getByLabelText("Discord webhook URL"), "https://nope");
     await user.click(within(dialog).getByRole("button", { name: "Add destination" }));
     expect(await within(dialog).findByText("That URL isn't a Discord webhook.")).toBeInTheDocument();
     await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
-    expect(tour.report).toHaveBeenCalledWith("destination-dialog-closed");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 });

@@ -5,7 +5,6 @@ import {
 } from "@mui/material";
 import { createDestination, type CreatedDestination, type DestinationType } from "../lib/api";
 import { errorText } from "../app/hooks";
-import { useTour } from "../tour/hooks";
 import { DEST_TYPES, typeLabel } from "./types";
 
 export function DestinationDialog({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: (d: CreatedDestination) => void }) {
@@ -14,8 +13,6 @@ export function DestinationDialog({ open, onClose, onCreated }: { open: boolean;
   const [target, setTarget] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // During the tour a tooltip sits beside the dialog; let keyboard focus reach it.
-  const { active: tourActive } = useTour();
   const t = DEST_TYPES.find((d) => d.id === type)!;
 
   const reset = () => {
@@ -43,9 +40,9 @@ export function DestinationDialog({ open, onClose, onCreated }: { open: boolean;
   };
 
   return (
-    <Dialog open={open} onClose={close} fullWidth maxWidth="sm" disableEnforceFocus={tourActive}>
+    <Dialog open={open} onClose={close} fullWidth maxWidth="sm">
       <DialogTitle>Add destination</DialogTitle>
-      <DialogContent dividers data-tour="destination-form">
+      <DialogContent dividers>
         <FormControl sx={{ mb: 2 }}>
           <FormLabel>Where should spots go?</FormLabel>
           <RadioGroup value={type} onChange={(e) => setType(e.target.value as DestinationType)}>
@@ -80,12 +77,11 @@ export function DestinationDialog({ open, onClose, onCreated }: { open: boolean;
 
 /** Shows a signing secret exactly once. */
 export function SecretDialog({ secret, name, onClose }: { secret: string | null; name: string; onClose: () => void }) {
-  const { active: tourActive } = useTour();
   return (
     // No onClose on the Dialog: a backdrop click or Escape would lose the secret before it's copied.
-    <Dialog open={secret !== null} fullWidth maxWidth="sm" disableEnforceFocus={tourActive}>
+    <Dialog open={secret !== null} fullWidth maxWidth="sm">
       <DialogTitle>Signing secret for {name}</DialogTitle>
-      <DialogContent dividers data-tour="signing-secret">
+      <DialogContent dividers>
         <Alert severity="warning" sx={{ mb: 2 }}>Copy it now. This is the only time it's shown.</Alert>
         <TextField
           label="Signing secret" value={secret ?? ""} fullWidth

@@ -4,7 +4,7 @@ import { Navigate, Route, Routes, useLocation, useParams, useSearchParams } from
 import { SpeedInsights } from "@vercel/speed-insights/react";
 import { Analytics } from "@vercel/analytics/react";
 import { AppProvider } from "./app/AppContext";
-import { useApp, WELCOME_KEY } from "./app/hooks";
+import { useApp } from "./app/hooks";
 import { SignInPage } from "./auth/SignInPage";
 import { CheckEmailPage } from "./auth/CheckEmailPage";
 import { ResetPasswordPage } from "./auth/ResetPasswordPage";
@@ -24,8 +24,6 @@ import { LookupPage } from "./profile/LookupPage";
 import { CallsignPage } from "./profile/CallsignPage";
 import { loadDestinations, loadSubscriptions, type Destination, type SubscriptionWithLinks } from "./lib/api";
 import type { TimePrefs } from "./lib/time";
-import { TourProvider } from "./tour/TourProvider";
-import { useTour } from "./tour/hooks";
 
 export default function App() {
   const dark = useMediaQuery("(prefers-color-scheme: dark)");
@@ -34,10 +32,8 @@ export default function App() {
     <ThemeProvider theme={theme}>
       <CssBaseline />
       <AppProvider>
-        <TourProvider>
-          <Router />
-          <Toast />
-        </TourProvider>
+        <Router />
+        <Toast />
       </AppProvider>
       <SpeedInsights />
       <Analytics />
@@ -122,7 +118,6 @@ function SubscriptionRoute(props: Omit<ComponentProps<typeof SubscriptionEditorP
 
 function SignedIn({ page }: { page: Page }) {
   const { profile, notify } = useApp();
-  const { start: startTour } = useTour();
   const mobile = useMediaQuery((t: ReturnType<typeof createTheme>) => t.breakpoints.down("md"));
   const [dests, setDests] = useState<Destination[]>([]);
   const [subs, setSubs] = useState<SubscriptionWithLinks[]>([]);
@@ -144,19 +139,6 @@ function SignedIn({ page }: { page: Page }) {
   useEffect(() => {
     void reload();
   }, [reload]);
-
-  // A brand-new account starts the tour, which begins on Destinations.
-  useEffect(() => {
-    if (!profile) return;
-    let welcome: string | null = null;
-    try {
-      welcome = localStorage.getItem(WELCOME_KEY);
-      if (welcome) localStorage.removeItem(WELCOME_KEY);
-    } catch {
-      return;
-    }
-    if (welcome && welcome === profile.callsign) startTour();
-  }, [profile, startTour]);
 
   if (!profile) return <LinearProgress />;
 

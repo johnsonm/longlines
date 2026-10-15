@@ -107,9 +107,8 @@ describe("routing", () => {
 });
 
 describe("new subscription", () => {
-  it("starts from the picked source, tells the tour, and saves with no destinations", async () => {
-    const { user, app, tour, reload } = render({ source: "pota" });
-    expect(tour.report).toHaveBeenCalledWith("subscription-form-opened");
+  it("starts from the picked source and saves with no destinations", async () => {
+    const { user, app, reload } = render({ source: "pota" });
     expect(screen.getByRole("heading", { name: "New subscription" })).toBeInTheDocument();
     expect(screen.getByText("Parks on the Air")).toBeInTheDocument();
     expect(screen.getByText("36 spots/hour on average")).toBeInTheDocument();
@@ -124,7 +123,6 @@ describe("new subscription", () => {
     expect(saveSubscription).toHaveBeenCalledWith(expect.objectContaining({ name: "Parks", sources: ["pota"], destinations: [], enabled: true }));
     await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Created Parks"));
     expect(reload).toHaveBeenCalled();
-    expect(tour.report).toHaveBeenCalledWith("subscription-created");
     expect(screen.getByTestId("location")).toHaveTextContent(/^\/subscriptions$/);
   });
 
@@ -171,15 +169,14 @@ describe("new subscription", () => {
     expect(screen.queryByText(/on average/)).not.toBeInTheDocument();
   });
 
-  it("keeps the form when saving fails, and Cancel tells the tour and goes back", async () => {
+  it("keeps the form when saving fails, and Cancel goes back", async () => {
     vi.mocked(saveSubscription).mockRejectedValue(new Error("Group not found."));
-    const { user, app, tour } = render({ source: "pota" });
+    const { user, app } = render({ source: "pota" });
     await user.type(screen.getByLabelText(/^Name/), "X");
     await user.click(save());
     await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Group not found."));
     expect(save()).toBeEnabled();
     await user.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(tour.report).toHaveBeenCalledWith("subscription-form-cancelled");
     expect(screen.getByTestId("location")).toHaveTextContent(/^\/subscriptions$/);
   });
 });
@@ -187,8 +184,7 @@ describe("new subscription", () => {
 describe("edit subscription", () => {
   it("loads the subscription's rules, destinations and preview", async () => {
     const rules = [[BAND, rule("callsign", "is", "W1AW")]];
-    const { tour } = render({ id: "s1", subs: [sub({ destinations: ["d1", "d2"], rules })] });
-    expect(tour.report).not.toHaveBeenCalledWith("subscription-form-opened");
+    render({ id: "s1", subs: [sub({ destinations: ["d1", "d2"], rules })] });
     expect(screen.getByRole("heading", { name: "Edit subscription" })).toBeInTheDocument();
     expect(screen.getByText("Pass spots that match all of these rules")).toBeInTheDocument();
     expect(screen.getAllByLabelText("Field")).toHaveLength(2);

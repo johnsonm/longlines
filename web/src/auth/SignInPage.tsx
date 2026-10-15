@@ -16,7 +16,7 @@ import SensorsIcon from "@mui/icons-material/Sensors";
 import heroUrl from "../assets/landing-hero.jpg";
 import { callsignAvailable, signIn, signUp } from "../lib/api";
 import { isValidCallsign, normalizeCallsign } from "../lib/callsign";
-import { errorText, useApp, WELCOME_KEY } from "../app/hooks";
+import { errorText, useApp } from "../app/hooks";
 
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
@@ -123,11 +123,6 @@ export function SignInPage() {
         return;
       }
       await signUp({ callsign, name: su.name.trim(), email: su.email.trim(), password: su.password });
-      try {
-        localStorage.setItem(WELCOME_KEY, callsign);
-      } catch {
-        // storage unavailable; the new account just won't start the tour by itself
-      }
       void navigate("/check-email", { state: { email: su.email.trim() } });
     } catch (err) {
       setError(errorText(err, "Couldn't create your account."));

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router";
-import { appValue, tourValue, wrap } from "../test/render";
+import { appValue, wrap } from "../test/render";
 import { LocationProbe } from "../test/LocationProbe";
 import { setMobile } from "../test/media";
 import { loadIngestHealth, loadRecentSpots, type IngestHealth, type RecentSpot, type SubscriptionWithLinks } from "../lib/api";
@@ -40,7 +40,6 @@ function open(path: string, subs: SubscriptionWithLinks[] = []) {
         <LocationProbe />
       </MemoryRouter>,
       appValue(),
-      tourValue(),
     ),
   );
 }

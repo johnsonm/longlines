@@ -3,7 +3,6 @@ import { screen, waitFor } from "@testing-library/react";
 import { renderPage } from "../test/render";
 import { setMobile } from "../test/media";
 import { signOut } from "../lib/api";
-import { TOUR_MENU_LABEL } from "../tour/model";
 import { AppShell } from "./AppShell";
 import { PublicShell } from "./PublicShell";
 
@@ -54,13 +53,6 @@ describe("AppShell", () => {
     expect(screen.getByText("kk4pwj@example.com")).toBeInTheDocument();
     await user.click(screen.getByRole("menuitem", { name: "Account" }));
     expect(screen.getByTestId("location")).toHaveTextContent("/account");
-  });
-
-  it("starts the tour from the account menu", async () => {
-    const { user, tour } = renderPage(shell(), { route: "/sources" });
-    await user.click(screen.getAllByRole("button", { name: "Account menu" })[0]!);
-    await user.click(screen.getByRole("menuitem", { name: TOUR_MENU_LABEL }));
-    expect(tour.start).toHaveBeenCalled();
   });
 
   it("signs out, and reports a failure", async () => {

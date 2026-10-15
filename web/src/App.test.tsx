@@ -1,22 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import type { Session } from "@supabase/supabase-js";
 import App from "./App";
-import { WELCOME_KEY } from "./app/hooks";
 import { useSession } from "./auth/useSession";
 import { loadDestinations, loadProfile, loadSubscriptions, type Destination } from "./lib/api";
 import { PROFILE, SESSION } from "./test/render";
-import { useTour } from "./tour/hooks";
 
 vi.mock("./auth/useSession", () => ({ useSession: vi.fn() }));
 vi.mock("./lib/api", () => ({ loadProfile: vi.fn(), loadDestinations: vi.fn(), loadSubscriptions: vi.fn() }));
 vi.mock("@vercel/speed-insights/react", () => ({ SpeedInsights: () => null }));
 vi.mock("@vercel/analytics/react", () => ({ Analytics: () => null }));
-vi.mock("react-joyride", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("react-joyride")>()),
-  Joyride: () => null,
-}));
 
 // App's job is routing and loading shared data; each page has its own tests.
 // The stubs show which page rendered and the props App passed it.
@@ -50,10 +44,6 @@ vi.mock("./profile/CallsignPage", () => ({
     <p>callsign page {prefs.timezone} {account ? "signed in" : "signed out"}</p>
   ),
 }));
-vi.mock("./tour/hooks", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("./tour/hooks")>();
-  return { useTour: vi.fn(actual.useTour) };
-});
 
 function session(value: Session | null, loading = false) {
   vi.mocked(useSession).mockReturnValue({ session: value, loading });
@@ -193,37 +183,5 @@ describe("App routing", () => {
     const { container } = renderAt("/sources");
     await screen.findByText("sources page");
     await waitFor(() => expect(container.querySelector(".MuiBadge-dot:not(.MuiBadge-invisible)")).not.toBeNull());
-  });
-});
-
-describe("welcome tour", () => {
-  it("starts the tour once for the account that just signed up", async () => {
-    localStorage.setItem(WELCOME_KEY, PROFILE.callsign);
-    const start = vi.fn();
-    vi.mocked(useTour).mockReturnValue({ active: false, destinationId: null, start, report: vi.fn() });
-    renderAt("/sources");
-    await waitFor(() => expect(start).toHaveBeenCalledTimes(1));
-    expect(localStorage.getItem(WELCOME_KEY)).toBeNull();
-  });
-
-  it("does not start for a different account", async () => {
-    localStorage.setItem(WELCOME_KEY, "W1AW");
-    const start = vi.fn();
-    vi.mocked(useTour).mockReturnValue({ active: false, destinationId: null, start, report: vi.fn() });
-    renderAt("/sources");
-    await screen.findByText("sources page");
-    expect(start).not.toHaveBeenCalled();
-  });
-
-  it("does nothing when storage is unavailable", async () => {
-    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
-      throw new Error("blocked");
-    });
-    const start = vi.fn();
-    vi.mocked(useTour).mockReturnValue({ active: false, destinationId: null, start, report: vi.fn() });
-    renderAt("/sources");
-    await screen.findByText("sources page");
-    await act(() => Promise.resolve());
-    expect(start).not.toHaveBeenCalled();
   });
 });

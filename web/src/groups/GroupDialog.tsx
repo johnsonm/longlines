@@ -7,7 +7,6 @@ import UploadFileIcon from "@mui/icons-material/UploadFile";
 import { normalizeCallsigns, saveGroup } from "../lib/api";
 import { errorText } from "../app/hooks";
 import { plural } from "../profile/format";
-import { useTour } from "../tour/hooks";
 import { csvSummary, limitText, mergeCallsigns, rejectedText, wouldExceed } from "./model";
 import { csvColumn, parseCsv, splitCallsigns } from "./parse";
 import type { GroupInput, NormalizedCallsigns } from "./types";
@@ -29,7 +28,6 @@ type Csv = { summary: string; result: NormalizedCallsigns } | null;
 export function GroupDialog({ initial, onClose, onSaved }: Props) {
   const theme = useTheme();
   const mobile = useMediaQuery(theme.breakpoints.down("md"));
-  const { active: tourActive } = useTour();
   const [name, setName] = useState(initial.name);
   const [calls, setCalls] = useState(initial.callsigns);
   const [tab, setTab] = useState(0);
@@ -120,7 +118,7 @@ export function GroupDialog({ initial, onClose, onSaved }: Props) {
   const rejectedCsv = csv && rejectedText(csv.result.rejected);
 
   return (
-    <Dialog open onClose={onClose} fullWidth maxWidth="md" fullScreen={mobile} disableEnforceFocus={tourActive}>
+    <Dialog open onClose={onClose} fullWidth maxWidth="md" fullScreen={mobile}>
       <DialogTitle>{initial.id ? "Edit group" : "New group"}</DialogTitle>
       <DialogContent dividers>
         {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}

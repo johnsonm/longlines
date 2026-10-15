@@ -3,7 +3,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { ApiError, loadDestinations, loadSubscriptions, saveSubscription, type Destination, type SubscriptionWithLinks } from "../lib/api";
-import { appValue, tourValue, wrap } from "../test/render";
+import { appValue, wrap } from "../test/render";
 import { LocationProbe } from "../test/LocationProbe";
 import { setMobile } from "../test/media";
 import type { AppContextValue } from "../app/context";
@@ -46,7 +46,6 @@ function renderAt(path: string, options: { account?: AlertAccount; app?: Partial
         <LocationProbe />
       </MemoryRouter>,
       app,
-      tourValue(),
     ),
   );
   return { app, user, where: () => screen.getByTestId("location") };

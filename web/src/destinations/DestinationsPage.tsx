@@ -9,7 +9,6 @@ import {
   deleteDestination, rotateSigningSecret, sendTest, type CreatedDestination, type Destination, type SubscriptionWithLinks,
 } from "../lib/api";
 import { errorText, useNotify } from "../app/hooks";
-import { useTour } from "../tour/hooks";
 import { DestinationDialog, SecretDialog } from "./DestinationDialog";
 import { HealthChip } from "./HealthChip";
 import { typeLabel } from "./types";
@@ -23,7 +22,6 @@ interface Props {
 
 export function DestinationsPage({ dests, subs, loading, reload }: Props) {
   const notify = useNotify();
-  const tour = useTour();
   const [open, setOpen] = useState(false);
   const [secret, setSecret] = useState<{ value: string; name: string } | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -31,21 +29,15 @@ export function DestinationsPage({ dests, subs, loading, reload }: Props) {
 
   const openDialog = () => {
     setOpen(true);
-    tour.report("destination-dialog-opened");
   };
 
   const closeDialog = () => {
     setOpen(false);
-    tour.report("destination-dialog-closed");
   };
 
-  // The secret dialog opens and the tour advances in the same render that closes the form, so the
-  // tour never points at an unmounted form while the list reloads. The Send test row the next step
-  // needs appears with the reload; Joyride waits for it.
   const onCreated = async (d: CreatedDestination) => {
     setOpen(false);
     if (d.signing_secret) setSecret({ value: d.signing_secret, name: d.name });
-    tour.report("destination-created", { destinationId: d.id, secret: d.signing_secret !== null });
     notify(`Added ${d.name}`);
     await reload();
   };
@@ -68,7 +60,7 @@ export function DestinationsPage({ dests, subs, loading, reload }: Props) {
           <PageTitle>Destinations</PageTitle>
           <Typography color="text.secondary">Places Long Lines can deliver spots. A destination does nothing until a subscription sends spots to it.</Typography>
         </Box>
-        <Button variant="contained" startIcon={<AddIcon />} onClick={openDialog} data-tour="add-destination" sx={{ flexShrink: 0 }}>Add destination</Button>
+        <Button variant="contained" startIcon={<AddIcon />} onClick={openDialog} sx={{ flexShrink: 0 }}>Add destination</Button>
       </Stack>
       {loading && <LinearProgress />}
       {!loading && dests.length === 0 ? (
@@ -117,11 +109,9 @@ export function DestinationsPage({ dests, subs, loading, reload }: Props) {
                     )}
                     <Button
                       size="small" variant="outlined" disabled={busyId === d.id}
-                      data-tour={d.id === tour.destinationId ? "send-test" : undefined}
                       onClick={() => void run(d.id, async () => {
                         await sendTest(d.id);
                         notify(`Test spot sent to ${d.name}`);
-                        tour.report("test-sent");
                       })}
                     >
                       Send test
@@ -155,10 +145,7 @@ export function DestinationsPage({ dests, subs, loading, reload }: Props) {
       <DestinationDialog open={open} onClose={closeDialog} onCreated={(d) => void onCreated(d)} />
       <SecretDialog
         secret={secret?.value ?? null} name={secret?.name ?? ""}
-        onClose={() => {
-          setSecret(null);
-          tour.report("secret-dismissed");
-        }}
+        onClose={() => setSecret(null)}
       />
     </Stack>
   );

@@ -15,8 +15,6 @@ import SearchIcon from "@mui/icons-material/Search";
 import { useLocation, useNavigate } from "react-router";
 import { useApp } from "../app/hooks";
 import { signOut } from "../lib/api";
-import { useTour } from "../tour/hooks";
-import { TOUR_MENU_LABEL } from "../tour/model";
 import { lookupPath } from "../profile/format";
 
 const NAV = [
@@ -36,14 +34,8 @@ export function AppShell({ children, destinationsFailing }: { children: ReactNod
   const navigate = useNavigate();
   const location = useLocation();
   const { profile, session, notify } = useApp();
-  const { start: startTour } = useTour();
   const [navOpen, setNavOpen] = useState(false);
   const [menuEl, setMenuEl] = useState<HTMLElement | null>(null);
-  const takeTour = () => {
-    setMenuEl(null);
-    setNavOpen(false);
-    startTour();
-  };
   const section = location.pathname.replace(/^\//, "").split("/")[0] ?? "";
   // A profile belongs to Callsign lookup in the nav.
   const page = section === "call" ? "lookup" : section;
@@ -125,7 +117,6 @@ export function AppShell({ children, destinationsFailing }: { children: ReactNod
             </Box>
             <Divider />
             <MenuItem onClick={() => go("account")}>Account</MenuItem>
-            <MenuItem onClick={takeTour}>{TOUR_MENU_LABEL}</MenuItem>
             <MenuItem onClick={() => void handleSignOut()}>Sign out</MenuItem>
           </Menu>
         </Toolbar>

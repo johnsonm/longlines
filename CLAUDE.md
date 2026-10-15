@@ -155,11 +155,6 @@ relay on pushes to main; nothing else deploys automatically.
 - `web/scripts/*.ts` are local-dev helpers behind the npm scripts, run by Node's built-in type
   stripping (erasable syntax only, `.ts` import extensions). They only talk to the local stack;
   `local-stack.ts` refuses a non-local API URL. Never add a script that deploys or pushes.
-- The guided tour lives in `web/src/tour/`. All tour copy is in `model.ts`: the steps, the
-  "Take the tour" menu label and the ended toast (the mock has no tour section).
-  `TourProvider.tsx` is the only module that imports react-joyride. Pages and dialogs only add
-  `data-tour` attributes, call `useTour().report(...)` and read `useTour().active`; never drive
-  Joyride from a page.
 
 ## Source catalog rules
 
@@ -180,8 +175,8 @@ relay on pushes to main; nothing else deploys automatically.
   `deno coverage` silently omits those.
 - Deno excludes modules whose names end in `test.ts` from coverage, so never name a source file
   `*_test.ts` (hence `handlers/test_delivery.ts` for the send-test function).
-- Web component tests render through `web/src/test/render.tsx` (theme, MemoryRouter, stub App and
-  Tour contexts) and `vi.mock("../lib/api")` with explicit factories. `setMobile(true)` from
+- Web component tests render through `web/src/test/render.tsx` (theme, MemoryRouter, stub App
+  context) and `vi.mock("../lib/api")` with explicit factories. `setMobile(true)` from
   `test/media.ts` switches `useMediaQuery` to the phone layout. Pure `*.test.ts` files stay in node:
   jsdom applies Vite's browser file guard, which blocks `states.test.ts` reading the migrations.
 

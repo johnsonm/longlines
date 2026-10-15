@@ -3,7 +3,6 @@ import {
   Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, Paper, Radio, RadioGroup, Stack, Typography,
 } from "@mui/material";
 import { useStats } from "../stats/useStats";
-import { useTour } from "../tour/hooks";
 import { LIVE_SOURCES, SOURCES, type SourceInfo } from "../sources/sources";
 import { SourceMark } from "../sources/SourceMark";
 import { formatRate, RATE_UNIT_SHORT, sourceRates } from "../sources/rates";
@@ -25,7 +24,6 @@ interface Props {
 export function SourcePickerDialog({ open, fullScreen, onClose, onContinue }: Props) {
   const [picked, setPicked] = useState(LIVE_SOURCES[0]?.id ?? "");
   const { stats } = useStats();
-  const { active: tourActive } = useTour();
 
   const rate = (s: SourceInfo): string | null => {
     const rates = s.statsKey && stats ? sourceRates(stats.payload.hourly, s.statsKey) : null;
@@ -56,7 +54,7 @@ export function SourcePickerDialog({ open, fullScreen, onClose, onContinue }: Pr
   );
 
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm" fullScreen={fullScreen} disableEnforceFocus={tourActive}>
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm" fullScreen={fullScreen}>
       <DialogTitle>New subscription</DialogTitle>
       <DialogContent>
         <Typography variant="subtitle1">Pick your source</Typography>
@@ -72,7 +70,7 @@ export function SourcePickerDialog({ open, fullScreen, onClose, onContinue }: Pr
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Cancel</Button>
-        <Button variant="contained" disabled={!picked} onClick={() => onContinue(picked)} data-tour="source-continue">Continue</Button>
+        <Button variant="contained" disabled={!picked} onClick={() => onContinue(picked)}>Continue</Button>
       </DialogActions>
     </Dialog>
   );
