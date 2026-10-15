@@ -54,7 +54,7 @@ by typing, by pasting a block of text, or by importing a CSV file.
 | Stored form (from the mocks) | Members are stored as **base calls** (`base_callsign()` in SQL). Adding `KK4PWJ/P` stores `KK4PWJ`, which matches every portable variant. A group can't target only `/P`; a typed subscription callsign still can. The web never works out a base call. |
 | Editing (from the mocks) | One dialog holds the name and the whole list. Nothing is written until **Create group** or **Save changes**. Then a single RPC replaces the name and members atomically. |
 | On the air now (from the mocks) | A member spotted in the last **30 minutes** in `raw_spots` (POTA, SOTAwatch, DX Cluster, and RBN copies of watched calls), matched on `raw_spots.base_callsign`. Computed in SQL. |
-| Get alerts on a group | Works like Get alerts on a profile (`CallsignPage.getAlerts`). It creates "<group name> on the air" with `group_ids = [id]`, the first healthy destination and a 30-minute quiet window. If a subscription already uses this group, it says "You already have <name>." and opens Subscriptions instead. With no healthy destination it says "Add a destination to start getting alerts.". |
+| Get alerts on a group | Works like Get alerts on a profile (`CallsignPage.getAlerts`). It creates "<group name> on the air" with the group as its only rule, the first healthy destination (none if there isn't one, so it waits for one) and a 30-minute quiet window, then opens it in the subscription editor to finish. If a subscription already uses this group, it says "You already have <name>." and opens that subscription's editor instead. |
 
 ## Section 1: Schema and RPCs (approved; built in #129)
 
