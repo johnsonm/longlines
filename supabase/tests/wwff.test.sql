@@ -51,6 +51,8 @@ select ok(not source_matches('{}', 'wwff'), 'source_matches: empty sources leave
 select ok(source_matches('{wwff}', 'wwff'), 'source_matches: sources {wwff} take wwff');
 
 -- The delivered spot carries the WWFF columns.
+-- A new destination's token bucket starts empty (20261015000400); a minute ago fills it.
+update destinations set claim_tokens = 0, claim_tokens_at = now() - interval '1 minute';
 select is((select spot ->> 'wwff_reference' from claim_deliveries() where subscription_id = (select wwff_only from subs)), 'ONFF-0123',
   'claim_deliveries puts wwff_reference in the spot');
 
