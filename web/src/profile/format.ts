@@ -121,7 +121,7 @@ export function noLicenseMessage(usPrefix: boolean): string {
 
 const PROGRAM_NOUNS: Record<string, [string, string]> = { POTA: ["park", "parks"], SOTA: ["summit", "summits"] };
 
-/** The Activations KPI's detail: "3 parks, 2 summits". Programs without a noun read "1 WWFF reference". */
+/** The "Days at parks/summits" KPI's detail: "3 parks, 2 summits". Programs without a noun read "1 WWFF reference". */
 export function activationsDetail(activations: HeardProfile["activations"]): string {
   const counts = new Map<string, number>([["POTA", 0], ["SOTA", 0]]);
   for (const a of activations) counts.set(a.program, a.references);

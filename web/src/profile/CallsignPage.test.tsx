@@ -193,7 +193,7 @@ describe("CallsignPage profile", () => {
   it("renders every section", () => {
     renderAt("/call/KK4PWJ");
     for (const title of [
-      "Activity", "Last 30 days", "When they're on the air", "Bands", "Modes", "Where they've activated", "Hunting", "Heard by",
+      "Activity", "Last 30 days", "When they're on the air", "Bands", "Modes", "Where they've been spotted", "Hunting", "Heard by",
       "Recent spots",
     ]) {
       expect(screen.getByText(title)).toBeInTheDocument();
@@ -201,7 +201,7 @@ describe("CallsignPage profile", () => {
     // The KPI and the card share the name.
     expect(screen.getAllByText("Heard from")).toHaveLength(2);
     expect(screen.getByText("Spots per month, since Long Lines started")).toBeInTheDocument();
-    expect(screen.getByRole("img", { name: "Map of activations by state" })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Map of days spotted by state" })).toBeInTheDocument();
     expect(screen.getByText("Pisgah National Forest")).toBeInTheDocument();
     expect(screen.getByText("Germany")).toBeInTheDocument();
     expect(screen.getByText("W3LPL")).toBeInTheDocument();
@@ -217,16 +217,29 @@ describe("CallsignPage profile", () => {
       heard: { ...HEARD, activationsByLocation: {}, reach: [], hunting: { spots: 0, sources: [] }, heardBy: [], recentSpots: [] },
     });
     renderAt("/call/KK4PWJ");
-    expect(screen.getByText("Where they've activated")).toBeInTheDocument();
-    expect(screen.queryByRole("img", { name: "Map of activations by state" })).not.toBeInTheDocument();
+    expect(screen.getByText("Where they've been spotted")).toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: "Map of days spotted by state" })).not.toBeInTheDocument();
     for (const title of ["Hunting", "Heard by", "Recent spots"]) expect(screen.queryByText(title)).not.toBeInTheDocument();
     expect(screen.getAllByText("Heard from")).toHaveLength(1);
+  });
+
+  it("lists only the ten most recent parks and summits, as days spotted", () => {
+    const references = Array.from({ length: 12 }, (_, i) => ({
+      reference: `US-${1000 + i}`, name: `Park ${i}`, program: "POTA", location: "US-NC", activations: 1, spots: 4, lastDay: "2026-10-12",
+    }));
+    profileIs({ ...FULL, heard: { ...HEARD, references } });
+    renderAt("/call/KK4PWJ");
+    expect(screen.getByText("Days at parks/summits")).toBeInTheDocument();
+    expect(screen.getByText("Parks and summits, most recent first")).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Days" })).toBeInTheDocument();
+    expect(screen.getByText("US-1009")).toBeInTheDocument();
+    expect(screen.queryByText("US-1010")).not.toBeInTheDocument();
   });
 
   it("hides the activations card when there are none", () => {
     profileIs({ ...FULL, heard: { ...HEARD, references: [], activations: [], activationsByLocation: {} } });
     renderAt("/call/KK4PWJ");
-    expect(screen.queryByText("Where they've activated")).not.toBeInTheDocument();
+    expect(screen.queryByText("Where they've been spotted")).not.toBeInTheDocument();
     expect(screen.getByText("0 parks, 0 summits")).toBeInTheDocument();
   });
 
