@@ -133,11 +133,11 @@ PR 2 is safe to merge alone. PR 3 is safe to merge alone: existing push destinat
 
 **Files:** `web/public/manifest.webmanifest`, `web/public/icon-192.png`, `icon-512.png`, `icon-192-maskable.png`, `icon-512-maskable.png`, `badge-72.png`, `apple-touch-icon.png` (committed), `web/index.html`, `web/src/pwa/manifest.test.ts`.
 
-- [ ] Manifest: `name`/`short_name` "Long Lines", `description` from the spec Copy, `display: "standalone"`, `start_url: "/"`, `scope: "/"`, colours per decision 15, four icons with `purpose` `any` and `maskable`.
-- [ ] Generate the icons once from `web/public/favicon.svg` (decision 14): maskable variants keep the glyph inside the 80% safe zone on a solid background; `badge-72.png` is a white silhouette on transparent; `apple-touch-icon.png` is 180×180 on a solid background. Commit the PNGs; nothing generates them at build time.
-- [ ] `index.html`: manifest link, two `theme-color` metas with light and dark `media`, `apple-touch-icon`, `apple-mobile-web-app-capable`.
-- [ ] `manifest.test.ts` (node): parse the manifest, assert the fields, assert every icon file exists.
-- [ ] Commit `PWA: manifest, icons and install tags`.
+- [x] Manifest: `name`/`short_name` "Long Lines", `description` from the spec Copy, `display: "standalone"`, `start_url: "/"`, `scope: "/"`, colours per decision 15, four icons with `purpose` `any` and `maskable`.
+- [x] Generate the icons once from `web/public/favicon.svg` (decision 14): maskable variants keep the glyph inside the 80% safe zone on a solid background; `badge-72.png` is a white silhouette on transparent; `apple-touch-icon.png` is 180×180 on a solid background. Commit the PNGs; nothing generates them at build time.
+- [x] `index.html`: manifest link, two `theme-color` metas with light and dark `media`, `apple-touch-icon`, `apple-mobile-web-app-capable`.
+- [x] `manifest.test.ts` (node): parse the manifest, assert the fields, assert every icon file exists.
+- [x] Commit `PWA: manifest, icons and install tags`.
 
 ### Task 2: Service worker, registration, build and headers
 
