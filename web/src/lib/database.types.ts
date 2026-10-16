@@ -27,6 +27,7 @@ export type Database = {
                   Row: {
                     "requests": number,"token_id": string,"window_start": string
                   }
+                  ComputedFields: never
                   Insert: {
                     "requests": number,"token_id": string,"window_start": string
                   }
@@ -46,6 +47,7 @@ isOneToOne: false
                   Row: {
                     "created_at": string,"expires_at": string | null,"id": string,"last_used_at": string | null,"lifetime_days": number | null,"name": string,"rotated_at": string | null,"scope": string,"token_hash": string,"token_prefix": string,"user_id": string
                   }
+                  ComputedFields: never
                   Insert: {
                     "created_at"?: string,"expires_at"?: string | null,"id"?: string,"last_used_at"?: string | null,"lifetime_days"?: number | null,"name": string,"rotated_at"?: string | null,"scope": string,"token_hash": string,"token_prefix": string,"user_id": string
                   }
@@ -59,6 +61,7 @@ isOneToOne: false
                   Row: {
                     "day": string,"igate": string
                   }
+                  ComputedFields: never
                   Insert: {
                     "day": string,"igate": string
                   }
@@ -72,6 +75,7 @@ isOneToOne: false
                   Row: {
                     "base": string,"day": string
                   }
+                  ComputedFields: never
                   Insert: {
                     "base": string,"day": string
                   }
@@ -85,6 +89,7 @@ isOneToOne: false
                   Row: {
                     "day": string,"packet_type": string,"packets": number
                   }
+                  ComputedFields: never
                   Insert: {
                     "day": string,"packet_type": string,"packets": number
                   }
@@ -98,6 +103,7 @@ isOneToOne: false
                   Row: {
                     "hour_start": string,"packets": number
                   }
+                  ComputedFields: never
                   Insert: {
                     "hour_start": string,"packets": number
                   }
@@ -111,6 +117,7 @@ isOneToOne: false
                   Row: {
                     "destination": string,"igate": string | null,"line": string,"line_md5": string,"packet_type": string,"path": string,"q_construct": string | null,"received_at": string,"source_call": string
                   }
+                  ComputedFields: never
                   Insert: {
                     "destination": string,"igate"?: string | null,"line": string,"line_md5": string,"packet_type": string,"path": string,"q_construct"?: string | null,"received_at": string,"source_call": string
                   }
@@ -124,6 +131,7 @@ isOneToOne: false
                   Row: {
                     "day": string,"rolled_at": string
                   }
+                  ComputedFields: never
                   Insert: {
                     "day": string,"rolled_at": string
                   }
@@ -137,6 +145,7 @@ isOneToOne: false
                   Row: {
                     "archived_at": string,"bytes": number | null,"object_path": string | null,"row_count": number,"slice_end": string,"slice_start": string,"source": string
                   }
+                  ComputedFields: never
                   Insert: {
                     "archived_at"?: string,"bytes"?: number | null,"object_path"?: string | null,"row_count": number,"slice_end": string,"slice_start": string,"source": string
                   }
@@ -150,6 +159,7 @@ isOneToOne: false
                   Row: {
                     "generated_at": string,"id": boolean,"payload": NonNullable<Json>
                   }
+                  ComputedFields: never
                   Insert: {
                     "generated_at": string,"id"?: boolean,"payload": NonNullable<Json>
                   }
@@ -157,12 +167,13 @@ isOneToOne: false
                     "generated_at"?: string,"id"?: boolean,"payload"?: NonNullable<Json>
                   }
                   Relationships: [
-
+                    
                   ]
                 },"callsign_activity": {
                   Row: {
                     "band": string | null,"base": string,"grain": string,"hours": (number)[],"mode_bucket": string,"period": string,"role": string,"source": string,"spots": number
                   }
+                  ComputedFields: never
                   Insert: {
                     "band"?: string | null,"base": string,"grain": string,"hours": (number)[],"mode_bucket": string,"period": string,"role": string,"source": string,"spots": number
                   }
@@ -176,6 +187,7 @@ isOneToOne: false
                   Row: {
                     "callsign": string,"group_id": string
                   }
+                  ComputedFields: never
                   Insert: {
                     "callsign": string,"group_id": string
                   }
@@ -195,6 +207,7 @@ isOneToOne: false
                   Row: {
                     "created_at": string,"id": string,"name": string,"updated_at": string,"user_id": string
                   }
+                  ComputedFields: never
                   Insert: {
                     "created_at"?: string,"id"?: string,"name": string,"updated_at"?: string,"user_id": string
                   }
@@ -208,6 +221,7 @@ isOneToOne: false
                   Row: {
                     "authority": string,"callsign": string,"country": string | null,"expires_on": string | null,"granted_on": string | null,"grid": string | null,"loaded_at": string,"name": string | null,"operator_class": string | null,"state": string | null,"status": string | null
                   }
+                  ComputedFields: never
                   Insert: {
                     "authority": string,"callsign": string,"country"?: string | null,"expires_on"?: string | null,"granted_on"?: string | null,"grid"?: string | null,"loaded_at": string,"name"?: string | null,"operator_class"?: string | null,"state"?: string | null,"status"?: string | null
                   }
@@ -221,6 +235,7 @@ isOneToOne: false
                   Row: {
                     "callsign": string,"generated_at": string,"payload": NonNullable<Json>
                   }
+                  ComputedFields: never
                   Insert: {
                     "callsign": string,"generated_at": string,"payload": NonNullable<Json>
                   }
@@ -234,6 +249,7 @@ isOneToOne: false
                   Row: {
                     "base": string,"continent": string,"country": string,"grain": string,"period": string,"source": string,"spots": number
                   }
+                  ComputedFields: never
                   Insert: {
                     "base": string,"continent": string,"country": string,"grain": string,"period": string,"source": string,"spots": number
                   }
@@ -247,6 +263,7 @@ isOneToOne: false
                   Row: {
                     "base": string,"days": number,"first_day": string,"last_day": string,"location": string | null,"name": string | null,"program": string,"reference": string,"spots": number
                   }
+                  ComputedFields: never
                   Insert: {
                     "base": string,"days": number,"first_day": string,"last_day": string,"location"?: string | null,"name"?: string | null,"program": string,"reference": string,"spots": number
                   }
@@ -260,6 +277,7 @@ isOneToOne: false
                   Row: {
                     "day": string,"rolled_at": string
                   }
+                  ComputedFields: never
                   Insert: {
                     "day": string,"rolled_at": string
                   }
@@ -273,6 +291,7 @@ isOneToOne: false
                   Row: {
                     "base": string,"days_on_air": number,"first_spot": string,"last_frequency_khz": number,"last_mode": string | null,"last_spot": string
                   }
+                  ComputedFields: never
                   Insert: {
                     "base": string,"days_on_air": number,"first_spot": string,"last_frequency_khz": number,"last_mode"?: string | null,"last_spot": string
                   }
@@ -286,6 +305,7 @@ isOneToOne: false
                   Row: {
                     "base": string,"callsign": string,"last_day": string,"spots": number
                   }
+                  ComputedFields: never
                   Insert: {
                     "base": string,"callsign": string,"last_day": string,"spots": number
                   }
@@ -295,10 +315,39 @@ isOneToOne: false
                   Relationships: [
                     
                   ]
+                },"country_daily_spots": {
+                  Row: {
+                    "day": string,"entity": string,"source": string,"spots": number
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "day": string,"entity": string,"source": string,"spots": number
+                  }
+                  Update: {
+                    "day"?: string,"entity"?: string,"source"?: string,"spots"?: number
+                  }
+                  Relationships: [
+                    
+                  ]
+                },"country_rollup_days": {
+                  Row: {
+                    "day": string,"rolled_at": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "day": string,"rolled_at": string
+                  }
+                  Update: {
+                    "day"?: string,"rolled_at"?: string
+                  }
+                  Relationships: [
+                    
+                  ]
                 },"cty_entities": {
                   Row: {
                     "continent": string,"cq_zone": number,"itu_zone": number,"lat": number,"lon": number,"name": string,"prefix": string
                   }
+                  ComputedFields: never
                   Insert: {
                     "continent": string,"cq_zone": number,"itu_zone": number,"lat": number,"lon": number,"name": string,"prefix": string
                   }
@@ -308,10 +357,25 @@ isOneToOne: false
                   Relationships: [
                     
                   ]
+                },"cty_entity_countries": {
+                  Row: {
+                    "country": string,"entity": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "country": string,"entity": string
+                  }
+                  Update: {
+                    "country"?: string,"entity"?: string
+                  }
+                  Relationships: [
+                    
+                  ]
                 },"cty_load": {
                   Row: {
                     "entities": number,"id": boolean,"loaded_at": string,"prefixes": number,"version": string | null
                   }
+                  ComputedFields: never
                   Insert: {
                     "entities": number,"id"?: boolean,"loaded_at": string,"prefixes": number,"version"?: string | null
                   }
@@ -325,6 +389,7 @@ isOneToOne: false
                   Row: {
                     "continent": string,"cq_zone": number,"entity": string,"exact": boolean,"itu_zone": number,"pattern": string
                   }
+                  ComputedFields: never
                   Insert: {
                     "continent": string,"cq_zone": number,"entity": string,"exact": boolean,"itu_zone": number,"pattern": string
                   }
@@ -342,13 +407,14 @@ isOneToOne: false
                   ]
                 },"deliveries": {
                   Row: {
-                    "attempts": number,"created_at": string,"destination_id": string,"id": number,"last_error": string | null,"sent_at": string | null,"spot_id": number,"status": string,"subscription_id": string
+                    "attempts": number,"created_at": string,"destination_id": string,"dropped_at": string | null,"id": number,"last_error": string | null,"sent_at": string | null,"spot_id": number,"status": string,"subscription_id": string
                   }
+                  ComputedFields: never
                   Insert: {
-                    "attempts"?: number,"created_at"?: string,"destination_id": string,"id"?: number,"last_error"?: string | null,"sent_at"?: string | null,"spot_id": number,"status"?: string,"subscription_id": string
+                    "attempts"?: number,"created_at"?: string,"destination_id": string,"dropped_at"?: string | null,"id"?: number,"last_error"?: string | null,"sent_at"?: string | null,"spot_id": number,"status"?: string,"subscription_id": string
                   }
                   Update: {
-                    "attempts"?: number,"created_at"?: string,"destination_id"?: string,"id"?: number,"last_error"?: string | null,"sent_at"?: string | null,"spot_id"?: number,"status"?: string,"subscription_id"?: string
+                    "attempts"?: number,"created_at"?: string,"destination_id"?: string,"dropped_at"?: string | null,"id"?: number,"last_error"?: string | null,"sent_at"?: string | null,"spot_id"?: number,"status"?: string,"subscription_id"?: string
                   }
                   Relationships: [
                     {
@@ -379,13 +445,14 @@ isOneToOne: false
                   ]
                 },"destinations": {
                   Row: {
-                    "consecutive_failures": number,"created_at": string,"health": string,"id": string,"last_error": string | null,"last_error_at": string | null,"last_success_at": string | null,"name": string,"signing_secret": string | null,"type": string,"url": string | null,"url_display": string,"user_id": string
+                    "claim_tokens": number,"claim_tokens_at": string,"consecutive_failures": number,"created_at": string,"health": string,"id": string,"last_error": string | null,"last_error_at": string | null,"last_success_at": string | null,"name": string,"signing_secret": string | null,"throttle_level": number,"throttled_until": string | null,"type": string,"url": string | null,"url_display": string,"user_id": string,"api_destination_json": Json | null
                   }
+                  ComputedFields: "api_destination_json"
                   Insert: {
-                    "consecutive_failures"?: number,"created_at"?: string,"health"?: string,"id"?: string,"last_error"?: string | null,"last_error_at"?: string | null,"last_success_at"?: string | null,"name": string,"signing_secret"?: string | null,"type": string,"url"?: string | null,"url_display": string,"user_id": string
+                    "claim_tokens"?: number,"claim_tokens_at"?: string,"consecutive_failures"?: number,"created_at"?: string,"health"?: string,"id"?: string,"last_error"?: string | null,"last_error_at"?: string | null,"last_success_at"?: string | null,"name": string,"signing_secret"?: string | null,"throttle_level"?: number,"throttled_until"?: string | null,"type": string,"url"?: string | null,"url_display": string,"user_id": string
                   }
                   Update: {
-                    "consecutive_failures"?: number,"created_at"?: string,"health"?: string,"id"?: string,"last_error"?: string | null,"last_error_at"?: string | null,"last_success_at"?: string | null,"name"?: string,"signing_secret"?: string | null,"type"?: string,"url"?: string | null,"url_display"?: string,"user_id"?: string
+                    "claim_tokens"?: number,"claim_tokens_at"?: string,"consecutive_failures"?: number,"created_at"?: string,"health"?: string,"id"?: string,"last_error"?: string | null,"last_error_at"?: string | null,"last_success_at"?: string | null,"name"?: string,"signing_secret"?: string | null,"throttle_level"?: number,"throttled_until"?: string | null,"type"?: string,"url"?: string | null,"url_display"?: string,"user_id"?: string
                   }
                   Relationships: [
                     
@@ -394,6 +461,7 @@ isOneToOne: false
                   Row: {
                     "operator_class": string | null,"usi": number
                   }
+                  ComputedFields: never
                   Insert: {
                     "operator_class"?: string | null,"usi": number
                   }
@@ -407,6 +475,7 @@ isOneToOne: false
                   Row: {
                     "name": string | null,"state": string | null,"usi": number
                   }
+                  ComputedFields: never
                   Insert: {
                     "name"?: string | null,"state"?: string | null,"usi": number
                   }
@@ -420,6 +489,7 @@ isOneToOne: false
                   Row: {
                     "callsign": string,"expires_on": string | null,"granted_on": string | null,"status": string | null,"usi": number
                   }
+                  ComputedFields: never
                   Insert: {
                     "callsign": string,"expires_on"?: string | null,"granted_on"?: string | null,"status"?: string | null,"usi": number
                   }
@@ -433,6 +503,7 @@ isOneToOne: false
                   Row: {
                     "callsign": string,"hidden_at": string,"note": string | null
                   }
+                  ComputedFields: never
                   Insert: {
                     "callsign": string,"hidden_at"?: string,"note"?: string | null
                   }
@@ -446,6 +517,7 @@ isOneToOne: false
                   Row: {
                     "error": string,"id": number,"occurred_at": string,"raw_payload": NonNullable<Json>,"source": string
                   }
+                  ComputedFields: never
                   Insert: {
                     "error": string,"id"?: number,"occurred_at"?: string,"raw_payload": NonNullable<Json>,"source": string
                   }
@@ -459,6 +531,7 @@ isOneToOne: false
                   Row: {
                     "consecutive_failures": number,"last_epoch": string | null,"last_error": string | null,"last_error_at": string | null,"last_run_at": string | null,"last_success_at": string | null,"source": string,"total_runs": number,"total_spots_ingested": number
                   }
+                  ComputedFields: never
                   Insert: {
                     "consecutive_failures"?: number,"last_epoch"?: string | null,"last_error"?: string | null,"last_error_at"?: string | null,"last_run_at"?: string | null,"last_success_at"?: string | null,"source": string,"total_runs"?: number,"total_spots_ingested"?: number
                   }
@@ -472,6 +545,7 @@ isOneToOne: false
                   Row: {
                     "applied_at": string | null,"authority": string,"counts": Json | null,"error": string | null,"id": number,"licenses": number | null,"ready_at": string | null,"started_at": string,"status": string,"version": string
                   }
+                  ComputedFields: never
                   Insert: {
                     "applied_at"?: string | null,"authority": string,"counts"?: Json | null,"error"?: string | null,"id"?: never,"licenses"?: number | null,"ready_at"?: string | null,"started_at"?: string,"status"?: string,"version": string
                   }
@@ -485,6 +559,7 @@ isOneToOne: false
                   Row: {
                     "client": string,"lookups": number,"window_start": string
                   }
+                  ComputedFields: never
                   Insert: {
                     "client": string,"lookups": number,"window_start": string
                   }
@@ -498,6 +573,7 @@ isOneToOne: false
                   Row: {
                     "callsign": string,"created_at": string,"id": string,"name": string,"timezone": string,"utc_times": boolean
                   }
+                  ComputedFields: never
                   Insert: {
                     "callsign": string,"created_at"?: string,"id": string,"name"?: string,"timezone"?: string,"utc_times"?: boolean
                   }
@@ -511,6 +587,7 @@ isOneToOne: false
                   Row: {
                     "auth": string,"created_at": string,"endpoint": string,"id": string,"label": string,"last_error": string | null,"last_error_at": string | null,"last_success_at": string | null,"p256dh": string,"user_id": string
                   }
+                  ComputedFields: never
                   Insert: {
                     "auth": string,"created_at"?: string,"endpoint": string,"id"?: string,"label": string,"last_error"?: string | null,"last_error_at"?: string | null,"last_success_at"?: string | null,"p256dh": string,"user_id": string
                   }
@@ -522,13 +599,14 @@ isOneToOne: false
                   ]
                 },"raw_spots": {
                   Row: {
-                    "band": string | null,"base_callsign": string | null,"callsign": string,"comment": string,"content_hash": string,"frequency_khz": number,"id": number,"ingested_at": string,"mode": string | null,"mode_family": string | null,"pota_location": string | null,"pota_park_name": string | null,"pota_reference": string | null,"raw_payload": NonNullable<Json>,"sota_summit_ref": string | null,"wwff_reference": string | null,"wwff_reference_name": string | null,"source": string,"source_spot_id": string,"spot_time": string,"spotter": string | null
+                    "band": string | null,"base_callsign": string | null,"callsign": string,"comment": string,"content_hash": string,"frequency_khz": number,"id": number,"ingested_at": string,"mode": string | null,"mode_family": string | null,"pota_location": string | null,"pota_park_name": string | null,"pota_reference": string | null,"raw_payload": NonNullable<Json>,"sota_summit_ref": string | null,"source": string,"source_spot_id": string,"spot_time": string,"spotter": string | null,"wwff_reference": string | null,"wwff_reference_name": string | null
                   }
+                  ComputedFields: never
                   Insert: {
-                    "band"?: string | null,"base_callsign"?: never,"callsign": string,"comment"?: string,"content_hash": string,"frequency_khz": number,"id"?: number,"ingested_at"?: string,"mode"?: string | null,"mode_family"?: string | null,"pota_location"?: string | null,"pota_park_name"?: string | null,"pota_reference"?: string | null,"raw_payload": NonNullable<Json>,"sota_summit_ref"?: string | null,"wwff_reference"?: string | null,"wwff_reference_name"?: string | null,"source": string,"source_spot_id": string,"spot_time": string,"spotter"?: string | null
+                    "band"?: string | null,"base_callsign"?: never,"callsign": string,"comment"?: string,"content_hash": string,"frequency_khz": number,"id"?: number,"ingested_at"?: string,"mode"?: string | null,"mode_family"?: string | null,"pota_location"?: string | null,"pota_park_name"?: string | null,"pota_reference"?: string | null,"raw_payload": NonNullable<Json>,"sota_summit_ref"?: string | null,"source": string,"source_spot_id": string,"spot_time": string,"spotter"?: string | null,"wwff_reference"?: string | null,"wwff_reference_name"?: string | null
                   }
                   Update: {
-                    "band"?: string | null,"base_callsign"?: never,"callsign"?: string,"comment"?: string,"content_hash"?: string,"frequency_khz"?: number,"id"?: number,"ingested_at"?: string,"mode"?: string | null,"mode_family"?: string | null,"pota_location"?: string | null,"pota_park_name"?: string | null,"pota_reference"?: string | null,"raw_payload"?: NonNullable<Json>,"sota_summit_ref"?: string | null,"wwff_reference"?: string | null,"wwff_reference_name"?: string | null,"source"?: string,"source_spot_id"?: string,"spot_time"?: string,"spotter"?: string | null
+                    "band"?: string | null,"base_callsign"?: never,"callsign"?: string,"comment"?: string,"content_hash"?: string,"frequency_khz"?: number,"id"?: number,"ingested_at"?: string,"mode"?: string | null,"mode_family"?: string | null,"pota_location"?: string | null,"pota_park_name"?: string | null,"pota_reference"?: string | null,"raw_payload"?: NonNullable<Json>,"sota_summit_ref"?: string | null,"source"?: string,"source_spot_id"?: string,"spot_time"?: string,"spotter"?: string | null,"wwff_reference"?: string | null,"wwff_reference_name"?: string | null
                   }
                   Relationships: [
                     
@@ -537,6 +615,7 @@ isOneToOne: false
                   Row: {
                     "band": string | null,"day": string,"spots": number,"spotter": string
                   }
+                  ComputedFields: never
                   Insert: {
                     "band"?: string | null,"day": string,"spots": number,"spotter": string
                   }
@@ -550,6 +629,7 @@ isOneToOne: false
                   Row: {
                     "callsign": string,"day": string,"spots": number
                   }
+                  ComputedFields: never
                   Insert: {
                     "callsign": string,"day": string,"spots": number
                   }
@@ -563,6 +643,7 @@ isOneToOne: false
                   Row: {
                     "hour": string,"spots": number
                   }
+                  ComputedFields: never
                   Insert: {
                     "hour": string,"spots": number
                   }
@@ -576,6 +657,7 @@ isOneToOne: false
                   Row: {
                     "day": string,"rolled_at": string
                   }
+                  ComputedFields: never
                   Insert: {
                     "day": string,"rolled_at": string
                   }
@@ -589,6 +671,7 @@ isOneToOne: false
                   Row: {
                     "hour": string,"rolled_at": string
                   }
+                  ComputedFields: never
                   Insert: {
                     "hour": string,"rolled_at": string
                   }
@@ -602,6 +685,7 @@ isOneToOne: false
                   Row: {
                     "band": string | null,"callsign": string,"frequency_khz": number,"ingested_at": string,"line": string,"mode": string | null,"mode_family": string | null,"received_at": string,"snr": number,"speed": number,"speed_unit": string,"spot_time": string,"spot_type": string,"spotter": string
                   }
+                  ComputedFields: never
                   Insert: {
                     "band"?: string | null,"callsign": string,"frequency_khz": number,"ingested_at"?: string,"line": string,"mode"?: string | null,"mode_family"?: string | null,"received_at": string,"snr": number,"speed": number,"speed_unit": string,"spot_time": string,"spot_type": string,"spotter": string
                   }
@@ -615,6 +699,7 @@ isOneToOne: false
                   Row: {
                     "callsign": string,"skimmers": number,"spots": number,"window_start": string
                   }
+                  ComputedFields: never
                   Insert: {
                     "callsign": string,"skimmers": number,"spots": number,"window_start": string
                   }
@@ -628,6 +713,7 @@ isOneToOne: false
                   Row: {
                     "attempted_at": string,"id": number,"identifier": string
                   }
+                  ComputedFields: never
                   Insert: {
                     "attempted_at"?: string,"id"?: number,"identifier": string
                   }
@@ -641,6 +727,7 @@ isOneToOne: false
                   Row: {
                     "generated_at": string,"id": number,"payload": NonNullable<Json>,"window_end": string,"window_start": string
                   }
+                  ComputedFields: never
                   Insert: {
                     "generated_at"?: string,"id"?: number,"payload": NonNullable<Json>,"window_end": string,"window_start": string
                   }
@@ -654,6 +741,7 @@ isOneToOne: false
                   Row: {
                     "destination_id": string,"subscription_id": string
                   }
+                  ComputedFields: never
                   Insert: {
                     "destination_id": string,"subscription_id": string
                   }
@@ -679,6 +767,7 @@ isOneToOne: false
                   Row: {
                     "callsign": string,"last_sent_at": string,"subscription_id": string
                   }
+                  ComputedFields: never
                   Insert: {
                     "callsign": string,"last_sent_at": string,"subscription_id": string
                   }
@@ -696,8 +785,9 @@ isOneToOne: false
                   ]
                 },"subscriptions": {
                   Row: {
-                    "created_at": string,"enabled": boolean,"group_ids": (string)[],"id": string,"name": string,"quiet_minutes": number,"rules": NonNullable<Json>,"sources": (string)[],"updated_at": string,"user_id": string
+                    "created_at": string,"enabled": boolean,"group_ids": (string)[],"id": string,"name": string,"quiet_minutes": number,"rules": NonNullable<Json>,"sources": (string)[],"updated_at": string,"user_id": string,"api_subscription_json": Json | null
                   }
+                  ComputedFields: "api_subscription_json"
                   Insert: {
                     "created_at"?: string,"enabled"?: boolean,"group_ids"?: (string)[],"id"?: string,"name": string,"quiet_minutes"?: number,"rules"?: NonNullable<Json>,"sources"?: (string)[],"updated_at"?: string,"user_id": string
                   }
@@ -714,6 +804,7 @@ isOneToOne: false
                   Row: {
                     "archived_through": string | null,"pending_slices": number | null,"source": string | null
                   }
+                  ComputedFields: never
                   Relationships: [
                     
                   ]
@@ -721,6 +812,7 @@ isOneToOne: false
                   Row: {
                     "consecutive_failures": number | null,"last_error": string | null,"last_run_at": string | null,"last_success_at": string | null,"seconds_since_last_success": number | null,"source": string | null,"spots_last_24h": number | null,"spots_last_hour": number | null,"total_spots_ingested": number | null
                   }
+                  ComputedFields: never
                   Insert: {
                            "consecutive_failures"?: number | null,"last_error"?: string | null,"last_run_at"?: string | null,"last_success_at"?: string | null,"seconds_since_last_success"?: never,"source"?: string | null,"spots_last_24h"?: never,"spots_last_hour"?: never,"total_spots_ingested"?: number | null
                          }
@@ -732,13 +824,14 @@ isOneToOne: false
                   ]
                 },"recent_spots": {
                   Row: {
-                    "band": string | null,"callsign": string | null,"comment": string | null,"frequency_khz": number | null,"id": number | null,"mode": string | null,"mode_family": string | null,"pota_location": string | null,"pota_park_name": string | null,"pota_reference": string | null,"sota_summit_ref": string | null,"wwff_reference": string | null,"wwff_reference_name": string | null,"source": string | null,"spot_time": string | null,"spotter": string | null
+                    "band": string | null,"callsign": string | null,"comment": string | null,"frequency_khz": number | null,"id": number | null,"mode": string | null,"mode_family": string | null,"pota_location": string | null,"pota_park_name": string | null,"pota_reference": string | null,"sota_summit_ref": string | null,"source": string | null,"spot_time": string | null,"spotter": string | null,"wwff_reference": string | null,"wwff_reference_name": string | null
                   }
+                  ComputedFields: never
                   Insert: {
-                           "band"?: string | null,"callsign"?: string | null,"comment"?: string | null,"frequency_khz"?: number | null,"id"?: number | null,"mode"?: string | null,"mode_family"?: string | null,"pota_location"?: string | null,"pota_park_name"?: string | null,"pota_reference"?: string | null,"sota_summit_ref"?: string | null,"source"?: string | null,"spot_time"?: string | null,"spotter"?: string | null
+                           "band"?: string | null,"callsign"?: string | null,"comment"?: string | null,"frequency_khz"?: number | null,"id"?: number | null,"mode"?: string | null,"mode_family"?: string | null,"pota_location"?: string | null,"pota_park_name"?: string | null,"pota_reference"?: string | null,"sota_summit_ref"?: string | null,"source"?: string | null,"spot_time"?: string | null,"spotter"?: string | null,"wwff_reference"?: string | null,"wwff_reference_name"?: string | null
                          }
                         Update: {
-                           "band"?: string | null,"callsign"?: string | null,"comment"?: string | null,"frequency_khz"?: number | null,"id"?: number | null,"mode"?: string | null,"mode_family"?: string | null,"pota_location"?: string | null,"pota_park_name"?: string | null,"pota_reference"?: string | null,"sota_summit_ref"?: string | null,"source"?: string | null,"spot_time"?: string | null,"spotter"?: string | null
+                           "band"?: string | null,"callsign"?: string | null,"comment"?: string | null,"frequency_khz"?: number | null,"id"?: number | null,"mode"?: string | null,"mode_family"?: string | null,"pota_location"?: string | null,"pota_park_name"?: string | null,"pota_reference"?: string | null,"sota_summit_ref"?: string | null,"source"?: string | null,"spot_time"?: string | null,"spotter"?: string | null,"wwff_reference"?: string | null,"wwff_reference_name"?: string | null
                          }
                         Relationships: [
                     
@@ -747,6 +840,7 @@ isOneToOne: false
                   Row: {
                     "band": string | null,"base_callsign": string | null,"callsign": string | null,"frequency_khz": number | null,"mode": string | null,"mode_bucket": string | null,"program": string | null,"reference": string | null,"reference_location": string | null,"reference_name": string | null,"snr": number | null,"source": string | null,"spot_time": string | null,"spotter": string | null,"spotter_base": string | null
                   }
+                  ComputedFields: never
                   Relationships: [
                     
                   ]
@@ -757,10 +851,10 @@ isOneToOne: false
 { Args: { "p_args": Json,"p_op": string,"p_token_id": string }; Returns: Json
                            },
 "api_destination_json":
-{ Args: { "d": Database["public"]['Tables']["destinations"]['Row'] }; Returns: Json
+{ Args: { "d": Omit<Database["public"]['Tables']["destinations"]['Row'], Database["public"]['Tables']["destinations"]['ComputedFields']> }; Returns: Json
                            },
 "api_subscription_json":
-{ Args: { "s": Database["public"]['Tables']["subscriptions"]['Row'] }; Returns: Json
+{ Args: { "s": Omit<Database["public"]['Tables']["subscriptions"]['Row'], Database["public"]['Tables']["subscriptions"]['ComputedFields']> }; Returns: Json
                            },
 "apply_license_loads":
 { Args: Record<PropertyKey, never>; Returns: undefined
@@ -861,6 +955,22 @@ isOneToOne: false
 "delete_subscription":
 { Args: { "p_id": string }; Returns: undefined
                            },
+"delivery_queue_stats":
+{ Args: Record<PropertyKey, never>; Returns: {
+              "depth": number,"expired_last_hour": number
+            }[]
+                           },
+"destination_budget":
+{ Args: { "p_type": string }; Returns: {
+              "burst": number,"rate_per_minute": number
+            }[]
+                           },
+"destination_max_age":
+{ Args: { "p_type": string }; Returns: string
+                           },
+"destination_throttle_seconds":
+{ Args: { "p_level": number }; Returns: number
+                           },
 "destination_url_display":
 { Args: { "p_type": string,"p_url": string }; Returns: string
                            },
@@ -925,7 +1035,8 @@ isOneToOne: false
 "list_ingest_health":
 { Args: Record<PropertyKey, never>; Returns: {
               "consecutive_failures": number,"last_error": string,"last_run_at": string,"last_success_at": string,"seconds_since_last_success": number,"source": string
-            }[] },
+            }[]
+                           },
 "list_push_devices":
 { Args: { "p_current_endpoint"?: string }; Returns: {
               "created_at": string,"id": string,"is_current": boolean,"label": string,"last_error": string,"last_error_at": string,"last_success_at": string
@@ -944,11 +1055,11 @@ isOneToOne: false
 "pota_park_name": string | null,
 "pota_reference": string | null,
 "sota_summit_ref": string | null,
-"wwff_reference": string | null,
-"wwff_reference_name": string | null,
 "source": string | null,
 "spot_time": string | null,
-"spotter": string | null
+"spotter": string | null,
+"wwff_reference": string | null,
+"wwff_reference_name": string | null
             }[]
                           SetofOptions: {
         from: "*"
@@ -1056,6 +1167,9 @@ isOneToOne: false
 "rollup_callsign_day":
 { Args: { "p_day": string,"p_without_rbn"?: boolean }; Returns: number
                            },
+"rollup_country_day":
+{ Args: { "p_day": string }; Returns: boolean
+                           },
 "rollup_rbn_day":
 { Args: { "p_day": string }; Returns: undefined
                            },
@@ -1071,7 +1185,7 @@ isOneToOne: false
 { Args: { "p_destination_id": string }; Returns: string
                            },
 "rule_matches":
-{ Args: { "p_rule": Json,"spot": Database["public"]['Tables']["raw_spots"]['Row'] }; Returns: boolean
+{ Args: { "p_rule": Json,"spot": Omit<Database["public"]['Tables']["raw_spots"]['Row'], Database["public"]['Tables']["raw_spots"]['ComputedFields']> }; Returns: boolean
                            },
 "rules_name_stations":
 { Args: { "p_rules": Json }; Returns: boolean
@@ -1089,10 +1203,13 @@ isOneToOne: false
 { Args: { "p_source": string,"p_sources": (string)[] }; Returns: boolean
                            },
 "spot_matches":
-{ Args: { "spot": Database["public"]['Tables']["raw_spots"]['Row'],"sub": Database["public"]['Tables']["subscriptions"]['Row'] }; Returns: boolean
+{ Args: { "spot": Omit<Database["public"]['Tables']["raw_spots"]['Row'], Database["public"]['Tables']["raw_spots"]['ComputedFields']>,"sub": Omit<Database["public"]['Tables']["subscriptions"]['Row'], Database["public"]['Tables']["subscriptions"]['ComputedFields']> }; Returns: boolean
                            },
 "stats_payload_without_hidden":
 { Args: { "p_payload": Json }; Returns: Json
+                           },
+"throttle_destination":
+{ Args: { "p_destination_id": string,"p_msg_ids": (number)[],"p_seconds": number }; Returns: number
                            },
 "unregister_push_device":
 { Args: { "p_endpoint": string }; Returns: undefined

@@ -52,8 +52,8 @@ select is((select health from destinations), 'failing', 'fifth consecutive failu
 
 -- The Edge worker's rate-limit delay and drop RPCs went with it (20261015001400);
 -- a 429 is throttle_destination below and a drop is the claim's expiry sweep.
-select hasnt_function('public', 'delay_deliveries', array['bigint[]', 'integer'], 'delay_deliveries is gone');
-select hasnt_function('public', 'mark_deliveries_dropped', array['bigint[]', 'bigint[]'], 'mark_deliveries_dropped is gone');
+select hasnt_function('public', 'delay_deliveries', 'delay_deliveries is gone');
+select hasnt_function('public', 'mark_deliveries_dropped', 'mark_deliveries_dropped is gone');
 
 -- Success: sent, archived, destination healthy again.
 select mark_deliveries_sent(array[(select delivery_id from claimed)], array[(select msg_id from claimed)]);

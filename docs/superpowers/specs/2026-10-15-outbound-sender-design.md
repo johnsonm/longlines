@@ -732,3 +732,12 @@ notes for the next session. Earlier entries are never edited.
   20261015001300; PR #203 (`list_ingest_health_state_only`) took that version on main while this
   PR was open and `supabase db push` failed on the duplicate key in `schema_migrations`, so it is
   20261015001400 and main is merged in.
+- 2026-10-16, review follow-up to session 6 (branch `review-cleanup`): the `/code-review` leftovers.
+  `web/src/lib/database.types.ts` is generator output again (CLI 2.121.0, `ComputedFields` and
+  all): `api.ts` now strips a table's `ComputedFields` from `Subscription` and types `Destination`
+  as exactly `DESTINATION_COLUMNS`, so the three page fixtures compile unchanged and deviation (2)
+  above is closed. Also: `hasnt_function` in `deliveries_rpc.test.sql` asserts no overload at all;
+  the `deliver` mentions in `config.toml`, `run.ts`, `types.ts`, `send.ts`, `sw-handlers.ts`,
+  `generate-vapid-keys.ts` and the push spec's `handlers/deliver.ts` bullet now name the sender
+  and the claim's sweep; the "sender is down" runbook passes `-a longlines-sender` to
+  `fly machine restart`.

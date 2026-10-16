@@ -336,7 +336,8 @@ There is no Edge worker to fall back to: the `deliver` function, its cron job an
 removed after the cutover (`20261015001400_sender_cleanup`). Deliveries wait in the queue while the
 sender is stopped and expire at the usual limits (24 hours; 15 minutes for push), so the fix is
 to get the machine back: `fly status -a longlines-sender`, `fly logs -a longlines-sender`, then
-`fly machine restart` or `fly scale count 1 -a longlines-sender`. The git history before
+`fly machine restart <machine id> -a longlines-sender` (`fly machines list -a longlines-sender`
+gives the id) or `fly scale count 1 -a longlines-sender`. The git history before
 `20261015001400` has the old worker and its cron bodies if one is ever needed again.
 
 ### A change that spans both sides
