@@ -15,6 +15,32 @@ changed; `last_success_at` still advances.
 `last_error` is the most recent error ever recorded and is not cleared by a later success. Compare
 `last_error_at` with `last_success_at` before worrying about it.
 
+## Cron jobs
+
+Everything pg_cron runs, as `select jobname, schedule from cron.job order by 1;` should show it.
+Times are UTC.
+
+| Job | Schedule | Runs |
+| --- | --- | --- |
+| `ingest-pota` | every minute | the `ingest-pota` function over pg_net |
+| `ingest-sotawatch` | every 30 seconds | `ingest-sotawatch` |
+| `ingest-wwff` | every minute | `ingest-wwff` |
+| `match-pending-spots` | every minute | `match_pending_spots()`, the safety net behind the call every ingest makes |
+| `archive-aprs` | every 5 minutes | the `archive` function for APRS-IS only (`{"sources": ["aprs"]}`) |
+| `archive-spots` | every 10 minutes | `archive` for POTA, SOTAwatch, DX Cluster, WWFF and RBN |
+| `refresh-stats-snapshot` | :05 hourly | `refresh_stats_snapshot()` |
+| `prune-callsign-lookups` | :15 hourly | `prune_callsign_lookups()` |
+| `rollup-callsign-days` | :25 hourly | `backfill_callsign_rollups(2)` |
+| `apply-license-loads` | :50 hourly | `apply_license_loads()` |
+| `housekeeping` | 03:00 daily | `run_housekeeping()` |
+| `maintain-rbn-spots` | 03:35 daily | `maintain_rbn_spots()` |
+| `maintain-aprs-packets` | 03:45 daily | `maintain_aprs_packets()` |
+| `import-cty` | 04:20 Mondays | the `import-cty` function |
+
+There is no `deliver` job. Outbound delivery is the sender process polling the queue ("Delivery"
+below), not a cron job; `20261015001200_sender_cutover` unscheduled it. A `deliver` row here means
+that migration has not been pushed yet.
+
 ## Why am I not seeing spots?
 
 Work down the chain.
@@ -144,6 +170,7 @@ user or service-role JWT. Deploy with:
 ```sh
 supabase functions deploy sign-in
 supabase functions deploy delete-account
+supabase functions deploy send-test
 ```
 
 ## Sign-in rate limiting
@@ -168,34 +195,114 @@ user's JWT claims, which is how the RLS assertions work.
 
 ## Delivery
 
-Deploy the two delivery functions after `supabase db push`:
+Outbound delivery (Discord, webhooks, web push) is the sender: a Deno process on Fly.io in
+`sender/` (app `longlines-sender`), the way the relay holds the inbound streams. It connects to
+Postgres as the `delivery_sender` role through the Supavisor pooler, polls `claim_deliveries()`
+every few seconds and reports every outcome through its RPC allowlist. Every decision (what to
+claim, each destination's budget, throttles, expiry, health) is made in SQL; the sender only sends.
+Design notes are in `docs/ARCHITECTURE.md` ("Delivery: the sender"). The "Send test" button
+(`send-test`) and the management API (`api`) still send from Edge Functions with the same modules.
+
+### First deploy (sender)
+
+In this order, from the repository root:
+
+1. Database: `supabase db push` (the role, the rate-aware claim, the cutover).
+2. The role password. `delivery_sender` is created without one, so edit the placeholder in
+   `scripts/setup-sender-role.sql` and run it once against the hosted project. Never commit a copy
+   with the real value.
+
+   ```sh
+   psql "$DATABASE_URL" -f scripts/setup-sender-role.sql
+   ```
+
+3. The Fly app, on a network of its own:
+
+   ```sh
+   fly apps create longlines-sender --network sender
+   ```
+
+   The sender POSTs to URLs users chose. `--network sender` gives the app its own 6PN with nothing
+   else on it, so the relay and any later app cannot be reached from it even if the URL safety
+   check were wrong; Fly's DNS at `fdaa::3` is the only private address it can see, and that one is
+   refused. The network is fixed at creation; to change it, create a new app.
+
+4. Secrets (the table below):
+
+   ```sh
+   fly secrets set -a longlines-sender \
+     SENDER_DATABASE_URL='postgresql://delivery_sender.<PROJECT_REF>:<PASSWORD>@<POOLER_HOST>:5432/postgres' \
+     LONGLINES_VAPID_PUBLIC_KEY=<public> LONGLINES_VAPID_PRIVATE_KEY=<private> \
+     LONGLINES_VAPID_SUBJECT=mailto:you@example.com
+   ```
+
+5. First deploy, then pin the machine count:
+
+   ```sh
+   fly deploy --config sender/fly.toml --ha=false   # --ha=false: one machine, not two
+   fly scale count 1 -a longlines-sender
+   fly checks list -a longlines-sender
+   ```
+
+   Exactly one machine, always. The claim is a serial consumer: each cycle's marks land before
+   its next claim, which is what keeps the 60 s visibility timeout from re-sending anything. A
+   second machine would send duplicates, throttle destinations without coordination and split the
+   counts. `fly scale show` must report one.
+
+6. Bind Fly's GitHub integration with "Config path" `sender/fly.toml` and the working directory
+   left at the repository root ("Automatic deploys" under "Relay" below). From then on every merge
+   to `main` deploys it.
+
+| Secret | Required | What it is |
+| --- | --- | --- |
+| `SENDER_DATABASE_URL` | yes | `postgresql://delivery_sender.<ref>:<password>@<pooler host>:5432/postgres`: the session pooler (port 5432, IPv4), TLS required; URL-encode a password with reserved characters. The sender holds no Supabase API key. |
+| `LONGLINES_VAPID_PUBLIC_KEY`, `LONGLINES_VAPID_PRIVATE_KEY`, `LONGLINES_VAPID_SUBJECT` | for push | The same pair the Edge Functions hold ("Push notifications" below). Without all three, push deliveries fail with "Push isn't configured on the server." and Discord and webhooks carry on. |
+| `SENDER_POLL_MS` | no | Pause between claims that found less than a full batch; 5000, floor 1000. |
+| `SENDER_CONCURRENCY` | no | Destinations sent at once within a cycle; 4. |
+| `SENDER_STALE_MS` | no | The watchdog: exit 1 after this long without a successful claim; 120000. |
+| `SENDER_STATS_MS` | no | How often `/healthz` refreshes its queue figures; 60000. |
+| `SENDER_HEALTH_PORT` | no | 8080, what `sender/fly.toml`'s check expects. |
+
+`LONGLINES_ALLOW_INSECURE_DESTINATIONS` is refused with a non-local database host; never set it on
+Fly.
+
+### Is it running?
 
 ```sh
-supabase functions deploy deliver
-supabase functions deploy send-test
+fly logs -a longlines-sender          # one JSON line per cycle that sent or failed something; queue stats every minute
+fly checks list -a longlines-sender   # /healthz: healthy, last_claim_at, last_error, in_flight, totals, queue
 ```
 
-`deliver` is called by cron every minute and by the matcher; both use the Vault
-secrets from Phase 1, so nothing new to configure.
-
-### Is anything flowing?
+`/healthz` is 200 while the last successful claim (or the start) is under `SENDER_STALE_MS` old
+and 503 after. A 503 restarts nothing: Fly restarts the machine only when the process exits, and
+the watchdog exits 1 at the same threshold, which is what a wedged pooler connection looks like.
+`queue.depth` should stay near zero. `queue.expired_last_hour` counts deliveries that waited past
+their age limit (push 15 minutes, everything else 24 hours) and were dropped undelivered; that is
+the figure to watch.
 
 ```sql
 select status, count(*) from deliveries where created_at > now() - interval '1 hour' group by 1;
+select * from delivery_queue_stats();                -- what /healthz shows
 select * from pgmq.metrics('deliveries_queue');
-select name, type, health, consecutive_failures, last_error, last_error_at, last_success_at
+select name, type, health, consecutive_failures, throttle_level, throttled_until,
+       last_error, last_error_at, last_success_at
 from destinations order by health desc, last_error_at desc nulls last;
 select jobname, status, return_message, start_time
 from cron.job_run_details d join cron.job j using (jobid)
-where jobname in ('match-pending-spots', 'deliver') order by start_time desc limit 10;
+where jobname = 'match-pending-spots' order by start_time desc limit 10;
 ```
+
+Nothing calls the `deliver` Edge Function any more: the cutover migration unscheduled its cron job
+and took the pg_net kick out of `match_pending_spots`, which now does `pg_notify('deliveries', '')`
+instead (nothing listens yet; the sender polls). The function stays deployed until the cleanup
+migration so the rollback below is quick.
 
 ### A destination keeps failing
 
-`destinations.last_error` holds the upstream status or the safety-check
-message. Retries follow 30 s, 1 m, 2 m, 5 m, 15 m, then every 30 m, for 24
-hours; after that the delivery is `dropped`. To stop retrying without deleting
-the destination:
+`destinations.last_error` holds the upstream status or the safety-check message. Retries follow
+30 s, 1 m, 2 m, 5 m, 15 m, then every 30 m, until the delivery is older than its limit (24 hours;
+15 minutes for push), when SQL drops it and stamps `deliveries.dropped_at`. To stop retrying
+without deleting the destination:
 
 ```sql
 update destinations set health = 'paused' where id = '<id>';
@@ -203,23 +310,71 @@ update destinations set health = 'paused' where id = '<id>';
 update destinations set health = 'ok', consecutive_failures = 0 where id = '<id>';
 ```
 
-Paused destinations are skipped by the worker; their messages wait in the
-queue and are dropped at 24 hours like any other.
+The claim leaves paused destinations out; their messages wait in the queue and expire at the
+same limits as any other.
+
+### A destination is throttled
+
+A 429 from Discord, a webhook or a push service is not a failure. The sender calls
+`throttle_destination`, which sets `throttled_until` (the `Retry-After` when there is one, else
+60 s doubling to 15 minutes per level) and moves the messages' visibility to match; the claim
+skips the destination until then, and each successful cycle after it steps `throttle_level` down
+by one. `consecutive_failures` is untouched. The claim also meters each destination per minute
+(`destination_budget`: Discord 300 spots, push 3, webhooks 1000, burst equal to the rate), so a
+burst is spread over minutes rather than refused.
+
+```sql
+select name, type, throttle_level, throttled_until, claim_tokens
+from destinations where throttled_until > now();
+update destinations set throttled_until = null, throttle_level = 0 where id = '<id>';  -- lift it now
+```
+
+### Rollback to the Edge worker
+
+Until the cleanup migration ships, `deliver` is still deployed and runs the same loop
+(`_shared/delivery/run.ts`):
+
+```sh
+fly scale count 0 -a longlines-sender
+```
+
+Then a new migration (never edit an applied one) that re-schedules the `deliver` cron job and
+restores the kick, with the bodies copied from `20261006000009_delivery_cron.sql` and
+`20261015000500_subscription_needs_destination.sql`, and `supabase db push`. Deliveries resume on
+the next minute. To go forward again, push a migration that repeats `20261015001200` and
+`fly scale count 1`.
+
+### A change that spans both sides
+
+The sender deploys itself on merge; migrations and Edge Functions are pushed by hand. Order the
+hand steps so both sides work at every step:
+
+1. A new column or RPC the sender will read: `supabase db push` first, then merge. The running
+   sender ignores what it does not use, and the new one finds it there.
+2. A new RPC the sender calls: its migration grants `execute` to `delivery_sender` and
+   `sender_role.test.sql` lists it, in the same PR; push the migration before merging.
+3. Renaming or dropping an RPC the sender calls: add the new one (push), merge the sender that
+   uses it, drop the old one in a later migration. Dropping first leaves the sender logging a
+   failed claim every poll until the watchdog exits it, and Fly restarting it, until the deploy.
+4. Shared delivery code (`supabase/functions/_shared/delivery/*`) also ships in `send-test` and
+   `api`: `supabase functions deploy send-test api` after the merge, so a test send and a real one
+   agree.
 
 ### Local development
 
-The worker refuses plain-http and private addresses. To exercise delivery
-against a receiver on your own machine, set
-`LONGLINES_ALLOW_INSECURE_DESTINATIONS=1` in `supabase/functions/.env` (read by
-`supabase functions serve`) and insert the destination row directly in SQL;
-`create_destination()` will not accept such a URL. Never set this on the hosted
-project.
+`npm run sender` runs the sender against the local stack with
+`LONGLINES_ALLOW_INSECURE_DESTINATIONS=1`, so a plain-http receiver on this machine can stand in
+for a destination; insert the destination row directly in SQL, since `create_destination()` will
+not accept such a URL. The Edge Functions (`send-test`) read the same variable from
+`supabase/functions/.env` under `supabase functions serve`. Never set it on the hosted project or
+on Fly; the sender refuses it with a non-local database host.
 
 ### Push notifications
 
-Push sends are signed with a VAPID keypair held only in Edge Function env. Without all three
-values, push deliveries fail with "Push isn't configured on the server." and Discord and webhooks
-carry on as normal.
+Push sends are signed with a VAPID keypair held in two places: the sender's Fly secrets (real
+deliveries) and Edge Function env (`send-test` and `api`). It is the same pair in both, and in
+nothing else: not the web app, the relay or a migration. Without all three values, push deliveries
+fail with "Push isn't configured on the server." and Discord and webhooks carry on as normal.
 
 Once per project, generate a pair. The script prints three lines and writes nothing:
 
@@ -227,19 +382,20 @@ Once per project, generate a pair. The script prints three lines and writes noth
 deno run scripts/generate-vapid-keys.ts mailto:you@example.com
 ```
 
-Hosted: set the three values as function secrets, then redeploy the functions that send push
-(`deliver`, `send-test` and `api`). Keep the private key out of the repo, the web app and the relay.
+Hosted: set the three values on both sides, then redeploy the Edge Functions that send push.
+Setting the Fly secrets restarts the sender.
 
 ```sh
 supabase secrets set LONGLINES_VAPID_PUBLIC_KEY=<public> LONGLINES_VAPID_PRIVATE_KEY=<private> \
   LONGLINES_VAPID_SUBJECT=mailto:you@example.com
-supabase functions deploy deliver
 supabase functions deploy send-test
 supabase functions deploy api
+fly secrets set -a longlines-sender LONGLINES_VAPID_PUBLIC_KEY=<public> \
+  LONGLINES_VAPID_PRIVATE_KEY=<private> LONGLINES_VAPID_SUBJECT=mailto:you@example.com
 ```
 
-Locally, put the same three lines in `supabase/functions/.env`. The web app needs the public key
-too (`VAPID_PUBLIC_KEY` on Vercel); that arrives with the push UI.
+Locally, put the same three lines in `supabase/functions/.env`; `npm run sender` passes them
+through. The web app needs the public key too (`VAPID_PUBLIC_KEY` on Vercel).
 
 Don't rotate the pair casually. Every browser subscribed with the public key that was current at
 the time, so new keys break every registered device until it subscribes again.
@@ -255,12 +411,13 @@ where last_error_at > now() - interval '1 day' order by last_error_at desc;
 
 Endpoints and keys in `push_devices` are capability secrets: don't paste them anywhere. A device
 the push service reports gone (404/410) is deleted on the next send. A push destination with no
-devices fails each run with "Turn on notifications on a device first." and goes `failing` after
-five runs, like any other destination.
+devices fails each cycle with "Turn on notifications on a device first." and goes `failing` after
+five, like any other destination. A push delivery older than 15 minutes is dropped undelivered
+(`dropped_at`); a stale notification is worse than none.
 
 ### Housekeeping
 
-A daily job (`housekeeping`, 03:00 UTC) deletes deliveries and archived queue
+A daily job (`housekeeping`, 03:00 UTC) deletes deliveries (sent or dropped) and archived queue
 messages older than 7 days and sign-in attempts older than a day.
 
 ### Stats snapshot
@@ -332,26 +489,29 @@ supabase secrets set LONGLINES_RELAY_SECRET=<secret>
 supabase functions deploy ingest-rbn
 
 # 2. Relay (Fly side), from the repository root
-fly apps create longlines-relay                    # name must match app in fly.toml
+fly apps create longlines-relay                    # name must match app in relay/fly.toml
 fly secrets set \
   LONGLINES_FUNCTIONS_URL=https://<project-ref>.supabase.co/functions/v1 \
   LONGLINES_RELAY_SECRET=<secret> \
   RELAY_LOGIN_CALL=<callsign>
-fly deploy --ha=false                              # --ha=false: one machine, not two
+fly deploy --config relay/fly.toml --ha=false      # --ha=false: one machine, not two
 fly scale count 1                                  # exactly one machine: one telnet session
 ```
 
 ## Automatic deploys
 
 Deploys on merge to `main` come from Fly's GitHub integration, set up in the Fly dashboard rather
-than in this repo. It deploys from the root `fly.toml`, which builds `relay/Dockerfile` with the
-repository root as context (the image needs `supabase/functions/_shared`), the same as the
-`fly deploy` line above.
+than in this repo. Each Fly app has its own binding: "Config path" is `relay/fly.toml` for
+`longlines-relay` and `sender/fly.toml` for `longlines-sender`, and the working directory is left
+blank (the repository root) on both, because each Dockerfile copies
+`supabase/functions/_shared` from the context. flyctl resolves `[build] dockerfile` relative to
+the config file, so each `fly.toml` names just `Dockerfile`. Both apps deploy on every push to
+`main`, whichever folder changed.
 
 When the integration was first connected, Fly's launcher opened a PR (#30) with its own generic
 `fly.toml`, `Dockerfile` and `example.ts`. That config ran a nonexistent `main.ts` as root, added a
 public HTTP service that auto-stops idle machines, and created two machines. Do not merge such a
-PR again; the root `fly.toml` here is the relay's real config.
+PR again; `relay/fly.toml` is the relay's real config.
 
 Two things to know about it:
 
@@ -361,10 +521,10 @@ Two things to know about it:
   every push rather than only when `relay/` or `supabase/functions/_shared/*.ts` change, that is
   one reconnect per merge.
 
-It deploys only the relay. Migrations (`supabase db push`) and the `ingest-rbn` function
+It deploys only the two Fly apps. Migrations (`supabase db push`) and the Edge Functions
 (`supabase functions deploy ingest-rbn`) are still applied by hand; do those first when a change
-needs both sides. After the first deploy, check `fly scale show` reports
-one machine.
+needs both sides ("A change that spans both sides" under "Delivery" has the order for the sender).
+After the first deploy, check `fly scale show` reports one machine.
 
 A deploy restarts the machine; the relay pushes what it has buffered before exiting.
 
@@ -519,7 +679,7 @@ integration does not deploy a new function:
 
 ```sh
 supabase functions deploy ingest-wwff
-supabase functions deploy deliver    # Discord "WWFF" and "Reserve" fields, push text
+supabase functions deploy deliver    # Discord "WWFF" and "Reserve" fields, push text (before the sender cutover; the sender now ships these on merge)
 supabase functions deploy archive    # wwff in the run order, two new Parquet columns
 ```
 

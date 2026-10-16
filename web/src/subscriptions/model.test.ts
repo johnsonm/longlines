@@ -15,6 +15,13 @@ describe("blankSub and toInput", () => {
     expect(sub.destinations).toEqual([]);
   });
 
+  it("starts a profile's Get alerts filtered to that callsign", () => {
+    const sub = blankSub("rbn", "KK4PWJ");
+    expect(sub.name).toBe("KK4PWJ on the air");
+    expect(sub.sources).toEqual(["rbn"]);
+    expect(sub.rules).toEqual([[{ field: "callsign", op: "is", values: ["KK4PWJ"] }]]);
+  });
+
   it("carries a subscription's rules into the editor", () => {
     const rules = [[{ field: "group", op: "is", values: ["g2"] }]];
     const row = { id: "s1", name: "Club", rules, group_ids: ["g2"] } as unknown as SubscriptionWithLinks;

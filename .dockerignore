@@ -1,7 +1,12 @@
-# Only relay/Dockerfile builds from this context; it needs relay/ and
-# supabase/functions/_shared/. Keep everything else (web/node_modules above all) out.
+# relay/Dockerfile and sender/Dockerfile build from this context; each needs its
+# own directory and supabase/functions/_shared/. Keep everything else
+# (web/node_modules above all) out.
 *
 !relay/
+!sender/
 !supabase/functions/_shared/
 relay/__tests__/
+relay/fly.toml
+sender/__tests__/
+sender/fly.toml
 supabase/functions/_shared/__tests__/

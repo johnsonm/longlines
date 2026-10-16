@@ -14,7 +14,7 @@ jobs:
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
-      - run: deno fmt --check supabase/functions scripts relay deno.json
+      - run: deno fmt --check supabase/functions scripts relay sender deno.json
       - run: deno task lint
       - run: deno task check
       # Runs the tests and fails below 80% line coverage or when a module is never loaded.
@@ -28,6 +28,9 @@ jobs:
       - uses: supabase/setup-cli@v1
         with:
           version: latest
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
       # Starts only the Postgres container and applies every migration.
       - run: supabase db start
       - run: supabase db lint --fail-on error
@@ -35,6 +38,10 @@ jobs:
       # Exercises the RPCs, queue, cron jobs and grants against the applied schema.
       - name: Smoke test
         run: psql "$(supabase status -o env | grep '^DB_URL' | cut -d'"' -f2)" -v ON_ERROR_STOP=1 -X -f scripts/smoke-test.sql
+      # The sender's postgres.js adapter against the applied schema: the RPC allowlist, int8 as Number.
+      # The Deno job skips these tests (no database); here they run as the stack's postgres user.
+      - name: Sender database adapter
+        run: SENDER_TEST_DATABASE_URL="$(supabase status -o env | grep '^DB_URL' | cut -d'"' -f2)" deno test -P sender/__tests__/db.test.ts
 
   web:
     name: Web app

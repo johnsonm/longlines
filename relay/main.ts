@@ -1,6 +1,6 @@
 // Long Lines stream relay. Holds one connection per feed and pushes every spot
 // line to the feed's Edge Function, which stores all of them (and, for RBN and
-// DX Cluster, alerts on watched callsigns). Runs on Fly.io (see the root fly.toml);
+// DX Cluster, alerts on watched callsigns). Runs on Fly.io (relay/fly.toml);
 // docs/OPERATIONS.md has the deploy steps. The relay itself is relay.ts; this
 // file is only the process shell.
 

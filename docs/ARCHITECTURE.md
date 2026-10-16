@@ -225,16 +225,17 @@ not block the cascade.
 flowchart LR
   SE[[pgmq spot_events]] --> M[match_pending_spots]
   SUBS[(subscriptions)] --> M
+  CRON[pg_cron every minute] --> M
   M --> DEL[(deliveries)]
   M --> DQ[[pgmq deliveries_queue]]
-  M -. pg_net .-> W[deliver fn]
-  CRON[pg_cron every minute] --> M
-  CRON --> W
-  DQ --> W
-  W --> DISC[Discord webhook]
-  W --> HOOK[Webhook endpoint]
-  W --> DEL
-  W --> DEST[(destinations health)]
+  M -. "pg_notify deliveries" .-> S
+  DQ -- "claim_deliveries every 5 s" --> S[sender on Fly.io]
+  DEST[(destinations: health, throttle, tokens)] -- "budget and throttle" --> DQ
+  S --> DISC[Discord webhook]
+  S --> HOOK[Webhook endpoint]
+  S --> PUSH[Push services]
+  S -- "mark_deliveries_*, throttle_destination" --> DEL
+  S --> DEST
 ```
 
 ## Matcher
@@ -247,34 +248,97 @@ subscription's quiet window (`subscription_quiet` remembers the last send per
 callsign; within a batch only the earliest spot per callsign is eligible),
 inserts one `deliveries` row per (destination, spot) with `on conflict do
 nothing` so two subscriptions sharing a destination deliver once, queues the
-new delivery ids, archives the events, and pokes the `deliver` function over
-pg_net when it created anything. It runs after every successful ingest and on
-a one-minute cron as a safety net.
+new delivery ids, archives the events, and sends `pg_notify('deliveries', '')`
+when it created anything (the sender polls today and will listen on that
+channel later; the matcher never calls a function over pg_net). It runs after
+every successful ingest and on a one-minute cron as a safety net.
 
-## Delivery worker
+## Delivery: the sender
 
-`deliver` claims up to 200 messages through `claim_deliveries()` (which joins
-in the spot and the destination, secrets included, and archives orphans),
-drops anything older than 24 hours, groups by destination, skips paused
-destinations, and sends: Discord as embeds, ten per message and at most 30
-messages per webhook per run, honoring `429 retry_after`; webhooks as signed
-JSON, fifty spots per request, 10 s timeout. Every outcome goes back through an
-RPC so the delivery rows, the queue messages and the destination's health
-change together: `mark_deliveries_sent`, `mark_deliveries_failed` (backoff via
-`pgmq.set_vt`, five in a row marks the destination failing), `delay_deliveries`
-(rate limited, not a failure) and `mark_deliveries_dropped`.
+Outbound delivery is `sender/`, a Deno process on one Fly.io machine (app `longlines-sender`,
+shared-cpu-1x, 256 MB), the counterpart of the relay. Until 2026-10-15 it was the `deliver` Edge
+Function, called by cron every minute and kicked over pg_net after every ingest run that created
+deliveries: every run was an invocation, so delivery volume scaled the project's invocation
+count, while a process that polls costs nothing per poll. The design, with its decisions and
+the Phase 2 plan, is `docs/superpowers/specs/2026-10-15-outbound-sender-design.md`.
 
-Outbound URL safety is checked twice: in SQL when the destination is created
-and in the worker before each request, which also resolves the hostname and
-refuses private addresses so a DNS change after creation cannot turn a
-webhook into an internal request. Redirects are never followed, and if the
-runtime cannot resolve DNS the worker refuses to send rather than guess. What
-remains is the window between resolving and connecting (classic rebinding),
-which `fetch` cannot close without a custom dialer; the DNS check, the private
-range refusal and the 10 s timeout keep that window small.
+- **The sender is dumb; policy lives in Postgres.** It connects as the `delivery_sender` role
+  through the Supavisor pooler (session mode, TLS, two connections) and may execute exactly seven
+  security-definer RPCs: `claim_deliveries`, `mark_deliveries_sent`, `mark_deliveries_failed`,
+  `throttle_destination`, `delivery_queue_stats`, `prune_push_devices` and `record_push_results`.
+  It has no table privileges, nothing on `pgmq` and no Supabase API key; `sender_role.test.sql`
+  pins that list. Its loop (`_shared/delivery/run.ts`, `runDeliveryBatch`) claims, sends and
+  reports. What to send, in what order, how much and when to give up are decided in SQL.
+- **The claim is rate-aware and newest first.** `claim_deliveries(p_limit, p_vt)` first expires
+  pending rows older than `destination_max_age(type)` (push 15 minutes, everything else 24 hours),
+  stamping `deliveries.dropped_at` and archiving their messages, so the oldest rows retire
+  without ever being claimed. Then, per destination, it refills a token bucket kept on the
+  `destinations` row (`claim_tokens`, `claim_tokens_at`; `destination_budget(type)` is the rate
+  in spots per minute: Discord 300, push 3, webhooks 1000, burst equal to the rate), ranks the
+  destination's visible messages newest first, takes the ranks its tokens cover, and interleaves
+  destinations by rank so every destination's newest spot goes before any destination's second.
+  Paused and throttled destinations are left out. The claim itself is one `update` of the queue
+  table guarded by `vt <= clock_timestamp()`, which Postgres re-checks on the row it locks, so an
+  overlapping claimer cannot take the same message; the debit lands in the same transaction.
+  Under that budget the loop's own Discord cap (`DISCORD_MESSAGES_PER_RUN`, 30 messages of ten
+  embeds) is a safety net it never reaches.
+- **One serial consumer.** With one machine, each cycle's marks land before its next claim, so
+  the 60 s visibility timeout cannot re-send anything a healthy cycle sent. A deploy cuts a cycle
+  off at most once: `kill_signal = SIGINT` and `kill_timeout = 30s` let the sender stop claiming
+  and finish the cycle in flight, and messages un-acked at the cut reappear after 60 s and go
+  out again, as they did when an Edge invocation was cut off. A second machine would bring
+  duplicates, uncoordinated throttles and split counts back; a per-destination lease comes before
+  any second machine.
+- **Within a cycle,** destinations are sent concurrently up to `SENDER_CONCURRENCY` (4) and
+  sequentially within a destination (Discord message order, webhook request order). Discord goes
+  as embeds, ten per message; webhooks as signed JSON, fifty spots per request, 10 s timeout;
+  push as one encrypted notification per device, at most three spots a minute per destination
+  from the budget. Successes are acked in one `mark_deliveries_sent` per cycle, so write load
+  scales with problems, not with sends. Every response status is read; nothing is
+  fire-and-forget.
+- **A 429 is alive, not dead.** For every type, a rate limit calls `throttle_destination`: it
+  sets `throttled_until` on the destination (`Retry-After` when the service sent one, else
+  `destination_throttle_seconds(level)`, 60 s doubling to 15 minutes), raises `throttle_level`
+  and moves the messages' visibility to the same time, so the queue and the throttle agree.
+  `consecutive_failures` is untouched; `mark_deliveries_sent` clears the throttle and decays the
+  level by one per successful cycle, so one success after a storm does not drop straight back to
+  the base delay. A 5xx, a timeout or a connection error is a failure as before:
+  `mark_deliveries_failed` backs the messages off (30 s to 30 m) and five in a row mark the
+  destination `failing`. A push device reported gone (404/410) is pruned, and a push destination
+  with no deliverable device fails.
+- **Health and the watchdog.** `/healthz` answers on Fly's private network: 200 while the last
+  successful claim (or the start) is under `SENDER_STALE_MS` (2 minutes) old, 503 after; the body
+  carries `last_claim_at`, `last_error`, `in_flight`, totals and `delivery_queue_stats()` (queue
+  depth, deliveries expired in the last hour). Fly restarts only a machine whose process exits, so
+  the watchdog exits 1 at the same threshold, which is what a wedged pooler connection looks like
+  and would otherwise drop every push after 15 minutes behind a healthy-looking machine. A failed
+  claim or mark alone is logged and retried with backoff. Loss is measured from SQL
+  (`dropped_at`), never from the age of the oldest pending row, which newest-first ordering makes
+  meaningless.
+- **Reaching the queue.** The matcher's kick was a pg_net POST to the `deliver` function; it is
+  now `pg_notify('deliveries', '')`, which nothing listens for until the sender does. The `deliver`
+  function stays deployed, idle, until the cleanup migration removes it.
+- **SSRF, now that the sender sits on Fly.** Outbound URL safety is checked twice: in SQL when
+  the destination is created (`validate_destination_url`) and in the worker before each request
+  (`urlsafety.ts`), which also resolves the hostname and refuses private addresses so a DNS
+  change after creation cannot turn a webhook into an internal request. https only; private,
+  loopback, link-local, CGNAT and `fc00::/7` (which contains Fly's `fdaa::/16`) refused; no
+  redirects; Discord and push hosts allowlisted; if the runtime cannot resolve DNS the worker
+  refuses to send rather than guess. Added for the sender: the app lives on a Fly network of its
+  own with nothing else on it (Fly's DNS at `fdaa::3` is the one private address it can see, and
+  it is refused like any other), and hostnames ending in `.internal`, `.flycast`, `.local`,
+  `.localdomain`, `.home.arpa` or `.arpa` are refused in both places, the two lists kept identical
+  by tests. The window between resolving and connecting remains (`fetch` cannot pin an address);
+  the private-range refusal and the 10 s timeout keep it small.
+- **Configuration.** `SENDER_DATABASE_URL` (the role's URL; TLS required unless the host is
+  local), the VAPID triple (`LONGLINES_VAPID_*`, the same pair the Edge Functions hold), and the
+  knobs `SENDER_POLL_MS` (5 s), `SENDER_CONCURRENCY`, `SENDER_STALE_MS`, `SENDER_STATS_MS` and
+  `SENDER_HEALTH_PORT`. The Dockerfile's `--allow-env` names every variable the sender reads and
+  a test fails when it reads one the image does not allow, as for the relay.
+  `LONGLINES_ALLOW_INSECURE_DESTINATIONS` is honoured only with a local database host.
 
-`send-test` reuses the same formatting and sending code for one labeled
-sample spot.
+`send-test` reuses the same formatting and sending code for one labeled sample spot, from an Edge
+Function, which is why the VAPID pair also lives in function env.
 
 # Phase 3: stats snapshot
 

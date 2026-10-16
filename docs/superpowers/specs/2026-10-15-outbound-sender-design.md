@@ -2,8 +2,8 @@
 
 Date: 2026-10-15
 
-Status: approved design, Phase 1 not started. Each build session appends to the Progress log at
-the end; read it before doing anything.
+Status: Phase 1 cut over (2026-10-15, session 5); the cleanup (session 6) is a week out. Each
+build session appends to the Progress log at the end; read it before doing anything.
 
 ## Goal
 
@@ -547,3 +547,147 @@ notes for the next session. Earlier entries are never edited.
   successful claim. Hand step after merge: `supabase functions deploy deliver`, which needs
   session 2's migration pushed to hosted first (the loop calls `throttle_destination`). Brad has
   still not noted the 30-day `deliver` invocation count.
+- 2026-10-15, session 4 (PR #198): the sender process. Landed `sender/`: `main.ts` (process shell:
+  config, `openSenderDb`, `startSender`, SIGINT/SIGTERM to `shutdown()` then exit 0, exit 1 on a
+  rejected `done` or a start failure), `config.ts`, `db.ts` (the only module importing
+  `npm:postgres@3.4.9`, with the dependency comment; `SENDER_RPCS` is the allowlist with each
+  parameter's SQL type, `rpcStatement` builds `select * from public.<fn>(p_x => $1::type, ...)`;
+  `senderDb(sql)` is the `DeliveryRpc` adapter, `data` the row array and `error` the message;
+  `clientOptions` sets int8 to `Number`, timestamps to strings, `max: 2`, `prepare: true`,
+  `ssl: "require"` unless the host is local, `sql.json()` for jsonb; `openSenderDb` probes with
+  `delivery_queue_stats()` and throws so a bad URL, password or grant is exit 1 at start),
+  `sender.ts` (`startSender(config, deps, options)` returning `{ addr, done, shutdown, status }`;
+  one serial poll loop over `runDeliveryBatch` that re-claims at once after a full batch, else
+  sleeps `SENDER_POLL_MS`; a `ClaimError` or a bookkeeping error is logged and retried 5 s doubling
+  to 60 s; any other throw rejects `done`; `delivery_queue_stats()` every `SENDER_STATS_MS` with a
+  log line; a watchdog that rejects `done` after `SENDER_STALE_MS` without a successful claim;
+  `shutdown()` aborts, awaits the cycle in flight unless the watchdog fired, closes the pool, then
+  the health server, idempotent), `health.ts` (`/healthz` 200 while the last claim, or the start,
+  is under `staleMs` old; body `{ healthy, last_claim_at, last_error, in_flight, totals, queue }`,
+  `queue` null until the first stats call). Tests: `sender.test.ts` (12 cases: a real
+  `sendToDestination` to a local `Deno.serve` webhook with `allowInsecure`, a fake clock, full-batch
+  re-claim, retry doubling with the watchdog at 120 s, shutdown skipping a wedged cycle, failed
+  mark reporting, shutdown awaiting the cycle in flight, non-ClaimError rejection, stats failure,
+  the health handler), `config.test.ts`, `db.test.ts` (the pure half always; six RPCs against a
+  real database only with `SENDER_TEST_DATABASE_URL`), `modules.test.ts` (the Dockerfile
+  `--allow-env` check, plus a child `deno run` under that exact list that constructs the client).
+  `sender/Dockerfile`, `sender/fly.toml`, `.dockerignore` (`!sender/`, `sender/__tests__/`,
+  `sender/fly.toml`), root `deno.json` tasks and permissions, the third coverage root (Sender 96.7%),
+  `ci.yml` (fmt line; the migrations job installs Deno and runs `db.test.ts` against the fresh
+  stack), `web/scripts/check-all.ts` (fmt line, a "sender db" step), `web/scripts/local-stack.ts`
+  (`dbUrl`), `web/scripts/sender.ts` + `npm run sender` (opt in; passes `LONGLINES_*` values from
+  `supabase/functions/.env` through, defaults `LONGLINES_ALLOW_INSECURE_DESTINATIONS=1`, uses the
+  Dockerfile's `--allow-env` list), `invoke:deliver` removed, README local section and table updated.
+  Environment: `SENDER_DATABASE_URL` (required; `postgres://` with a user, a password and a host;
+  `sslmode=disable`/`allow` refused unless the host is local), `SENDER_HEALTH_PORT` 8080,
+  `SENDER_POLL_MS` 5000 (floor 1000), `SENDER_CONCURRENCY` 4 (min 1), `SENDER_STALE_MS` 120000,
+  `SENDER_STATS_MS` 60000, `LONGLINES_VAPID_PUBLIC_KEY` / `_PRIVATE_KEY` / `_SUBJECT` (all three or
+  push fails, the rest works), `LONGLINES_ALLOW_INSECURE_DESTINATIONS` (`1`, refused with a non-local
+  database host), `LONGLINES_USER_AGENT_URL` (allowed, not read by the sender today).
+  Deviations: (1) Under `deno run`, a `process.env` read of a variable outside `--allow-env`
+  throws (only `deno eval` returns undefined), and postgres.js falls back to `PG*` variables for
+  every option it is not given. `clientOptions` therefore passes every option explicitly from the
+  parsed URL, the URL must carry a password (else postgres.js reads `PGPASSWORD`), and the
+  Dockerfile allows the two reads postgres.js makes unconditionally, `PGAPPNAME` and
+  `PGTARGETSESSIONATTRS`; `deno.json`'s test permissions allow the same two plus `run: ["deno"]`
+  for the child-process check. (2) `in_flight` is a boolean (a cycle is between claim and its
+  marks). (3) The RPC allowlist also carries each parameter's SQL type and casts in the statement,
+  so overload resolution never depends on what postgres.js infers. (4) `idle_timeout` is 60 s so
+  the second pool connection does not hold a pooler slot while unused. (5) The per-cycle log line
+  is the `DeliveryBatchResult` JSON only for cycles that claimed something or hit an error; an
+  empty 5 s poll logs nothing. Verification: `deno task fmt/lint/check/coverage` (Edge 98.0%, Relay
+  99.1%, Sender 96.7%, no unloaded module), `supabase db reset` then pgTAP (1168 assertions), db
+  lint, smoke test and `db.test.ts` against the stack, web lint/test/build;
+  `docker build -f sender/Dockerfile .` and the image against `host.docker.internal:54322` served
+  `/healthz` 200 with `queue: { depth: 0, expired_last_hour: 0 }` and exited 0 on SIGINT. Local end
+  to end with `npm run sender`: a POTA spot inserted through `ingest_spots` (not `invoke:pota`, to
+  spare the live API) and `match_pending_spots()` reached a local receiver signed within one poll
+  and the row went `sent`; the receiver answering 429 with `Retry-After: 90` left the row pending,
+  `throttled_until` 90 s ahead, `throttle_level` 1 and `consecutive_failures` 0; a push device
+  inserted into `push_devices` with a generated P-256 key (no browser in this session, so not
+  registered from the web app) received an `aes128gcm` body with a VAPID `Authorization` and
+  `TTL: 900` and went `sent` with `last_success_at` set. Note for the record: the subscription's
+  default `quiet_minutes` (10) swallowed the second and third test spots until it was set to 0.
+  Hand steps after merge: `fly apps create longlines-sender --network sender`; set the role password
+  on hosted (`alter role delivery_sender with login password '<random>'`, the script arrives in
+  session 5); `fly secrets set -a longlines-sender SENDER_DATABASE_URL=postgresql://delivery_sender.<ref>:<password>@<pooler host>:5432/postgres LONGLINES_VAPID_PUBLIC_KEY=... LONGLINES_VAPID_PRIVATE_KEY=... LONGLINES_VAPID_SUBJECT=...`
+  (URL-encode the password if it has reserved characters); first deploy
+  `fly deploy --config sender/fly.toml --ha=false`; `fly scale count 1 -a longlines-sender`;
+  `fly checks list -a longlines-sender`; bind the dashboard GitHub integration (working directory
+  `.`, config path `sender/fly.toml`) or add `.github/workflows/deploy-sender.yml` with a token
+  scoped to the app; watch `fly logs` and `pgmq.metrics('deliveries_queue')` for a day. Notes for
+  session 5: the Edge `deliver` cron and the sender overlap safely on the same claim; the sender
+  needs no change for the cutover (LISTEN is Phase 2 F). `docs/OPERATIONS.md` still says
+  `invoke:deliver` nowhere but describes `deliver` as the worker; CLAUDE.md's Delivery rules,
+  Commands block and "What this is" exception, README's overview, ARCHITECTURE and WEBHOOKS are
+  session 5's. Brad has still not noted the 30-day `deliver` invocation count.
+- 2026-10-15, session 4 follow-up (PR #199): the first dashboard deploy failed with
+  `dockerfile '/usr/src/app/sender/sender/Dockerfile' not found`. flyctl resolves `[build]
+  dockerfile` relative to the config file's directory (the root `fly.toml` only appeared to use a
+  root-relative path because it was at the root), so `sender/fly.toml` now says
+  `dockerfile = "Dockerfile"`. Brad then asked for one `fly.toml` per app folder, so the root
+  `fly.toml` moved to `relay/fly.toml` with the same change, and README, CLAUDE.md's Commands
+  block, OPERATIONS and the Dockerfile and `main.ts` comments say so; each app's dashboard binding
+  sets "Config path" to its own file with the working directory left at the repository root, so
+  both images keep copying `supabase/functions/_shared`. Hand step with the merge: set the relay
+  app's Config path to `relay/fly.toml` first, then merge, so the deploy the merge triggers finds
+  the file. Brad set only `SENDER_DATABASE_URL` on the sender app; the VAPID triple waits until
+  push is set up (no keys have ever been generated, so there is no pair to match), and the sender
+  runs without it. Session 5's docs pass should keep the per-folder layout.
+- 2026-10-15, session 5 (PR #200): the cutover migration and the docs. Landed:
+  `20261015001200_sender_cutover.sql` (unschedules the `deliver` cron job and replaces
+  `match_pending_spots` with the 20261015000500 body minus the `net.http_post` block and the
+  `v_url`/`v_key` declarations, plus `perform pg_notify('deliveries', '')` when deliveries were
+  created; the function no longer reads Vault or touches `net`); `matcher.test.sql` gains two
+  assertions over `pg_get_functiondef` (no `net.http_post`, a `pg_notify('deliveries'`), plan 53;
+  `scripts/setup-sender-role.sql`, a template like `setup-db-settings.sql` whose header gives the
+  pooler URL shape and the `fly secrets set` line, body `alter role delivery_sender with login
+  password '<PASSWORD>'`. Docs: OPERATIONS (a "Cron jobs" table of the fourteen jobs, without
+  `deliver`; the Delivery section rewritten around the sender: first deploy in order with the
+  custom-network note, the secrets table, `fly scale count 1` with the reason, "Is it running?"
+  on `/healthz` and `delivery_queue_stats()`, "A destination is throttled", the rollback recipe,
+  "A change that spans both sides", local development, Push notifications with the VAPID pair on
+  both sides); ARCHITECTURE (the Phase 2 matching and delivery diagram, the matcher paragraph, and
+  "Delivery: the sender" replacing "Delivery worker"); README (overview and "How it works" name
+  both Fly processes, the diagram, the Match and Deliver paragraphs, the local section, `deliver`
+  dropped from the deploy loop, a "The sender on Fly.io" subsection); WEBHOOKS (newest first with
+  no ordering guarantee; a 429 delays); CLAUDE.md ("What this is" names both processes, the
+  Commands block, the CI line, Delivery rules reworded, a new Sender rules section, the Push rule
+  on where VAPID lives, the coverage roots). The status line reads "Phase 1 cut over". Deviations:
+  (1) the migration runs `cron.unschedule(jobid)` from a lookup in `cron.job` rather than
+  `cron.unschedule('deliver')`, which raises when the job is missing. (2) The docs were not run
+  through `deno fmt`: the fmt task covers `supabase/functions scripts relay sender deno.json`
+  only, and none of the six docs is fmt-clean today, so a pass would have rewritten them
+  wholesale; the new prose is hand-wrapped at 100 columns. (3) The WWFF first-deploy note in
+  OPERATIONS keeps its `supabase functions deploy deliver` line as history, annotated. flyctl is not
+  installed on the session's machine, so Brad supplied `fly logs -a longlines-sender` for
+  2026-10-16 00:35-00:55Z: a rolling deploy replaced the machine once (SIGINT, cycle finished,
+  exit 0, the new machine's health check passing after its first cycle), then 12 cycles a minute,
+  eight webhook spots sent to two destinations, 0 failed, 0 throttled, queue depth 0, expired 0,
+  all while the Edge `deliver` cron was still scheduled, so the overlap claim behaves. The tini
+  "not running as PID 1" warning is the Deno image's entrypoint and is noise. The
+  migration was first numbered 20261015001100; PR #201 (`subscription_toggle`) took that version
+  on main while this PR was open and CI failed on the duplicate key in `schema_migrations`, so it
+  is 20261015001200 and main is merged in. Three sender restarts in that log window were deploys
+  from merges to main (#199, #201, #202), not sender exits: both Fly apps deploy on every push to
+  main whichever folder changed. Verification: `deno task fmt/lint/check/coverage` (Edge 98.0%, Relay 99.1%, Sender
+  96.7%, no unloaded module); `supabase db reset` (`cron.job` lists fourteen jobs, no `deliver`),
+  pgTAP 1170 assertions pass (a run started straight after the reset's container restart failed
+  `deliveries_rpc` and `rbn_spots` transiently; two reruns were clean), the smoke test, db lint
+  unchanged. Hand steps after merge: `supabase db push`; then
+  `select jobname from cron.job where jobname = 'deliver';` returns nothing, and the newest
+  `deliver` response in `net._http_response` (its body starts with `{"claimed"`) predates the push:
+  `select created, status_code from net._http_response where content::text like '{"claimed"%'
+  order by created desc limit 3;`. Rollback, if needed before session 6:
+  `fly scale count 0 -a longlines-sender`, a new migration that re-schedules the `deliver` job
+  and restores the kick (bodies from `20261006000009_delivery_cron.sql` and
+  `20261015000500_subscription_needs_destination.sql`), `supabase db push`. Notes for session 6
+  (one week after the push, no rollback): delete `supabase/functions/deliver`,
+  `_shared/handlers/deliver.ts`, `__tests__/handlers_deliver.test.ts`, the `[functions.deliver]`
+  entry in `config.toml` and its `function_config.test.ts` expectations; drop `delay_deliveries`
+  and `mark_deliveries_dropped` (the `delivery_queue_stats` count then comes from the claim's
+  sweep alone); `supabase functions delete deliver` by hand. Docs that still mention `deliver` on
+  purpose and go with it: CLAUDE.md's Delivery rules (first two bullets), OPERATIONS "Rollback to
+  the Edge worker" and the cron table's last paragraph, ARCHITECTURE's "Reaching the queue"
+  bullet, README's repository layout row. The Edge VAPID secrets stay for `send-test` and `api`.
+  Brad has still not noted the 30-day `deliver` invocation count.

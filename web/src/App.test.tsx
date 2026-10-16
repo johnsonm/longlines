@@ -33,15 +33,17 @@ vi.mock("./subscriptions/SubscriptionsPage", () => ({
   SubscriptionsPage: ({ subs }: { subs: unknown[] }) => <p>subscriptions page {subs.length}</p>,
 }));
 vi.mock("./subscriptions/SubscriptionEditorPage", () => ({
-  SubscriptionEditorPage: ({ id, source }: { id?: string; source?: string | null }) => <p>subscription editor {id ?? "new"} {source ?? "none"}</p>,
+  SubscriptionEditorPage: ({ id, source, callsign }: { id?: string; source?: string | null; callsign?: string | null }) => (
+    <p>subscription editor {id ?? "new"} {source ?? "none"} {callsign ?? "any"}</p>
+  ),
 }));
 vi.mock("./groups/GroupsPage", () => ({ GroupsPage: () => <p>groups page</p> }));
 vi.mock("./stats/StatsPage", () => ({ StatsPage: () => <p>stats page</p> }));
 vi.mock("./account/AccountPage", () => ({ AccountPage: () => <p>account page</p> }));
 vi.mock("./profile/LookupPage", () => ({ LookupPage: () => <p>lookup page</p> }));
 vi.mock("./profile/CallsignPage", () => ({
-  CallsignPage: ({ prefs, account }: { prefs: { timezone: string }; account?: { reload: () => Promise<void> } }) => (
-    <p>callsign page {prefs.timezone} {account ? "signed in" : "signed out"}</p>
+  CallsignPage: ({ prefs, signedIn }: { prefs: { timezone: string }; signedIn?: boolean }) => (
+    <p>callsign page {prefs.timezone} {signedIn ? "signed in" : "signed out"}</p>
   ),
 }));
 
@@ -163,8 +165,9 @@ describe("App routing", () => {
 
   it.each([
     ["/subscriptions", "subscriptions page 0"],
-    ["/subscriptions/new?source=pota", "subscription editor new pota"],
-    ["/subscriptions/s1", "subscription editor s1 none"],
+    ["/subscriptions/new?source=pota", "subscription editor new pota any"],
+    ["/subscriptions/new?source=rbn&callsign=KK4PWJ", "subscription editor new rbn KK4PWJ"],
+    ["/subscriptions/s1", "subscription editor s1 none any"],
     ["/groups", "groups page"],
     ["/account", "account page"],
   ])("renders %s", async (path, text) => {
