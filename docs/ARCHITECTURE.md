@@ -256,10 +256,11 @@ every successful ingest and on a one-minute cron as a safety net.
 ## Delivery: the sender
 
 Outbound delivery is `sender/`, a Deno process on one Fly.io machine (app `longlines-sender`,
-shared-cpu-1x, 256 MB), the counterpart of the relay. Until 2026-10-15 it was the `deliver` Edge
+shared-cpu-1x, 256 MB), the counterpart of the relay. Until 2026-10-15 it was a `deliver` Edge
 Function, called by cron every minute and kicked over pg_net after every ingest run that created
 deliveries: every run was an invocation, so delivery volume scaled the project's invocation
-count, while a process that polls costs nothing per poll. The design, with its decisions and
+count, while a process that polls costs nothing per poll. That function, its cron job and its
+own RPCs are gone (`20261015001400_sender_cleanup`). The design, with its decisions and
 the Phase 2 plan, is `docs/superpowers/specs/2026-10-15-outbound-sender-design.md`.
 
 - **The sender is dumb; policy lives in Postgres.** It connects as the `delivery_sender` role
@@ -316,8 +317,7 @@ the Phase 2 plan, is `docs/superpowers/specs/2026-10-15-outbound-sender-design.m
   (`dropped_at`), never from the age of the oldest pending row, which newest-first ordering makes
   meaningless.
 - **Reaching the queue.** The matcher's kick was a pg_net POST to the `deliver` function; it is
-  now `pg_notify('deliveries', '')`, which nothing listens for until the sender does. The `deliver`
-  function stays deployed, idle, until the cleanup migration removes it.
+  now `pg_notify('deliveries', '')`, which nothing listens for until the sender does.
 - **SSRF, now that the sender sits on Fly.** Outbound URL safety is checked twice: in SQL when
   the destination is created (`validate_destination_url`) and in the worker before each request
   (`urlsafety.ts`), which also resolves the hostname and refuses private addresses so a DNS

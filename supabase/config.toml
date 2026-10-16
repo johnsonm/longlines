@@ -456,9 +456,6 @@ verify_jwt = false
 # deliver, archive and import-cty are called by pg_cron with the legacy service-role JWT.
 # Their handlers accept it by its role claim (isServiceRole in _shared/auth.ts)
 # without checking the signature, so the gateway's check must stay on.
-[functions.deliver]
-verify_jwt = true
-
 [functions.archive]
 verify_jwt = true
 

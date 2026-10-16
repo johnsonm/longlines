@@ -38,8 +38,9 @@ Times are UTC.
 | `import-cty` | 04:20 Mondays | the `import-cty` function |
 
 There is no `deliver` job. Outbound delivery is the sender process polling the queue ("Delivery"
-below), not a cron job; `20261015001200_sender_cutover` unscheduled it. A `deliver` row here means
-that migration has not been pushed yet.
+below), not a cron job; `20261015001200_sender_cutover` unscheduled it and
+`20261015001400_sender_cleanup` removed the Edge Function it called. A `deliver` row here means
+the cutover migration has not been pushed yet.
 
 ## Why am I not seeing spots?
 
@@ -292,10 +293,10 @@ from cron.job_run_details d join cron.job j using (jobid)
 where jobname = 'match-pending-spots' order by start_time desc limit 10;
 ```
 
-Nothing calls the `deliver` Edge Function any more: the cutover migration unscheduled its cron job
-and took the pg_net kick out of `match_pending_spots`, which now does `pg_notify('deliveries', '')`
-instead (nothing listens yet; the sender polls). The function stays deployed until the cleanup
-migration so the rollback below is quick.
+There is no delivery Edge Function any more: the cutover migration unscheduled the old `deliver`
+cron job and took the pg_net kick out of `match_pending_spots`, which now does
+`pg_notify('deliveries', '')` instead (nothing listens yet; the sender polls), and the cleanup
+migration deleted the function with its two RPCs.
 
 ### A destination keeps failing
 
@@ -329,20 +330,14 @@ from destinations where throttled_until > now();
 update destinations set throttled_until = null, throttle_level = 0 where id = '<id>';  -- lift it now
 ```
 
-### Rollback to the Edge worker
+### The sender is down
 
-Until the cleanup migration ships, `deliver` is still deployed and runs the same loop
-(`_shared/delivery/run.ts`):
-
-```sh
-fly scale count 0 -a longlines-sender
-```
-
-Then a new migration (never edit an applied one) that re-schedules the `deliver` cron job and
-restores the kick, with the bodies copied from `20261006000009_delivery_cron.sql` and
-`20261015000500_subscription_needs_destination.sql`, and `supabase db push`. Deliveries resume on
-the next minute. To go forward again, push a migration that repeats `20261015001200` and
-`fly scale count 1`.
+There is no Edge worker to fall back to: the `deliver` function, its cron job and its RPCs were
+removed after the cutover (`20261015001400_sender_cleanup`). Deliveries wait in the queue while the
+sender is stopped and expire at the usual limits (24 hours; 15 minutes for push), so the fix is
+to get the machine back: `fly status -a longlines-sender`, `fly logs -a longlines-sender`, then
+`fly machine restart` or `fly scale count 1 -a longlines-sender`. The git history before
+`20261015001400` has the old worker and its cron bodies if one is ever needed again.
 
 ### A change that spans both sides
 
@@ -679,7 +674,8 @@ integration does not deploy a new function:
 
 ```sh
 supabase functions deploy ingest-wwff
-supabase functions deploy deliver    # Discord "WWFF" and "Reserve" fields, push text (before the sender cutover; the sender now ships these on merge)
+# Discord "WWFF" and "Reserve" fields and push text ship with the sender on merge (the Edge
+# `deliver` function this step once redeployed is gone).
 supabase functions deploy archive    # wwff in the run order, two new Parquet columns
 ```
 

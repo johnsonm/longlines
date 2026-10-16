@@ -1,10 +1,11 @@
--- pgTAP: the RPCs the deliver worker and the sender use to claim, complete,
--- retry, throttle and drop deliveries (20261006000010 delivery_rpcs,
--- 20261015000400 rate_aware_claim).
+-- pgTAP: the RPCs the sender uses to claim, complete, retry and throttle
+-- deliveries, and the expiry sweep that drops them (20261006000010
+-- delivery_rpcs, 20261015000400 rate_aware_claim, 20261015001400
+-- sender_cleanup).
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(80);
+select plan(79);
 select pgmq.purge_queue('spot_events');
 select pgmq.purge_queue('deliveries_queue');
 
@@ -49,10 +50,10 @@ select mark_deliveries_failed(array[(select delivery_id from claimed)], array[(s
 select is((select consecutive_failures from destinations), 5, 'five failures counted');
 select is((select health from destinations), 'failing', 'fifth consecutive failure marks the destination failing');
 
--- Rate-limit delay: message hidden, nothing counted.
-select delay_deliveries(array[(select msg_id from claimed)], 120);
-select ok((select vt > now() + interval '100 seconds' from pgmq.q_deliveries_queue), 'delay hides the message');
-select is((select attempts from deliveries), 5, 'delay does not count an attempt');
+-- The Edge worker's rate-limit delay and drop RPCs went with it (20261015001400);
+-- a 429 is throttle_destination below and a drop is the claim's expiry sweep.
+select hasnt_function('public', 'delay_deliveries', array['bigint[]', 'integer'], 'delay_deliveries is gone');
+select hasnt_function('public', 'mark_deliveries_dropped', array['bigint[]', 'bigint[]'], 'mark_deliveries_dropped is gone');
 
 -- Success: sent, archived, destination healthy again.
 select mark_deliveries_sent(array[(select delivery_id from claimed)], array[(select msg_id from claimed)]);
@@ -275,12 +276,10 @@ select count(*) from claim_deliveries(200, 60);
 select is((select count(*) from pgmq.q_deliveries_queue where (message ->> 'delivery_id')::bigint = 999999999), 0::bigint,
   'a message without a delivery row is archived');
 
--- The worker's own drop stamps dropped_at too.
-select mark_deliveries_dropped(array[(select id from expp where n = 2)],
-  array(select q.msg_id from pgmq.q_deliveries_queue q where (q.message ->> 'delivery_id')::bigint = (select id from expp where n = 2)));
-select ok((select dropped_at is not null from deliveries where id = (select id from expp where n = 2)),
-  'mark_deliveries_dropped stamps dropped_at');
-select results_eq($$ select * from delivery_queue_stats() $$, $$ values (0::bigint, 3::bigint) $$, 'stats count it');
+-- The sweep is the only source of drops: the 14 min old push row is still queued,
+-- and the two drops inside the hour are the 16 min old push row and the swept webhook row.
+select results_eq($$ select * from delivery_queue_stats() $$, $$ values (1::bigint, 2::bigint) $$,
+  'stats count the sweep drops only');
 
 select * from finish();
 rollback;
