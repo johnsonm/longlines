@@ -104,7 +104,7 @@ verification example in [docs/WEBHOOKS.md](docs/WEBHOOKS.md).
 | --- | --- |
 | `supabase/migrations/` | Schema, RPCs, queues, cron jobs. Applied migrations are never edited; add a new one. |
 | `supabase/functions/_shared/` | All Edge Function logic: ingest orchestrator, source adapters, mode canonicalization, delivery formatting and sending. |
-| `supabase/functions/ingest-*`, `deliver`, `send-test`, `sign-in`, `delete-account` | Thin entrypoints around `_shared`. `ingest-rbn` is the push endpoint the relay calls. |
+| `supabase/functions/ingest-*`, `send-test`, `sign-in`, `delete-account` | Thin entrypoints around `_shared`. `ingest-rbn` is the push endpoint the relay calls. |
 | `supabase/functions/_shared/__tests__/` | Deno unit tests and the fixtures captured from the real feeds (POTA, SOTAwatch and WWFF JSON, an RBN telnet capture). Nothing in the suite calls an upstream. |
 | `relay/` | The stream relay that runs on Fly.io: telnet session, batching forwarder, `/healthz`, its Dockerfile and `fly.toml`. It imports the RBN parser from `_shared`. Tests use a local TCP server, never RBN. |
 | `sender/` | The outbound sender that runs on Fly.io: polls the delivery queue and sends to Discord, webhooks and push services, with its Dockerfile and `fly.toml`. Policy stays in SQL; it imports the delivery modules from `_shared`. |

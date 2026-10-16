@@ -2,8 +2,8 @@
 
 Date: 2026-10-15
 
-Status: Phase 1 cut over (2026-10-15, session 5); the cleanup (session 6) is a week out. Each
-build session appends to the Progress log at the end; read it before doing anything.
+Status: Phase 1 complete (2026-10-16, session 6). Each build session appends to the Progress log
+at the end; read it before doing anything.
 
 ## Goal
 
@@ -691,3 +691,41 @@ notes for the next session. Earlier entries are never edited.
   the Edge worker" and the cron table's last paragraph, ARCHITECTURE's "Reaching the queue"
   bullet, README's repository layout row. The Edge VAPID secrets stay for `send-test` and `api`.
   Brad has still not noted the 30-day `deliver` invocation count.
+- 2026-10-16, session 6 (PR: sender-s6): cleanup; Phase 1 complete. Landed:
+  `20261015001300_sender_cleanup.sql` (`drop function if exists` for `delay_deliveries(bigint[],
+  int)` and `mark_deliveries_dropped(bigint[], bigint[])`; their `service_role` grants go with
+  them; nothing else called either, checked across migrations, functions, the sender, the web app
+  and the scripts); deleted `supabase/functions/deliver/`, `_shared/handlers/deliver.ts`,
+  `__tests__/handlers_deliver.test.ts` and the `[functions.deliver]` entry in `config.toml`;
+  `function_config.test.ts`'s `isServiceRole` list is now `archive` and `import-cty`
+  (`web/scripts/invoke-function.ts` had already lost its `deliver` entry in session 4).
+  `deliveries_rpc.test.sql` (plan 79) replaces the delay and worker-drop assertions with
+  `hasnt_function` for both RPCs and pins `delivery_queue_stats()` at `(1, 2)` after the sweep
+  alone; `sender_role.test.sql` keeps plan 15 by asserting the role cannot run
+  `match_pending_spots` where it asserted `delay_deliveries` before. `database.types.ts` loses the
+  two RPC entries. Docs: CLAUDE.md Delivery rules (the function is gone, `archive` and
+  `import-cty` are the `isServiceRole` functions, the loop runs only in the sender, the sweep is
+  the only drop); OPERATIONS (cron table paragraph, the Delivery intro, "Rollback to the Edge
+  worker" replaced by "The sender is down" since there is no worker to fall back to, the WWFF
+  first-deploy block); ARCHITECTURE (the Delivery intro, "Reaching the queue"); README's
+  repository layout row; this spec's status line. Deviations: (1) The seven-day rollback window
+  was waived: the Progress log never recorded the session 5 `supabase db push`, this session
+  stopped at that gate, and Brad gave the go-ahead on 2026-10-16 as the system's only user with
+  the sender running fine. (2) `supabase gen types typescript --local` (CLI 2.121.0) now emits a
+  `ComputedFields` member per table and folds `api_destination_json` / `api_subscription_json`
+  into the `destinations` and `subscriptions` rows, which breaks `web/src/lib/api.ts` and three
+  page tests; the checked-in file predates that generator. The two entries were removed by hand
+  instead, and adopting the new generator output (api.ts plus the fixtures in
+  `DestinationsPage.test.tsx`, `SubscriptionsPage.test.tsx`, `SubscriptionEditorPage.test.tsx`)
+  is a follow-up of its own. (3) `delivery_run.test.ts` keeps its assertion that the loop never
+  calls `delay_deliveries`, and `sender/__tests__/db.test.ts` keeps the name as its example of a
+  function outside the allowlist; both are strings, not calls. Verification: `deno task
+  fmt/lint/check/coverage` (Edge 98.0%, Relay 99.1%, Sender 96.7%, no unloaded module);
+  `supabase db reset` (the cleanup migration applies; `pg_proc` has neither function; `cron.job`
+  has no `deliver`); pgTAP 1172 assertions across 32 files; the smoke test; db lint unchanged
+  (two pre-existing `v_reset` warnings); web lint, 537 Vitest cases with coverage, `npm run
+  build`. Hand steps after merge, in this order: `supabase db push` (applies `20261015001200` if
+  it is still pending, then `20261015001300`; confirm `select jobname from cron.job where jobname
+  = 'deliver'` returns nothing), then `supabase functions delete deliver`. Phase 2 starts from
+  section 9 with its own spec. Brad never noted the 30-day `deliver` invocation count; the
+  dashboard's per-function metrics are the record if it is ever wanted.

@@ -849,9 +849,6 @@ isOneToOne: false
               "continent": string,"cq_zone": number,"entity": string,"itu_zone": number,"name": string
             }[]
                            },
-"delay_deliveries":
-{ Args: { "p_delay_seconds": number,"p_msg_ids": (number)[] }; Returns: undefined
-                           },
 "delete_callsign_group":
 { Args: { "p_id": string }; Returns: undefined
                            },
@@ -984,9 +981,6 @@ isOneToOne: false
                            },
 "maintain_rbn_spots":
 { Args: Record<PropertyKey, never>; Returns: undefined
-                           },
-"mark_deliveries_dropped":
-{ Args: { "p_delivery_ids": (number)[],"p_msg_ids": (number)[] }; Returns: undefined
                            },
 "mark_deliveries_failed":
 { Args: { "p_delay_seconds": number,"p_delivery_ids": (number)[],"p_error": string,"p_msg_ids": (number)[] }; Returns: undefined

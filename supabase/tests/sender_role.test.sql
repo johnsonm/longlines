@@ -74,7 +74,7 @@ select throws_ok($$ select public.throttle_destination('00000000-0000-0000-0000-
 select lives_ok($$ select * from public.delivery_queue_stats() $$, 'the role can read queue stats');
 select throws_ok($$ select count(*) from public.deliveries $$, '42501', null, 'the role cannot read deliveries');
 select throws_ok($$ select * from pgmq.metrics('deliveries_queue') $$, '42501', null, 'the role cannot reach pgmq');
-select throws_ok($$ select public.delay_deliveries(array[]::bigint[], 1) $$, '42501', null, 'delay_deliveries stays service_role only');
+select throws_ok($$ select public.match_pending_spots() $$, '42501', null, 'the matcher stays service_role only');
 
 reset role;
 select * from finish();

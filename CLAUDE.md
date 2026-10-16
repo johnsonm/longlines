@@ -136,11 +136,12 @@ deploys automatically.
 ## Delivery rules
 
 - Outbound delivery is the sender (`sender/`, "Sender rules"), not an Edge Function. The Edge
-  `deliver` function is retired: the cutover migration (`20261015001200`) unscheduled its cron job
+  `deliver` function is gone: the cutover migration (`20261015001200`) unscheduled its cron job
   and took the pg_net kick out of `match_pending_spots`, which now does `pg_notify('deliveries', '')`
-  when it created deliveries. Never add a `net.http_post` back; the function and its handler are
-  deleted in the cleanup session, with `delay_deliveries` and `mark_deliveries_dropped`.
-- `archive` (and `deliver`, until its cleanup) authorize with `isServiceRole` (`_shared/auth.ts`):
+  when it created deliveries, and the cleanup (`20261015001300`) deleted the function, its handler
+  and its RPCs `delay_deliveries` and `mark_deliveries_dropped`. Never add a `net.http_post` or a
+  delivery Edge Function back.
+- `archive` and `import-cty` authorize with `isServiceRole` (`_shared/auth.ts`):
   the runtime's `SUPABASE_SERVICE_ROLE_KEY` (now the `sb_secret_` key) or a JWT with
   `role: service_role`, which is what pg_cron sends from Vault. The JWT is trusted only because the
   gateway verified it, so both functions keep `verify_jwt = true` in `config.toml`.
@@ -154,8 +155,8 @@ deploys automatically.
   an empty sources list ("any source") includes neither (WWFF overlaps POTA heavily and there is no
   cross-source dedup). The rule lives in `source_matches`. An RBN spot passes only an AND group of
   rules that names stations (a `callsign` or `group` rule with op `is`, `rules_name_stations`).
-- The loop is `_shared/delivery/run.ts` (`runDeliveryBatch` over a `DeliveryRpc`), shared by the
-  sender and the retired `deliver`. It talks to the database only through `claim_deliveries`,
+- The loop is `_shared/delivery/run.ts` (`runDeliveryBatch` over a `DeliveryRpc`), run only by
+  the sender. It talks to the database only through `claim_deliveries`,
   `mark_deliveries_sent`, `mark_deliveries_failed`, `throttle_destination`, `prune_push_devices`
   and `record_push_results`, so delivery rows, queue messages and destination health change
   atomically. One `mark_deliveries_sent` per cycle, before the throttles (the ack clears
@@ -172,7 +173,8 @@ deploys automatically.
 - Rate limits are not failures: a 429 from any type, or the Discord cap, calls
   `throttle_destination` (with `Retry-After` when there is one, else null so SQL picks the level's
   backoff), which sets `throttled_until`, `throttle_level` and the messages' vt together and never
-  touches `consecutive_failures`. Never call `delay_deliveries`.
+  touches `consecutive_failures`. Never delay or drop a message outside those RPCs: the claim's
+  expiry sweep is the only thing that drops a delivery.
 
 ## Web app rules
 
