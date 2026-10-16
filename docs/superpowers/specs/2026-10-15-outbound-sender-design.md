@@ -634,7 +634,7 @@ notes for the next session. Earlier entries are never edited.
   the file. Brad set only `SENDER_DATABASE_URL` on the sender app; the VAPID triple waits until
   push is set up (no keys have ever been generated, so there is no pair to match), and the sender
   runs without it. Session 5's docs pass should keep the per-folder layout.
-- 2026-10-15, session 5 (PR #TBD): the cutover migration and the docs. Landed:
+- 2026-10-15, session 5 (PR #200): the cutover migration and the docs. Landed:
   `20261015001100_sender_cutover.sql` (unschedules the `deliver` cron job and replaces
   `match_pending_spots` with the 20261015000500 body minus the `net.http_post` block and the
   `v_url`/`v_key` declarations, plus `perform pg_notify('deliveries', '')` when deliveries were
