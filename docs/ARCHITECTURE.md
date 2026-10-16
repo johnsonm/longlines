@@ -260,7 +260,7 @@ shared-cpu-1x, 256 MB), the counterpart of the relay. Until 2026-10-15 it was a 
 Function, called by cron every minute and kicked over pg_net after every ingest run that created
 deliveries: every run was an invocation, so delivery volume scaled the project's invocation
 count, while a process that polls costs nothing per poll. That function, its cron job and its
-own RPCs are gone (`20261015001300_sender_cleanup`). The design, with its decisions and
+own RPCs are gone (`20261015001400_sender_cleanup`). The design, with its decisions and
 the Phase 2 plan, is `docs/superpowers/specs/2026-10-15-outbound-sender-design.md`.
 
 - **The sender is dumb; policy lives in Postgres.** It connects as the `delivery_sender` role

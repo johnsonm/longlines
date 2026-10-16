@@ -692,7 +692,7 @@ notes for the next session. Earlier entries are never edited.
   bullet, README's repository layout row. The Edge VAPID secrets stay for `send-test` and `api`.
   Brad has still not noted the 30-day `deliver` invocation count.
 - 2026-10-16, session 6 (PR #204): cleanup; Phase 1 complete. Landed:
-  `20261015001300_sender_cleanup.sql` (`drop function if exists` for `delay_deliveries(bigint[],
+  `20261015001400_sender_cleanup.sql` (`drop function if exists` for `delay_deliveries(bigint[],
   int)` and `mark_deliveries_dropped(bigint[], bigint[])`; their `service_role` grants go with
   them; nothing else called either, checked across migrations, functions, the sender, the web app
   and the scripts); deleted `supabase/functions/deliver/`, `_shared/handlers/deliver.ts`,
@@ -725,7 +725,10 @@ notes for the next session. Earlier entries are never edited.
   has no `deliver`); pgTAP 1172 assertions across 32 files; the smoke test; db lint unchanged
   (two pre-existing `v_reset` warnings); web lint, 537 Vitest cases with coverage, `npm run
   build`. Hand steps after merge, in this order: `supabase db push` (applies `20261015001200` if
-  it is still pending, then `20261015001300`; confirm `select jobname from cron.job where jobname
+  it is still pending, then `20261015001400`; confirm `select jobname from cron.job where jobname
   = 'deliver'` returns nothing), then `supabase functions delete deliver`. Phase 2 starts from
   section 9 with its own spec. Brad never noted the 30-day `deliver` invocation count; the
-  dashboard's per-function metrics are the record if it is ever wanted.
+  dashboard's per-function metrics are the record if it is ever wanted. The migration was first numbered
+  20261015001300; PR #203 (`list_ingest_health_state_only`) took that version on main while this
+  PR was open and `supabase db push` failed on the duplicate key in `schema_migrations`, so it is
+  20261015001400 and main is merged in.

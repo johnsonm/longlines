@@ -138,7 +138,7 @@ deploys automatically.
 - Outbound delivery is the sender (`sender/`, "Sender rules"), not an Edge Function. The Edge
   `deliver` function is gone: the cutover migration (`20261015001200`) unscheduled its cron job
   and took the pg_net kick out of `match_pending_spots`, which now does `pg_notify('deliveries', '')`
-  when it created deliveries, and the cleanup (`20261015001300`) deleted the function, its handler
+  when it created deliveries, and the cleanup (`20261015001400`) deleted the function, its handler
   and its RPCs `delay_deliveries` and `mark_deliveries_dropped`. Never add a `net.http_post` or a
   delivery Edge Function back.
 - `archive` and `import-cty` authorize with `isServiceRole` (`_shared/auth.ts`):

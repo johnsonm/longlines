@@ -1,6 +1,6 @@
 -- pgTAP: the RPCs the sender uses to claim, complete, retry and throttle
 -- deliveries, and the expiry sweep that drops them (20261006000010
--- delivery_rpcs, 20261015000400 rate_aware_claim, 20261015001300
+-- delivery_rpcs, 20261015000400 rate_aware_claim, 20261015001400
 -- sender_cleanup).
 begin;
 create extension if not exists pgtap with schema extensions;
@@ -50,7 +50,7 @@ select mark_deliveries_failed(array[(select delivery_id from claimed)], array[(s
 select is((select consecutive_failures from destinations), 5, 'five failures counted');
 select is((select health from destinations), 'failing', 'fifth consecutive failure marks the destination failing');
 
--- The Edge worker's rate-limit delay and drop RPCs went with it (20261015001300);
+-- The Edge worker's rate-limit delay and drop RPCs went with it (20261015001400);
 -- a 429 is throttle_destination below and a drop is the claim's expiry sweep.
 select hasnt_function('public', 'delay_deliveries', array['bigint[]', 'integer'], 'delay_deliveries is gone');
 select hasnt_function('public', 'mark_deliveries_dropped', array['bigint[]', 'bigint[]'], 'mark_deliveries_dropped is gone');
