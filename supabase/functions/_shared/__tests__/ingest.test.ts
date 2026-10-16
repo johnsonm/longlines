@@ -209,3 +209,31 @@ Deno.test("runIngest reports a matcher failure without failing the ingest run", 
   assertEquals(summary.match_error, "matcher down");
   assertEquals(calls.failure, []);
 });
+
+Deno.test("runIngest strips U+0000 from pulled items before normalize, insert and dead letters", async () => {
+  // Postgres rejects U+0000 in jsonb (22P05), which would fail the whole batch.
+  const feed = [
+    { id: 1, comment: "QRV\u0000 now", park: { name: "Big\u0000 Park" } },
+    { id: 2, throws: true, comment: "bad\u0000" },
+    { id: 3, comment: String.raw`typed \u0000 text` },
+  ];
+  const seen: JsonObject[] = [];
+  const adapter = fakeAdapter(feed);
+  const normalize = adapter.normalize;
+  adapter.normalize = (raw, now) => {
+    seen.push(raw);
+    return normalize(raw, now);
+  };
+  const { db, calls } = fakeDb();
+  const summary = await runIngest(adapter, db, NOW);
+
+  assertEquals(summary.inserted, 2);
+  assertEquals(summary.failed, 1);
+  assertEquals(JSON.stringify(seen).includes("\\u0000"), true); // only the typed text
+  assertEquals(seen.some((raw) => JSON.stringify(raw).includes("\u0000")), false);
+  assertEquals(calls.ingested[0]?.map((s) => s.raw_payload), [
+    { id: 1, comment: "QRV now", park: { name: "Big Park" } },
+    { id: 3, comment: String.raw`typed \u0000 text` },
+  ]);
+  assertEquals(calls.failures[0]?.[0]?.raw_payload, { id: 2, throws: true, comment: "bad" });
+});

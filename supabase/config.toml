@@ -461,3 +461,16 @@ verify_jwt = true
 
 [functions.import-cty]
 verify_jwt = true
+
+# ingest-pota, ingest-sotawatch and ingest-wwff are called by pg_cron with the
+# same legacy service-role JWT and refuse any other caller, since each run hits
+# a live upstream (serveIngest in _shared/serve_ingest.ts). They accept it by
+# its role claim too, so the gateway's check must stay on.
+[functions.ingest-pota]
+verify_jwt = true
+
+[functions.ingest-sotawatch]
+verify_jwt = true
+
+[functions.ingest-wwff]
+verify_jwt = true

@@ -60,7 +60,8 @@ Local invocation: `curl -X POST http://127.0.0.1:54321/functions/v1/ingest-pota 
 ## Architecture
 
 - `supabase/functions/_shared/ingest.ts` is the orchestrator; `ingest-pota/index.ts`,
-  `ingest-sotawatch/index.ts` and `ingest-wwff/index.ts` are three-line shells around `serve.ts`.
+  `ingest-sotawatch/index.ts` and `ingest-wwff/index.ts` are three-line shells around
+  `serve_ingest.ts`.
   The other entrypoints are `Deno.serve` shells around `_shared/handlers/*.ts`, which take their
   clients and sender as arguments so tests can pass fakes (`__tests__/fake_supabase.ts`). Behavior changes go in
   `_shared`, never in the entrypoints.
