@@ -271,11 +271,12 @@ Fly.
 
 ```sh
 fly logs -a longlines-sender          # one JSON line per cycle that sent or failed something; queue stats every minute
-fly checks list -a longlines-sender   # /healthz: healthy, last_claim_at, last_error, in_flight, totals, queue
+fly checks list -a longlines-sender   # /healthz: healthy, last_claim_at, last_progress_at, last_error, in_flight, totals, queue
 ```
 
-`/healthz` is 200 while the last successful claim (or the start) is under `SENDER_STALE_MS` old
-and 503 after. A 503 restarts nothing: Fly restarts the machine only when the process exits, and
+`/healthz` is 200 while the last progress (a successful claim, a finished send or a successful
+bookkeeping call; the start before any) is under `SENDER_STALE_MS` old and 503 after, so a long
+cycle that is still sending stays healthy. A 503 restarts nothing: Fly restarts the machine only when the process exits, and
 the watchdog exits 1 at the same threshold, which is what a wedged pooler connection looks like.
 `queue.depth` should stay near zero. `queue.expired_last_hour` counts deliveries that waited past
 their age limit (push 15 minutes, everything else 24 hours) and were dropped undelivered; that is

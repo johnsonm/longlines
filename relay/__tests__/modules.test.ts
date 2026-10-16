@@ -188,6 +188,17 @@ Deno.test("functionClient POSTs a batch as JSON", async () => {
   assertEquals(await req.json(), { lines });
 });
 
+Deno.test("functionClient aborts the request when the caller's signal aborts", async () => {
+  const f = fakeFetch(200, "{}");
+  const client = functionClient("https://x", "ingest-rbn", "s", f.fn);
+  await client.push([]);
+  assertEquals(f.requests[0]!.signal.aborted, false);
+  const stop = new AbortController();
+  await client.push([], stop.signal);
+  stop.abort();
+  assertEquals(f.requests[1]!.signal.aborted, true);
+});
+
 Deno.test("functionClient throws on non-2xx", async () => {
   await assertRejects(
     () => functionClient("https://x", "ingest-rbn", "s", fakeFetch(401, "{}").fn).push([]),

@@ -1,9 +1,11 @@
 // HTTP shells shared by the ingest functions: run the orchestrator, return the
 // summary as JSON, or a 500 whose body and log line carry the error.
 //
-// Pulled sources (POTA, SOTAwatch, WWFF) are invoked by pg_cron with the service-role
-// key. Pushed sources (RBN, DX Cluster, APRS-IS) are invoked by the relay, which holds
-// only the relay secret, with POST batches of lines.
+// Pushed sources (RBN, DX Cluster, APRS-IS) are invoked by the relay, which holds
+// only the relay secret, with POST batches of lines. Pulled sources (POTA,
+// SOTAwatch, WWFF) are served by serve_ingest.ts, which checks for the service
+// role; keep that check out of this module, which the verify_jwt = false push
+// functions import.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { secretsMatch } from "./auth.ts";
@@ -15,9 +17,8 @@ import {
   createServiceClient,
   createWatchlistDb,
 } from "./db.ts";
-import { runIngest } from "./ingest.ts";
 import type { RbnPushDb } from "./rbn_push.ts";
-import type { IngestDb, IngestSummary, Source, SourceAdapter } from "./types.ts";
+import type { IngestSummary, Source } from "./types.ts";
 
 const RELAY_SECRET_ENV = "LONGLINES_RELAY_SECRET";
 
@@ -25,7 +26,10 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-async function respond(source: Source, run: () => Promise<IngestSummary>): Promise<Response> {
+export async function respond(
+  source: Source,
+  run: () => Promise<IngestSummary>,
+): Promise<Response> {
   try {
     const summary = await run();
     console.log(JSON.stringify(summary));
@@ -35,17 +39,6 @@ async function respond(source: Source, run: () => Promise<IngestSummary>): Promi
     console.error(`ingest-${source} failed: ${message}`);
     return Response.json({ source, error: message }, { status: 500 });
   }
-}
-
-export function ingestHandler(
-  adapter: SourceAdapter,
-  makeDb: () => IngestDb,
-): (req: Request) => Promise<Response> {
-  return (_req: Request) => respond(adapter.source, () => runIngest(adapter, makeDb()));
-}
-
-export function serveIngest(adapter: SourceAdapter): void {
-  Deno.serve(ingestHandler(adapter, () => createIngestDb(createServiceClient())));
 }
 
 export interface PushDeps<D> {

@@ -2,6 +2,8 @@ import { assertEquals } from "@std/assert";
 import {
   abortableSleep,
   DEFAULT_BACKOFF,
+  type LineDecoder,
+  MAX_PENDING,
   nextDelay,
   runTelnet,
   type SessionStatus,
@@ -246,6 +248,40 @@ Deno.test("TcpLineDecoder treats 0xFF as data, not telnet IAC", () => {
     "x\uFFFD\uFFFD\u0001y",
   ]);
 });
+
+const DECODERS: [string, () => LineDecoder][] = [
+  ["TelnetDecoder", () => new TelnetDecoder()],
+  ["TcpLineDecoder", () => new TcpLineDecoder()],
+];
+
+for (const [name, make] of DECODERS) {
+  Deno.test(`${name} keeps pending text bounded when a peer never sends LF`, () => {
+    const d = make();
+    const junk = new Uint8Array(16 * 1024).fill(0x41); // "A" x 16 KB, no LF
+    for (let i = 0; i < 2_000; i++) {
+      assertEquals(d.push(junk), []);
+      assertEquals(d.pending.length <= MAX_PENDING, true);
+    }
+  });
+
+  Deno.test(`${name} drops an overlong line whole and delivers the next one`, () => {
+    const d = make();
+    assertEquals(d.push(enc("ok 1\r\nDX de ")), ["ok 1"]);
+    assertEquals(d.push(enc("x".repeat(MAX_PENDING))), []);
+    assertEquals(d.pending, "");
+    // The rest of the overlong line, up to its LF, is dropped too.
+    assertEquals(d.push(enc("tail of junk\r\nok 2\r\nok")), ["ok 2"]);
+    assertEquals(d.push(enc(" 3\n")), ["ok 3"]);
+  });
+
+  Deno.test(`${name} keeps a line of exactly MAX_PENDING across reads`, () => {
+    const d = make();
+    const long = "y".repeat(MAX_PENDING);
+    assertEquals(d.push(enc(long.slice(0, 100))), []);
+    assertEquals(d.push(enc(long.slice(100))), []);
+    assertEquals(d.push(enc("\n\n")), [long, ""]);
+  });
+}
 
 Deno.test("runTelnet over plain TCP logs in with loginLine when a completed line matches the prompt", async () => {
   // An APRS-IS server: a banner line, then it waits for the login line.

@@ -60,7 +60,8 @@ Local invocation: `curl -X POST http://127.0.0.1:54321/functions/v1/ingest-pota 
 ## Architecture
 
 - `supabase/functions/_shared/ingest.ts` is the orchestrator; `ingest-pota/index.ts`,
-  `ingest-sotawatch/index.ts` and `ingest-wwff/index.ts` are three-line shells around `serve.ts`.
+  `ingest-sotawatch/index.ts` and `ingest-wwff/index.ts` are three-line shells around
+  `serve_ingest.ts`.
   The other entrypoints are `Deno.serve` shells around `_shared/handlers/*.ts`, which take their
   clients and sender as arguments so tests can pass fakes (`__tests__/fake_supabase.ts`). Behavior changes go in
   `_shared`, never in the entrypoints.
@@ -168,8 +169,11 @@ deploys automatically.
   the budget keeps unreachable. The claim's signature and result columns stay as they are: new
   policy is a column or a knob function, never an argument.
 - Formatting, signing and URL safety are pure modules under `_shared/delivery/` with tests;
-  `send.ts` is the only place that calls `fetch` for destinations. `allowInsecure` exists for tests
-  and local development only.
+  `send.ts` is the only place that sends to destinations: `fetch` for Discord and push, and
+  `pinned_http.ts` (hand-rolled HTTP/1.1) for webhooks. `allowInsecure` is for tests and local
+  development only.
+- A webhook connects to an address `assertSafeResolvedHost` checked, never to a fresh lookup of
+  its name: `fetch` resolves again, which DNS rebinding can point at an internal address.
 - Rate limits are not failures: a 429 from any type, or the Discord cap, calls
   `throttle_destination` (with `Retry-After` when there is one, else null so SQL picks the level's
   backoff), which sets `throttled_until`, `throttle_level` and the messages' vt together and never
@@ -216,6 +220,8 @@ deploys automatically.
   imports, since `deno coverage` silently omits those.
 - Deno excludes modules whose names end in `test.ts` from coverage, so never name a source file
   `*_test.ts` (hence `handlers/test_delivery.ts` for the send-test function).
+- Never name a file after a Windows device (`nul`, `con`, `prn`, `aux`, `com1`, `lpt1`, with any
+  extension): the Supabase Preview check refuses to clone the repo (hence `strip_nul.ts`).
 - Web component tests render through `web/src/test/render.tsx` (theme, MemoryRouter, stub App
   context) and `vi.mock("../lib/api")` with explicit factories. `setMobile(true)` from
   `test/media.ts` switches `useMediaQuery` to the phone layout. Pure `*.test.ts` files stay in node:
@@ -276,10 +282,15 @@ deploys automatically.
 - Per-destination caps are per minute, in SQL (`destination_budget`), never per claim or per
   poll in TypeScript. The sender polls every `SENDER_POLL_MS` (5 s, floor 1 s) and re-claims at
   once after a full batch; LISTEN on the matcher's `deliveries` channel is planned, not done.
-- The watchdog exits 1 after `SENDER_STALE_MS` without a successful claim, because Fly restarts
-  only a machine whose process exits; a `/healthz` 503 alone restarts nothing. A failed claim or
-  mark is logged and retried with backoff, never an exit. Exit 1 otherwise means bad config, a
-  pool that cannot open at start, or an unhandled rejection.
+- The watchdog exits 1 after `SENDER_STALE_MS` without progress (a successful claim, a finished
+  send or a successful bookkeeping RPC, reported through `runDeliveryBatch`'s `onProgress`), never
+  since the last finished cycle, because a long healthy cycle killed before its ack re-sends the
+  batch. Fly restarts only a machine whose process exits; a `/healthz` 503 alone restarts nothing.
+  The repeatable bookkeeping RPCs (`mark_deliveries_sent`, `prune_push_devices`,
+  `record_push_results`) are retried within the cycle (`BOOKKEEPING_RETRY_MS`); the counting ones
+  (`mark_deliveries_failed`, `throttle_destination`) are tried once. A failed claim or mark is then
+  logged and the next claim backs off, never an exit. Exit 1 otherwise means bad config, a pool
+  that cannot open at start, or an unhandled rejection.
 - Knobs are env variables read in `sender/config.ts` (`SENDER_POLL_MS`, `SENDER_CONCURRENCY`,
   `SENDER_STALE_MS`, `SENDER_STATS_MS`, `SENDER_HEALTH_PORT`); the Dockerfile's `--allow-env` must
   name every variable the sender reads (`sender/__tests__/modules.test.ts`), and `deno.json`'s test

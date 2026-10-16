@@ -5,7 +5,11 @@
 // Request body:
 //   { "lines": [{ "line": "<telnet line>", "received_at": "<ISO 8601 UTC>" }, ...] }
 
+import { withoutNul } from "./strip_nul.ts";
 import type { JsonObject, NormalizeResult, Source, SourceAdapter } from "./types.ts";
+
+// The push failure paths (rbn_push.ts, aprs.ts) import it from here.
+export { withoutNul };
 
 const MAX_LINES = 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -26,11 +30,6 @@ export function parseRelayBody(body: unknown): JsonObject[] {
     }
     return item as JsonObject;
   });
-}
-
-/** The item with every U+0000 removed: jsonb rejects it, so a NUL would fail the whole batch. */
-export function withoutNul(raw: JsonObject): JsonObject {
-  return JSON.parse(JSON.stringify(raw).replaceAll("\\u0000", "")) as JsonObject;
 }
 
 /**

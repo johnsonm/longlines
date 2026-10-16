@@ -16,6 +16,24 @@ export const CLAIM_LIMIT = 200;
 export const VISIBILITY_SECONDS = 60;
 /** Destinations sent at once. 1 sends them one after another, as the Edge worker always did. */
 export const DEFAULT_CONCURRENCY = 4;
+/**
+ * Waits before the second and third attempt of a bookkeeping RPC that is safe
+ * to repeat; well inside VISIBILITY_SECONDS, so the rows are still hidden.
+ */
+export const BOOKKEEPING_RETRY_MS: readonly number[] = [500, 1_000];
+/**
+ * The bookkeeping RPCs a retry cannot double: each sets state rather than
+ * adding to it (a repeated ack only steps throttle_level down once more, to no
+ * lower than 0). mark_deliveries_failed and throttle_destination increment
+ * attempts, consecutive_failures and throttle_level, so one whose commit
+ * landed but whose answer was lost would count twice; they get one attempt,
+ * and their rows reappear after the visibility timeout anyway.
+ */
+const REPEATABLE_RPCS: ReadonlySet<string> = new Set([
+  "mark_deliveries_sent",
+  "prune_push_devices",
+  "record_push_results",
+]);
 
 /**
  * The database as the loop sees it: the sender's RPC allowlist, nothing else.
@@ -39,7 +57,19 @@ export interface RunDeliveryOptions {
   visibilitySeconds?: number;
   /** Destinations in flight at once; sends within a destination stay in order. */
   concurrency?: number;
+  /**
+   * Called on each step forward: the claim answered, a destination's send
+   * finished (sent or not), a bookkeeping RPC succeeded. The sender's watchdog
+   * measures liveness from it, so a long but healthy cycle is not taken for a
+   * wedged one.
+   */
+  onProgress?: (step: ProgressStep) => void;
+  /** The wait between bookkeeping attempts; tests pass one that returns at once. */
+  sleep?: (ms: number) => Promise<void>;
 }
+
+/** What moved a cycle forward; see RunDeliveryOptions.onProgress. */
+export type ProgressStep = "claim" | "send" | "bookkeeping";
 
 /** What happened to one destination's claimed rows this cycle. Never the destination's secrets. */
 export interface DestinationResult {
@@ -99,6 +129,11 @@ export async function runDeliveryBatch(
     p_vt: options.visibilitySeconds ?? VISIBILITY_SECONDS,
   });
   if (claimed.error !== null) throw new ClaimError(claimed.error);
+  const progress = options.onProgress ?? (() => {});
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  const bookkeep = (fn: string, args: Record<string, unknown>) =>
+    rpcOrLog(db, result, fn, args, progress, sleep);
+  progress("claim");
   const rows = (claimed.data ?? []) as PendingDelivery[];
   result.claimed = rows.length;
 
@@ -120,7 +155,9 @@ export async function runDeliveryBatch(
       // The claim leaves paused destinations out; this is the belt to its braces.
       // Their messages reappear after the visibility timeout.
       if (destination.health === "paused") return { batch, sent: null };
-      return { batch, sent: await send(destination, batch, now) };
+      const sent = await send(destination, batch, now);
+      progress("send");
+      return { batch, sent };
     },
   );
 
@@ -131,11 +168,11 @@ export async function runDeliveryBatch(
   const done: PendingDelivery[] = [];
   for (const { batch, sent } of outcomes) {
     if (sent === null) continue;
-    for (const [fn, args] of pushBookkeeping(sent)) await rpcOrLog(db, result, fn, args);
+    for (const [fn, args] of pushBookkeeping(sent)) await bookkeep(fn, args);
     done.push(...batch.slice(0, sent.sent));
   }
   if (done.length > 0) {
-    await rpcOrLog(db, result, "mark_deliveries_sent", {
+    await bookkeep("mark_deliveries_sent", {
       p_delivery_ids: done.map((r) => r.delivery_id),
       p_msg_ids: done.map((r) => r.msg_id),
     });
@@ -167,7 +204,7 @@ export async function runDeliveryBatch(
     if (sent.retryAfterSeconds !== undefined) {
       // Rate limited, not broken: SQL hides the destination and these
       // messages for Retry-After, or for its own backoff when there is none.
-      await rpcOrLog(db, result, "throttle_destination", {
+      await bookkeep("throttle_destination", {
         p_destination_id: destination.id,
         p_msg_ids: rest.map((r) => r.msg_id),
         p_seconds: sent.retryAfterSeconds,
@@ -177,7 +214,7 @@ export async function runDeliveryBatch(
     } else {
       const attempt = Math.max(...rest.map((r) => r.attempts)) + 1;
       const error = sent.error ?? "unknown error";
-      await rpcOrLog(db, result, "mark_deliveries_failed", {
+      await bookkeep("mark_deliveries_failed", {
         p_delivery_ids: rest.map((r) => r.delivery_id),
         p_msg_ids: rest.map((r) => r.msg_id),
         p_error: error,
@@ -217,15 +254,31 @@ async function mapBounded<T, R>(
   return results;
 }
 
+/**
+ * One bookkeeping RPC, repeated after BOOKKEEPING_RETRY_MS when it fails and
+ * is in REPEATABLE_RPCS: a lost mark_deliveries_sent would send the whole
+ * batch again after the visibility timeout. The last error is recorded, never
+ * thrown, so the cycle still completes.
+ */
 async function rpcOrLog(
   db: DeliveryRpc,
   result: DeliveryBatchResult,
   fn: string,
   args: Record<string, unknown>,
+  progress: (step: ProgressStep) => void,
+  sleep: (ms: number) => Promise<void>,
 ): Promise<void> {
-  const { error } = await db.rpc(fn, args);
-  if (error !== null) {
-    result.errors.push(`${fn}: ${error}`);
-    console.error(`deliver: ${fn} failed: ${error}`);
+  const waits = REPEATABLE_RPCS.has(fn) ? BOOKKEEPING_RETRY_MS : [];
+  for (let attempt = 0;; attempt++) {
+    const { error } = await db.rpc(fn, args);
+    if (error === null) return progress("bookkeeping");
+    const wait = waits[attempt];
+    if (wait === undefined) {
+      result.errors.push(`${fn}: ${error}`);
+      console.error(`deliver: ${fn} failed: ${error}`);
+      return;
+    }
+    console.error(`deliver: ${fn} failed: ${error}; retrying in ${wait} ms`);
+    await sleep(wait);
   }
 }

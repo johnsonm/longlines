@@ -1,11 +1,11 @@
 -- pgTAP: the RPCs the sender uses to claim, complete, retry and throttle
--- deliveries, and the expiry sweep that drops them (20261006000010
--- delivery_rpcs, 20261015000400 rate_aware_claim, 20261015001400
--- sender_cleanup).
+-- deliveries, and the sweeps that drop them (20261006000010 delivery_rpcs,
+-- 20261015000400 rate_aware_claim, 20261015001400 sender_cleanup,
+-- 20261016000100 claim_drops_unwanted, 20261016000300 throttle_cap).
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(79);
+select plan(88);
 select pgmq.purge_queue('spot_events');
 select pgmq.purge_queue('deliveries_queue');
 
@@ -130,6 +130,10 @@ create temp table dd as select * from create_destination('discord', 'Chat', 'htt
 select pg_temp.as_user('22222222-2222-2222-2222-222222222222');
 create temp table dp as select * from create_destination('push', 'Phone', null);
 reset role;
+-- pg_temp.queue files every delivery under the one subscription, and the claim
+-- sends only what a subscription still links to (20261016000100).
+insert into subscription_destinations (subscription_id, destination_id)
+select (select id from sub), id from dd union all select (select id from sub), id from dp;
 
 -- ---------------------------------------------------------------------------
 -- Newest first, round-robin by rank
@@ -215,16 +219,20 @@ select is((select consecutive_failures || ':' || health from destinations where 
 select is(throttle_destination((select id from dd), array[]::bigint[], null), 120, 'the next 429 doubles the hold');
 select is(throttle_destination((select id from dd), array(select msg_id from thr), 7), 7, 'Retry-After wins over the level');
 select is(throttle_destination((select id from dd), array[]::bigint[], 0), 1, 'a zero Retry-After holds for a second');
-select is((select throttle_level from destinations where id = (select id from dd)), 4, 'every 429 raises the level');
+select is(throttle_destination((select id from dd), array[]::bigint[], 2147483647), 86400,
+  'a huge Retry-After is capped at a day');
+select is((select throttled_until from destinations where id = (select id from dd)), now() + interval '1 day',
+  'and so is throttled_until');
+select is((select throttle_level from destinations where id = (select id from dd)), 5, 'every 429 raises the level');
 select throws_ok($$ select throttle_destination('00000000-0000-0000-0000-000000000000', array[]::bigint[], null) $$,
   'P0001', 'Destination not found.', 'an unknown destination is an error');
 
 -- A successful cycle clears the hold and steps the level down by one.
 select mark_deliveries_sent(array(select delivery_id from thr), array(select msg_id from thr));
 select results_eq($$ select throttle_level, throttled_until from destinations where id = (select id from dd) $$,
-  $$ values (3, null::timestamptz) $$, 'success clears throttled_until and decays the level by one, not to zero');
+  $$ values (4, null::timestamptz) $$, 'success clears throttled_until and decays the level by one, not to zero');
 select mark_deliveries_sent(array[]::bigint[], array[]::bigint[]);
-select is((select throttle_level from destinations where id = (select id from dd)), 3, 'an empty ack touches nothing');
+select is((select throttle_level from destinations where id = (select id from dd)), 4, 'an empty ack touches nothing');
 
 -- ---------------------------------------------------------------------------
 -- Expiry and delivery_queue_stats
@@ -280,6 +288,44 @@ select is((select count(*) from pgmq.q_deliveries_queue where (message ->> 'deli
 -- and the two drops inside the hour are the 16 min old push row and the swept webhook row.
 select results_eq($$ select * from delivery_queue_stats() $$, $$ values (1::bigint, 2::bigint) $$,
   'stats count the sweep drops only');
+
+-- ---------------------------------------------------------------------------
+-- Disabled subscriptions and unlinked destinations (20261016000100)
+-- ---------------------------------------------------------------------------
+select pg_temp.reset_queue();
+-- A second subscription of the same user, linked to Shack, stays enabled throughout.
+select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
+create temp table sub2 as
+  select save_subscription(jsonb_build_object('name','other','quiet_minutes',0,'destinations',array[(select id from dw)])) as id;
+reset role;
+create temp table unw as
+  select id, n from unnest(pg_temp.queue((select id from dw), 'unw-', 2, now())) with ordinality as t(id, n);
+update deliveries set subscription_id = (select id from sub2) where id = (select id from unw where n = 2);
+update subscriptions set enabled = false where id = (select id from sub);
+create temp table unw_claim as select * from claim_deliveries(200, 60);
+select results_eq($$ select delivery_id from unw_claim $$, $$ select id from unw where n = 2 $$,
+  'a disabled subscription''s delivery is not claimed; an enabled one beside it is');
+select results_eq($$ select status, dropped_at from deliveries where id = (select id from unw where n = 1) $$,
+  $$ values ('dropped', null::timestamptz) $$, 'it is dropped without dropped_at');
+select is((select count(*) from pgmq.q_deliveries_queue where (message ->> 'delivery_id')::bigint = (select id from unw where n = 1)),
+  0::bigint, 'and its message is archived');
+select results_eq($$ select * from delivery_queue_stats() $$, $$ values (1::bigint, 0::bigint) $$,
+  'an unwanted drop is not counted as expired');
+update subscriptions set enabled = true where id = (select id from sub);
+
+-- Unlinked: Chat's delivery under sub goes once sub no longer sends to Chat;
+-- Shack, still linked, is claimed.
+select pg_temp.reset_queue();
+create temp table unl_c as select unnest(pg_temp.queue((select id from dd), 'unl-c-', 1, now())) as id;
+create temp table unl_s as select unnest(pg_temp.queue((select id from dw), 'unl-s-', 1, now())) as id;
+delete from subscription_destinations where subscription_id = (select id from sub) and destination_id = (select id from dd);
+create temp table unl_claim as select * from claim_deliveries(200, 60);
+select results_eq($$ select delivery_id from unl_claim $$, $$ select id from unl_s $$,
+  'an unlinked destination''s delivery is not claimed; the linked one is');
+select results_eq($$ select status, dropped_at from deliveries where id = (select id from unl_c) $$,
+  $$ values ('dropped', null::timestamptz) $$, 'the unlinked delivery is dropped without dropped_at');
+select is((select count(*) from pgmq.q_deliveries_queue where (message ->> 'delivery_id')::bigint = (select id from unl_c)),
+  0::bigint, 'and its message is archived');
 
 select * from finish();
 rollback;

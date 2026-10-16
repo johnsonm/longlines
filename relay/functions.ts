@@ -10,20 +10,25 @@ export interface RelayLine {
 }
 
 export interface FunctionClient {
-  push(lines: RelayLine[]): Promise<unknown>;
+  /** `signal` aborts the request early (shutdown's drain deadline). */
+  push(lines: RelayLine[], signal?: AbortSignal): Promise<unknown>;
 }
 
 const TIMEOUT_MS = 15_000;
 
-/** POST `body` as JSON with the relay secret; the parsed reply, or an error for non-2xx. */
+/**
+ * POST `body` as JSON with the relay secret; the parsed reply, or an error for non-2xx.
+ * The request aborts after TIMEOUT_MS, or sooner when `signal` aborts.
+ */
 export function functionPoster(
   functionsUrl: string,
   functionName: string,
   secret: string,
   fetchFn: typeof fetch = fetch,
-): (body: unknown) => Promise<unknown> {
+): (body: unknown, signal?: AbortSignal) => Promise<unknown> {
   const url = `${functionsUrl}/${functionName}`;
-  return async (body: unknown): Promise<unknown> => {
+  return async (body: unknown, signal?: AbortSignal): Promise<unknown> => {
+    const timeout = AbortSignal.timeout(TIMEOUT_MS);
     const res = await fetchFn(url, {
       method: "POST",
       headers: {
@@ -32,7 +37,7 @@ export function functionPoster(
         "Content-Type": "application/json",
       },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(TIMEOUT_MS),
+      signal: signal === undefined ? timeout : AbortSignal.any([timeout, signal]),
     });
     const text = await res.text();
     if (!res.ok) throw new Error(`POST ${functionName}: HTTP ${res.status} ${text}`);
@@ -47,5 +52,5 @@ export function functionClient(
   fetchFn: typeof fetch = fetch,
 ): FunctionClient {
   const post = functionPoster(functionsUrl, functionName, secret, fetchFn);
-  return { push: (lines: RelayLine[]) => post({ lines }) };
+  return { push: (lines: RelayLine[], signal?: AbortSignal) => post({ lines }, signal) };
 }

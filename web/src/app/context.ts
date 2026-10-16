@@ -6,6 +6,8 @@ export interface AppContextValue {
   session: Session | null;
   sessionLoading: boolean;
   profile: Profile | null;
+  /** Why the signed-in user's profile failed to load; null while loading or once loaded. */
+  profileError: string | null;
   refreshProfile: () => Promise<void>;
   notify: (message: string) => void;
   toast: string | null;

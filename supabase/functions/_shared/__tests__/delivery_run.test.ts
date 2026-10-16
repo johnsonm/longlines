@@ -1,10 +1,12 @@
 import { assertEquals, assertRejects } from "@std/assert";
 import { backoffSeconds } from "../delivery/format.ts";
 import {
+  BOOKKEEPING_RETRY_MS,
   CLAIM_LIMIT,
   ClaimError,
   DEFAULT_CONCURRENCY,
   type DeliveryRpc,
+  type ProgressStep,
   runDeliveryBatch,
   VISIBILITY_SECONDS,
 } from "../delivery/run.ts";
@@ -90,11 +92,17 @@ type Send = (d: DeliveryDestination, b: readonly PendingDelivery[]) => Promise<S
 
 const allSent: Send = (_d, b) => Promise.resolve({ ok: true, sent: b.length });
 
+/** Records the bookkeeping waits instead of sleeping, so retries cost no time. */
+function noSleep() {
+  const waits: number[] = [];
+  return { waits, sleep: (ms: number) => (waits.push(ms), Promise.resolve()) };
+}
+
 async function run(
   rows: PendingDelivery[],
   send: Send,
   responders: Record<string, Responder> = {},
-  options: Parameters<typeof runDeliveryBatch>[3] = { concurrency: 1 },
+  options: Parameters<typeof runDeliveryBatch>[3] = { concurrency: 1, sleep: noSleep().sleep },
 ) {
   const { db, calls } = fakeRpc({ claim_deliveries: { data: rows }, ...responders });
   const sent: Array<{ destination: string; ids: number[] }> = [];
@@ -406,6 +414,108 @@ Deno.test("runDeliveryBatch collects bookkeeping RPC errors instead of aborting"
   });
   assertEquals(result.sent, 1);
   assertEquals(result.errors, ["mark_deliveries_sent: db down"]);
+});
+
+Deno.test("runDeliveryBatch retries a failed ack and records nothing once it lands", async () => {
+  let failures = 1;
+  const { waits, sleep } = noSleep();
+  const { result, calls } = await run([row(1, dest("a")), row(2, dest("a"))], allSent, {
+    mark_deliveries_sent: () => failures-- > 0 ? { error: "connection reset" } : {},
+  }, { sleep });
+  const marks = calls.filter((c) => c.fn === "mark_deliveries_sent");
+  assertEquals(marks.length, 2);
+  assertEquals(marks[1]?.args, { p_delivery_ids: [1, 2], p_msg_ids: [10, 20] });
+  assertEquals(waits, [500]);
+  assertEquals(result.errors, []);
+  assertEquals(result.sent, 2);
+});
+
+Deno.test("runDeliveryBatch gives up on an ack after the bounded attempts and records the error", async () => {
+  const { waits, sleep } = noSleep();
+  const { result, calls } = await run([row(1, dest("a"))], allSent, {
+    mark_deliveries_sent: { error: "db down" },
+  }, { sleep });
+  assertEquals(calls.filter((c) => c.fn === "mark_deliveries_sent").length, 3);
+  assertEquals(waits, [...BOOKKEEPING_RETRY_MS]);
+  assertEquals(BOOKKEEPING_RETRY_MS, [500, 1_000]);
+  assertEquals(result.errors, ["mark_deliveries_sent: db down"]);
+});
+
+Deno.test("runDeliveryBatch retries the push bookkeeping, which is safe to repeat", async () => {
+  const { waits, sleep } = noSleep();
+  let pruneFailures = 1;
+  let recordFailures = 2;
+  const p = dest("p", { type: "push", url: null, signing_secret: null, devices: [] });
+  const { result, calls } = await run([row(1, p)], () =>
+    Promise.resolve({
+      ok: true,
+      sent: 1,
+      expiredEndpoints: ["https://fcm.googleapis.com/gone"],
+      deviceResults: { ok: ["https://fcm.googleapis.com/ok"], errors: {} },
+    }), {
+    prune_push_devices: () => pruneFailures-- > 0 ? { error: "timeout" } : {},
+    record_push_results: () => recordFailures-- > 0 ? { error: "timeout" } : {},
+  }, { sleep });
+  assertEquals(calls.map((c) => c.fn), [
+    "claim_deliveries",
+    "prune_push_devices",
+    "prune_push_devices",
+    "record_push_results",
+    "record_push_results",
+    "record_push_results",
+    "mark_deliveries_sent",
+  ]);
+  assertEquals(waits, [500, 500, 1_000]);
+  assertEquals(result.errors, []);
+});
+
+Deno.test("runDeliveryBatch tries mark_deliveries_failed and throttle_destination once: they count", async () => {
+  // Both increment counters, so a retry after a commit whose answer was lost
+  // would count the failure or the throttle twice.
+  const { waits, sleep } = noSleep();
+  const { result, calls } = await run(
+    [row(1, dest("a")), row(2, dest("b"))],
+    (d) =>
+      Promise.resolve(
+        d.id === "a"
+          ? { ok: false, sent: 0, error: "Webhook HTTP 500" }
+          : { ok: false, sent: 0, error: "Webhook HTTP 429", retryAfterSeconds: 30 },
+      ),
+    {
+      mark_deliveries_failed: { error: "db down" },
+      throttle_destination: { error: "db down" },
+    },
+    { sleep },
+  );
+  assertEquals(calls.map((c) => c.fn), [
+    "claim_deliveries",
+    "mark_deliveries_failed",
+    "throttle_destination",
+  ]);
+  assertEquals(waits, []);
+  assertEquals(result.errors, ["mark_deliveries_failed: db down", "throttle_destination: db down"]);
+});
+
+Deno.test("runDeliveryBatch reports progress on the claim, each send and each RPC that lands", async () => {
+  const steps: ProgressStep[] = [];
+  let markFailures = 1;
+  await run(
+    [row(1, dest("a")), row(2, dest("b")), row(3, dest("c"))],
+    (d) =>
+      Promise.resolve(
+        d.id === "c" ? { ok: false, sent: 0, error: "Webhook HTTP 500" } : { ok: true, sent: 1 },
+      ),
+    {
+      mark_deliveries_sent: () => markFailures-- > 0 ? { error: "reset" } : {},
+    },
+    { concurrency: 1, sleep: noSleep().sleep, onProgress: (step) => steps.push(step) },
+  );
+  // The failed first ack attempt is not progress; its retry is.
+  assertEquals(steps, ["claim", "send", "send", "send", "bookkeeping", "bookkeeping"]);
+
+  const none: ProgressStep[] = [];
+  await run([], allSent, {}, { onProgress: (step) => none.push(step) });
+  assertEquals(none, ["claim"]);
 });
 
 Deno.test("runDeliveryBatch prunes gone push devices and records device status before the ack", async () => {

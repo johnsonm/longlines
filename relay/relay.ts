@@ -13,6 +13,11 @@ import { abortableSleep, runTelnet, type SessionStatus } from "./telnet.ts";
 const STATS_LOG_MS = 10 * 60_000;
 /** /healthz turns 503 when a feed has been silent this long, unless the feed sets its own. */
 const STALE_MS = 10 * 60_000;
+/**
+ * How long shutdown spends pushing what is buffered. Under fly.toml's kill_timeout
+ * (30 s) with room for the health server to close, so Fly never kills a push.
+ */
+const DRAIN_MS = 20_000;
 
 function startFeed(
   feed: Feed,
@@ -96,7 +101,10 @@ export interface Relay {
   addr: Deno.NetAddr;
   /** Resolves once every feed has stopped. */
   done: Promise<void>;
-  /** Stop the feeds, push what is buffered and close the health server. Safe to call twice. */
+  /**
+   * Stop the feeds, push what is buffered (for at most DRAIN_MS) and close the health
+   * server. Safe to call twice.
+   */
   shutdown(): Promise<void>;
 }
 
@@ -132,7 +140,7 @@ export function startRelay(
       stopping ??= (async () => {
         log("shutting down");
         controller.abort();
-        await Promise.all(feeds.map((f) => f.forwarder.buffered > 0 ? f.forwarder.flush() : null));
+        await Promise.all(feeds.map((f) => f.forwarder.drain(DRAIN_MS)));
         await server.shutdown();
       })();
       return stopping;

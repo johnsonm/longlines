@@ -1,14 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import type { Session } from "@supabase/supabase-js";
 import App from "./App";
 import { useSession } from "./auth/useSession";
-import { loadDestinations, loadProfile, loadSubscriptions, type Destination } from "./lib/api";
+import { loadDestinations, loadProfile, loadSubscriptions, signOut, type Destination } from "./lib/api";
 import { PROFILE, SESSION } from "./test/render";
 
 vi.mock("./auth/useSession", () => ({ useSession: vi.fn() }));
-vi.mock("./lib/api", () => ({ loadProfile: vi.fn(), loadDestinations: vi.fn(), loadSubscriptions: vi.fn() }));
+vi.mock("./lib/api", () => ({ loadProfile: vi.fn(), loadDestinations: vi.fn(), loadSubscriptions: vi.fn(), signOut: vi.fn() }));
 vi.mock("@vercel/speed-insights/react", () => ({ SpeedInsights: () => null }));
 vi.mock("@vercel/analytics/react", () => ({ Analytics: () => null }));
 
@@ -67,6 +68,7 @@ beforeEach(() => {
   vi.mocked(loadProfile).mockReset().mockResolvedValue({ ...PROFILE, timezone: "Asia/Tokyo" });
   vi.mocked(loadDestinations).mockReset().mockResolvedValue([DEST]);
   vi.mocked(loadSubscriptions).mockReset().mockResolvedValue([]);
+  vi.mocked(signOut).mockReset().mockResolvedValue();
 });
 
 describe("App routing", () => {
@@ -156,6 +158,31 @@ describe("App routing", () => {
     renderAt("/account");
     expect(screen.getByRole("progressbar")).toBeInTheDocument();
     expect(screen.queryByText("account page")).not.toBeInTheDocument();
+  });
+
+  it("offers Retry when the profile fails to load, and recovers", async () => {
+    vi.mocked(loadProfile).mockRejectedValueOnce(new Error("Couldn't load your profile."));
+    renderAt("/account");
+    expect(await screen.findByText("Couldn't load your profile.")).toBeInTheDocument();
+    expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(await screen.findByText("account page")).toBeInTheDocument();
+    expect(loadProfile).toHaveBeenCalledTimes(2);
+  });
+
+  it("offers Sign out when the profile fails to load", async () => {
+    vi.mocked(loadProfile).mockRejectedValue(new Error("Couldn't load your profile."));
+    renderAt("/account");
+    await userEvent.click(await screen.findByRole("button", { name: "Sign out" }));
+    expect(signOut).toHaveBeenCalledWith();
+  });
+
+  it("says so when signing out from the profile error fails", async () => {
+    vi.mocked(loadProfile).mockRejectedValue(new Error("Couldn't load your profile."));
+    vi.mocked(signOut).mockRejectedValue(new Error("x"));
+    renderAt("/account");
+    await userEvent.click(await screen.findByRole("button", { name: "Sign out" }));
+    expect(await screen.findByText("Couldn't sign out. Try again.")).toBeInTheDocument();
   });
 
   it("loads destinations and subscriptions for the signed-in pages", async () => {

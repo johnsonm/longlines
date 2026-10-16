@@ -1,7 +1,15 @@
 import { assertEquals, assertMatch } from "@std/assert";
-import { sendDiscord, sendPush, sendToDestination, sendWebhook } from "../delivery/send.ts";
+import {
+  MAX_RETRY_AFTER_SECONDS,
+  retryAfterSeconds,
+  sendDiscord,
+  sendPush,
+  sendToDestination,
+  sendWebhook,
+} from "../delivery/send.ts";
 import { base64UrlDecode, base64UrlEncode, type VapidKeys } from "../delivery/webpush.ts";
 import { signWebhookBody } from "../delivery/hmac.ts";
+import { PinnedConnectError, type pinnedPost } from "../delivery/pinned_http.ts";
 import type {
   DeliveryDestination,
   PendingDelivery,
@@ -114,6 +122,60 @@ Deno.test("sendDiscord stops on 429 and reports retry_after without sending the 
   );
 });
 
+Deno.test("retryAfterSeconds rounds up, caps at a day and refuses what is not a positive number", () => {
+  assertEquals(MAX_RETRY_AFTER_SECONDS, 86_400);
+  assertEquals(retryAfterSeconds("42"), 42);
+  assertEquals(retryAfterSeconds(" 7 "), 7);
+  assertEquals(retryAfterSeconds("2.5"), 3);
+  assertEquals(retryAfterSeconds(0.2), 1);
+  assertEquals(retryAfterSeconds(86_400), 86_400);
+  // Past throttle_destination's int: capped, so the throttle still lands.
+  assertEquals(retryAfterSeconds("3000000000"), MAX_RETRY_AFTER_SECONDS);
+  assertEquals(retryAfterSeconds(1e300), MAX_RETRY_AFTER_SECONDS);
+  for (
+    const value of [
+      "0",
+      0,
+      "-5",
+      -1,
+      "soon",
+      "",
+      "   ",
+      "Infinity",
+      Infinity,
+      NaN,
+      null,
+      undefined,
+      true,
+      "Wed, 21 Oct 2026 07:28:00 GMT",
+    ]
+  ) {
+    assertEquals(retryAfterSeconds(value), null, String(value));
+  }
+});
+
+Deno.test("sendDiscord caps a huge retry_after and falls back to the header, then 5 s", async () => {
+  const cases: Array<[Response, number]> = [
+    [Response.json({ retry_after: 3e9 }, { status: 429 }), MAX_RETRY_AFTER_SECONDS],
+    [
+      Response.json({ retry_after: -1 }, { status: 429, headers: { "Retry-After": "9" } }),
+      9,
+    ],
+    [new Response(null, { status: 429, headers: { "Retry-After": "3000000000" } }), 86_400],
+    [new Response("not json", { status: 429 }), 5],
+  ];
+  for (const [response, expected] of cases) {
+    await withServer(
+      () => response,
+      async (base) => {
+        const d = dest(`${base}/api/webhooks/1/abc`, "discord");
+        const result = await sendDiscord(d, [delivery(1, d)], { allowInsecure: true });
+        assertEquals(result.retryAfterSeconds, expected);
+      },
+    );
+  }
+});
+
 Deno.test("sendDiscord caps a single run at 30 messages per webhook", async () => {
   let calls = 0;
   await withServer(
@@ -202,7 +264,13 @@ Deno.test("sendWebhook treats a 429 as a rate limit with the Retry-After, not a 
 });
 
 Deno.test("sendWebhook reports a 429 without Retry-After as null so SQL picks the delay", async () => {
-  const cases: Record<string, string>[] = [{}, { "Retry-After": "soon" }, { "Retry-After": "0" }];
+  const cases: Record<string, string>[] = [
+    {},
+    { "Retry-After": "soon" },
+    { "Retry-After": "0" },
+    { "Retry-After": "-30" },
+    { "Retry-After": "Wed, 21 Oct 2026 07:28:00 GMT" },
+  ];
   for (const headers of cases) {
     await withServer(
       () => new Response(null, { status: 429, headers }),
@@ -273,6 +341,156 @@ Deno.test("sendWebhook refuses an unsafe destination before connecting", async (
       assertEquals(called, false);
     },
   );
+});
+
+// The pin: a webhook connects to an address urlsafety checked, never to a
+// second resolution of the name (DNS rebinding).
+
+interface Post {
+  url: string;
+  address: string;
+  headers: Record<string, string>;
+}
+
+/** A pinnedPost stand-in that records where each request would connect. */
+function recordingPost(
+  posts: Post[],
+  answer: (address: string) => number | Error = () => 200,
+): typeof pinnedPost {
+  return (url, address, init) => {
+    posts.push({ url: url.href, address, headers: { ...init.headers } });
+    const result = answer(address);
+    if (result instanceof Error) return Promise.reject(result);
+    return Promise.resolve({ status: result, headers: new Headers() });
+  };
+}
+
+Deno.test("sendWebhook connects to the address it checked and resolves the name once", async () => {
+  let lookups = 0;
+  const resolver = (host: string) => {
+    lookups++;
+    assertEquals(host, "hooks.example.com");
+    return Promise.resolve(["93.184.216.34", "2606:2800:220:1::1"]);
+  };
+  const posts: Post[] = [];
+  const d = dest("https://hooks.example.com/spots?k=1", "webhook");
+  const result = await sendWebhook(d, Array.from({ length: 60 }, (_, i) => delivery(i + 1, d)), {
+    resolver,
+    webhookPost: recordingPost(posts),
+  });
+  assertEquals(result, { ok: true, sent: 60 });
+  assertEquals(lookups, 1);
+  assertEquals(posts.map((p) => [p.url, p.address]), [
+    ["https://hooks.example.com/spots?k=1", "93.184.216.34"],
+    ["https://hooks.example.com/spots?k=1", "93.184.216.34"],
+  ]);
+  assertEquals(Object.keys(posts[0]!.headers).sort(), [
+    "Accept",
+    "Content-Type",
+    "User-Agent",
+    "X-LongLines-Signature",
+    "X-LongLines-Timestamp",
+  ]);
+});
+
+Deno.test("sendWebhook refuses a name that resolves to a private address before connecting", async () => {
+  const posts: Post[] = [];
+  const d = dest("https://rebind.example.com/spots", "webhook");
+  const result = await sendWebhook(d, [delivery(1, d)], {
+    resolver: () => Promise.resolve(["93.184.216.34", "127.0.0.1"]),
+    webhookPost: recordingPost(posts),
+  });
+  assertEquals(result, {
+    ok: false,
+    sent: 0,
+    error: "rebind.example.com resolves to a private address",
+  });
+  assertEquals(posts, []);
+});
+
+Deno.test("sendWebhook uses an IP literal as its own address without resolving", async () => {
+  const posts: Post[] = [];
+  const d = dest("https://[2606:2800:220:1::1]:8443/spots", "webhook");
+  const result = await sendWebhook(d, [delivery(1, d)], {
+    resolver: () => Promise.reject(new Error("must not resolve")),
+    webhookPost: recordingPost(posts),
+  });
+  assertEquals(result, { ok: true, sent: 1 });
+  assertEquals(posts.map((p) => p.address), ["2606:2800:220:1::1"]);
+});
+
+Deno.test("sendWebhook tries the next checked address only when connecting fails", async () => {
+  const resolver = () => Promise.resolve(["192.0.2.1", "192.0.2.2", "192.0.2.3", "192.0.2.4"]);
+  const d = dest("https://hooks.example.com/spots", "webhook");
+  const batch = Array.from({ length: 60 }, (_, i) => delivery(i + 1, d));
+
+  // Refused on the first: the second takes both payloads.
+  const posts: Post[] = [];
+  const refusedFirst = (a: string) =>
+    a === "192.0.2.1" ? new PinnedConnectError("Connection refused") : 200;
+  assertEquals(
+    await sendWebhook(d, batch, { resolver, webhookPost: recordingPost(posts, refusedFirst) }),
+    { ok: true, sent: 60 },
+  );
+  assertEquals(posts.map((p) => p.address), ["192.0.2.1", "192.0.2.2", "192.0.2.2"]);
+
+  // Refused everywhere: at most three addresses, then the last error.
+  const all: Post[] = [];
+  const refused = () => new PinnedConnectError("Connection refused");
+  assertEquals(
+    await sendWebhook(d, batch, { resolver, webhookPost: recordingPost(all, refused) }),
+    { ok: false, sent: 0, error: "Webhook request failed: Connection refused" },
+  );
+  assertEquals(all.map((p) => p.address), ["192.0.2.1", "192.0.2.2", "192.0.2.3"]);
+
+  // Anything after connecting may have reached the receiver: no second try.
+  const once: Post[] = [];
+  const timedOut = () => new Error("timed out after 10000 ms");
+  assertEquals(
+    await sendWebhook(d, batch, { resolver, webhookPost: recordingPost(once, timedOut) }),
+    { ok: false, sent: 0, error: "Webhook request failed: timed out after 10000 ms" },
+  );
+  assertEquals(once.map((p) => p.address), ["192.0.2.1"]);
+});
+
+Deno.test("sendWebhook with allowInsecure connects to a name itself, trying both loopbacks", async () => {
+  const posts: Post[] = [];
+  const v4Refused = (a: string) =>
+    a === "127.0.0.1" ? new PinnedConnectError("Connection refused") : 204;
+  const local = dest("http://localhost:9999/spots", "webhook");
+  assertEquals(
+    await sendWebhook(local, [delivery(1, local)], {
+      allowInsecure: true,
+      webhookPost: recordingPost(posts, v4Refused),
+    }),
+    { ok: true, sent: 1 },
+  );
+  const named = dest("http://receiver.test:9999/spots", "webhook");
+  await sendWebhook(named, [delivery(1, named)], {
+    allowInsecure: true,
+    resolver: () => Promise.reject(new Error("must not resolve")),
+    webhookPost: recordingPost(posts),
+  });
+  assertEquals(posts.map((p) => p.address), ["127.0.0.1", "::1", "receiver.test"]);
+});
+
+Deno.test("sendWebhook with allowInsecure reports a URL it cannot parse", async () => {
+  const d = dest("not a url", "webhook");
+  assertEquals(await sendWebhook(d, [delivery(1, d)], { allowInsecure: true }), {
+    ok: false,
+    sent: 0,
+    error: "Use an https URL.",
+  });
+});
+
+Deno.test("sendWebhook reports a refused connection to a local receiver", async () => {
+  const listener = Deno.listen({ hostname: "127.0.0.1", port: 0 });
+  const port = (listener.addr as Deno.NetAddr).port;
+  listener.close();
+  const d = dest(`http://127.0.0.1:${port}/spots`, "webhook");
+  const result = await sendWebhook(d, [delivery(1, d)], { allowInsecure: true });
+  assertEquals(result.ok, false);
+  assertMatch(result.error ?? "", /^Webhook request failed: /);
 });
 
 // --- push ---------------------------------------------------------------
@@ -487,6 +705,38 @@ Deno.test("sendPush with every device gone asks for a device", async () => {
     assertEquals(result.error, "Turn on notifications on a device first.");
     assertEquals(result.expiredEndpoints, [`${base}/410/a`, `${base}/404/b`]);
   });
+});
+
+Deno.test("sendWebhook caps a huge Retry-After at a day so the throttle still fits an int", async () => {
+  await withServer(
+    () => new Response(null, { status: 429, headers: { "Retry-After": "3000000000" } }),
+    async (base) => {
+      const d = dest(`${base}/spots`, "webhook");
+      const result = await sendWebhook(d, [delivery(1, d)], { allowInsecure: true });
+      assertEquals(result.retryAfterSeconds, MAX_RETRY_AFTER_SECONDS);
+    },
+  );
+});
+
+Deno.test("sendPush caps a huge Retry-After at a day and waits 60 s without a usable one", async () => {
+  const cases: Array<[Record<string, string>, number]> = [
+    [{ "Retry-After": "3000000000" }, MAX_RETRY_AFTER_SECONDS],
+    [{ "Retry-After": "0" }, 60],
+    [{ "Retry-After": "soon" }, 60],
+  ];
+  for (const [headers, expected] of cases) {
+    await withServer(
+      () => new Response(null, { status: 429, headers }),
+      async (base) => {
+        const d = pushDest([device(base, "/a")]);
+        const result = await sendPush(d, [delivery(1, d)], {
+          allowInsecure: true,
+          vapid: await vapid(),
+        });
+        assertEquals(result.retryAfterSeconds, expected);
+      },
+    );
+  }
 });
 
 Deno.test("sendPush treats a 429 as a rate limit, not a failure", async () => {

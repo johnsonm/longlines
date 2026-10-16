@@ -173,16 +173,18 @@ export const defaultResolver: Resolver = async (host) => {
 };
 
 /**
- * Refuse a hostname that resolves to any private address. IP literals were
- * already judged by assertSafeDestinationUrl and are not resolved again.
- * Fails closed when the runtime cannot resolve DNS at all; the destination's
- * last_error then says so.
+ * Refuse a hostname that resolves to any private address, and return the
+ * addresses it checked: the webhook connects to one of those (pinned_http.ts),
+ * never to a second resolution of the name, which DNS rebinding could point
+ * at an internal address. IP literals were already judged by
+ * assertSafeDestinationUrl and come back as themselves. Fails closed when the
+ * runtime cannot resolve DNS at all; the destination's last_error then says so.
  */
 export async function assertSafeResolvedHost(
   host: string,
   resolve: Resolver = defaultResolver,
-): Promise<void> {
-  if (isIpLiteral(host)) return;
+): Promise<string[]> {
+  if (isIpLiteral(host)) return [host];
   const addresses = await resolve(host);
   if (addresses === null) {
     // Fail closed: without DNS we cannot rule out a private address.
@@ -190,4 +192,5 @@ export async function assertSafeResolvedHost(
   }
   if (addresses.length === 0) throw new Error(`${host} did not resolve`);
   if (addresses.some(isPrivateIp)) throw new Error(`${host} resolves to a private address`);
+  return addresses;
 }

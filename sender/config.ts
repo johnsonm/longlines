@@ -13,7 +13,7 @@ export const DEFAULT_POLL_MS = 5_000;
 /** A poll faster than this would hammer the pooler for nothing; the claim meters per minute anyway. */
 export const MIN_POLL_MS = 1_000;
 export const DEFAULT_CONCURRENCY = 4;
-/** No successful claim for this long means the connection is wedged: the watchdog exits 1. */
+/** No progress (claim, send or mark) for this long means the connection is wedged: the watchdog exits 1. */
 export const DEFAULT_STALE_MS = 120_000;
 export const DEFAULT_STATS_MS = 60_000;
 
