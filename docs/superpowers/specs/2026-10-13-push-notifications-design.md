@@ -54,7 +54,8 @@ the same SQL; the worker keeps only the per-run "3 spots then a summary" shaping
   no policies and client grants revoked. The migration enrols every existing device in its owner's
   existing push destination, so nothing that works today stops working.
 - **Settings.** `push_destination_settings`, one row per push destination, same RLS pattern:
-  `title_fields` and `body_fields` (ordered lists of field names), tap target (`profile` or `source`), action buttons, urgency (`low`, `normal`,
+  `title_fields` and `body_fields` (ordered lists of field names), `show_field_names`,
+  `body_separator` (`dot`, `comma`, `newline`), tap target (`profile` or `source`), action buttons, urgency (`low`, `normal`,
   `high`), drop-if-offline seconds (300, 900, 1800, 3600, 14400), replace same station, sound, quiet
   hours on/off, from, until, and quiet mode (`silent` or `skip`). `push_default_settings()` holds
   the defaults (decisions 4 and 7). A trigger on `destinations` inserts them for every new push row,
@@ -63,8 +64,9 @@ the same SQL; the worker keeps only the per-run "3 spots then a summary" shaping
   fields; otherwise "Unknown field {name}.", "Pick 1 to 4 fields for the title." or "Pick up to 8
   fields for the body.".
 - **Rendering, in SQL only.** `render_push_field(field, spot)` gives one field its fixed rendering
-  (decision 4), null when the spot lacks it; `render_push_fields(fields, spot, joiner)` renders a
-  list in order, skips nulls and joins (a space for the title, " · " for the body). `spot_source_url(spot)` returns the POTA
+  (decision 4), null when the spot lacks it; `render_push_fields(fields, spot, separator, labels)`
+  renders a list in order, skips nulls, prefixes the display name when `labels` is true and joins
+  (" · " for the title; the destination's `body_separator` for the body). `spot_source_url(spot)` returns the POTA
   park page or the SOTA summit page, otherwise null. `push_quiet_now(settings, timezone, at)` handles
   ranges that cross midnight, in the account time zone (`profiles.timezone`).
 - **`claim_deliveries`.** For push, `devices` are the destination's members with `blocked_at is
@@ -100,19 +102,22 @@ the same SQL; the worker keeps only the per-run "3 spots then a summary" shaping
    webhook cards don't show the switch (page 1), but the API exposes `enabled` for all. *Proposed.*
 3. **Unique names** per account across every destination type, case-insensitive, with hosted
    duplicates renamed as above. *Proposed.*
-4. **Fields, not templates** (Brad, 2026-10-15, decided). The title and the body are each an
-   ordered list of fields from `callsign`, `frequency`, `band`, `mode`, `source`, `reference`,
-   `place_name`, `state`, `spotter`, `comment` and `time`. No custom text anywhere: a template
-   engine would have to accept arbitrary text, and a user could put anything into a notification.
-   Each field has one fixed rendering: `callsign` as is; `frequency` "14062.0 kHz" (kHz with one
-   decimal like the rest of the app, not the canvas's "14.062"); `band` "20m"; `mode` upper case;
-   `source` the source label; `reference` the POTA reference or SOTA summit; `place_name` the park
-   name; `state` the part after the dash of `pota_location` ("US-NC" becomes "NC"); `spotter`
-   "Spotted by K3XYZ"; `comment` as is; `time` the UTC clock. Title fields are joined with a space,
-   body fields with " · ". A field the spot lacks is skipped. Defaults: title `callsign, frequency,
-   mode`; body `source, reference, place_name, state, spotter`, rendering "KK4PWJ 14062.0 kHz CW" /
-   "POTA · US-2763 · Falls Lake SRA · NC · Spotted by K3XYZ". Limits: title 1 to 4 fields, body
-   0 to 8, no field twice in a list. *Renderings, joiners and limits proposed.*
+4. **Fields, not templates** (Brad, 2026-10-15; canvas updated 2026-10-16, decided). The title
+   and the body are each an ordered list of fields from `callsign`, `frequency`, `band`, `mode`,
+   `source`, `reference`, `place_name`, `state`, `spotter`, `comment` and `time`. No custom text
+   anywhere: a template engine would have to accept arbitrary text, and a user could put anything
+   into a notification. Each field has one fixed rendering and one display name: Callsign (as is),
+   Frequency ("14.062 MHz", three decimals), Band ("20m"), Mode (upper case), Source (the source
+   label), Reference (the POTA, SOTA or WWFF reference), Place name (the park, summit or WWFF
+   reference name), State (the part after the dash of `pota_location`, "US-NC" becomes "NC"),
+   Spotter (the call), Comment (as is), Time (the UTC clock). Two more settings shape the text:
+   **Show field names** (off by default) puts the display name before each value, "State: NC";
+   **Separate body fields with** picks the body's joiner: A dot (" · ", default), A comma (", ")
+   or A new line. The title is always joined with " · ". A field the spot lacks is skipped.
+   Defaults: title Callsign, Frequency, Mode; body Source, Reference, Place name, State, rendering
+   "KK4PWJ · 14.062 MHz · CW" / "POTA · US-2763 · Falls Lake SRA · NC", as the canvas previews
+   show. Limits: title 1 to 4 fields, body 0 to 8, no field twice in a list. *The separator
+   options beyond the dot and whether labels apply to the title are proposed.*
 5. **When tapped, open.** Callsign profile (`/call/<base>`, the default) or Source site
    (`spot_source_url`; RBN and DX Cluster spots fall back to the profile). URLs are built in SQL.
    *Proposed.*
@@ -206,15 +211,18 @@ listed here comes from Copy at the end of this file.
   - Row caption: {agent}[, installed app] · last delivery {age} ago | {agent} · no deliveries yet | {agent} · notifications blocked in this browser
   - Chips: This device · Blocked; icon buttons: Rename device · Remove device; button: Add a device
   - Empty: No devices yet · Add the device you are on now, or open Long Lines on your phone to add it. A destination needs at least one device to deliver. · Add this device · Add my phone
-- Notification content card (copy amended for field picks; the canvas still shows free-text templates): Notification content · Pick which fields appear in the title and the body, and in what order
-  - Title helper: Shown in bold. Phones cut off long titles. Pick 1 to 4 fields.
-  - Body helper: A field the spot does not have is left out. Place name is the park or summit. Pick up to 8 fields.
-  - Add a field; chips: Callsign · Frequency · Band · Mode · Source · Reference · Place name · State · Spotter · Comment · Time
-  - Picker buttons: Move {field} up · Move {field} down · Remove {field}
+- Notification content card: Notification content · Choose which fields appear and in what order. Notifications cannot contain custom text.
+  - Lists headed Title and Body; rows numbered 1, 2, 3…; row buttons: Move {field} up · Move {field} down · Remove {field}
+  - Under each list a select: Add a field · placeholder Choose a field; field names: Callsign · Frequency · Band · Mode · Source · Reference · Place name · State · Spotter · Comment · Time
+  - Title helper: Shown in bold. Phones cut off long titles.
+  - Body helper: Place name is the park or summit.
+  - Switch: Show field names · Adds a label before each value, such as State: NC.
+  - Select: Separate body fields with · A dot · A comma · A new line
+  - Sentence: If a spot does not have a field, that field is skipped.
   - When tapped, open: Callsign profile · Source site
   - Show action buttons · Open profile, Open on the source site.
   - Button: Reset to default fields
-  - Default title fields: Callsign, Frequency, Mode; default body fields: Source, Reference, Place name, State, Spotter
+  - Default title fields: Callsign, Frequency, Mode; default body fields: Source, Reference, Place name, State
 - Delivery card: Delivery · How notifications behave on the device
   - Urgency (Low · Normal · High) · High can wake a sleeping phone. Normal fits most subscriptions.
   - Drop if the device is offline for (5 minutes · 15 minutes · 30 minutes · 1 hour · 4 hours) · Old spots are rarely useful. Late notifications are dropped, not queued.
