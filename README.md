@@ -22,14 +22,15 @@ Long Lines exists so that you can describe what you want once ("CW on 20m and 40
 SOTA summit", "this list of callsigns on any band") and have matching spots pushed to you, from
 every supported source, in a single format. It also exists as a small, honest example of
 running a real-time pipeline almost entirely on Supabase: Postgres does the scheduling, queuing
-and matching, and two kinds of Edge Function do the parts that need to talk to the outside world.
-The one exception is a small relay on Fly.io for the feed that only exists as a persistent
-connection.
+and matching, and Edge Functions pull the feeds. Two small processes on Fly.io do what an Edge
+Function cannot: a relay holds the feeds that only exist as persistent connections, and a sender
+delivers what matched.
 
 ## How it works
 
-Everything runs inside one Supabase project plus a static web app, except for one small relay
-on Fly.io that holds the telnet stream from the Reverse Beacon Network.
+Everything runs inside one Supabase project plus a static web app, except for two small
+processes on Fly.io: a relay that holds the streaming feeds (RBN, DX Cluster, APRS-IS) and a
+sender that delivers to Discord, webhooks and push services.
 
 ```
 POTA / SOTAwatch / WWFF ──► ingest functions ──► raw_spots + spot_events queue
@@ -40,7 +41,7 @@ APRS-IS ──► relay ──► ingest-aprs ──► aprs_packets (stored and
                                                    │
                                         deliveries + deliveries_queue
                                                    │
-                                          deliver function ──► Discord / webhooks
+                                   sender (Fly.io) ──► Discord / webhooks / push
 ```
 
 **Ingest.** `pg_cron` calls the `ingest-pota` and `ingest-wwff` functions every minute and
@@ -65,18 +66,22 @@ database, everything in the B2 archive) for later analysis. APRS packets are not
 never reach matching. See
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) ("Streaming sources: the relay").
 
-**Match.** `match_pending_spots()` is a Postgres function on a one-minute cron, also poked after
-every successful ingest. It joins a batch of `spot_events` against every enabled subscription
+**Match.** `match_pending_spots()` is a Postgres function that runs after every successful
+ingest and on a one-minute cron as a safety net. It joins a batch of `spot_events` against every enabled subscription
 that has a destination, using the `spot_matches` predicate, applies each subscription's per-callsign quiet window, and
 writes one `deliveries` row per destination and spot. The web app's live preview calls the same
 predicate, so what you see while editing a subscription is exactly what will be delivered.
 
-**Deliver.** The `deliver` function claims queued deliveries, groups them by destination, and
-sends them: Discord as embeds, webhooks as signed JSON with an HMAC-SHA256 header. Every outcome
-goes back through an RPC so delivery rows, queue messages and destination health change
-atomically. Failures back off for 24 hours and then drop; five in a row mark the destination
-failing. Rate limits delay rather than fail. Outbound URLs are checked in SQL at creation and
-again in the worker, with DNS resolved, so private addresses are never reached.
+**Deliver.** The sender (`sender/`, one Fly.io machine) polls the queue every few seconds as a
+restricted database role and sends what `claim_deliveries()` hands it: Discord as embeds,
+webhooks as signed JSON with an HMAC-SHA256 header, push as encrypted notifications. The claim
+decides everything: newest spots first, a per-minute budget per destination, throttled and paused
+destinations skipped, and deliveries older than their limit (24 hours; 15 minutes for push)
+dropped. Every outcome goes back through an RPC so delivery rows, queue messages and destination
+health change atomically. Failures back off and retry; five in a row mark the destination
+failing. A rate limit throttles the destination rather than counting against it. Outbound URLs
+are checked in SQL at creation and again before each request, with DNS resolved, so private
+addresses are never reached.
 
 **Archive.** Every spot from every source is also written to a private Backblaze B2 bucket as Parquet,
 one file per slice (five minutes for APRS-IS, ten for RBN, an hour for the others) in
@@ -101,10 +106,10 @@ verification example in [docs/WEBHOOKS.md](docs/WEBHOOKS.md).
 | `supabase/functions/_shared/` | All Edge Function logic: ingest orchestrator, source adapters, mode canonicalization, delivery formatting and sending. |
 | `supabase/functions/ingest-*`, `deliver`, `send-test`, `sign-in`, `delete-account` | Thin entrypoints around `_shared`. `ingest-rbn` is the push endpoint the relay calls. |
 | `supabase/functions/_shared/__tests__/` | Deno unit tests and the fixtures captured from the real feeds (POTA, SOTAwatch and WWFF JSON, an RBN telnet capture). Nothing in the suite calls an upstream. |
-| `relay/` | The stream relay that runs on Fly.io: telnet session, batching forwarder, `/healthz`, and its Dockerfile. It imports the RBN parser from `_shared`. Tests use a local TCP server, never RBN. |
-| `fly.toml` | The relay's Fly.io config. It sits at the root because Fly's GitHub integration deploys from there and the image needs `supabase/functions/_shared`. |
+| `relay/` | The stream relay that runs on Fly.io: telnet session, batching forwarder, `/healthz`, its Dockerfile and `fly.toml`. It imports the RBN parser from `_shared`. Tests use a local TCP server, never RBN. |
+| `sender/` | The outbound sender that runs on Fly.io: polls the delivery queue and sends to Discord, webhooks and push services, with its Dockerfile and `fly.toml`. Policy stays in SQL; it imports the delivery modules from `_shared`. |
 | `supabase/tests/` | pgTAP suites that assert grants, RLS and RPC behavior against a fresh database. |
-| `scripts/` | `smoke-test.sql` (also run by CI) and the one-time `setup-db-settings.sql` for Vault. |
+| `scripts/` | `smoke-test.sql` (also run by CI), the one-time `setup-db-settings.sql` for Vault and `setup-sender-role.sql` for the sender's role password. |
 | `web/` | The user-facing app. `src/lib/api.ts` is the only module that touches supabase-js. |
 | `web/scripts/` | Local-development helpers behind the npm scripts: env setup, `dev:full`, function invokes, the local CI runner. |
 | `docs/` | Architecture, operations, webhook contract, and the UI mock the copy is taken from. |
@@ -159,12 +164,17 @@ select source, count(*) from raw_spots group by source;
 select * from pgmq.metrics('spot_events');
 ```
 
-To push spots through matching and delivery, run the matcher and then the worker:
+To push spots through matching and delivery, run the matcher, then start the sender, which polls
+the queue every few seconds and sends to Discord, webhooks and push devices (Ctrl+C stops it):
 
 ```sh
 npm run db:match
-npm run invoke:deliver
+npm run sender
 ```
+
+The sender connects to the stack's Postgres and allows plain-http destinations on this machine; it
+reads the VAPID keys from `supabase/functions/.env` when that file has them. The matcher's
+`pg_notify` has no listener locally; the sender finds new rows on its next poll.
 
 RBN spots arrive through the relay rather than an invoke. To run it against the local stack,
 serve the functions with a relay secret and start the relay with the same value:
@@ -182,11 +192,11 @@ This opens a real connection to `telnet.reversebeacon.net`, so stop it when you 
 spot lands in `rbn_spots` (tens of thousands an hour); only callsigns named in a subscription that
 includes RBN go on to `raw_spots` and matching.
 
-The worker refuses plain-http and private addresses, so a receiver on your own machine is
-rejected by default. For local testing only, create `supabase/functions/.env` containing
-`LONGLINES_ALLOW_INSECURE_DESTINATIONS=1` and insert the destination row directly in SQL, as
-described in [docs/OPERATIONS.md](docs/OPERATIONS.md). Never set that variable on a hosted
-project.
+The sender and the Edge Functions refuse plain-http and private addresses, so a receiver on your
+own machine is rejected by default. `npm run sender` allows them on this machine
+(`LONGLINES_ALLOW_INSECURE_DESTINATIONS=1`); for the Edge send-test, put the same line in
+`supabase/functions/.env`. Either way, insert the destination row directly in SQL, as described in
+[docs/OPERATIONS.md](docs/OPERATIONS.md). Never set that variable on a hosted project or on Fly.
 
 ### Tests and checks
 
@@ -237,8 +247,9 @@ project's containers, volumes and network (other projects' stacks are left alone
 | `supabase:types` | Regenerates `web/src/lib/database.types.ts`. |
 | `supabase:studio` / `supabase:mail` | Opens Studio or the mail catcher (macOS `open`). |
 | `supabase:nuke` | Removes this project's Docker containers, volumes and network. Wipes local data. |
-| `invoke:pota` / `invoke:sotawatch` / `invoke:wwff` / `invoke:deliver` | Calls the function with the local service-role key, as cron does when hosted. |
+| `invoke:pota` / `invoke:sotawatch` / `invoke:wwff` | Calls the function with the local service-role key, as cron does when hosted. |
 | `db:match` | Runs `match_pending_spots()` once. |
+| `sender` | Runs the outbound sender (`sender/main.ts`) against the local stack. Opt in; not part of `dev:full`. |
 | `db:psql` | Opens psql in the database container (`psql` is not installed with the CLI). |
 | `test:all` / `test:all:fresh` / `test:deno` / `test:db` | The checks described above. |
 | `dev` / `test` / `lint` / `build` | Vite, Vitest, oxlint, and `tsc -b` + `vite build` for the web app alone. |
@@ -273,7 +284,7 @@ supabase db push
 
 supabase secrets set LONGLINES_USER_AGENT_URL=https://github.com/<you>/longlines
 supabase secrets set LONGLINES_RELAY_SECRET=<openssl rand -hex 32>   # shared with the relay
-for fn in ingest-pota ingest-sotawatch ingest-wwff ingest-rbn deliver send-test sign-in delete-account archive; do
+for fn in ingest-pota ingest-sotawatch ingest-wwff ingest-rbn send-test sign-in delete-account archive; do
   supabase functions deploy "$fn"
 done
 
@@ -296,11 +307,13 @@ fly secrets set \
   LONGLINES_FUNCTIONS_URL=https://<PROJECT_REF>.supabase.co/functions/v1 \
   LONGLINES_RELAY_SECRET=<same value as above> \
   RELAY_LOGIN_CALL=<your callsign>
-fly deploy --ha=false        # --ha=false: one machine, so one session to RBN
+fly deploy --config relay/fly.toml --ha=false   # --ha=false: one machine, so one session to RBN
 ```
 
-After that, Fly's GitHub integration (connected in the Fly dashboard) deploys every merge to
-`main` from the root `fly.toml`. When the integration is first connected, Fly's launcher opens a
+After that, Fly's GitHub integration (connected in the Fly dashboard, with "Config path" set to
+`relay/fly.toml` and the working directory left at the repository root) deploys every merge to
+`main`. When the integration is
+first connected, Fly's launcher opens a
 PR with its own generic `fly.toml`, `Dockerfile` and `example.ts`. Close it rather than merging:
 that config runs the wrong entrypoint, exposes a public HTTP service that stops the idle machine,
 and asks for two machines.
@@ -309,3 +322,24 @@ Once deployed, `fly logs` should show `connected to telnet.reversebeacon.net:700
 `ingest_health` should show `rbn` with a `last_success_at` under a minute old. The deploy order,
 secret rotation and troubleshooting are in [docs/OPERATIONS.md](docs/OPERATIONS.md) ("Relay
 (RBN)").
+
+### The sender on Fly.io
+
+The sender is the same kind of machine, on a Fly network of its own, reaching Postgres as the
+`delivery_sender` role through the project's session pooler. It holds that role's password and the
+VAPID pair, never a Supabase API key:
+
+```sh
+psql "$DATABASE_URL" -f scripts/setup-sender-role.sql   # edit the placeholder first; sets the role password
+fly apps create longlines-sender --network sender       # its own private network; fixed at creation
+fly secrets set -a longlines-sender \
+  SENDER_DATABASE_URL='postgresql://delivery_sender.<PROJECT_REF>:<PASSWORD>@<POOLER_HOST>:5432/postgres' \
+  LONGLINES_VAPID_PUBLIC_KEY=<public> LONGLINES_VAPID_PRIVATE_KEY=<private> LONGLINES_VAPID_SUBJECT=mailto:you@example.com
+fly deploy --config sender/fly.toml --ha=false
+fly scale count 1 -a longlines-sender                   # exactly one: a second machine would send duplicates
+```
+
+Bind the GitHub integration the same way with "Config path" `sender/fly.toml`. `fly checks list
+-a longlines-sender` should show the health check passing and `fly logs` a line per cycle that
+sent something. The full setup, the secrets table and the troubleshooting are in
+[docs/OPERATIONS.md](docs/OPERATIONS.md) ("Delivery").

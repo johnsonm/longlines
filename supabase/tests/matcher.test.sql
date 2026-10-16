@@ -3,7 +3,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(51);
+select plan(53);
 
 -- Drain anything already queued so counts below are exact.
 select pgmq.purge_queue('spot_events');
@@ -195,6 +195,13 @@ select is((select station_count from preview_subscription('{}')), 0::bigint, 'st
 select is((select station_count from preview_subscription('{"rules":[[{"field":"group","op":"is","values":["not-a-uuid"]}]]}')), 0::bigint,
   'a malformed group id is ignored like another user''s');
 reset role;
+
+-- Cutover (20261015001200): the matcher no longer kicks the deliver function over pg_net; it
+-- notifies the sender's channel instead.
+select ok(pg_get_functiondef('public.match_pending_spots(int)'::regprocedure) not like '%net.http_post%',
+  'match_pending_spots no longer calls net.http_post');
+select ok(pg_get_functiondef('public.match_pending_spots(int)'::regprocedure) like '%pg_notify(''deliveries''%',
+  'match_pending_spots notifies the deliveries channel');
 
 select * from finish();
 rollback;

@@ -2,12 +2,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router";
-import { ApiError, loadDestinations, loadSubscriptions, saveSubscription, type Destination, type SubscriptionWithLinks } from "../lib/api";
+import { ApiError } from "../lib/api";
 import { appValue, wrap } from "../test/render";
 import { LocationProbe } from "../test/LocationProbe";
 import { setMobile } from "../test/media";
 import type { AppContextValue } from "../app/context";
-import { CallsignPage, Footer, type AlertAccount } from "./CallsignPage";
+import { CallsignPage, Footer } from "./CallsignPage";
 import { FULL, HEARD, NOT_HEARD } from "./fixtures";
 import type { CallsignProfile } from "./types";
 import { useCallsignProfile } from "./useCallsignProfile";
@@ -20,27 +20,25 @@ vi.mock("../lib/api", () => ({
       this.code = code;
     }
   },
-  saveSubscription: vi.fn(),
-  loadDestinations: vi.fn(),
-  loadSubscriptions: vi.fn(),
 }));
+// The source picker shows rates from the stats snapshot; none are needed here.
+vi.mock("../stats/useStats", () => ({ useStats: () => ({ stats: null, loading: false, error: null }) }));
 vi.mock("./useCallsignProfile", () => ({ useCallsignProfile: vi.fn() }));
 
 const UTC = { utcTimes: true, timezone: "UTC" };
-const DEST = { id: "d1", name: "Shack", health: "ok" } as Destination;
 
 function profileIs(profile: CallsignProfile | null, error: unknown = null) {
   vi.mocked(useCallsignProfile).mockReturnValue({ profile, error, loading: !profile && !error });
 }
 
-function renderAt(path: string, options: { account?: AlertAccount; app?: Partial<AppContextValue> } = {}) {
+function renderAt(path: string, options: { signedIn?: boolean; app?: Partial<AppContextValue> } = {}) {
   const app = appValue(options.app);
   const user = userEvent.setup({ delay: null });
   render(
     wrap(
       <MemoryRouter initialEntries={[path]}>
         <Routes>
-          <Route path="/call/*" element={<CallsignPage prefs={UTC} account={options.account} />} />
+          <Route path="/call/*" element={<CallsignPage prefs={UTC} signedIn={options.signedIn} />} />
           <Route path="*" element={null} />
         </Routes>
         <LocationProbe />
@@ -58,9 +56,6 @@ function header() {
 
 beforeEach(() => {
   vi.mocked(useCallsignProfile).mockReset();
-  vi.mocked(saveSubscription).mockReset().mockResolvedValue("s1");
-  vi.mocked(loadDestinations).mockReset().mockResolvedValue([DEST]);
-  vi.mocked(loadSubscriptions).mockReset().mockResolvedValue([]);
   profileIs(FULL);
 });
 
@@ -313,8 +308,6 @@ describe("Share", () => {
   });
 });
 
-const account = () => ({ reload: vi.fn(() => Promise.resolve()) });
-
 describe("Get alerts", () => {
   it("sends a signed-out visitor to sign in and back", async () => {
     const { user, where } = renderAt("/call/KK4PWJ");
@@ -323,75 +316,22 @@ describe("Get alerts", () => {
     expect(JSON.parse(where().dataset.state ?? "null")).toEqual({ from: "/call/KK4PWJ" });
   });
 
-  it("creates the subscription to the first healthy destination and opens its editor", async () => {
-    vi.mocked(loadDestinations).mockResolvedValue([{ ...DEST, id: "bad", health: "failing" }, DEST]);
-    const alerts = account();
-    const { user, app, where } = renderAt("/call/KK4PWJ", { account: alerts });
+  it("asks for a source, then opens the editor on it with the callsign as the filter", async () => {
+    const { user, where } = renderAt("/call/KK4PWJ", { signedIn: true });
     await user.click(screen.getByRole("button", { name: "Get alerts for KK4PWJ" }));
-    await waitFor(() => expect(where()).toHaveTextContent("/subscriptions/s1"));
-    expect(saveSubscription).toHaveBeenCalledWith({
-      name: "KK4PWJ on the air", enabled: true, quiet_minutes: 30, destinations: ["d1"],
-      sources: [], rules: [[{ field: "callsign", op: "is", values: ["KK4PWJ"] }]],
-    });
-    expect(alerts.reload).toHaveBeenCalled();
-    expect(app.notify).toHaveBeenCalledWith("Created KK4PWJ on the air");
+    const dialog = within(screen.getByRole("dialog"));
+    await user.click(dialog.getByRole("radio", { name: /Reverse Beacon Network/ }));
+    await user.click(dialog.getByRole("button", { name: "Continue" }));
+    expect(where()).toHaveTextContent(/^\/subscriptions\/new$/);
+    expect(where().dataset.search).toBe("?source=rbn&callsign=KK4PWJ");
   });
 
-  it("opens the existing subscription instead of creating a second one for the same call", async () => {
-    vi.mocked(loadSubscriptions).mockResolvedValue([
-      { id: "s9", name: "Pisgah regulars", rules: [[{ field: "callsign", op: "is", values: ["W1AW", "KK4PWJ"] }]] } as unknown as SubscriptionWithLinks,
-    ]);
-    const { user, app, where } = renderAt("/call/KK4PWJ", { account: account() });
+  it("stays on the profile when the picker is cancelled", async () => {
+    const { user, where } = renderAt("/call/KK4PWJ", { signedIn: true });
     await user.click(screen.getByRole("button", { name: "Get alerts for KK4PWJ" }));
-    await waitFor(() => expect(where()).toHaveTextContent("/subscriptions/s9"));
-    expect(app.notify).toHaveBeenCalledWith("You already have Pisgah regulars.");
-    expect(saveSubscription).not.toHaveBeenCalled();
-  });
-
-  it("does not count a subscription to a portable form as covering the base call", async () => {
-    vi.mocked(loadSubscriptions).mockResolvedValue([
-      { id: "s9", name: "Portable", rules: [[{ field: "callsign", op: "is", values: ["KK4PWJ/P"] }]] } as unknown as SubscriptionWithLinks,
-    ]);
-    const { user } = renderAt("/call/KK4PWJ", { account: account() });
-    await user.click(screen.getByRole("button", { name: "Get alerts for KK4PWJ" }));
-    await waitFor(() => expect(saveSubscription).toHaveBeenCalled());
-  });
-
-  it.each([
-    ["no destinations", []],
-    ["only paused or failing ones", [{ ...DEST, health: "paused" }, { ...DEST, id: "d2", health: "failing" }]],
-  ])("creates it without a destination for a user with %s and opens its editor", async (_label, dests) => {
-    vi.mocked(loadDestinations).mockResolvedValue(dests as Destination[]);
-    const { user, app, where } = renderAt("/call/KK4PWJ", { account: account() });
-    await user.click(screen.getByRole("button", { name: "Get alerts for KK4PWJ" }));
-    await waitFor(() => expect(where()).toHaveTextContent("/subscriptions/s1"));
-    expect(saveSubscription).toHaveBeenCalledWith(expect.objectContaining({ destinations: [] }));
-    expect(app.notify).toHaveBeenCalledWith("Created KK4PWJ on the air");
-  });
-
-  it("reads destinations at the click, not from a list that may not have loaded", async () => {
-    const { user } = renderAt("/call/KK4PWJ", { account: account() });
-    expect(loadDestinations).not.toHaveBeenCalled();
-    await user.click(screen.getByRole("button", { name: "Get alerts for KK4PWJ" }));
-    await waitFor(() => expect(saveSubscription).toHaveBeenCalled());
-    expect(loadDestinations).toHaveBeenCalledTimes(1);
-  });
-
-  it("reports a failed save and stays on the profile", async () => {
-    vi.mocked(saveSubscription).mockRejectedValue(new Error("Destination not found."));
-    const { user, app, where } = renderAt("/call/KK4PWJ", { account: account() });
-    await user.click(screen.getByRole("button", { name: "Get alerts for KK4PWJ" }));
-    await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Destination not found."));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(where()).toHaveTextContent("/call/KK4PWJ");
-    expect(screen.getByRole("button", { name: "Get alerts for KK4PWJ" })).toBeEnabled();
-  });
-
-  it("reports a failed destination load", async () => {
-    vi.mocked(loadDestinations).mockRejectedValue(new Error("Couldn't load destinations."));
-    const { user, app } = renderAt("/call/KK4PWJ", { account: account() });
-    await user.click(screen.getByRole("button", { name: "Get alerts for KK4PWJ" }));
-    await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Couldn't load destinations."));
-    expect(saveSubscription).not.toHaveBeenCalled();
   });
 });
 

@@ -72,16 +72,17 @@ beforeEach(() => {
 interface Opts {
   id?: string;
   source?: string | null;
+  callsign?: string | null;
   subs?: SubscriptionWithLinks[];
   dests?: Destination[];
   loading?: boolean;
   mobile?: boolean;
 }
 
-function render({ id, source = null, subs = [sub()], dests = DESTS, loading = false, mobile = false }: Opts) {
+function render({ id, source = null, callsign = null, subs = [sub()], dests = DESTS, loading = false, mobile = false }: Opts) {
   const reload = vi.fn(() => Promise.resolve());
   const r = renderPage(
-    <SubscriptionEditorPage id={id} source={source} subs={subs} dests={dests} loading={loading} reload={reload} prefs={PREFS} mobile={mobile} />,
+    <SubscriptionEditorPage id={id} source={source} callsign={callsign} subs={subs} dests={dests} loading={loading} reload={reload} prefs={PREFS} mobile={mobile} />,
     { route: "/subscriptions/x" },
   );
   return { ...r, reload };
@@ -126,6 +127,21 @@ describe("new subscription", () => {
     await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Created Parks"));
     expect(reload).toHaveBeenCalled();
     expect(screen.getByTestId("location")).toHaveTextContent(/^\/subscriptions$/);
+  });
+
+  it("starts filtered to the callsign a profile's Get alerts passed", async () => {
+    const { user } = render({ source: "rbn", callsign: "KK4PWJ" });
+    expect(screen.getByLabelText(/^Name/)).toHaveValue("KK4PWJ on the air");
+    expect(screen.queryByText("High volume source: at least one callsign or group is required.")).not.toBeInTheDocument();
+    await waitFor(() => expect(previewSubscription).toHaveBeenCalledWith({
+      sources: ["rbn"], rules: [[{ field: "callsign", op: "is", values: ["KK4PWJ"] }]],
+    }));
+    await user.click(screen.getByRole("button", { name: "Add destination" }));
+    await user.click(screen.getByRole("menuitem", { name: /Shack/ }));
+    await user.click(save());
+    expect(saveSubscription).toHaveBeenCalledWith(expect.objectContaining({
+      name: "KK4PWJ on the air", sources: ["rbn"], rules: [[{ field: "callsign", op: "is", values: ["KK4PWJ"] }]],
+    }));
   });
 
   it("requires a callsign or group on RBN, with the day's volume", async () => {

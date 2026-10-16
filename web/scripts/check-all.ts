@@ -25,6 +25,7 @@ interface Step {
   args: string[];
   cwd: string;
   input?: string;
+  env?: Record<string, string>;
 }
 
 interface Outcome {
@@ -45,13 +46,31 @@ for (const group of requested) {
 }
 const groups = new Set<string>(requested.length > 0 ? requested : GROUPS);
 
+// The db steps need the local stack; report them as failed rather than letting each one
+// produce its own connection error.
+let stackProblem: string | undefined;
+let drift: string | undefined;
+let dbUrl = "";
+if (groups.has("db")) {
+  try {
+    dbUrl = localStatus().dbUrl;
+    if (!fresh) drift = migrationDrift();
+  } catch (error) {
+    if (!(error instanceof StackNotRunning)) throw error;
+    stackProblem = error.message;
+  }
+}
+if (drift !== undefined) {
+  console.log(`\x1b[33m⚠ The local database does not match this checkout's migrations (${drift}).\x1b[0m`);
+}
+
 const workdir = ["--workdir", repoRoot];
 const steps: Step[] = [
   {
     group: "deno",
     name: "fmt --check",
     cmd: "deno",
-    args: ["fmt", "--check", "supabase/functions", "scripts", "relay", "deno.json"],
+    args: ["fmt", "--check", "supabase/functions", "scripts", "relay", "sender", "deno.json"],
     cwd: repoRoot,
   },
   { group: "deno", name: "lint", cmd: "deno", args: ["task", "lint"], cwd: repoRoot },
@@ -75,6 +94,15 @@ const steps: Step[] = [
     args: ["exec", "-i", dbContainer, "psql", "-U", "postgres", "-v", "ON_ERROR_STOP=1", "-X", "-q"],
     cwd: repoRoot,
     input: readFileSync(join(repoRoot, "scripts", "smoke-test.sql"), "utf8"),
+  },
+  // The sender's postgres.js adapter against the applied schema, as CI's migrations job runs it.
+  {
+    group: "db",
+    name: "sender db",
+    cmd: "deno",
+    args: ["test", "-P", "sender/__tests__/db.test.ts"],
+    cwd: repoRoot,
+    env: { SENDER_TEST_DATABASE_URL: dbUrl },
   },
   { group: "web", name: "lint", cmd: "npm", args: ["run", "lint"], cwd: webRoot },
   { group: "web", name: "test", cmd: "npm", args: ["test"], cwd: webRoot },
@@ -105,22 +133,6 @@ function migrationDrift(): string | undefined {
   ].filter(Boolean).join("; ");
 }
 
-// The db steps need the local stack; report them as failed rather than letting each one
-// produce its own connection error.
-let stackProblem: string | undefined;
-let drift: string | undefined;
-if (groups.has("db")) {
-  try {
-    localStatus();
-    if (!fresh) drift = migrationDrift();
-  } catch (error) {
-    if (!(error instanceof StackNotRunning)) throw error;
-    stackProblem = error.message;
-  }
-}
-if (drift !== undefined) {
-  console.log(`\x1b[33m⚠ The local database does not match this checkout's migrations (${drift}).\x1b[0m`);
-}
 
 const outcomes: Outcome[] = [];
 for (const step of steps.filter((s) => groups.has(s.group))) {
@@ -134,6 +146,7 @@ for (const step of steps.filter((s) => groups.has(s.group))) {
     cwd: step.cwd,
     stdio: [step.input === undefined ? "inherit" : "pipe", "inherit", "inherit"],
     input: step.input,
+    env: step.env === undefined ? process.env : { ...process.env, ...step.env },
   });
   const seconds = (performance.now() - started) / 1000;
   const note = result.error ? `could not run ${step.cmd}: ${result.error.message}` : undefined;
