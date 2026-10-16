@@ -691,7 +691,7 @@ notes for the next session. Earlier entries are never edited.
   the Edge worker" and the cron table's last paragraph, ARCHITECTURE's "Reaching the queue"
   bullet, README's repository layout row. The Edge VAPID secrets stay for `send-test` and `api`.
   Brad has still not noted the 30-day `deliver` invocation count.
-- 2026-10-16, session 6 (PR: sender-s6): cleanup; Phase 1 complete. Landed:
+- 2026-10-16, session 6 (PR #204): cleanup; Phase 1 complete. Landed:
   `20261015001300_sender_cleanup.sql` (`drop function if exists` for `delay_deliveries(bigint[],
   int)` and `mark_deliveries_dropped(bigint[], bigint[])`; their `service_role` grants go with
   them; nothing else called either, checked across migrations, functions, the sender, the web app
