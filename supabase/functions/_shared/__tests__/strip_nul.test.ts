@@ -1,5 +1,5 @@
 import { assertEquals } from "@std/assert";
-import { withoutNul } from "../nul.ts";
+import { withoutNul } from "../strip_nul.ts";
 
 Deno.test("withoutNul removes a real U+0000 from string values", () => {
   assertEquals(withoutNul({ comment: "a\u0000b", n: 1, ok: true, none: null }), {

@@ -1,7 +1,7 @@
 // Orchestrator shared by both ingest functions. Pure of HTTP framing; the
 // Edge Function index.ts files turn the summary or error into a response.
 
-import { withoutNul } from "./nul.ts";
+import { withoutNul } from "./strip_nul.ts";
 import type {
   IngestDb,
   IngestSummary,

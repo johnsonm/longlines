@@ -220,6 +220,8 @@ deploys automatically.
   imports, since `deno coverage` silently omits those.
 - Deno excludes modules whose names end in `test.ts` from coverage, so never name a source file
   `*_test.ts` (hence `handlers/test_delivery.ts` for the send-test function).
+- Never name a file after a Windows device (`nul`, `con`, `prn`, `aux`, `com1`, `lpt1`, with any
+  extension): the Supabase Preview check refuses to clone the repo (hence `strip_nul.ts`).
 - Web component tests render through `web/src/test/render.tsx` (theme, MemoryRouter, stub App
   context) and `vi.mock("../lib/api")` with explicit factories. `setMobile(true)` from
   `test/media.ts` switches `useMediaQuery` to the phone layout. Pure `*.test.ts` files stay in node:

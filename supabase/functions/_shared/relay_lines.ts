@@ -5,7 +5,7 @@
 // Request body:
 //   { "lines": [{ "line": "<telnet line>", "received_at": "<ISO 8601 UTC>" }, ...] }
 
-import { withoutNul } from "./nul.ts";
+import { withoutNul } from "./strip_nul.ts";
 import type { JsonObject, NormalizeResult, Source, SourceAdapter } from "./types.ts";
 
 // The push failure paths (rbn_push.ts, aprs.ts) import it from here.
