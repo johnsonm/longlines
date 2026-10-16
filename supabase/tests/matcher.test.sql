@@ -196,7 +196,7 @@ select is((select station_count from preview_subscription('{"rules":[[{"field":"
   'a malformed group id is ignored like another user''s');
 reset role;
 
--- Cutover (20261015001100): the matcher no longer kicks the deliver function over pg_net; it
+-- Cutover (20261015001200): the matcher no longer kicks the deliver function over pg_net; it
 -- notifies the sender's channel instead.
 select ok(pg_get_functiondef('public.match_pending_spots(int)'::regprocedure) not like '%net.http_post%',
   'match_pending_spots no longer calls net.http_post');

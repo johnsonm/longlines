@@ -136,7 +136,7 @@ deploys automatically.
 ## Delivery rules
 
 - Outbound delivery is the sender (`sender/`, "Sender rules"), not an Edge Function. The Edge
-  `deliver` function is retired: the cutover migration (`20261015001100`) unscheduled its cron job
+  `deliver` function is retired: the cutover migration (`20261015001200`) unscheduled its cron job
   and took the pg_net kick out of `match_pending_spots`, which now does `pg_notify('deliveries', '')`
   when it created deliveries. Never add a `net.http_post` back; the function and its handler are
   deleted in the cleanup session, with `delay_deliveries` and `mark_deliveries_dropped`.

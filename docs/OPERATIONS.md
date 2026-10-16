@@ -38,7 +38,7 @@ Times are UTC.
 | `import-cty` | 04:20 Mondays | the `import-cty` function |
 
 There is no `deliver` job. Outbound delivery is the sender process polling the queue ("Delivery"
-below), not a cron job; `20261015001100_sender_cutover` unscheduled it. A `deliver` row here means
+below), not a cron job; `20261015001200_sender_cutover` unscheduled it. A `deliver` row here means
 that migration has not been pushed yet.
 
 ## Why am I not seeing spots?
@@ -341,7 +341,7 @@ fly scale count 0 -a longlines-sender
 Then a new migration (never edit an applied one) that re-schedules the `deliver` cron job and
 restores the kick, with the bodies copied from `20261006000009_delivery_cron.sql` and
 `20261015000500_subscription_needs_destination.sql`, and `supabase db push`. Deliveries resume on
-the next minute. To go forward again, push a migration that repeats `20261015001100` and
+the next minute. To go forward again, push a migration that repeats `20261015001200` and
 `fly scale count 1`.
 
 ### A change that spans both sides

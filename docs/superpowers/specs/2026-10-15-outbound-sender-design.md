@@ -635,7 +635,7 @@ notes for the next session. Earlier entries are never edited.
   push is set up (no keys have ever been generated, so there is no pair to match), and the sender
   runs without it. Session 5's docs pass should keep the per-folder layout.
 - 2026-10-15, session 5 (PR #200): the cutover migration and the docs. Landed:
-  `20261015001100_sender_cutover.sql` (unschedules the `deliver` cron job and replaces
+  `20261015001200_sender_cutover.sql` (unschedules the `deliver` cron job and replaces
   `match_pending_spots` with the 20261015000500 body minus the `net.http_post` block and the
   `v_url`/`v_key` declarations, plus `perform pg_notify('deliveries', '')` when deliveries were
   created; the function no longer reads Vault or touches `net`); `matcher.test.sql` gains two
@@ -665,7 +665,12 @@ notes for the next session. Earlier entries are never edited.
   exit 0, the new machine's health check passing after its first cycle), then 12 cycles a minute,
   eight webhook spots sent to two destinations, 0 failed, 0 throttled, queue depth 0, expired 0,
   all while the Edge `deliver` cron was still scheduled, so the overlap claim behaves. The tini
-  "not running as PID 1" warning is the Deno image's entrypoint and is noise. Verification: `deno task fmt/lint/check/coverage` (Edge 98.0%, Relay 99.1%, Sender
+  "not running as PID 1" warning is the Deno image's entrypoint and is noise. The
+  migration was first numbered 20261015001100; PR #201 (`subscription_toggle`) took that version
+  on main while this PR was open and CI failed on the duplicate key in `schema_migrations`, so it
+  is 20261015001200 and main is merged in. Three sender restarts in that log window were deploys
+  from merges to main (#199, #201, #202), not sender exits: both Fly apps deploy on every push to
+  main whichever folder changed. Verification: `deno task fmt/lint/check/coverage` (Edge 98.0%, Relay 99.1%, Sender
   96.7%, no unloaded module); `supabase db reset` (`cron.job` lists fourteen jobs, no `deliver`),
   pgTAP 1170 assertions pass (a run started straight after the reset's container restart failed
   `deliveries_rpc` and `rbn_spots` transiently; two reruns were clean), the smoke test, db lint
