@@ -3,7 +3,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(31);
+select plan(34);
 
 -- Start from empty tables so the counts below are exact: supabase/seed.sql fills
 -- them on a local reset and on preview branches. The test rolls back, so the
@@ -41,6 +41,17 @@ select is((select count(*) from list_recent_spots('sotawatch', 200)), 0::bigint,
 select is((select count(*) from list_recent_spots('rbn', 200)), 4::bigint, 'RBN recent spots are every rbn_spots row in the last 24 hours');
 select is((select callsign from list_recent_spots('rbn', 1)), 'K1AAA', 'RBN recent spots are newest first');
 select is((select comment from list_recent_spots('rbn', 1)), '10 dB 25 WPM CQ', 'RBN recent spots carry the comment ingest-rbn writes');
+
+-- max_rows is clamped to 0..200, null meaning 50 (20261016000200): 250 more RBN
+-- spots in the window, so an unclamped call would return 254.
+reset role;
+insert into rbn_spots (spot_time, received_at, spotter, callsign, frequency_khz, snr, speed, speed_unit, spot_type, line)
+select now() - make_interval(hours => 6, secs => i), now(), 'W3LPL', 'K1ZZZ', 14025, 10, 25, 'WPM', 'CQ', 'DX de W3LPL'
+from generate_series(1, 250) i;
+select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
+select is((select count(*) from list_recent_spots('rbn', null)), 50::bigint, 'a null max_rows returns 50 rows, not the whole feed');
+select is((select count(*) from list_recent_spots('rbn', 2147483647)), 200::bigint, 'a huge max_rows is capped at 200');
+select is((select count(*) from list_recent_spots('rbn', -1)), 0::bigint, 'a negative max_rows returns nothing');
 select hasnt_column('public', 'recent_spots', 'raw_payload', 'recent_spots has no raw_payload column');
 select throws_ok('select * from recent_spots', '42501', null, 'recent_spots view is not readable by clients directly');
 select throws_ok('delete from recent_spots', '42501', null, 'recent_spots is read-only for clients');
