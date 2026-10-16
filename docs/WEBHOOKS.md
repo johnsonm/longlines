@@ -52,14 +52,19 @@ carries its reference in `wwff_reference` (`KFF-5268`) and the reference's name 
 `wwff_reference_name`; both are null for other sources. WWFF and DX Cluster spots reach only
 subscriptions whose sources name them.
 `delivery_id` is unique per spot and destination, so you can use it to
-deduplicate retries.
+deduplicate retries. Deliveries go out newest first and nothing guarantees
+their order: the spots in one request, and consecutive requests, can arrive
+out of `spot_time` order, so sort on `spot_time` yourself if it matters.
 
 Respond with any `2xx` status within 10 seconds. Redirects are never followed,
-so a `3xx` counts as a failure; point the destination at the final URL.
-Anything else, including a timeout, is a failure: the batch is retried with backoff (30 s, 1 m, 2 m, 5 m,
-15 m, then every 30 m) for up to 24 hours, after which it is dropped. Five
-consecutive failures mark the destination "Failing" in the app; the next
-success clears it.
+so a `3xx` counts as a failure; point the destination at the final URL. A `429`
+delays rather than fails: the destination is held back for `Retry-After`
+seconds (or, without that header, 60 s doubling to 15 minutes while the 429s
+continue), the same spots are sent again afterwards, and nothing counts toward
+"Failing". Anything else, including a timeout, is a failure: the batch is
+retried with backoff (30 s, 1 m, 2 m, 5 m, 15 m, then every 30 m) until the
+spots are 24 hours old, after which they are dropped. Five consecutive failures
+mark the destination "Failing" in the app; the next success clears it.
 
 A "Send test" from the app delivers one sample spot whose callsign is `N0CALL`
 and whose comment says it is a test; `delivery_id` and `subscription_id` are

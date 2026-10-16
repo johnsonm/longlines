@@ -10,8 +10,9 @@ exclusions in `docs/ARCHITECTURE.md` and the original spec are deliberate. Do no
 UI, consumers, notifications, cross-source dedup, or new sources without being asked.
 
 Everything runs on Supabase: Postgres (pg_cron, pg_net, pgmq) plus Deno Edge Functions in
-strict TypeScript. The one exception is `relay/`, a Deno process on Fly.io that holds telnet streams
-(see "Relay rules"). No JavaScript files, no `any` without a justifying comment, no new runtime
+strict TypeScript. The exceptions are two Deno processes on Fly.io: `relay/`, which holds the
+inbound telnet streams (see "Relay rules"), and `sender/`, which sends outbound deliveries (see
+"Sender rules"). No JavaScript files, no `any` without a justifying comment, no new runtime
 dependencies without a comment saying why.
 
 ## Commands
@@ -39,13 +40,19 @@ cd web && npm test                     # Vitest: *.test.ts in node, *.test.tsx i
 cd web && npm run coverage             # same, failing below 80% on any metric (CI runs this)
 cd web && npm run build                # tsc -b + vite build; zero TS errors required
 cd web && npm run lint                 # oxlint
+cd web && npm run sender               # the outbound sender against the local stack (opt in; not part of dev:full)
 supabase gen types typescript --local > web/src/lib/database.types.ts   # after schema changes
+
+SENDER_TEST_DATABASE_URL="$DB_URL" deno test -P sender/__tests__/db.test.ts   # the sender's RPC adapter against the local db (CI does this)
 
 supabase db push                       # hosted: apply migrations
 supabase functions deploy ingest-pota  # hosted: deploy one function
+psql "$DATABASE_URL" -f scripts/setup-sender-role.sql   # hosted, once: the sender role's password (edit the placeholder first)
 
-docker build -f relay/Dockerfile .     # relay image; build context is the repo root (sender/Dockerfile likewise)
-fly deploy --config relay/fly.toml --ha=false   # hosted relay by hand; normally Fly's GitHub integration (config path relay/fly.toml)
+docker build -f relay/Dockerfile .     # relay image; build context is the repo root
+docker build -f sender/Dockerfile .    # sender image, likewise
+fly deploy --config relay/fly.toml --ha=false    # hosted relay by hand; normally Fly's GitHub integration (config path relay/fly.toml)
+fly deploy --config sender/fly.toml --ha=false   # hosted sender by hand, likewise (config path sender/fly.toml)
 ```
 
 Local invocation: `curl -X POST http://127.0.0.1:54321/functions/v1/ingest-pota -H "Authorization: Bearer <service_role key printed by supabase start>"`.
@@ -81,8 +88,9 @@ Local invocation: `curl -X POST http://127.0.0.1:54321/functions/v1/ingest-pota 
 `.github/workflows/ci.yml` runs on every PR and push to main: Deno fmt/lint/check/test, then
 `supabase db start` + `supabase db lint` + `scripts/smoke-test.sql` on a fresh Postgres.
 Migrations already applied to the hosted project must not be edited; add a new migration instead
-(see `20261005000009_*`). Fly's GitHub integration (configured in the Fly dashboard) deploys the
-relay on pushes to main; nothing else deploys automatically.
+(see `20261005000009_*`). Fly's GitHub integration (configured in the Fly dashboard, one binding
+per app with its own `fly.toml`) deploys the relay and the sender on pushes to main; nothing else
+deploys automatically.
 
 ## Phase 2 schema rules
 
@@ -127,10 +135,15 @@ relay on pushes to main; nothing else deploys automatically.
 
 ## Delivery rules
 
-- `deliver` and `archive` authorize with `isServiceRole` (`_shared/auth.ts`): the runtime's
-  `SUPABASE_SERVICE_ROLE_KEY` (now the `sb_secret_` key) or a JWT with `role: service_role`, which
-  is what pg_cron sends from Vault. The JWT is trusted only because the gateway verified it, so both
-  functions keep `verify_jwt = true` in `config.toml`.
+- Outbound delivery is the sender (`sender/`, "Sender rules"), not an Edge Function. The Edge
+  `deliver` function is retired: the cutover migration (`20261015001100`) unscheduled its cron job
+  and took the pg_net kick out of `match_pending_spots`, which now does `pg_notify('deliveries', '')`
+  when it created deliveries. Never add a `net.http_post` back; the function and its handler are
+  deleted in the cleanup session, with `delay_deliveries` and `mark_deliveries_dropped`.
+- `archive` (and `deliver`, until its cleanup) authorize with `isServiceRole` (`_shared/auth.ts`):
+  the runtime's `SUPABASE_SERVICE_ROLE_KEY` (now the `sb_secret_` key) or a JWT with
+  `role: service_role`, which is what pg_cron sends from Vault. The JWT is trusted only because the
+  gateway verified it, so both functions keep `verify_jwt = true` in `config.toml`.
 
 - Matching lives in SQL (`spot_matches`, `match_pending_spots`); never re-implement the predicate in
   TypeScript. The preview RPC and the matcher must stay on the same function.
@@ -141,14 +154,25 @@ relay on pushes to main; nothing else deploys automatically.
   an empty sources list ("any source") includes neither (WWFF overlaps POTA heavily and there is no
   cross-source dedup). The rule lives in `source_matches`. An RBN spot passes only an AND group of
   rules that names stations (a `callsign` or `group` rule with op `is`, `rules_name_stations`).
-- The worker (`supabase/functions/deliver`) only talks to the database through the
-  `claim_deliveries` / `mark_deliveries_*` / `delay_deliveries` RPCs so delivery rows, queue
-  messages and destination health change atomically.
+- The loop is `_shared/delivery/run.ts` (`runDeliveryBatch` over a `DeliveryRpc`), shared by the
+  sender and the retired `deliver`. It talks to the database only through `claim_deliveries`,
+  `mark_deliveries_sent`, `mark_deliveries_failed`, `throttle_destination`, `prune_push_devices`
+  and `record_push_results`, so delivery rows, queue messages and destination health change
+  atomically. One `mark_deliveries_sent` per cycle, before the throttles (the ack clears
+  `throttled_until`).
+- Policy lives in SQL. `claim_deliveries` is rate-aware per destination and newest first, skips
+  paused and throttled destinations, and expires old rows (`dropped_at`) before claiming; its knobs
+  are `destination_budget`, `destination_throttle_seconds` and `destination_max_age`. Never cap,
+  order, age-check or expire deliveries in TypeScript; `DISCORD_MESSAGES_PER_RUN` is a safety net
+  the budget keeps unreachable. The claim's signature and result columns stay as they are: new
+  policy is a column or a knob function, never an argument.
 - Formatting, signing and URL safety are pure modules under `_shared/delivery/` with tests;
   `send.ts` is the only place that calls `fetch` for destinations. `allowInsecure` exists for tests
   and local development only.
-- Rate limits are not failures: a 429 or the per-run cap delays messages via `delay_deliveries`
-  without touching `consecutive_failures`.
+- Rate limits are not failures: a 429 from any type, or the Discord cap, calls
+  `throttle_destination` (with `Retry-After` when there is one, else null so SQL picks the level's
+  backoff), which sets `throttled_until`, `throttle_level` and the messages' vt together and never
+  touches `consecutive_failures`. Never call `delay_deliveries`.
 
 ## Web app rules
 
@@ -186,8 +210,8 @@ relay on pushes to main; nothing else deploys automatically.
 ## Testing
 
 - Both suites gate at 80% in CI. The Deno gate (`scripts/check-coverage.ts`) checks
-  `supabase/functions` and `relay/` separately and also lists any module no test imports, since
-  `deno coverage` silently omits those.
+  `supabase/functions`, `relay/` and `sender/` separately and also lists any module no test
+  imports, since `deno coverage` silently omits those.
 - Deno excludes modules whose names end in `test.ts` from coverage, so never name a source file
   `*_test.ts` (hence `handlers/test_delivery.ts` for the send-test function).
 - Web component tests render through `web/src/test/render.tsx` (theme, MemoryRouter, stub App
@@ -232,6 +256,40 @@ relay on pushes to main; nothing else deploys automatically.
   (`apply_license_loads`, pg_cron), because the swap outlasts the API's 8 s statement timeout.
   Never stage or store ULS address, city, ZIP, PO box, phone, email or FRN fields. No test
   downloads from the FCC; tests build a zip and serve it locally (`relay/__tests__/zip_server.ts`).
+
+## Sender rules
+
+- `sender/` is the outbound delivery process on Fly.io (app `longlines-sender`), the counterpart
+  of `relay/`. `sender/main.ts` is only the process shell; behavior goes in `sender/sender.ts`,
+  `sender/db.ts` (the only module that imports postgres.js) and the shared loop
+  `_shared/delivery/run.ts`, which tests run with fakes and a local `Deno.serve` receiver.
+- It holds `SENDER_DATABASE_URL` for the `delivery_sender` role (through the Supavisor session
+  pooler, TLS) and the VAPID triple, never a Supabase API key. Its whole database surface is the
+  RPC allowlist in `sender/db.ts` (`SENDER_RPCS`), the grants in `20261015000200` /
+  `20261015000400` and the list in `sender_role.test.sql`; a new RPC changes all three in one PR,
+  and the role gets nothing on tables or `pgmq`.
+- Exactly one machine (`fly scale count 1 -a longlines-sender`): the claim is a serial consumer
+  whose marks land before its next claim. A second machine means duplicates and split counts;
+  a per-destination lease comes before any second machine.
+- Per-destination caps are per minute, in SQL (`destination_budget`), never per claim or per
+  poll in TypeScript. The sender polls every `SENDER_POLL_MS` (5 s, floor 1 s) and re-claims at
+  once after a full batch; LISTEN on the matcher's `deliveries` channel is planned, not done.
+- The watchdog exits 1 after `SENDER_STALE_MS` without a successful claim, because Fly restarts
+  only a machine whose process exits; a `/healthz` 503 alone restarts nothing. A failed claim or
+  mark is logged and retried with backoff, never an exit. Exit 1 otherwise means bad config, a
+  pool that cannot open at start, or an unhandled rejection.
+- Knobs are env variables read in `sender/config.ts` (`SENDER_POLL_MS`, `SENDER_CONCURRENCY`,
+  `SENDER_STALE_MS`, `SENDER_STATS_MS`, `SENDER_HEALTH_PORT`); the Dockerfile's `--allow-env` must
+  name every variable the sender reads (`sender/__tests__/modules.test.ts`), and `deno.json`'s test
+  permissions mirror it. `LONGLINES_ALLOW_INSECURE_DESTINATIONS` is honoured only with a local
+  database host.
+- Tests never touch a hosted database: `db.test.ts` runs its RPC half only with
+  `SENDER_TEST_DATABASE_URL` pointing at the local stack and skips it otherwise. Never run
+  `fly deploy` or `fly secrets set` yourself unless asked; a merge to main deploys the sender, so
+  a merge that changes `sender/` or `_shared/delivery/*` ships to production.
+- The app lives on its own Fly network (`--network sender`, fixed at creation) and the hostname
+  suffix denylist (`.internal`, `.flycast`, `.local`, `.localdomain`, `.home.arpa`, `.arpa`) is in
+  both `validate_destination_url` and `urlsafety.ts`; change both together.
 
 ## Archive rules
 
@@ -397,9 +455,10 @@ screens and for notification text.
   posts a message to open windows, which re-register. It has no `fetch` handler and caches
   nothing, and `/sw.js` is served `Cache-Control: no-cache`, so a deploy can't strand a stale
   bundle.
-- The VAPID private key and subject live only in Edge Function env (`LONGLINES_VAPID_*`). The
-  public key is the one new `define` entry in `web/vite.config.ts` (`VITE_VAPID_PUBLIC_KEY`); never
-  widen `envPrefix`.
+- The VAPID pair lives in two places and nowhere else: Edge Function env (`LONGLINES_VAPID_*`, for
+  `send-test` and `api`) and the sender's Fly secrets (real deliveries), the same pair in both.
+  Never in the web app, the relay or a migration. The public key is the one new `define` entry in
+  `web/vite.config.ts` (`VITE_VAPID_PUBLIC_KEY`); never widen `envPrefix`.
 - A gone subscription (404/410) is pruned, not counted as a failure; a 429 delays like any other
   rate limit. Zero deliverable devices is a failure, so a push destination nobody can receive goes
   `failing`. A spot skipped for quiet hours ("Don't send") is marked sent, never retried or

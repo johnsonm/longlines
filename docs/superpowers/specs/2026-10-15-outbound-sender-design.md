@@ -2,8 +2,8 @@
 
 Date: 2026-10-15
 
-Status: approved design, Phase 1 not started. Each build session appends to the Progress log at
-the end; read it before doing anything.
+Status: Phase 1 cut over (2026-10-15, session 5); the cleanup (session 6) is a week out. Each
+build session appends to the Progress log at the end; read it before doing anything.
 
 ## Goal
 
@@ -634,3 +634,52 @@ notes for the next session. Earlier entries are never edited.
   the file. Brad set only `SENDER_DATABASE_URL` on the sender app; the VAPID triple waits until
   push is set up (no keys have ever been generated, so there is no pair to match), and the sender
   runs without it. Session 5's docs pass should keep the per-folder layout.
+- 2026-10-15, session 5 (PR #TBD): the cutover migration and the docs. Landed:
+  `20261015001100_sender_cutover.sql` (unschedules the `deliver` cron job and replaces
+  `match_pending_spots` with the 20261015000500 body minus the `net.http_post` block and the
+  `v_url`/`v_key` declarations, plus `perform pg_notify('deliveries', '')` when deliveries were
+  created; the function no longer reads Vault or touches `net`); `matcher.test.sql` gains two
+  assertions over `pg_get_functiondef` (no `net.http_post`, a `pg_notify('deliveries'`), plan 53;
+  `scripts/setup-sender-role.sql`, a template like `setup-db-settings.sql` whose header gives the
+  pooler URL shape and the `fly secrets set` line, body `alter role delivery_sender with login
+  password '<PASSWORD>'`. Docs: OPERATIONS (a "Cron jobs" table of the fourteen jobs, without
+  `deliver`; the Delivery section rewritten around the sender: first deploy in order with the
+  custom-network note, the secrets table, `fly scale count 1` with the reason, "Is it running?"
+  on `/healthz` and `delivery_queue_stats()`, "A destination is throttled", the rollback recipe,
+  "A change that spans both sides", local development, Push notifications with the VAPID pair on
+  both sides); ARCHITECTURE (the Phase 2 matching and delivery diagram, the matcher paragraph, and
+  "Delivery: the sender" replacing "Delivery worker"); README (overview and "How it works" name
+  both Fly processes, the diagram, the Match and Deliver paragraphs, the local section, `deliver`
+  dropped from the deploy loop, a "The sender on Fly.io" subsection); WEBHOOKS (newest first with
+  no ordering guarantee; a 429 delays); CLAUDE.md ("What this is" names both processes, the
+  Commands block, the CI line, Delivery rules reworded, a new Sender rules section, the Push rule
+  on where VAPID lives, the coverage roots). The status line reads "Phase 1 cut over". Deviations:
+  (1) the migration runs `cron.unschedule(jobid)` from a lookup in `cron.job` rather than
+  `cron.unschedule('deliver')`, which raises when the job is missing. (2) The docs were not run
+  through `deno fmt`: the fmt task covers `supabase/functions scripts relay sender deno.json`
+  only, and none of the six docs is fmt-clean today, so a pass would have rewritten them
+  wholesale; the new prose is hand-wrapped at 100 columns. (3) The WWFF first-deploy note in
+  OPERATIONS keeps its `supabase functions deploy deliver` line as history, annotated. Not checked
+  here: the session 4 follow-up says the sender runs on Fly but not that it was healthy for a
+  day, and flyctl is not installed on this machine, so Brad confirms `fly checks list` before
+  pushing. Verification: `deno task fmt/lint/check/coverage` (Edge 98.0%, Relay 99.1%, Sender
+  96.7%, no unloaded module); `supabase db reset` (`cron.job` lists fourteen jobs, no `deliver`),
+  pgTAP 1170 assertions pass (a run started straight after the reset's container restart failed
+  `deliveries_rpc` and `rbn_spots` transiently; two reruns were clean), the smoke test, db lint
+  unchanged. Hand steps after merge: `supabase db push`; then
+  `select jobname from cron.job where jobname = 'deliver';` returns nothing, and the newest
+  `deliver` response in `net._http_response` (its body starts with `{"claimed"`) predates the push:
+  `select created, status_code from net._http_response where content::text like '{"claimed"%'
+  order by created desc limit 3;`. Rollback, if needed before session 6:
+  `fly scale count 0 -a longlines-sender`, a new migration that re-schedules the `deliver` job
+  and restores the kick (bodies from `20261006000009_delivery_cron.sql` and
+  `20261015000500_subscription_needs_destination.sql`), `supabase db push`. Notes for session 6
+  (one week after the push, no rollback): delete `supabase/functions/deliver`,
+  `_shared/handlers/deliver.ts`, `__tests__/handlers_deliver.test.ts`, the `[functions.deliver]`
+  entry in `config.toml` and its `function_config.test.ts` expectations; drop `delay_deliveries`
+  and `mark_deliveries_dropped` (the `delivery_queue_stats` count then comes from the claim's
+  sweep alone); `supabase functions delete deliver` by hand. Docs that still mention `deliver` on
+  purpose and go with it: CLAUDE.md's Delivery rules (first two bullets), OPERATIONS "Rollback to
+  the Edge worker" and the cron table's last paragraph, ARCHITECTURE's "Reaching the queue"
+  bullet, README's repository layout row. The Edge VAPID secrets stay for `send-test` and `api`.
+  Brad has still not noted the 30-day `deliver` invocation count.
