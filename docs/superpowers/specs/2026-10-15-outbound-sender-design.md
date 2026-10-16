@@ -659,10 +659,13 @@ notes for the next session. Earlier entries are never edited.
   through `deno fmt`: the fmt task covers `supabase/functions scripts relay sender deno.json`
   only, and none of the six docs is fmt-clean today, so a pass would have rewritten them
   wholesale; the new prose is hand-wrapped at 100 columns. (3) The WWFF first-deploy note in
-  OPERATIONS keeps its `supabase functions deploy deliver` line as history, annotated. Not checked
-  here: the session 4 follow-up says the sender runs on Fly but not that it was healthy for a
-  day, and flyctl is not installed on this machine, so Brad confirms `fly checks list` before
-  pushing. Verification: `deno task fmt/lint/check/coverage` (Edge 98.0%, Relay 99.1%, Sender
+  OPERATIONS keeps its `supabase functions deploy deliver` line as history, annotated. flyctl is not
+  installed on the session's machine, so Brad supplied `fly logs -a longlines-sender` for
+  2026-10-16 00:35-00:55Z: a rolling deploy replaced the machine once (SIGINT, cycle finished,
+  exit 0, the new machine's health check passing after its first cycle), then 12 cycles a minute,
+  eight webhook spots sent to two destinations, 0 failed, 0 throttled, queue depth 0, expired 0,
+  all while the Edge `deliver` cron was still scheduled, so the overlap claim behaves. The tini
+  "not running as PID 1" warning is the Deno image's entrypoint and is noise. Verification: `deno task fmt/lint/check/coverage` (Edge 98.0%, Relay 99.1%, Sender
   96.7%, no unloaded module); `supabase db reset` (`cron.job` lists fourteen jobs, no `deliver`),
   pgTAP 1170 assertions pass (a run started straight after the reset's container restart failed
   `deliveries_rpc` and `rbn_spots` transiently; two reruns were clean), the smoke test, db lint
