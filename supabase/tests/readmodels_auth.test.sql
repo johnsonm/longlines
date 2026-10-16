@@ -3,7 +3,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(29);
+select plan(31);
 
 -- Start from empty tables so the counts below are exact: supabase/seed.sql fills
 -- them on a local reset and on preview branches. The test rolls back, so the
@@ -25,6 +25,13 @@ from (values (now() - interval '1 minute', 'K1AAA'), (now() - interval '10 minut
              (now() - interval '50 minutes', 'K1CCC'), (now() - interval '5 hours', 'K1DDD'),
              (now() - interval '2 days', 'K1EEE')) as v(t, c);
 
+-- The view's counts are for operators; clients get only freshness (20261015001100).
+update ingest_state set last_success_at = now() - interval '2 minutes' where source = 'pota';
+select is((select spots_last_hour from ingest_health where source = 'rbn'), 3::bigint,
+  'RBN spots in the last hour count every rbn_spots row, not just raw_spots');
+select is((select spots_last_24h from ingest_health where source = 'rbn'), 4::bigint,
+  'RBN spots in the last 24 hours come from rbn_spots');
+
 -- Read models for signed-in users.
 select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
 select is((select count(*) from list_recent_spots('pota', 200)), 1::bigint, 'list_recent_spots shows only the last 24 hours');
@@ -39,10 +46,11 @@ select throws_ok('select * from recent_spots', '42501', null, 'recent_spots view
 select throws_ok('delete from recent_spots', '42501', null, 'recent_spots is read-only for clients');
 select throws_ok('select raw_payload from raw_spots', '42501', null, 'raw_spots is not readable by clients');
 select is((select count(*) from list_ingest_health()), 6::bigint, 'list_ingest_health is callable by signed-in users (one row per source)');
-select is((select spots_last_hour from list_ingest_health() where source = 'rbn'), 3::bigint,
-  'RBN spots in the last hour count every rbn_spots row, not just raw_spots');
-select is((select spots_last_24h from list_ingest_health() where source = 'rbn'), 4::bigint,
-  'RBN spots in the last 24 hours come from rbn_spots');
+select is((select seconds_since_last_success from list_ingest_health() where source = 'pota'), 120,
+  'list_ingest_health reports the age of the last success');
+select is(pg_get_function_result('public.list_ingest_health()'::regprocedure),
+  'TABLE(source text, last_run_at timestamp with time zone, last_success_at timestamp with time zone, seconds_since_last_success integer, consecutive_failures integer, last_error text)',
+  'list_ingest_health returns freshness only, no spot counts');
 select throws_ok('select * from ingest_health', '42501', null, 'ingest_health view is not readable by clients directly');
 select throws_ok('select * from ingest_state', '42501', null, 'ingest_state stays hidden');
 
