@@ -101,8 +101,8 @@ verification example in [docs/WEBHOOKS.md](docs/WEBHOOKS.md).
 | `supabase/functions/_shared/` | All Edge Function logic: ingest orchestrator, source adapters, mode canonicalization, delivery formatting and sending. |
 | `supabase/functions/ingest-*`, `deliver`, `send-test`, `sign-in`, `delete-account` | Thin entrypoints around `_shared`. `ingest-rbn` is the push endpoint the relay calls. |
 | `supabase/functions/_shared/__tests__/` | Deno unit tests and the fixtures captured from the real feeds (POTA, SOTAwatch and WWFF JSON, an RBN telnet capture). Nothing in the suite calls an upstream. |
-| `relay/` | The stream relay that runs on Fly.io: telnet session, batching forwarder, `/healthz`, and its Dockerfile. It imports the RBN parser from `_shared`. Tests use a local TCP server, never RBN. |
-| `fly.toml` | The relay's Fly.io config. It sits at the root because Fly's GitHub integration deploys from there and the image needs `supabase/functions/_shared`. |
+| `relay/` | The stream relay that runs on Fly.io: telnet session, batching forwarder, `/healthz`, its Dockerfile and `fly.toml`. It imports the RBN parser from `_shared`. Tests use a local TCP server, never RBN. |
+| `sender/` | The outbound sender that runs on Fly.io: polls the delivery queue and sends to Discord, webhooks and push services, with its Dockerfile and `fly.toml`. Policy stays in SQL; it imports the delivery modules from `_shared`. |
 | `supabase/tests/` | pgTAP suites that assert grants, RLS and RPC behavior against a fresh database. |
 | `scripts/` | `smoke-test.sql` (also run by CI) and the one-time `setup-db-settings.sql` for Vault. |
 | `web/` | The user-facing app. `src/lib/api.ts` is the only module that touches supabase-js. |
@@ -301,11 +301,13 @@ fly secrets set \
   LONGLINES_FUNCTIONS_URL=https://<PROJECT_REF>.supabase.co/functions/v1 \
   LONGLINES_RELAY_SECRET=<same value as above> \
   RELAY_LOGIN_CALL=<your callsign>
-fly deploy --ha=false        # --ha=false: one machine, so one session to RBN
+fly deploy --config relay/fly.toml --ha=false   # --ha=false: one machine, so one session to RBN
 ```
 
-After that, Fly's GitHub integration (connected in the Fly dashboard) deploys every merge to
-`main` from the root `fly.toml`. When the integration is first connected, Fly's launcher opens a
+After that, Fly's GitHub integration (connected in the Fly dashboard, with "Config path" set to
+`relay/fly.toml` and the working directory left at the repository root) deploys every merge to
+`main`. The sender app is set up the same way with `sender/fly.toml`. When the integration is
+first connected, Fly's launcher opens a
 PR with its own generic `fly.toml`, `Dockerfile` and `example.ts`. Close it rather than merging:
 that config runs the wrong entrypoint, exposes a public HTTP service that stops the idle machine,
 and asks for two machines.

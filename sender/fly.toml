@@ -1,10 +1,9 @@
-# Fly.io app for the outbound sender (sender/). It is not at the repository root
-# because the root fly.toml belongs to the relay and Fly's GitHub integration
-# deploys from it; this app is bound separately (dashboard: working directory
-# ".", config path "sender/fly.toml") or deployed by hand from the root:
+# Fly.io app for the outbound sender (sender/). Each Fly app's config lives in
+# its own folder (relay/fly.toml, sender/fly.toml); Fly's GitHub integration for
+# this app has "Config path" set to sender/fly.toml and the working directory
+# left at the repository root, so the build context is the root and the image
+# gets supabase/functions/_shared. To deploy by hand from the root:
 #   fly deploy --config sender/fly.toml --ha=false
-# The build context is the repository root so the image gets
-# supabase/functions/_shared.
 #
 # Exactly one machine may run (fly scale count 1 -a longlines-sender). The
 # claim is a serial consumer whose marks land before its next claim; a second
@@ -22,8 +21,10 @@
 app = "longlines-sender"
 primary_region = "iad"
 
+# Relative to this file's directory (flyctl resolves it from the config's
+# location, not from the build context), so not "sender/Dockerfile".
 [build]
-  dockerfile = "sender/Dockerfile"
+  dockerfile = "Dockerfile"
 
 # main.ts stops claiming on SIGINT and finishes the cycle in flight; 30 s is
 # longer than the slowest cycle (four webhook timeouts of 10 s run two at a
