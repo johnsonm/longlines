@@ -621,3 +621,11 @@ notes for the next session. Earlier entries are never edited.
   `invoke:deliver` nowhere but describes `deliver` as the worker; CLAUDE.md's Delivery rules,
   Commands block and "What this is" exception, README's overview, ARCHITECTURE and WEBHOOKS are
   session 5's. Brad has still not noted the 30-day `deliver` invocation count.
+- 2026-10-15, session 4 follow-up (PR #TBD): the first dashboard deploy failed with
+  `dockerfile '/usr/src/app/sender/sender/Dockerfile' not found`. flyctl resolves `[build]
+  dockerfile` relative to the config file's directory (the root `fly.toml` only appears to use a
+  root-relative path because it is at the root), so `sender/fly.toml` now says
+  `dockerfile = "Dockerfile"`. The build context is still the integration's working directory,
+  the repo root, so the image keeps copying `supabase/functions/_shared`. Brad set only
+  `SENDER_DATABASE_URL` on the app; the VAPID triple waits until push is set up (no keys have ever
+  been generated, so there is no pair to match), and the sender runs without it.

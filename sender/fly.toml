@@ -22,8 +22,10 @@
 app = "longlines-sender"
 primary_region = "iad"
 
+# Relative to this file's directory (flyctl resolves it from the config's
+# location, not from the build context), so not "sender/Dockerfile".
 [build]
-  dockerfile = "sender/Dockerfile"
+  dockerfile = "Dockerfile"
 
 # main.ts stops claiming on SIGINT and finishes the cycle in flight; 30 s is
 # longer than the slowest cycle (four webhook timeouts of 10 s run two at a
