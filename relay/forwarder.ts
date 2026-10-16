@@ -7,7 +7,8 @@
 import type { RelayLine } from "./functions.ts";
 
 export interface ForwarderOptions {
-  push: (lines: RelayLine[]) => Promise<unknown>;
+  /** `signal` aborts when drain's deadline passes. */
+  push: (lines: RelayLine[], signal: AbortSignal) => Promise<unknown>;
   now?: () => number;
   maxBatch?: number;
   flushMs?: number;
@@ -25,7 +26,10 @@ export class Forwarder {
   #lastPushAt: number;
   #retryMs = 0;
   #retryAt = 0;
-  #inFlight = false;
+  /** The push in flight, resolving true on success, or null. */
+  #inFlight: Promise<boolean> | null = null;
+  /** Aborted at drain's deadline; every push gets its signal. */
+  readonly #stop = new AbortController();
   /** Lines dropped from the front of the buffer while a push was in flight. */
   #droppedInFlight = 0;
   dropped = 0;
@@ -57,14 +61,14 @@ export class Forwarder {
     if (this.#buffer.length > this.#opts.maxBuffer) {
       this.#buffer.shift();
       this.dropped += 1;
-      if (this.#inFlight) this.#droppedInFlight += 1;
+      if (this.#inFlight !== null) this.#droppedInFlight += 1;
     }
   }
 
   /** Push if a batch is due. Call about once a second. */
   async tick(): Promise<void> {
     const now = this.#opts.now();
-    if (this.#inFlight || now < this.#retryAt) return;
+    if (this.#inFlight !== null || now < this.#retryAt) return;
     const due = this.#buffer.length >= this.#opts.maxBatch ||
       (this.#oldestAt !== null && now - this.#oldestAt >= this.#opts.flushMs) ||
       now - this.#lastPushAt >= this.#opts.heartbeatMs;
@@ -72,14 +76,51 @@ export class Forwarder {
     await this.flush();
   }
 
-  /** Push up to one batch now, regardless of timers. */
+  /** Push up to one batch now, regardless of timers. A no-op while a push is in flight. */
   async flush(): Promise<void> {
-    if (this.#inFlight) return;
-    const batch = this.#buffer.slice(0, this.#opts.maxBatch);
-    this.#inFlight = true;
-    this.#droppedInFlight = 0;
+    if (this.#inFlight === null) await this.#start();
+  }
+
+  /**
+   * Push everything buffered, for shutdown: wait out a push already in flight, then
+   * push batch after batch until the buffer is empty, a push fails, or timeoutMs
+   * passes. At the deadline the push in flight is aborted and drain returns, so it
+   * never outlasts timeoutMs; the forwarder pushes nothing after that.
+   */
+  async drain(timeoutMs: number): Promise<void> {
+    const timer = setTimeout(() => this.#stop.abort(), timeoutMs);
+    const stopped = new Promise<false>((resolve) => {
+      if (this.#stop.signal.aborted) resolve(false);
+      this.#stop.signal.addEventListener("abort", () => resolve(false), { once: true });
+    });
     try {
-      await this.#opts.push(batch);
+      while (true) {
+        const pending = this.#inFlight ??
+          (this.#buffer.length > 0 && !this.#stop.signal.aborted ? this.#start() : null);
+        if (pending === null || !(await Promise.race([pending, stopped]))) break;
+      }
+    } finally {
+      clearTimeout(timer);
+    }
+    if (this.#buffer.length > 0) {
+      this.#opts.log(`drain stopped with ${this.#buffer.length} lines unsent`);
+    }
+  }
+
+  /** Send the first batch; resolves true when the push succeeded. */
+  #start(): Promise<boolean> {
+    const batch = this.#buffer.slice(0, this.#opts.maxBatch);
+    this.#droppedInFlight = 0;
+    const pushing = this.#send(batch).finally(() => {
+      this.#inFlight = null;
+    });
+    this.#inFlight = pushing;
+    return pushing;
+  }
+
+  async #send(batch: RelayLine[]): Promise<boolean> {
+    try {
+      await this.#opts.push(batch, this.#stop.signal);
       // Overflow during the push already removed some of this batch from the front.
       this.#buffer.splice(0, Math.max(0, batch.length - this.#droppedInFlight));
       this.#oldestAt = this.#buffer.length > 0 ? this.#opts.now() : null;
@@ -87,6 +128,7 @@ export class Forwarder {
       this.pushed += batch.length;
       this.#retryMs = 0;
       this.#retryAt = 0;
+      return true;
     } catch (error) {
       this.#retryMs = this.#retryMs === 0
         ? this.#opts.retryMinMs
@@ -96,8 +138,7 @@ export class Forwarder {
       this.#opts.log(
         `push failed (${batch.length} lines, retry in ${this.#retryMs / 1000} s): ${message}`,
       );
-    } finally {
-      this.#inFlight = false;
+      return false;
     }
   }
 }

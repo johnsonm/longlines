@@ -17,9 +17,11 @@ primary_region = "iad"
 [build]
   dockerfile = "Dockerfile"
 
-# Fly's default kill signal; main.ts flushes buffered lines on it.
+# Fly's default kill signal; main.ts pushes buffered lines on it. Shutdown drains
+# for at most DRAIN_MS (20 s, relay/relay.ts) and aborts the push in flight then,
+# so kill_timeout must stay above it or Fly kills the process mid-push.
 kill_signal = "SIGINT"
-kill_timeout = "10s"
+kill_timeout = "30s"
 
 # One machine, smallest size. Exactly one copy may run: a second would open a
 # second telnet session to each upstream.

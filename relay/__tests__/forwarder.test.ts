@@ -145,3 +145,101 @@ Deno.test("Forwarder logs a non-Error rejection as text", async () => {
   await f.flush();
   assertEquals(logs, ["push failed (0 lines, retry in 5 s): socket hang up"]);
 });
+
+Deno.test("Forwarder.drain waits for the push in flight, then pushes what arrived during it", async () => {
+  const s = setup();
+  s.f.add(line(1));
+  s.hold();
+  const first = s.f.flush();
+  await Promise.resolve();
+  s.f.add(line(2));
+  const draining = s.f.drain(5_000);
+  await Promise.resolve();
+  s.release();
+  await Promise.all([first, draining]);
+  assertEquals(s.pushes, [[line(1)], [line(2)]]);
+  assertEquals(s.f.buffered, 0);
+  assertEquals(s.logs, []);
+});
+
+Deno.test("Forwarder.drain empties a buffer larger than one batch", async () => {
+  const pushes: RelayLine[][] = [];
+  const f = new Forwarder({
+    now: () => 0,
+    log: () => {},
+    push: (lines) => {
+      pushes.push(lines);
+      return Promise.resolve();
+    },
+  });
+  for (let i = 0; i < 2_500; i++) f.add(line(i));
+  await f.drain(5_000);
+  assertEquals(pushes.map((p) => p.length), [1_000, 1_000, 500]);
+  assertEquals(pushes[2]![499], line(2_499));
+  assertEquals([f.buffered, f.pushed], [0, 2_500]);
+});
+
+Deno.test("Forwarder.drain with nothing buffered pushes nothing", async () => {
+  const s = setup();
+  await s.f.drain(5_000);
+  assertEquals(s.pushes, []);
+});
+
+Deno.test("Forwarder.drain stops at the deadline and aborts the push in flight", async () => {
+  const signals: AbortSignal[] = [];
+  const logs: string[] = [];
+  const f = new Forwarder({
+    now: () => 0,
+    maxBatch: 2,
+    log: (m) => logs.push(m),
+    // Never settles on its own, as if the function hung; it does not watch the signal either.
+    push: (_lines, signal) => {
+      signals.push(signal);
+      return new Promise(() => {});
+    },
+  });
+  for (let i = 0; i < 5; i++) f.add(line(i));
+  const started = Date.now();
+  await f.drain(50);
+  assertEquals(Date.now() - started < 1_000, true);
+  assertEquals(signals.length, 1);
+  assertEquals(signals[0]!.aborted, true);
+  assertEquals(f.buffered, 5);
+  assertEquals(logs, ["drain stopped with 5 lines unsent"]);
+});
+
+Deno.test("Forwarder.drain stops after a failed push and keeps the lines", async () => {
+  let calls = 0;
+  const logs: string[] = [];
+  const f = new Forwarder({
+    now: () => 0,
+    maxBatch: 2,
+    log: (m) => logs.push(m),
+    push: () => {
+      calls += 1;
+      return Promise.reject(new Error("HTTP 503"));
+    },
+  });
+  for (let i = 0; i < 5; i++) f.add(line(i));
+  await f.drain(5_000);
+  assertEquals(calls, 1);
+  assertEquals(f.buffered, 5);
+  assertEquals(logs, [
+    "push failed (2 lines, retry in 5 s): HTTP 503",
+    "drain stopped with 5 lines unsent",
+  ]);
+});
+
+Deno.test("Forwarder.drain keeps overflow accounting during the push it waits for", async () => {
+  const s = setup({ maxBuffer: 4 });
+  for (let i = 1; i <= 3; i++) s.f.add(line(i));
+  s.hold();
+  const pushing = s.f.flush(); // sends L1..L3
+  await Promise.resolve();
+  for (let i = 4; i <= 6; i++) s.f.add(line(i)); // overflow drops L1 and L2 from the buffer
+  const draining = s.f.drain(5_000);
+  s.release();
+  await Promise.all([pushing, draining]);
+  assertEquals(s.pushes, [[line(1), line(2), line(3)], [line(4), line(5), line(6)]]);
+  assertEquals([s.f.buffered, s.f.dropped], [0, 2]);
+});

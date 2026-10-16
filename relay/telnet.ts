@@ -16,6 +16,40 @@ const SE = 240;
 const WILL = 251;
 const DONT = 254;
 
+/** Longest unterminated text a decoder keeps; real lines are under 600 bytes. */
+export const MAX_PENDING = 8 * 1024;
+
+/** Splits decoded text on LF, scanning only the new text, with pending text capped. */
+class LineSplitter {
+  #text = "";
+  #discarding = false;
+
+  push(chunk: string): string[] {
+    const lines: string[] = [];
+    let start = 0;
+    for (let lf = chunk.indexOf("\n"); lf !== -1; lf = chunk.indexOf("\n", start)) {
+      if (!this.#discarding) lines.push(this.#text + chunk.slice(start, lf));
+      this.#text = "";
+      this.#discarding = false;
+      start = lf + 1;
+    }
+    if (!this.#discarding) {
+      this.#text += chunk.slice(start);
+      // Drop an overlong line up to its LF instead of throwing: memory stays bounded and
+      // one bad line costs only itself, not a healthy session and a 30 s+ reconnect.
+      if (this.#text.length > MAX_PENDING) {
+        this.#text = "";
+        this.#discarding = true;
+      }
+    }
+    return lines;
+  }
+
+  get pending(): string {
+    return this.#text;
+  }
+}
+
 /** Turns the bytes of one connection into text lines. */
 export interface LineDecoder {
   /** Feed one read; returns the lines it completed. */
@@ -27,10 +61,11 @@ export interface LineDecoder {
 /**
  * Turns telnet bytes into text lines. Strips IAC command sequences (including
  * ones split across reads), drops CR, splits on LF. Text after the last LF is
- * kept as `pending` so a prompt without a newline can be recognised.
+ * kept as `pending` so a prompt without a newline can be recognised; a line
+ * longer than MAX_PENDING is dropped whole.
  */
 export class TelnetDecoder implements LineDecoder {
-  #text = "";
+  #lines = new LineSplitter();
   #state: "data" | "iac" | "option" | "sub" | "sub-iac" = "data";
   #decoder = new TextDecoder("latin1");
 
@@ -67,38 +102,35 @@ export class TelnetDecoder implements LineDecoder {
           break;
       }
     }
-    this.#text += this.#decoder.decode(new Uint8Array(data)).replaceAll("\r", "");
-    const parts = this.#text.split("\n");
-    this.#text = parts.pop() ?? "";
-    return parts;
+    return this.#lines.push(this.#decoder.decode(new Uint8Array(data)).replaceAll("\r", ""));
   }
 
   /** Text received after the last newline. */
   get pending(): string {
-    return this.#text;
+    return this.#lines.pending;
   }
 }
 
 /**
  * Turns plain TCP bytes into text lines: UTF-8 (a character split across reads
  * is kept until it completes; invalid bytes become U+FFFD), CR and NUL dropped,
- * split on LF. No telnet command processing, so 0xFF is never special.
+ * split on LF, a line longer than MAX_PENDING dropped whole. No telnet command
+ * processing, so 0xFF is never special.
  */
 export class TcpLineDecoder implements LineDecoder {
-  #text = "";
+  #lines = new LineSplitter();
   #decoder = new TextDecoder("utf-8");
 
   push(bytes: Uint8Array): string[] {
-    this.#text += this.#decoder.decode(bytes, { stream: true })
-      .replaceAll("\r", "")
-      .replaceAll("\0", "");
-    const parts = this.#text.split("\n");
-    this.#text = parts.pop() ?? "";
-    return parts;
+    return this.#lines.push(
+      this.#decoder.decode(bytes, { stream: true })
+        .replaceAll("\r", "")
+        .replaceAll("\0", ""),
+    );
   }
 
   get pending(): string {
-    return this.#text;
+    return this.#lines.pending;
   }
 }
 
