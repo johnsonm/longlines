@@ -1,8 +1,8 @@
 // One delivery cycle: claim queued deliveries, send them grouped by
-// destination, record the outcomes. Shared by the deliver Edge Function and
-// the sender process, so it talks to the database only through `DeliveryRpc`
-// and imports nothing that needs an import map (it must load under
-// `deno run --no-config`).
+// destination, record the outcomes. Run only by the sender process (the
+// deliver Edge Function is gone since 20261015001400), which bundles it without
+// an import map, so it talks to the database only through `DeliveryRpc` and
+// imports nothing that needs one (it must load under `deno run --no-config`).
 //
 // Policy lives in SQL. The claim is rate-aware and newest first, expiry sets
 // `dropped_at` before anything is claimed, and a throttle is a column on the

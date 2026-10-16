@@ -1,6 +1,7 @@
-// Prints a new VAPID keypair as the LONGLINES_VAPID_* env lines the deliver,
-// send-test and api functions read. Writes nothing; see docs/OPERATIONS.md
-// for where the values go.
+// Prints a new VAPID keypair as the LONGLINES_VAPID_* env lines the send-test
+// and api functions read from the Edge env and the sender reads from its Fly
+// secrets (the same pair in both). Writes nothing; see docs/OPERATIONS.md
+// "Push notifications" for where the values go.
 //
 //   deno run scripts/generate-vapid-keys.ts mailto:you@example.com
 

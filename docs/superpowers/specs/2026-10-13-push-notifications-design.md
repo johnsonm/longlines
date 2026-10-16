@@ -428,12 +428,14 @@ Cover:
   - `SendResult` gains optional `expiredEndpoints` and `deviceResults` (fed into
     `record_push_results`).
   - `DeliverySpot` gains `base_callsign`.
-- **`handlers/deliver.ts`.** A push delivery older than `TTL` (15 minutes, `PUSH_MAX_AGE_MS`) is
-  dropped instead of retried, so a push service outage doesn't end in a burst of hours-old
-  alerts. Other types keep the 24-hour limit. After a push send, it calls `prune_push_devices` and
-  `record_push_results` through `rpcOrLog`. The list of calls comes from `pushBookkeeping(result)`
-  in `send.ts`, not `deliver.ts`, because the `api` function (`verify_jwt = false`) reaches it
-  through `test_delivery.ts` and must not import `isServiceRole`.
+- **Delivery age (amended 2026-10-16).** `handlers/deliver.ts` went with the sender cutover
+  (`20261015001400`); the loop is `_shared/delivery/run.ts`, run only by the sender. A push
+  delivery older than 15 minutes is expired by the sweep in `claim_deliveries`
+  (`destination_max_age('push')`), never by an age check in TypeScript, so a push service outage
+  doesn't end in a burst of hours-old alerts. Other types get 24 hours. After a push send the loop
+  calls `prune_push_devices` and `record_push_results`. The list of calls comes from
+  `pushBookkeeping(result)` in `send.ts`, because the `api` function (`verify_jwt = false`)
+  reaches it through `test_delivery.ts` and must not import `isServiceRole`.
 - **`handlers/test_delivery.ts`.** For a push destination it loads devices with the admin client,
   as it already selects destinations directly, so Send test reaches every device. It runs the
   same `pushBookkeeping` calls afterwards, so a test also prunes gone devices. `sampleSpot` gains

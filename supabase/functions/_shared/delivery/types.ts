@@ -1,4 +1,4 @@
-// Shapes shared by the deliver and send-test functions. `PendingDelivery`
+// Shapes shared by the sender and the send-test and api functions. `PendingDelivery`
 // mirrors a row from the claim_deliveries RPC.
 
 export interface DeliverySpot {

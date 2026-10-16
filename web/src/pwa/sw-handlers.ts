@@ -8,7 +8,7 @@ export interface NotificationAction {
   title: string;
 }
 
-/** What the deliver worker sends. Fields past `url` are optional; the worker decides, this only displays. */
+/** What the sender sends. Fields past `url` are optional; the worker decides, this only displays. */
 export interface PushData {
   title: string;
   body: string;

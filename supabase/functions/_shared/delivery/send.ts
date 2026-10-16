@@ -59,7 +59,7 @@ export interface SendResult {
 /**
  * The RPCs that follow a push send: prune subscriptions the push service says
  * are gone, then stamp each device's last success or error. Empty for the
- * other destination types. The deliver worker and Send test both run them.
+ * other destination types. The sender and Send test both run them.
  */
 export function pushBookkeeping(result: SendResult): Array<[string, Record<string, unknown>]> {
   const calls: Array<[string, Record<string, unknown>]> = [];

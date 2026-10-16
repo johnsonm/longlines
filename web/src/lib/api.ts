@@ -12,8 +12,24 @@ import type { Rules } from "../subscriptions/model";
 type Tables = Database["public"]["Tables"];
 type Views = Database["public"]["Views"];
 export type Profile = Tables["profiles"]["Row"];
-export type Destination = Omit<Tables["destinations"]["Row"], "url" | "signing_secret">;
-export type Subscription = Tables["subscriptions"]["Row"];
+/** A table row without its computed fields (`api_*_json`), which PostgREST never returns for `*`. */
+type Row<T extends keyof Tables> = Omit<Tables[T]["Row"], Tables[T]["ComputedFields"]>;
+/** Exactly `DESTINATION_COLUMNS`: never `url`, `signing_secret` or the sender's throttle columns. */
+export type Destination = Pick<
+  Row<"destinations">,
+  | "id"
+  | "user_id"
+  | "type"
+  | "name"
+  | "url_display"
+  | "health"
+  | "consecutive_failures"
+  | "last_success_at"
+  | "last_error"
+  | "last_error_at"
+  | "created_at"
+>;
+export type Subscription = Row<"subscriptions">;
 export type SubscriptionLink = Tables["subscription_destinations"]["Row"];
 export type RecentSpot = Views["recent_spots"]["Row"];
 export type IngestHealth = Database["public"]["Functions"]["list_ingest_health"]["Returns"][number];
