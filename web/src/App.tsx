@@ -114,10 +114,10 @@ function RequireAuth({ page }: { page: Page }) {
 }
 
 /** The editor takes its id or source as props, so its tests need no router params. */
-function SubscriptionRoute(props: Omit<ComponentProps<typeof SubscriptionEditorPage>, "id" | "source">) {
+function SubscriptionRoute(props: Omit<ComponentProps<typeof SubscriptionEditorPage>, "id" | "source" | "callsign">) {
   const { id } = useParams();
   const [search] = useSearchParams();
-  return <SubscriptionEditorPage {...props} id={id} source={search.get("source")} />;
+  return <SubscriptionEditorPage {...props} id={id} source={search.get("source")} callsign={search.get("callsign")} />;
 }
 
 function SignedIn({ page }: { page: Page }) {
@@ -161,7 +161,7 @@ function SignedIn({ page }: { page: Page }) {
       {page === "destinations" && <DestinationsPage dests={dests} subs={subs} loading={loading} reload={reload} />}
       {page === "stats" && <StatsPage />}
       {page === "lookup" && <LookupPage />}
-      {page === "call" && <CallsignPage prefs={prefs} account={{ reload }} />}
+      {page === "call" && <CallsignPage prefs={prefs} signedIn />}
       {page === "account" && <AccountPage profile={profile} />}
       {page === "api-tokens" && <ApiTokensPage />}
     </AppShell>
