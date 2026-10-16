@@ -1,0 +1,50 @@
+# Fly.io app for the outbound sender (sender/). It is not at the repository root
+# because the root fly.toml belongs to the relay and Fly's GitHub integration
+# deploys from it; this app is bound separately (dashboard: working directory
+# ".", config path "sender/fly.toml") or deployed by hand from the root:
+#   fly deploy --config sender/fly.toml --ha=false
+# The build context is the repository root so the image gets
+# supabase/functions/_shared.
+#
+# Exactly one machine may run (fly scale count 1 -a longlines-sender). The
+# claim is a serial consumer whose marks land before its next claim; a second
+# machine would send duplicates, throttle destinations without coordination
+# and split the counts. The app's own network (--network sender at creation)
+# keeps the relay and anything else off its 6PN.
+#
+# Secrets (fly secrets set -a longlines-sender ...): SENDER_DATABASE_URL (the
+# delivery_sender role through the Supavisor pooler, session mode, port 5432)
+# and the VAPID triple LONGLINES_VAPID_PUBLIC_KEY / LONGLINES_VAPID_PRIVATE_KEY /
+# LONGLINES_VAPID_SUBJECT. Never a Supabase API key. Knobs (SENDER_POLL_MS,
+# SENDER_CONCURRENCY, SENDER_STALE_MS, SENDER_STATS_MS, SENDER_HEALTH_PORT) are
+# optional; sender/config.ts has the defaults.
+
+app = "longlines-sender"
+primary_region = "iad"
+
+[build]
+  dockerfile = "sender/Dockerfile"
+
+# main.ts stops claiming on SIGINT and finishes the cycle in flight; 30 s is
+# longer than the slowest cycle (four webhook timeouts of 10 s run two at a
+# time under the default concurrency). A cycle cut off anyway is re-sent once
+# after the 60 s visibility timeout.
+kill_signal = "SIGINT"
+kill_timeout = "30s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
+
+# No [http_service]: the sender accepts no public traffic, and an http_service
+# with auto_stop_machines would stop the machine for lack of requests. The check
+# reaches the health port over Fly's private network and shows in
+# `fly checks list`; a 503 restarts nothing, the watchdog's exit 1 does.
+[checks]
+  [checks.healthz]
+    type = "http"
+    port = 8080
+    path = "/healthz"
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "60s"
