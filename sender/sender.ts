@@ -21,7 +21,7 @@ import { healthHandler, type QueueStats, type SenderStatus, type SenderTotals } 
 /** A failed claim or bookkeeping call is retried after this, doubling to the maximum. */
 export const RETRY_MIN_MS = 5_000;
 export const RETRY_MAX_MS = 60_000;
-/** How often the watchdog compares the last successful claim with staleMs. */
+/** How often the watchdog compares the last progress with staleMs. */
 export const WATCHDOG_TICK_MS = 1_000;
 
 export interface SenderDeps {
@@ -45,7 +45,7 @@ export interface Sender {
   addr: Deno.NetAddr;
   /**
    * Resolves once every loop has stopped after shutdown(). Rejects when the
-   * watchdog finds no successful claim for staleMs, or when a cycle throws
+   * watchdog finds no progress for staleMs, or when a cycle throws
    * anything but a ClaimError; main.ts exits 1 on either.
    */
   done: Promise<void>;
@@ -81,6 +81,7 @@ export function startSender(
 
   const startedAt = now();
   let lastClaimAt: Date | null = null;
+  let lastProgressAt: Date | null = null;
   let lastError: string | null = null;
   let inFlight = false;
   let queue: QueueStats | null = null;
@@ -96,6 +97,7 @@ export function startSender(
   const status = (): SenderStatus => ({
     startedAt,
     lastClaimAt,
+    lastProgressAt,
     lastError,
     inFlight,
     totals: { ...totals },
@@ -127,9 +129,10 @@ export function startSender(
   }
 
   // Claim, send, mark; then sleep pollMs, or claim again at once when the
-  // batch was full. A failed claim (ClaimError) or a failed mark is logged and
-  // retried with a doubling delay; anything else thrown is a bug and ends the
-  // process through `done`.
+  // batch was full. A failed claim (ClaimError), or a mark still failing after
+  // runDeliveryBatch's own retries, is logged and the next claim waits a
+  // doubling delay; anything else thrown is a bug and ends the process through
+  // `done`.
   async function pollLoop(): Promise<void> {
     const claimLimit = options.claimLimit ?? CLAIM_LIMIT;
     let retryMs = RETRY_MIN_MS;
@@ -140,6 +143,11 @@ export function startSender(
         result = await runDeliveryBatch(deps.db, deps.send, now(), {
           claimLimit,
           concurrency: config.concurrency,
+          onProgress: (step) => {
+            lastProgressAt = now();
+            if (step === "claim") lastClaimAt = lastProgressAt;
+          },
+          sleep: (ms) => sleep(ms, signal),
         });
       } catch (error) {
         inFlight = false;
@@ -151,7 +159,6 @@ export function startSender(
         continue;
       }
       inFlight = false;
-      lastClaimAt = now();
       record(result);
       if (result.claimed > 0 || result.errors.length > 0) log(JSON.stringify(result));
       if (result.errors.length > 0) {
@@ -187,15 +194,19 @@ export function startSender(
   }
 
   // A wedged pooler connection looks like a healthy machine that never
-  // claims; after staleMs without a successful claim the process exits 1 so
-  // Fly restarts it. /healthz alone restarts nothing.
+  // claims or never answers a mark; after staleMs without progress (a
+  // successful claim, a finished send or a successful bookkeeping RPC) the
+  // process exits 1 so Fly restarts it. Progress, not finished cycles: a cycle
+  // of many slow destinations can outlast staleMs, and killing it before its
+  // ack would send the same rows again on every restart. /healthz alone
+  // restarts nothing.
   async function watchdogLoop(): Promise<void> {
     while (!signal.aborted) {
       await sleep(WATCHDOG_TICK_MS, signal);
       if (signal.aborted) return;
-      const since = now().getTime() - (lastClaimAt ?? startedAt).getTime();
+      const since = now().getTime() - (lastProgressAt ?? startedAt).getTime();
       if (since >= config.staleMs) {
-        const error = new Error(`watchdog: no successful claim for ${Math.round(since / 1000)} s`);
+        const error = new Error(`watchdog: no progress for ${Math.round(since / 1000)} s`);
         log(error.message);
         fail(error);
       }

@@ -169,8 +169,11 @@ deploys automatically.
   the budget keeps unreachable. The claim's signature and result columns stay as they are: new
   policy is a column or a knob function, never an argument.
 - Formatting, signing and URL safety are pure modules under `_shared/delivery/` with tests;
-  `send.ts` is the only place that calls `fetch` for destinations. `allowInsecure` exists for tests
-  and local development only.
+  `send.ts` is the only place that sends to destinations: `fetch` for Discord and push, and
+  `pinned_http.ts` (hand-rolled HTTP/1.1) for webhooks. `allowInsecure` is for tests and local
+  development only.
+- A webhook connects to an address `assertSafeResolvedHost` checked, never to a fresh lookup of
+  its name: `fetch` resolves again, which DNS rebinding can point at an internal address.
 - Rate limits are not failures: a 429 from any type, or the Discord cap, calls
   `throttle_destination` (with `Retry-After` when there is one, else null so SQL picks the level's
   backoff), which sets `throttled_until`, `throttle_level` and the messages' vt together and never
@@ -277,10 +280,15 @@ deploys automatically.
 - Per-destination caps are per minute, in SQL (`destination_budget`), never per claim or per
   poll in TypeScript. The sender polls every `SENDER_POLL_MS` (5 s, floor 1 s) and re-claims at
   once after a full batch; LISTEN on the matcher's `deliveries` channel is planned, not done.
-- The watchdog exits 1 after `SENDER_STALE_MS` without a successful claim, because Fly restarts
-  only a machine whose process exits; a `/healthz` 503 alone restarts nothing. A failed claim or
-  mark is logged and retried with backoff, never an exit. Exit 1 otherwise means bad config, a
-  pool that cannot open at start, or an unhandled rejection.
+- The watchdog exits 1 after `SENDER_STALE_MS` without progress (a successful claim, a finished
+  send or a successful bookkeeping RPC, reported through `runDeliveryBatch`'s `onProgress`), never
+  since the last finished cycle, because a long healthy cycle killed before its ack re-sends the
+  batch. Fly restarts only a machine whose process exits; a `/healthz` 503 alone restarts nothing.
+  The repeatable bookkeeping RPCs (`mark_deliveries_sent`, `prune_push_devices`,
+  `record_push_results`) are retried within the cycle (`BOOKKEEPING_RETRY_MS`); the counting ones
+  (`mark_deliveries_failed`, `throttle_destination`) are tried once. A failed claim or mark is then
+  logged and the next claim backs off, never an exit. Exit 1 otherwise means bad config, a pool
+  that cannot open at start, or an unhandled rejection.
 - Knobs are env variables read in `sender/config.ts` (`SENDER_POLL_MS`, `SENDER_CONCURRENCY`,
   `SENDER_STALE_MS`, `SENDER_STATS_MS`, `SENDER_HEALTH_PORT`); the Dockerfile's `--allow-env` must
   name every variable the sender reads (`sender/__tests__/modules.test.ts`), and `deno.json`'s test

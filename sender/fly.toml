@@ -26,10 +26,13 @@ primary_region = "iad"
 [build]
   dockerfile = "Dockerfile"
 
-# main.ts stops claiming on SIGINT and finishes the cycle in flight; 30 s is
-# longer than the slowest cycle (four webhook timeouts of 10 s run two at a
-# time under the default concurrency). A cycle cut off anyway is re-sent once
-# after the 60 s visibility timeout.
+# main.ts stops claiming on SIGINT and waits for the cycle in flight to finish
+# its sends and marks before exiting; there is no drain deadline, and a send
+# already started runs to its own 10 s timeout. 30 s covers an ordinary cycle
+# but not every one: a full claim spread over many slow destinations (10 s per
+# request, four destinations at a time) can run for minutes. Fly kills the
+# process at kill_timeout, and whatever that cycle had not yet acked
+# reappears after the 60 s visibility timeout and is sent once more.
 kill_signal = "SIGINT"
 kill_timeout = "30s"
 

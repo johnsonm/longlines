@@ -200,6 +200,7 @@ Deno.test("startSender claims, sends to a local webhook, acks in one call and re
   assertEquals(h.body, {
     healthy: true,
     last_claim_at: T0.toISOString(),
+    last_progress_at: T0.toISOString(),
     last_error: null,
     in_flight: false,
     totals: {
@@ -277,7 +278,7 @@ Deno.test("startSender retries a failed claim with doubling delays and the watch
     now: clock.now,
     sleep: clock.sleep,
   });
-  const failing = assertRejects(() => sender.done, Error, "no successful claim for 120 s");
+  const failing = assertRejects(() => sender.done, Error, "no progress for 120 s");
 
   await waitFor("the first claim", () => db.of("claim_deliveries").length === 1);
   // Retries at 5, 15, 35 and 75 s (5 s doubling), the next would be 135 s.
@@ -287,6 +288,7 @@ Deno.test("startSender retries a failed claim with doubling delays and the watch
   assertEquals(h.status, 200); // the start counts as the last claim until staleMs
   assertEquals(h.body.last_error, "claim_deliveries: connection reset");
   assertEquals(h.body.last_claim_at, null);
+  assertEquals(h.body.last_progress_at, null);
 
   await clock.advance(60_000);
   await failing;
@@ -294,7 +296,7 @@ Deno.test("startSender retries a failed claim with doubling delays and the watch
   h = await health(sender.addr.port);
   assertEquals(h.status, 503);
   assertEquals(h.body.healthy, false);
-  assertEquals(logs.includes("watchdog: no successful claim for 120 s"), true);
+  assertEquals(logs.includes("watchdog: no progress for 120 s"), true);
   assertEquals(logs.filter((m) => m.startsWith("claim failed: connection reset")).length, 5);
   assertStringIncludes(
     logs.find((m) => m.startsWith("claim failed"))!,
@@ -324,6 +326,68 @@ Deno.test("startSender shutdown does not wait for a cycle the watchdog gave up o
   assertEquals(db.closed(), 1);
 });
 
+Deno.test("startSender lets a cycle outlast staleMs while each send makes progress, and acks it", async () => {
+  // Three destinations, one at a time, each send taking 1 s of a 1.5 s
+  // staleMs: the cycle takes 3 s, longer than staleMs, but never stalls.
+  const ds = [dest("d1"), dest("d2"), dest("d3")];
+  const claims = [ds.map((d, i) => row(i + 1, d))];
+  const db = fakeDb(({ fn }) =>
+    fn === "claim_deliveries" ? { data: claims.shift() ?? [] } : undefined
+  );
+  const clock = fakeClock(T0);
+  const logs: string[] = [];
+  const sender = startSender(config({ staleMs: 1_500, concurrency: 1 }), {
+    db: db.db,
+    send: async (_d, b) => {
+      await clock.advance(1_000);
+      return { ok: true, sent: b.length };
+    },
+  }, {
+    hostname: "127.0.0.1",
+    log: (m) => logs.push(m),
+    now: clock.now,
+    sleep: clock.sleep,
+  });
+  let failed = false;
+  sender.done.catch(() => {
+    failed = true;
+  });
+
+  await waitFor("the ack", () => db.of("mark_deliveries_sent").length === 1);
+  assertEquals(db.of("mark_deliveries_sent")[0]!.args.p_delivery_ids, [1, 2, 3]);
+  assertEquals(failed, false);
+  assertEquals(logs.some((m) => m.startsWith("watchdog")), false);
+  const status = sender.status();
+  assertEquals(status.lastClaimAt, T0);
+  assertEquals(status.lastProgressAt, new Date(T0.getTime() + 3_000));
+  assertEquals((await health(sender.addr.port)).status, 200);
+  await sender.shutdown();
+  await sender.done;
+});
+
+Deno.test("startSender's watchdog still ends a cycle whose mark never answers", async () => {
+  const d = dest("d1");
+  const db = fakeDb(({ fn }) => {
+    if (fn === "claim_deliveries") return { data: [row(1, d)] };
+    if (fn === "mark_deliveries_sent") return new Promise(() => {});
+    return undefined;
+  });
+  const clock = fakeClock(T0);
+  const sender = startSender(config({ staleMs: 10_000 }), { db: db.db, send: allSent }, {
+    hostname: "127.0.0.1",
+    log: () => {},
+    now: clock.now,
+    sleep: clock.sleep,
+  });
+  const failing = assertRejects(() => sender.done, Error, "watchdog: no progress for 10 s");
+  await waitFor("the mark", () => db.of("mark_deliveries_sent").length === 1);
+  await clock.advance(10_000);
+  await failing;
+  assertEquals(sender.status().inFlight, true);
+  await sender.shutdown();
+  assertEquals(db.closed(), 1);
+});
+
 Deno.test("startSender reports a failed mark, waits the retry delay, and clears it after a clean cycle", async () => {
   const d = dest("d1");
   const claims = [[row(1, d)], [row(2, d)]];
@@ -340,7 +404,13 @@ Deno.test("startSender reports a failed mark, waits the retry delay, and clears 
     now: clock.now,
     sleep: clock.sleep,
   });
+  // runDeliveryBatch tries the mark three times, waiting on the sender's clock.
+  await waitFor("the first mark", () => db.of("mark_deliveries_sent").length === 1);
+  await clock.advance(500);
+  await waitFor("the second mark", () => db.of("mark_deliveries_sent").length === 2);
+  await clock.advance(1_000);
   await waitFor("the first cycle", () => sender.status().totals.cycles === 1);
+  assertEquals(db.of("mark_deliveries_sent").length, 3);
   let h = await health(sender.addr.port);
   assertEquals(h.status, 200); // the claim worked; only the mark failed
   assertEquals(h.body.last_error, "mark_deliveries_sent: deadlock detected");
@@ -446,6 +516,7 @@ Deno.test("healthHandler answers 200 inside the grace and 503 once stale, and 40
   const status: SenderStatus = {
     startedAt: new Date("2026-10-15T12:00:00Z"),
     lastClaimAt: null,
+    lastProgressAt: null,
     lastError: null,
     inFlight: false,
     totals: {
@@ -465,12 +536,15 @@ Deno.test("healthHandler answers 200 inside the grace and 503 once stale, and 40
   assertEquals(get().status, 200);
   now = new Date("2026-10-15T12:02:00Z");
   assertEquals(get().status, 503);
-  status.lastClaimAt = new Date("2026-10-15T12:01:30Z");
+  // Liveness is the last progress, not the last claim: a long cycle is healthy.
+  status.lastClaimAt = new Date("2026-10-15T11:59:00Z");
+  status.lastProgressAt = new Date("2026-10-15T12:01:30Z");
   const res = get();
   assertEquals(res.status, 200);
   assertEquals(await res.json(), {
     healthy: true,
-    last_claim_at: "2026-10-15T12:01:30.000Z",
+    last_claim_at: "2026-10-15T11:59:00.000Z",
+    last_progress_at: "2026-10-15T12:01:30.000Z",
     last_error: null,
     in_flight: false,
     totals: status.totals,

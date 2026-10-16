@@ -11,6 +11,7 @@ import {
   hostOf,
   type Resolver,
 } from "./urlsafety.ts";
+import { PinnedConnectError, pinnedPost, type PinnedResponse } from "./pinned_http.ts";
 import { encryptPushPayload, vapidAuthorization, type VapidKeys } from "./webpush.ts";
 import type { DeliveryDestination, PendingDelivery, PushDevice } from "./types.ts";
 
@@ -19,6 +20,8 @@ export const DISCORD_MESSAGES_PER_RUN = 30; // Discord allows ~30 messages/minut
 export const WEBHOOK_TIMEOUT_MS = 10_000;
 const DISCORD_TIMEOUT_MS = 10_000;
 const PUSH_TIMEOUT_MS = 10_000;
+/** Longest Retry-After honoured: throttle_destination takes an int, and a day is plenty. */
+export const MAX_RETRY_AFTER_SECONDS = 86_400;
 /** A push service drops a spot it couldn't deliver within 15 minutes. */
 export const PUSH_TTL_SECONDS = 900;
 const NO_DEVICES = "Turn on notifications on a device first.";
@@ -28,6 +31,8 @@ export interface SendOptions {
   /** Tests only: skip URL safety so a loopback http server can stand in for the destination. */
   allowInsecure?: boolean;
   resolver?: Resolver;
+  /** Tests only: stands in for pinnedPost, to see which address a webhook connects to. */
+  webhookPost?: typeof pinnedPost;
   /** From LONGLINES_VAPID_* env; push sends fail without it. */
   vapid?: VapidKeys;
   /** Tests pin the clock that dates the VAPID JWT. */
@@ -150,9 +155,24 @@ export async function sendDiscord(
   return { ok: true, sent };
 }
 
+/**
+ * A Retry-After value (header text, or a number from a JSON body) in whole
+ * seconds, capped at MAX_RETRY_AFTER_SECONDS; null when it is not a positive
+ * number. An HTTP-date reads as null and the caller's fallback applies.
+ */
+export function retryAfterSeconds(value: unknown): number | null {
+  const seconds = typeof value === "number"
+    ? value
+    : typeof value === "string" && value.trim() !== ""
+    ? Number(value)
+    : NaN;
+  if (!Number.isFinite(seconds) || seconds <= 0) return null;
+  return Math.min(Math.ceil(seconds), MAX_RETRY_AFTER_SECONDS);
+}
+
 /** Discord reports retry_after in seconds (fractional) in the body, or a Retry-After header. */
 async function retryAfterSecondsOf(response: Response): Promise<number> {
-  const header = Number(response.headers.get("retry-after"));
+  const header = response.headers.get("retry-after");
   let body: unknown = null;
   try {
     body = await response.json();
@@ -160,10 +180,39 @@ async function retryAfterSecondsOf(response: Response): Promise<number> {
     // no JSON body
   }
   const fromBody = typeof body === "object" && body !== null
-    ? Number((body as { retry_after?: unknown }).retry_after)
-    : NaN;
-  const seconds = Number.isFinite(fromBody) ? fromBody : Number.isFinite(header) ? header : 5;
-  return Math.max(1, Math.ceil(seconds));
+    ? (body as { retry_after?: unknown }).retry_after
+    : undefined;
+  return retryAfterSeconds(fromBody) ?? retryAfterSeconds(header) ?? 5;
+}
+
+/** Checked addresses a webhook send tries, in order, when connecting is refused. */
+const WEBHOOK_MAX_ADDRESSES = 3;
+
+/**
+ * The URL and the addresses to connect to. Safe sends get the addresses
+ * urlsafety checked, so the name is resolved once and never again (DNS
+ * rebinding). allowInsecure skips the checks and lets Deno.connect resolve
+ * the name, as fetch did.
+ */
+async function webhookTarget(
+  rawUrl: string,
+  options: SendOptions,
+): Promise<{ url: URL; addresses: string[] }> {
+  if (options.allowInsecure) {
+    let url: URL;
+    try {
+      url = new URL(rawUrl);
+    } catch {
+      throw new Error("Use an https URL.");
+    }
+    const host = hostOf(url);
+    // Deno.connect takes only the first answer for a name; fetch tried both loopbacks.
+    const loopback = host === "localhost" || host.endsWith(".localhost");
+    return { url, addresses: loopback ? ["127.0.0.1", "::1"] : [host] };
+  }
+  const url = assertSafeDestinationUrl("webhook", rawUrl);
+  const addresses = await assertSafeResolvedHost(hostOf(url), options.resolver);
+  return { url, addresses: addresses.slice(0, WEBHOOK_MAX_ADDRESSES) };
 }
 
 export async function sendWebhook(
@@ -172,42 +221,53 @@ export async function sendWebhook(
   options: SendOptions = {},
 ): Promise<SendResult> {
   if (destination.url === null) return { ok: false, sent: 0, error: NO_URL };
-  if (!options.allowInsecure) {
-    try {
-      const url = assertSafeDestinationUrl("webhook", destination.url);
-      await assertSafeResolvedHost(hostOf(url), options.resolver);
-    } catch (error) {
-      return { ok: false, sent: 0, error: errorMessage(error) };
-    }
+  let target: { url: URL; addresses: string[] };
+  try {
+    target = await webhookTarget(destination.url, options);
+  } catch (error) {
+    return { ok: false, sent: 0, error: errorMessage(error) };
   }
   if (!destination.signing_secret) {
     return { ok: false, sent: 0, error: "Webhook destination has no signing secret" };
   }
+  const post = options.webhookPost ?? pinnedPost;
 
   let sent = 0;
+  // Index of the address that last connected; a refused one moves to the next.
+  let at = 0;
   for (const payload of webhookPayloads(deliveries)) {
     const body = JSON.stringify(payload);
     const timestamp = Math.floor(Date.now() / 1000);
     const signature = await signWebhookBody(destination.signing_secret, timestamp, body);
-    let response: Response;
+    let response: PinnedResponse;
     try {
-      response = await fetch(destination.url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "User-Agent": USER_AGENT,
-          "X-LongLines-Timestamp": String(timestamp),
-          "X-LongLines-Signature": signature,
-        },
-        body,
-        signal: AbortSignal.timeout(WEBHOOK_TIMEOUT_MS),
-        redirect: "manual",
-      });
+      for (;;) {
+        try {
+          response = await post(target.url, target.addresses[at]!, {
+            headers: {
+              "Accept": "*/*",
+              "Content-Type": "application/json",
+              "User-Agent": USER_AGENT,
+              "X-LongLines-Timestamp": String(timestamp),
+              "X-LongLines-Signature": signature,
+            },
+            body,
+            timeoutMs: WEBHOOK_TIMEOUT_MS,
+            allowInsecure: options.allowInsecure,
+          });
+          break;
+        } catch (error) {
+          // Nothing was sent when the connection itself failed, so another address is safe.
+          if (!(error instanceof PinnedConnectError) || at + 1 >= target.addresses.length) {
+            throw error;
+          }
+          at++;
+        }
+      }
     } catch (error) {
       return { ok: false, sent, error: `Webhook request failed: ${errorMessage(error)}` };
     }
-    await response.body?.cancel();
-    if (isRedirect(response)) {
+    if (response.status >= 300 && response.status < 400) {
       return {
         ok: false,
         sent,
@@ -220,21 +280,15 @@ export async function sendWebhook(
         ok: false,
         sent,
         error: "Webhook HTTP 429 (rate limited)",
-        retryAfterSeconds: webhookRetryAfterSeconds(response),
+        retryAfterSeconds: retryAfterSeconds(response.headers.get("retry-after")),
       };
     }
-    if (!response.ok) {
+    if (response.status < 200 || response.status >= 300) {
       return { ok: false, sent, error: `Webhook HTTP ${response.status}` };
     }
     sent += payload.deliveries.length;
   }
   return { ok: true, sent };
-}
-
-/** A webhook's Retry-After in whole seconds, or null when it sent none it could use. */
-function webhookRetryAfterSeconds(response: Response): number | null {
-  const seconds = Number(response.headers.get("retry-after"));
-  return Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds) : null;
 }
 
 /** Send with the function that matches the destination's type. */
@@ -271,8 +325,7 @@ export function pushTopic(tag: string): string {
 }
 
 function pushRetryAfterSeconds(response: Response): number {
-  const seconds = Number(response.headers.get("retry-after"));
-  return Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds) : 60;
+  return retryAfterSeconds(response.headers.get("retry-after")) ?? 60;
 }
 
 /** Sends every notification to one device, in order, stopping at its first refusal. */

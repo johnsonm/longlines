@@ -121,7 +121,10 @@ Deno.test("isDeniedHostname covers localhost and every denied suffix", () => {
 
 Deno.test("assertSafeResolvedHost refuses hosts that resolve to private addresses (DNS rebinding)", async () => {
   const resolver = (answers: string[]) => (_host: string) => Promise.resolve(answers);
-  await assertSafeResolvedHost("shack.example.com", resolver(["93.184.216.34"]));
+  assertEquals(
+    await assertSafeResolvedHost("shack.example.com", resolver(["93.184.216.34", "2606:2800::1"])),
+    ["93.184.216.34", "2606:2800::1"],
+  );
   await assertRejects(() =>
     assertSafeResolvedHost("evil.example.com", resolver(["93.184.216.34", "10.0.0.1"]))
   );
@@ -142,10 +145,11 @@ Deno.test("assertSafeResolvedHost fails closed when the runtime cannot resolve D
 
 Deno.test("assertSafeResolvedHost skips resolution for IP literals already checked", async () => {
   let called = false;
-  await assertSafeResolvedHost("93.184.216.34", () => {
+  const addresses = await assertSafeResolvedHost("93.184.216.34", () => {
     called = true;
     return Promise.resolve([]);
   });
+  assertEquals(addresses, ["93.184.216.34"]);
   assertEquals(called, false);
 });
 

@@ -308,12 +308,14 @@ the Phase 2 plan, is `docs/superpowers/specs/2026-10-15-outbound-sender-design.m
   destination `failing`. A push device reported gone (404/410) is pruned, and a push destination
   with no deliverable device fails.
 - **Health and the watchdog.** `/healthz` answers on Fly's private network: 200 while the last
-  successful claim (or the start) is under `SENDER_STALE_MS` (2 minutes) old, 503 after; the body
-  carries `last_claim_at`, `last_error`, `in_flight`, totals and `delivery_queue_stats()` (queue
+  progress (a successful claim, a finished send or a successful bookkeeping call; the start before
+  any) is under `SENDER_STALE_MS` (2 minutes) old, 503 after; the body carries `last_claim_at`,
+  `last_progress_at`, `last_error`, `in_flight`, totals and `delivery_queue_stats()` (queue
   depth, deliveries expired in the last hour). Fly restarts only a machine whose process exits, so
   the watchdog exits 1 at the same threshold, which is what a wedged pooler connection looks like
   and would otherwise drop every push after 15 minutes behind a healthy-looking machine. A failed
-  claim or mark alone is logged and retried with backoff. Loss is measured from SQL
+  claim is logged and retried with backoff; the repeatable bookkeeping calls are retried twice
+  within the cycle. Loss is measured from SQL
   (`dropped_at`), never from the age of the oldest pending row, which newest-first ordering makes
   meaningless.
 - **Reaching the queue.** The matcher's kick was a pg_net POST to the `deliver` function; it is
