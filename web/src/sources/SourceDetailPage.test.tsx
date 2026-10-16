@@ -175,7 +175,7 @@ describe("SourceDetailPage", () => {
     expect(screen.queryByText(/^Last fetch/)).not.toBeInTheDocument();
   });
 
-  it.each(["/sources/pskreporter", "/sources/nope"])("redirects %s to the catalog", (path) => {
+  it.each(["/sources/nope"])("redirects %s to the catalog", (path) => {
     open(path);
     expect(screen.getByText("catalog")).toBeInTheDocument();
     expect(screen.getByTestId("location")).toHaveTextContent("/sources");

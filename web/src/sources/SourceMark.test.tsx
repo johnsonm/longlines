@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { renderPage } from "../test/render";
-import { findLiveSource, SOURCES } from "./sources";
+import { findLiveSource, type SourceInfo } from "./sources";
 import { SourceMark } from "./SourceMark";
+
+/** A made-up planned source: the catalog has none right now, but the planned paths stay. */
+const planned: SourceInfo = { ...findLiveSource("rbn")!, id: "future", title: "Future source", mark: "FS", status: "planned", statsKey: null };
 
 describe("SourceMark", () => {
   it("shows a program's logo", () => {
@@ -15,9 +18,8 @@ describe("SourceMark", () => {
   });
 
   it("falls back to the two-letter mark for a source without a logo", () => {
-    const planned = SOURCES.find((s) => s.id === "pskreporter")!;
     const { container } = renderPage(<SourceMark source={planned} size="large" />);
     expect(container.querySelector("img")).toBeNull();
-    expect(container).toHaveTextContent("PS");
+    expect(container).toHaveTextContent("FS");
   });
 });

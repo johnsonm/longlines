@@ -154,19 +154,17 @@ describe("SubscriptionsPage", () => {
 });
 
 describe("Pick your source", () => {
-  it("lists live sources with rates and planned ones disabled, then opens the editor", async () => {
+  it("lists live sources with rates, then opens the editor", async () => {
     const { user } = render([]);
     await user.click(screen.getByRole("button", { name: "New subscription" }));
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByText("Pick your source")).toBeInTheDocument();
     expect(within(dialog).getByText("36 / hour")).toBeInTheDocument();
     expect(within(dialog).getByText("192 / hour")).toBeInTheDocument();
-    // RBN, and PSK Reporter while it is planned.
-    expect(within(dialog).getAllByText("High volume. Needs a callsign filter")).toHaveLength(2);
+    expect(within(dialog).getAllByText("High volume. Needs a callsign filter")).toHaveLength(1); // RBN
     expect(within(dialog).queryByText("APRS-IS")).not.toBeInTheDocument();
-    expect(within(dialog).getByRole("radio", { name: /PSK Reporter/ })).toBeDisabled();
     expect(within(dialog).getByRole("radio", { name: /WWFF/ })).toBeEnabled();
-    expect(within(dialog).getAllByText("Not yet available")).toHaveLength(1);
+    expect(within(dialog).queryByText("Not yet available")).not.toBeInTheDocument();
     expect(within(dialog).getByRole("radio", { name: /Parks on the Air/ })).toBeChecked();
 
     await user.click(within(dialog).getByRole("radio", { name: /Reverse Beacon Network/ }));

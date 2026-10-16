@@ -140,7 +140,6 @@ describe("sources", () => {
     expect(pickableSource("dxcluster")?.id).toBe("dxcluster");
     expect(pickableSource("aprs")).toBeNull();
     expect(pickableSource("wwff")?.id).toBe("wwff");
-    expect(pickableSource("pskreporter")).toBeNull();
     expect(pickableSource(null)).toBeNull();
   });
 

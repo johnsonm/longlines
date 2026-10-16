@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { screen } from "@testing-library/react";
 import { renderPage } from "../test/render";
-import { findLiveSource, SOURCES } from "./sources";
+import { findLiveSource, type SourceInfo } from "./sources";
 import { SourceTile } from "./SourceTile";
 import type { Rates } from "./rates";
+
+/** A made-up planned source: the catalog has none right now, but the planned paths stay. */
+const planned: SourceInfo = { ...findLiveSource("rbn")!, id: "future", title: "Future source", mark: "FS", status: "planned", statsKey: null };
 
 const rates = (average: number): Rates => ({ series: [], hours: [], average, peak: 0, peakHour: "", minimum: 0, perDay: 0 });
 
@@ -30,8 +33,8 @@ describe("SourceTile", () => {
   });
 
   it("does not link a planned source", () => {
-    renderPage(<SourceTile source={SOURCES.find((s) => s.id === "pskreporter")!} status="planned" rates={null} />);
-    expect(screen.getByText("PSK Reporter")).toBeInTheDocument();
+    renderPage(<SourceTile source={planned} status="planned" rates={null} />);
+    expect(screen.getByText("Future source")).toBeInTheDocument();
     expect(screen.getByText("Not yet available")).toBeInTheDocument();
     expect(screen.queryByRole("link")).not.toBeInTheDocument();
   });

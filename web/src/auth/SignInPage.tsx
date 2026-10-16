@@ -31,7 +31,7 @@ const STEPS = [
     icon: <SensorsIcon />,
     title: "Pick a source",
     body: "Choose from activations, skimmers, packet and digital modes. Each source lists exactly what it sends.",
-    chips: ["POTA", "SOTA", "DX Cluster", "RBN", "APRS-IS", "PSK Reporter"],
+    chips: ["POTA", "SOTA", "DX Cluster", "RBN", "APRS-IS"],
   },
   {
     icon: <FilterAltIcon />,
