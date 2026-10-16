@@ -203,11 +203,6 @@ export const SOURCES: SourceInfo[] = [
       pota_reference: null, pota_park_name: null, pota_location: null, sota_summit_ref: null, wwff_reference: "KFF-5268", wwff_reference_name: "T.M. Goodwin",
     },
   },
-  {
-    id: "pskreporter", name: "PSK Reporter", full: "PSK Reporter", status: "planned", interval: "streaming", pollSeconds: null, desc: "FT8, FT4 and other digital mode reports", alerts: true,
-    volume: "high", title: "PSK Reporter", tagline: "Digital-mode reception reports from monitoring stations.",
-    mark: "PS", markColor: "default", statsKey: null, site: null, runBy: null, about: [], showsUp: [], schema: null, example: null,
-  },
 ];
 
 /** A live source by id, for /sources/:id; planned and unknown ids give undefined. */

@@ -33,13 +33,13 @@ describe("SOURCES catalog fields", () => {
     }
   });
 
-  it("gives planned sources no stats key", () => {
-    expect(planned.map((s) => s.id)).toEqual(["pskreporter"]);
+  it("lists no planned sources and gives any planned source no stats key", () => {
+    expect(planned).toEqual([]);
     for (const s of planned) expect(s.statsKey).toBeNull();
   });
 
-  it("marks only RBN, APRS-IS and PSK Reporter as high volume", () => {
-    expect(SOURCES.filter((s) => s.volume === "high").map((s) => s.id).sort()).toEqual(["aprs", "pskreporter", "rbn"]);
+  it("marks only RBN and APRS-IS as high volume", () => {
+    expect(SOURCES.filter((s) => s.volume === "high").map((s) => s.id).sort()).toEqual(["aprs", "rbn"]);
   });
 
   it("gives every live source but APRS-IS a schema whose fields match its example", () => {
@@ -73,7 +73,6 @@ describe("SOURCES catalog fields", () => {
   it("finds live sources only", () => {
     expect(findLiveSource("rbn")?.title).toBe("Reverse Beacon Network");
     expect(findLiveSource("wwff")?.statsKey).toBe("wwff");
-    expect(findLiveSource("pskreporter")).toBeUndefined();
     expect(findLiveSource("nope")).toBeUndefined();
     expect(findLiveSource(undefined)).toBeUndefined();
   });

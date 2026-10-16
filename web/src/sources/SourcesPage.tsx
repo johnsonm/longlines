@@ -9,7 +9,11 @@ import { SourceTile } from "./SourceTile";
 import { useIngestHealth } from "./useIngestHealth";
 
 type Filter = "all" | "connected" | "planned";
-const FILTERS: [Filter, string][] = [["all", "All"], ["connected", "Connected"], ["planned", "Not yet available"]];
+// "Not yet available" shows only while some source is planned; an empty filter would hint at nothing.
+const FILTERS: [Filter, string][] = [
+  ["all", "All"], ["connected", "Connected"],
+  ...(SOURCES.some((s) => s.status === "planned") ? [["planned", "Not yet available"] as [Filter, string]] : []),
+];
 
 /** Search covers the tile title, short name and tagline, ignoring case and surrounding spaces. */
 function matches(s: SourceInfo, query: string, filter: Filter): boolean {
