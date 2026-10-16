@@ -6,6 +6,7 @@
 !sender/
 !supabase/functions/_shared/
 relay/__tests__/
+relay/fly.toml
 sender/__tests__/
 sender/fly.toml
 supabase/functions/_shared/__tests__/

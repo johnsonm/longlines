@@ -332,26 +332,29 @@ supabase secrets set LONGLINES_RELAY_SECRET=<secret>
 supabase functions deploy ingest-rbn
 
 # 2. Relay (Fly side), from the repository root
-fly apps create longlines-relay                    # name must match app in fly.toml
+fly apps create longlines-relay                    # name must match app in relay/fly.toml
 fly secrets set \
   LONGLINES_FUNCTIONS_URL=https://<project-ref>.supabase.co/functions/v1 \
   LONGLINES_RELAY_SECRET=<secret> \
   RELAY_LOGIN_CALL=<callsign>
-fly deploy --ha=false                              # --ha=false: one machine, not two
+fly deploy --config relay/fly.toml --ha=false      # --ha=false: one machine, not two
 fly scale count 1                                  # exactly one machine: one telnet session
 ```
 
 ## Automatic deploys
 
 Deploys on merge to `main` come from Fly's GitHub integration, set up in the Fly dashboard rather
-than in this repo. It deploys from the root `fly.toml`, which builds `relay/Dockerfile` with the
-repository root as context (the image needs `supabase/functions/_shared`), the same as the
-`fly deploy` line above.
+than in this repo. Each Fly app has its own binding: "Config path" is `relay/fly.toml` for
+`longlines-relay` and `sender/fly.toml` for `longlines-sender`, and the working directory is left
+blank (the repository root) on both, because each Dockerfile copies
+`supabase/functions/_shared` from the context. flyctl resolves `[build] dockerfile` relative to
+the config file, so each `fly.toml` names just `Dockerfile`. Both apps deploy on every push to
+`main`, whichever folder changed.
 
 When the integration was first connected, Fly's launcher opened a PR (#30) with its own generic
 `fly.toml`, `Dockerfile` and `example.ts`. That config ran a nonexistent `main.ts` as root, added a
 public HTTP service that auto-stops idle machines, and created two machines. Do not merge such a
-PR again; the root `fly.toml` here is the relay's real config.
+PR again; `relay/fly.toml` is the relay's real config.
 
 Two things to know about it:
 
