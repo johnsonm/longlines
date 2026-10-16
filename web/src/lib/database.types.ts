@@ -924,22 +924,8 @@ isOneToOne: false
                            },
 "list_ingest_health":
 { Args: Record<PropertyKey, never>; Returns: {
-              "consecutive_failures": number | null,
-"last_error": string | null,
-"last_run_at": string | null,
-"last_success_at": string | null,
-"seconds_since_last_success": number | null,
-"source": string | null,
-"spots_last_24h": number | null,
-"spots_last_hour": number | null,
-"total_spots_ingested": number | null
-            }[]
-                          SetofOptions: {
-        from: "*"
-        to: "ingest_health"
-        isOneToOne: false
-        isSetofReturn: true
-      } },
+              "consecutive_failures": number,"last_error": string,"last_run_at": string,"last_success_at": string,"seconds_since_last_success": number,"source": string
+            }[] },
 "list_push_devices":
 { Args: { "p_current_endpoint"?: string }; Returns: {
               "created_at": string,"id": string,"is_current": boolean,"label": string,"last_error": string,"last_error_at": string,"last_success_at": string
