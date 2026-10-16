@@ -1,15 +1,35 @@
-import { Chip } from "@mui/material";
+import { Avatar, Chip } from "@mui/material";
 import type { SourceInfo } from "./sources";
+import aprsLogo from "../assets/sources/aprs.png";
+import dxclusterLogo from "../assets/sources/dxcluster.png";
+import potaLogo from "../assets/sources/pota.png";
+import sotawatchLogo from "../assets/sources/sotawatch.png";
+import wwffLogo from "../assets/sources/wwff.png";
 
-/** The two-letter source mark. A Chip carries the colour: Avatar has no colour prop and sx colours are off limits. */
+/** Program logos by source id: 128 px squares on white, so they read in both colour schemes. */
+const LOGOS: Record<string, string> = {
+  pota: potaLogo,
+  sotawatch: sotawatchLogo,
+  wwff: wwffLogo,
+  dxcluster: dxclusterLogo,
+  aprs: aprsLogo,
+};
+
+/**
+ * The source's logo, or its two-letter mark when it has none (RBN, planned sources).
+ * A Chip carries the mark's colour: Avatar has no colour prop and sx colours are off limits.
+ */
 export function SourceMark({ source, size = "medium" }: { source: SourceInfo; size?: "medium" | "large" }) {
+  const side = size === "large" ? 56 : 32;
+  const logo = LOGOS[source.id];
+  if (logo) return <Avatar aria-hidden variant="rounded" src={logo} alt="" sx={{ width: side, height: side }} />;
   return (
     <Chip
       aria-hidden
       label={source.mark}
       color={source.markColor}
       variant={source.status === "live" ? "filled" : "outlined"}
-      sx={size === "large" ? { height: 56, minWidth: 56, "& .MuiChip-label": { px: 2 } } : undefined}
+      sx={size === "large" ? { height: side, minWidth: side, "& .MuiChip-label": { px: 2 } } : undefined}
     />
   );
 }
