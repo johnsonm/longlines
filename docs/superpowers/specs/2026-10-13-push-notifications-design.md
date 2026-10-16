@@ -28,7 +28,7 @@ in the title and the body and in what order, and SQL joins their fixed rendering
 text, so nothing to parse and nothing a user can inject. The worker and the editor's preview call
 the same SQL; the worker keeps only the per-run "3 spots then a summary" shaping.
 
-### Schema (migration `20261015000200_push_destinations_v2.sql`)
+### Schema (migration `20261016000400_push_destinations_v2.sql`; see the 2026-10-16 amendment for what the sender changes)
 
 `20261014000100` is applied to hosted and stays as is; the new migration builds on it.
 
@@ -246,6 +246,50 @@ listed here comes from Copy at the end of this file.
 - Unknown field {name}.
 - Pick 1 to 4 fields for the title.
 - Pick up to 8 fields for the body.
+
+## Amendment, 2026-10-16: the sender
+
+Status: **waiting for Brad's review.** Outbound delivery moved off the `deliver` Edge Function onto
+the sender, a Deno process on Fly.io (`sender/`, `docs/superpowers/specs/2026-10-15-outbound-sender-design.md`,
+Phase 1 complete 2026-10-16). The page 5 amendment above was written against the Edge worker; this
+section says what changes. Where it and the page 5 amendment disagree, this section wins.
+
+- **The sender is dumb; the push settings travel in the claim.** `claim_deliveries(p_limit, p_vt)`
+  keeps its signature and result columns. For a push destination its `destination` jsonb gains
+  `push` (the settings row) and `quiet_now` (decided once per destination at claim time, in the
+  account time zone), and its `devices` are the destination's members with `blocked_at is null`,
+  aggregated once per destination. Its `spot` jsonb gains `push_title`, `push_body` (built by
+  `render_push_fields`), `push_url` (the tap target) and `push_source_url`. `send.ts` reads
+  `Urgency` and `TTL` from `destination.push` and falls back to today's values when the key is
+  absent, so the sender and the migration can ship in either order. The sender's RPC allowlist,
+  its grants (`sender_role.test.sql`) and its `--allow-env` list do not change.
+- **No summary notification.** The sender spec decided the push budget: 3 spots a minute per push
+  destination, newest first, in `destination_budget('push')`, with no "N more spots" summary.
+  `pushNotifications` builds one notification per claimed spot and nothing else;
+  `PUSH_NOTIFICATIONS_PER_RUN` and the summary branch go. Decision 16 of the page 5 amendment is
+  withdrawn. A device that belongs to several push destinations can receive up to 3 a minute from
+  each; that is the user's choice when they add it to several.
+- **Drop if the device is offline for** is a per-destination override of the expiry sweep. The
+  sweep in `claim_deliveries` uses `coalesce(push_destination_settings.ttl_seconds, destination_max_age(type))`
+  for push rows, and `send.ts` sends the same number as the `TTL` header. Per-destination overrides
+  are columns the claim reads, never arguments (sender spec, section 10).
+- **Quiet hours, "Don't send".** `quiet_now` is per destination, so a claimed batch is uniformly
+  silent or skipped. For `skip`, `sendPush` makes no request and returns `sent` equal to the batch,
+  which `runDeliveryBatch` acks with the cycle's one `mark_deliveries_sent`; nothing is retried or
+  counted as a failure. For `silent`, the payload carries `silent: true` and `renotify: false`.
+- **Enabled.** A disabled destination is skipped by `match_pending_spots` (no delivery is created)
+  and its already-queued rows are dropped by the claim's "unwanted" sweep (`20261016000100`),
+  the way a disabled subscription's are. Both in SQL.
+- **Send test stays an Edge Function** (`send-test`, reached by the web app and by
+  `POST /v1/destinations/{id}/test`) with the VAPID triple in Edge env, until Phase 2 F of the
+  sender spec routes test sends through the sender. It reads the destination's members and renders
+  through `preview_push_notification`, so a test shows the saved fields.
+- **Migration number.** The page 5 amendment's `20261015000200` was taken by the sender role
+  migration. The push migration is `20261016000400_push_destinations_v2.sql` (recheck before
+  creating it). The unmerged branch `push-schema-2` carries a draft built on the Edge worker and
+  on templates; the plan says what to quarry from it.
+- **VAPID.** The same pair goes to the sender's Fly secrets (real deliveries) and to Edge env
+  (`send-test`, `api`), and its public key to Vercel. No pair has been generated yet.
 
 ## Purpose
 
