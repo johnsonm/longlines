@@ -38,11 +38,63 @@ describe("AppProvider", () => {
     expect(loadProfile).not.toHaveBeenCalled();
   });
 
-  it("treats a failed profile load as no profile", async () => {
-    vi.mocked(loadProfile).mockRejectedValue(new Error("x"));
+  it("reports a failed profile load, and clears it on a successful retry", async () => {
+    vi.mocked(loadProfile).mockRejectedValueOnce(new Error("x"));
     const { result } = hook();
-    await waitFor(() => expect(loadProfile).toHaveBeenCalled());
+    await waitFor(() => expect(result.current.app.profileError).toBe("x"));
     expect(result.current.app.profile).toBeNull();
+    await act(() => result.current.app.refreshProfile());
+    expect(result.current.app.profileError).toBeNull();
+    expect(result.current.app.profile).toEqual(PROFILE);
+  });
+
+  it("falls back to fixed copy for an error without a message", async () => {
+    vi.mocked(loadProfile).mockRejectedValue("boom");
+    const { result } = hook();
+    await waitFor(() => expect(result.current.app.profileError).toBe("Couldn't load your profile."));
+  });
+
+  it("hides the previous user's profile as soon as the user changes", async () => {
+    vi.mocked(loadProfile).mockImplementation((id) => (id === "u1" ? Promise.resolve(PROFILE) : new Promise(() => {})));
+    const { result, rerender } = hook();
+    await waitFor(() => expect(result.current.app.profile).toEqual(PROFILE));
+    session({ ...SESSION, user: { ...SESSION.user, id: "u2" } } as Session);
+    rerender();
+    expect(result.current.app.profile).toBeNull();
+    expect(result.current.app.profileError).toBeNull();
+  });
+
+  it("ignores the previous user's late response", async () => {
+    let finishOld: (p: typeof PROFILE) => void = () => {};
+    const other = { ...PROFILE, id: "u2", callsign: "W1AW" };
+    vi.mocked(loadProfile).mockImplementation((id) =>
+      id === "u1" ? new Promise((resolve) => { finishOld = resolve; }) : Promise.resolve(other)
+    );
+    const { result, rerender } = hook();
+    const staleRefresh = result.current.app.refreshProfile;
+    session({ ...SESSION, user: { ...SESSION.user, id: "u2" } } as Session);
+    rerender();
+    expect(result.current.app.profile).toBeNull();
+    await waitFor(() => expect(result.current.app.profile).toEqual(other));
+    await act(async () => finishOld(PROFILE));
+    expect(result.current.app.profile).toEqual(other);
+    // A callback held from before the switch does nothing.
+    await act(() => staleRefresh());
+    expect(loadProfile).toHaveBeenCalledTimes(2);
+    expect(result.current.app.profile).toEqual(other);
+  });
+
+  it("ignores an older response for the same user once a newer request is out", async () => {
+    let finishFirst: (p: typeof PROFILE) => void = () => {};
+    const newer = { ...PROFILE, name: "Newer" };
+    vi.mocked(loadProfile)
+      .mockImplementationOnce(() => new Promise((resolve) => { finishFirst = resolve; }))
+      .mockResolvedValueOnce(newer);
+    const { result } = hook();
+    await act(() => result.current.app.refreshProfile());
+    expect(result.current.app.profile).toEqual(newer);
+    await act(async () => finishFirst(PROFILE));
+    expect(result.current.app.profile).toEqual(newer);
   });
 
   it("holds the toast and the sign-in notice", () => {

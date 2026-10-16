@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type ComponentProps, type ReactNode } from "react";
-import { createTheme, CssBaseline, LinearProgress, Snackbar, ThemeProvider, useMediaQuery } from "@mui/material";
+import { Alert, Box, Button, createTheme, CssBaseline, LinearProgress, Snackbar, ThemeProvider, useMediaQuery } from "@mui/material";
 import { Navigate, Route, Routes, useLocation, useParams, useSearchParams } from "react-router";
 import { SpeedInsights } from "@vercel/speed-insights/react";
 import { Analytics } from "@vercel/analytics/react";
@@ -23,7 +23,7 @@ import { ApiTokensPage } from "./tokens/ApiTokensPage";
 import { AccountPage } from "./account/AccountPage";
 import { LookupPage } from "./profile/LookupPage";
 import { CallsignPage } from "./profile/CallsignPage";
-import { loadDestinations, loadSubscriptions, type Destination, type SubscriptionWithLinks } from "./lib/api";
+import { loadDestinations, loadSubscriptions, signOut, type Destination, type SubscriptionWithLinks } from "./lib/api";
 import type { TimePrefs } from "./lib/time";
 
 // Both schemes, so useColorScheme() can pick light, dark or system; MUI keeps the choice in localStorage.
@@ -105,12 +105,35 @@ function PublicRoute({ page }: { page: PublicPage }) {
 }
 
 function RequireAuth({ page }: { page: Page }) {
-  const { session, sessionLoading, profile } = useApp();
+  const { session, sessionLoading, profile, profileError } = useApp();
   const location = useLocation();
   if (sessionLoading) return <LinearProgress />;
   if (!session) return <Navigate to="/signin" replace state={{ from: location.pathname }} />;
+  if (profileError) return <ProfileError message={profileError} />;
   if (!profile) return <LinearProgress />;
   return <SignedIn page={page} />;
+}
+
+/** Without a profile there is no shell to sign out from, so the error offers both ways out. */
+function ProfileError({ message }: { message: string }) {
+  const { refreshProfile, notify } = useApp();
+  return (
+    <Box sx={{ p: 2 }}>
+      <Alert
+        severity="error"
+        action={
+          <>
+            <Button color="inherit" size="small" onClick={() => void refreshProfile()}>Retry</Button>
+            <Button color="inherit" size="small" onClick={() => void signOut().catch(() => notify("Couldn't sign out. Try again."))}>
+              Sign out
+            </Button>
+          </>
+        }
+      >
+        {message}
+      </Alert>
+    </Box>
+  );
 }
 
 /** The editor takes its id or source as props, so its tests need no router params. */
