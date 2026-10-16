@@ -44,8 +44,8 @@ supabase gen types typescript --local > web/src/lib/database.types.ts   # after 
 supabase db push                       # hosted: apply migrations
 supabase functions deploy ingest-pota  # hosted: deploy one function
 
-docker build -f relay/Dockerfile .     # relay image; build context is the repo root
-fly deploy --ha=false                  # hosted relay from the root fly.toml; normally Fly's GitHub integration
+docker build -f relay/Dockerfile .     # relay image; build context is the repo root (sender/Dockerfile likewise)
+fly deploy --config relay/fly.toml --ha=false   # hosted relay by hand; normally Fly's GitHub integration (config path relay/fly.toml)
 ```
 
 Local invocation: `curl -X POST http://127.0.0.1:54321/functions/v1/ingest-pota -H "Authorization: Bearer <service_role key printed by supabase start>"`.

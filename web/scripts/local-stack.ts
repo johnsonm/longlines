@@ -11,6 +11,8 @@ export const dbContainer = "supabase_db_longlines";
 
 export interface LocalStatus {
   apiUrl: string;
+  /** The stack's Postgres as the postgres user; what the sender and its database tests connect to. */
+  dbUrl: string;
   anonKey: string;
   serviceRoleKey: string;
   studioUrl: string;
@@ -49,6 +51,7 @@ export function localStatus(): LocalStatus {
   }
   return {
     apiUrl,
+    dbUrl: field("DB_URL"),
     anonKey: field("ANON_KEY"),
     serviceRoleKey: field("SERVICE_ROLE_KEY"),
     studioUrl: field("STUDIO_URL"),

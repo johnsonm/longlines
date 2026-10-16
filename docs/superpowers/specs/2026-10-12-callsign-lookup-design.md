@@ -204,12 +204,11 @@ the window is now all time is marked (changed).
 - No license, US prefix (`K`, `N`, `W`, `AA`–`AL`): "No FCC record found for this callsign."
 - Not heard: the header, the license card and a quiet message. No empty charts.
 
-**Toasts:** "Link copied." · "Created <call> on the air" · "You already have <name>."
+**Toasts:** "Link copied."
 
-**Get alerts** creates "<call> on the air" with the call as its only rule, the first healthy
-destination (none if there isn't one, so it waits for one) and a 30-minute quiet window, then
-opens it in the subscription editor for the user to finish. If a subscription already names the
-call, it opens that one's editor instead.
+**Get alerts** opens the "Pick your source" dialog from Subscriptions. Continue opens the new
+subscription editor on that source (`/subscriptions/new?source=<id>&callsign=<call>`), named
+"<call> on the air" with the call as its only rule. Nothing is saved until the user saves there.
 
 ## Delivery
 
