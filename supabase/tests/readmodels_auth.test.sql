@@ -25,7 +25,7 @@ from (values (now() - interval '1 minute', 'K1AAA'), (now() - interval '10 minut
              (now() - interval '50 minutes', 'K1CCC'), (now() - interval '5 hours', 'K1DDD'),
              (now() - interval '2 days', 'K1EEE')) as v(t, c);
 
--- The view's counts are for operators; clients get only freshness (20261015001100).
+-- The view's counts are for operators; clients get only freshness (20261015001300).
 update ingest_state set last_success_at = now() - interval '2 minutes' where source = 'pota';
 select is((select spots_last_hour from ingest_health where source = 'rbn'), 3::bigint,
   'RBN spots in the last hour count every rbn_spots row, not just raw_spots');
