@@ -230,9 +230,17 @@ export async function enablePush(label: string, env: PushEnv = browserEnv()): Pr
   if ((await asked) !== "granted") throw new Error(DENIED_TEXT);
   const active = await registration(env);
   if (!active) throw new Error(FAILED_TEXT);
-  const sub = (await active.pushManager.getSubscription()) ??
+  const existing = await active.pushManager.getSubscription();
+  const sub = existing ??
     (await active.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: base64UrlToBytes(env.publicKey) }));
-  const id = await registerPushDevice(keysOf(sub), label, deviceAgent(env), isStandalone(env));
+  let id: string;
+  try {
+    id = await registerPushDevice(keysOf(sub), label, deviceAgent(env), isStandalone(env));
+  } catch (err) {
+    // A subscription made here and left behind would be registered by the next load's refresh.
+    if (!existing) await sub.unsubscribe().catch(() => false);
+    throw err;
+  }
   remember(env, sub.endpoint);
   return id;
 }
@@ -270,8 +278,9 @@ export async function pushCleanup(env: PushEnv = browserEnv()): Promise<void> {
 
 /**
  * Once per app load, with a session: a granted and subscribed browser
- * re-registers its keys (the push service may have rotated the endpoint; a
- * null label, agent and standalone keep the device's own), and a denied one
+ * re-registers its keys (a null label, agent and standalone keep the
+ * device's own; when the push service has rotated the endpoint, the
+ * remembered one goes along so the device keeps its destinations), and a denied one
  * reports the endpoint it remembers as blocked. A device this browser
  * registered that the account no longer lists was removed from another
  * device, so the browser follows the removal and unsubscribes instead of
@@ -288,13 +297,15 @@ export async function refreshPushRegistration(env: PushEnv = browserEnv()): Prom
     if (env.notification.permission !== "granted") return;
     const sub = await subscription(env);
     if (!sub) return;
+    const remembered = currentEndpoint(env);
     const devices = await listPushDevices(sub.endpoint);
-    if (!devices.some((d) => d.is_current) && currentEndpoint(env) === sub.endpoint) {
+    if (!devices.some((d) => d.is_current) && remembered === sub.endpoint) {
       await sub.unsubscribe();
       remember(env, null);
       return;
     }
-    await registerPushDevice(keysOf(sub), null, null, null);
+    const previous = remembered !== null && remembered !== sub.endpoint ? remembered : null;
+    await registerPushDevice(keysOf(sub), null, null, null, previous);
     remember(env, sub.endpoint);
   } catch (err) {
     console.warn("Push registration refresh failed", err);

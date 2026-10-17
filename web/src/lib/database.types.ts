@@ -1255,7 +1255,7 @@ isOneToOne: false
 { Args: { "p_now": string }; Returns: undefined
                            },
 "register_push_device":
-{ Args: { "p_agent"?: string,"p_auth": string,"p_endpoint": string,"p_label": string,"p_p256dh": string,"p_standalone"?: boolean }; Returns: string
+{ Args: { "p_agent"?: string,"p_auth": string,"p_endpoint": string,"p_label": string,"p_p256dh": string,"p_previous_endpoint"?: string,"p_standalone"?: boolean }; Returns: string
                            },
 "rename_duplicate_destination_names":
 { Args: Record<PropertyKey, never>; Returns: number

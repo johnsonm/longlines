@@ -221,11 +221,22 @@ describe("devices", () => {
     expect(vi.mocked(savePushDestination).mock.calls[0]![0].device_ids).toEqual(["dev2"]);
   });
 
-  it("toasts when the devices cannot load and shows the empty state", async () => {
+  it("toasts when the devices cannot load and shows the error, not the empty state", async () => {
     vi.mocked(listPushDevices).mockRejectedValue(new Error("Couldn't load your devices."));
     const { app } = render({ type: "push" });
     await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Couldn't load your devices."));
-    expect(screen.getByText("No devices yet")).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("Couldn't load your devices.");
+    expect(screen.queryByText("No devices yet")).not.toBeInTheDocument();
+  });
+
+  it("keeps the members when saving after the devices failed to load", async () => {
+    vi.mocked(listPushDevices).mockRejectedValue(new Error("Couldn't load your devices."));
+    const { user, app } = render({ id: "p1" });
+    await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Couldn't load your devices."));
+    await user.click(screen.getByRole("switch", { name: "Enabled" }));
+    await user.click(screen.getByRole("button", { name: "Save destination" }));
+    await waitFor(() => expect(savePushDestination).toHaveBeenCalled());
+    expect(vi.mocked(savePushDestination).mock.calls[0]![0].device_ids).toEqual(["dev1"]);
   });
 
   it("checks a device added from the dialog", async () => {

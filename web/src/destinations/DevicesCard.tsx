@@ -1,5 +1,5 @@
 import {
-  Button, Card, CardContent, CardHeader, Checkbox, Chip, IconButton, LinearProgress, List, ListItem, ListItemIcon, ListItemText, Paper, Stack,
+  Alert, Button, Card, CardContent, CardHeader, Checkbox, Chip, IconButton, LinearProgress, List, ListItem, ListItemIcon, ListItemText, Paper, Stack,
   Tooltip, Typography,
 } from "@mui/material";
 import { styled } from "@mui/material/styles";
@@ -24,8 +24,10 @@ function isPhone(agent: string): boolean {
 }
 
 interface Props {
-  /** Every device of the account; null while loading. */
+  /** Every device of the account; null while loading or when the load failed. */
   devices: PushDevice[] | null;
+  /** The last load failed; with devices null the card shows an error instead of loading. */
+  failed?: boolean;
   /** The members: the form's device ids. */
   checked: string[];
   busy: boolean;
@@ -36,7 +38,7 @@ interface Props {
 }
 
 /** Page 5's Devices card: one row per account device, checked when the destination sends to it. */
-export function DevicesCard({ devices, checked, busy, onToggle, onAdd, onRename, onRemove }: Props) {
+export function DevicesCard({ devices, failed = false, checked, busy, onToggle, onAdd, onRename, onRemove }: Props) {
   return (
     <Card variant="outlined">
       <CardHeader
@@ -45,7 +47,7 @@ export function DevicesCard({ devices, checked, busy, onToggle, onAdd, onRename,
       />
       <CardContent sx={{ pt: 0 }}>
         {devices === null ? (
-          <LinearProgress />
+          failed ? <Alert severity="error">Couldn't load your devices.</Alert> : <LinearProgress />
         ) : devices.length === 0 ? (
           <EmptyBox variant="outlined">
             <Typography variant="subtitle2" gutterBottom>No devices yet</Typography>
