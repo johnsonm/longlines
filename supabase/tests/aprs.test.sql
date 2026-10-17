@@ -4,7 +4,7 @@
 -- retention after two days, grants and the cron jobs.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(55);
+select plan(59);
 
 delete from aprs_packets;
 delete from aprs_packet_hours;
@@ -221,6 +221,22 @@ select ok(pg_temp.partition(-1) is not null, 'yesterday is kept even when archiv
 select ok(pg_temp.partition(-5) is not null, 'a day rolled up within an hour of its end is kept');
 select ok(pg_temp.partition(-7) is not null, 'a day the Stats rollup never saw is kept');
 select ok(pg_temp.partition(-9) is null, 'a day older than the Stats window is dropped without a rollup');
+
+-- Late packets for retired day -9 land in the default partition. They are deleted
+-- and the day's log rows and object stay (20261017004020).
+select ingest_aprs_packets(jsonb_build_array(
+  pg_temp.pkt(pg_temp.at(-9, '08:30'), 'L1'), pg_temp.pkt(pg_temp.at(-9, '12:00'), 'L2')));
+select ok(not exists (select 1 from archive_pending_slices('aprs', pg_temp.at(-8, '00:00'), 1000)),
+  'nothing of the retired day is offered to the archive again');
+select is(aprs_day_archived(pg_temp.d(-9)), true, 'a retired day with late packets reports archived');
+select maintain_aprs_packets();
+select is((select count(*) from aprs_packets where source_call like 'L%')::int, 0, 'the late packets are deleted');
+select results_eq(
+  format($$select count(*)::int, sum(row_count)::int, count(object_path)::int from archive_log
+           where source = 'aprs' and slice_start >= %L and slice_start < %L$$,
+         pg_temp.at(-9, '00:00'), pg_temp.at(-8, '00:00')),
+  'values (288, 1, 1)',
+  'the retired day keeps every log row and its one object');
 
 -- Grants and jobs.
 select ok(not has_table_privilege('authenticated', 'aprs_packets', 'select')

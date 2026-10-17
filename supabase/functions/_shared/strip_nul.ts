@@ -1,24 +1,32 @@
-// Postgres text and jsonb reject U+0000, so one NUL anywhere in a batch fails the
-// whole ingest_spots (or record_spot_failures) call with 22P05. Every item an
-// ingest run stores goes through withoutNul first.
+// Postgres text and jsonb reject U+0000 and a lone UTF-16 surrogate, so one of
+// either anywhere in a batch fails the whole ingest_spots (or
+// record_spot_failures) call. Every item an ingest run stores goes through
+// withoutNul first.
 
 import type { JsonObject } from "./types.ts";
 
 /**
  * The item with every U+0000 removed from its string values and keys, at any
- * depth. It works on values, not on serialized JSON, so the six typed
- * characters `\u0000` are ordinary text and survive unchanged.
+ * depth, and every lone surrogate replaced with U+FFFD (toWellFormed), so
+ * Postgres can store it. A well-formed string without NUL comes back
+ * unchanged, so the content hashes of storable items do not change. It works
+ * on values, not on serialized JSON, so the six typed characters `\u0000` are
+ * ordinary text and survive unchanged.
  */
 export function withoutNul(raw: JsonObject): JsonObject {
   return stripNul(raw) as JsonObject;
 }
 
+function storable(text: string): string {
+  return text.replaceAll("\u0000", "").toWellFormed();
+}
+
 function stripNul(value: unknown): unknown {
-  if (typeof value === "string") return value.replaceAll("\u0000", "");
+  if (typeof value === "string") return storable(value);
   if (Array.isArray(value)) return value.map(stripNul);
   if (typeof value === "object" && value !== null) {
     return Object.fromEntries(
-      Object.entries(value).map(([key, v]) => [key.replaceAll("\u0000", ""), stripNul(v)]),
+      Object.entries(value).map(([key, v]) => [storable(key), stripNul(v)]),
     );
   }
   return value;

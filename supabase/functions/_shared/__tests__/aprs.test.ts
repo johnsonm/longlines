@@ -13,6 +13,7 @@ const FIXTURE = Deno.readTextFileSync(new URL("./fixtures/aprs-is.txt", import.m
   .split("\n")
   .filter((l) => l !== "");
 const RECEIVED = "2026-10-14T15:56:01.250Z";
+const NOW = new Date("2026-10-14T15:57:00Z");
 const POSITION = "N0CALL-9>APDR16,WIDE1-1,WIDE2-1,qAR,W1ABC-10:=4237.14N/07120.83W[/A=000164";
 
 Deno.test("parseAprsLine splits the header into source, destination, path, q-construct and igate", () => {
@@ -106,7 +107,7 @@ Deno.test("the fixture: every packet line parses, every server line and garbage 
 
 Deno.test("aprsPacketRow builds the aprs_packets row and keeps the line exactly", () => {
   const utf8 = "N0CALL-7>APRS,qAR,W1ABC-10:!4237.14N/07120.83W>Café 73 ° ✓";
-  assertEquals(aprsPacketRow({ line: utf8, received_at: RECEIVED }), {
+  assertEquals(aprsPacketRow({ line: utf8, received_at: RECEIVED }, NOW), {
     received_at: RECEIVED,
     source_call: "N0CALL-7",
     destination: "APRS",
@@ -118,25 +119,25 @@ Deno.test("aprsPacketRow builds the aprs_packets row and keeps the line exactly"
   });
   // received_at without an offset is UTC, as everywhere else.
   assertEquals(
-    aprsPacketRow({ line: POSITION, received_at: "2026-10-14T15:56:01" }).received_at,
+    aprsPacketRow({ line: POSITION, received_at: "2026-10-14T15:56:01" }, NOW).received_at,
     "2026-10-14T15:56:01.000Z",
   );
 });
 
 Deno.test("aprsPacketRow throws on a non-packet, a NUL, or a missing or bad received_at", () => {
   assertThrows(
-    () => aprsPacketRow({ line: "# keepalive", received_at: RECEIVED }),
+    () => aprsPacketRow({ line: "# keepalive", received_at: RECEIVED }, NOW),
     Error,
     "not an APRS packet line",
   );
   assertThrows(
-    () => aprsPacketRow({ line: `${POSITION}\u0000`, received_at: RECEIVED }),
+    () => aprsPacketRow({ line: `${POSITION}\u0000`, received_at: RECEIVED }, NOW),
     Error,
     "NUL",
   );
-  assertThrows(() => aprsPacketRow({ line: POSITION }), Error, "received_at");
-  assertThrows(() => aprsPacketRow({ line: POSITION, received_at: "x" }), Error, "timestamp");
-  assertThrows(() => aprsPacketRow({ received_at: RECEIVED }), Error, "line");
+  assertThrows(() => aprsPacketRow({ line: POSITION }, NOW), Error, "received_at");
+  assertThrows(() => aprsPacketRow({ line: POSITION, received_at: "x" }, NOW), Error, "timestamp");
+  assertThrows(() => aprsPacketRow({ received_at: RECEIVED }, NOW), Error, "line");
 });
 
 function fakeDb(options: { stored?: number; storeFails?: boolean } = {}) {
@@ -220,4 +221,42 @@ Deno.test("runAprsPush records a failure and rethrows on a bad body or a failed 
   );
   assertEquals(full.calls.failure, [["aprs", "disk full"]]);
   assertEquals(full.calls.success, []);
+});
+
+Deno.test("aprsPacketRow rejects a lone surrogate, an implausible received_at and an oversized source call", () => {
+  assertThrows(
+    () => aprsPacketRow({ line: `${POSITION} \ud83d`, received_at: RECEIVED }, NOW),
+    Error,
+    "surrogate",
+  );
+  assertThrows(
+    () => aprsPacketRow({ line: POSITION, received_at: "2026-10-16T00:00:00Z" }, NOW),
+    Error,
+    "received_at out of range",
+  );
+  assertThrows(
+    () => aprsPacketRow({ line: POSITION, received_at: "1970-01-01T00:00:00Z" }, NOW),
+    Error,
+    "received_at out of range",
+  );
+  const long = POSITION.replace("N0CALL-9", "N".repeat(3000));
+  assertThrows(
+    () => aprsPacketRow({ line: long, received_at: RECEIVED }, NOW),
+    Error,
+    "source call is 3000",
+  );
+});
+
+Deno.test("runAprsPush dead-letters a bad packet and stores the rest of the batch", async () => {
+  const { db, calls } = fakeDb();
+  const lines = [
+    { line: POSITION.replace("N0CALL-9", "N".repeat(3000)), received_at: RECEIVED },
+    { line: `${POSITION} \ud83d`, received_at: RECEIVED },
+    { line: POSITION, received_at: RECEIVED },
+  ];
+  const summary = await runAprsPush({ lines }, db, NOW);
+  assertEquals(calls.stored[0]!.map((r) => r.source_call), ["N0CALL-9"]);
+  assertEquals(summary.failed, 2);
+  // The failure payload is made storable too.
+  assertEquals(calls.failures[0]![1]!.raw_payload["line"], `${POSITION} \ufffd`);
 });

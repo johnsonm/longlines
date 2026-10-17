@@ -134,7 +134,7 @@ Deno.test("rbnAdapter.normalize throws on lines it cannot process", async () => 
 
 Deno.test("rbnSpotRow maps a fixture line to an rbn_spots row", () => {
   const raw = item(line("DX de SM1HEV-#"));
-  assertEquals(rbnSpotRow(raw), {
+  assertEquals(rbnSpotRow(raw, NOW), {
     spot_time: "2026-10-11T14:54:00.000Z",
     received_at: "2026-10-11T14:55:30.000Z",
     spotter: "SM1HEV",
@@ -152,7 +152,7 @@ Deno.test("rbnSpotRow maps a fixture line to an rbn_spots row", () => {
 });
 
 Deno.test("rbnSpotRow keeps BPS and marks RTTY digital", () => {
-  const row = rbnSpotRow(item(line("DX de LZ7AA-#:   7043.73")));
+  const row = rbnSpotRow(item(line("DX de LZ7AA-#:   7043.73")), NOW);
   assertEquals([row.mode, row.mode_family, row.speed, row.speed_unit], [
     "rtty",
     "digital",
@@ -164,22 +164,36 @@ Deno.test("rbnSpotRow keeps BPS and marks RTTY digital", () => {
 Deno.test("rbnSpotRow dates a 2359Z spot received after midnight on the previous day", () => {
   const text = "DX de W3LPL-#:  14035.10  K1ABC          CW    12 dB  22 WPM  CQ      2359Z";
   assertEquals(
-    rbnSpotRow(item(text, "2026-10-12T00:00:10Z")).spot_time,
+    rbnSpotRow(item(text, "2026-10-12T00:00:10Z"), NOW).spot_time,
     "2026-10-11T23:59:00.000Z",
   );
 });
 
 Deno.test("rbnSpotRow throws on a banner, a missing received_at or a bad one", () => {
-  assertThrows(() => rbnSpotRow(item("Local users: 586")), Error, "not an RBN spot line");
-  assertThrows(() => rbnSpotRow({ line: line("DX de SM1HEV-#") }), Error, "received_at");
-  assertThrows(() => rbnSpotRow(item(line("DX de SM1HEV-#"), "yesterday")));
+  assertThrows(() => rbnSpotRow(item("Local users: 586"), NOW), Error, "not an RBN spot line");
+  assertThrows(() => rbnSpotRow({ line: line("DX de SM1HEV-#") }, NOW), Error, "received_at");
+  assertThrows(() => rbnSpotRow(item(line("DX de SM1HEV-#"), "yesterday"), NOW));
 });
 
 Deno.test("rbnSpotRow rejects values Postgres would refuse, so one line cannot fail a batch", () => {
   const big = "DX de W3LPL-#:  14035.10  K1ABC          CW  99999 dB  22 WPM  CQ      1200Z";
-  assertThrows(() => rbnSpotRow(item(big)), Error, "snr out of range");
+  assertThrows(() => rbnSpotRow(item(big), NOW), Error, "snr out of range");
   const fast = "DX de W3LPL-#:  14035.10  K1ABC          CW    12 dB  70000 WPM  CQ      1200Z";
-  assertThrows(() => rbnSpotRow(item(fast)), Error, "speed out of range");
+  assertThrows(() => rbnSpotRow(item(fast), NOW), Error, "speed out of range");
   const nul = "DX de W3LPL-#:  14035.10  K1\u0000ABC        CW    12 dB  22 WPM  CQ      1200Z";
-  assertThrows(() => rbnSpotRow(item(nul)), Error, "NUL");
+  assertThrows(() => rbnSpotRow(item(nul), NOW), Error, "NUL");
+});
+
+Deno.test("rbnSpotRow rejects a lone surrogate, an implausible received_at and oversized calls", () => {
+  const ok = "DX de W3LPL-#:  14035.10  K1ABC          CW    12 dB  22 WPM  CQ      1454Z";
+  assertThrows(() => rbnSpotRow(item(ok.replace("K1ABC", "K1\ud83d")), NOW), Error, "surrogate");
+  assertThrows(
+    () => rbnSpotRow(item(ok, "+058763-01-01T00:00:00Z"), NOW),
+    Error,
+    "received_at out of range",
+  );
+  assertThrows(() => rbnSpotRow(item(ok, "2026-10-12T15:00:00Z"), NOW), Error, "out of range");
+  const long = "K".repeat(3000);
+  assertThrows(() => rbnSpotRow(item(ok.replace("K1ABC", long)), NOW), Error, "callsign is 3000");
+  assertThrows(() => rbnSpotRow(item(ok.replace("W3LPL", long)), NOW), Error, "spotter is 3000");
 });

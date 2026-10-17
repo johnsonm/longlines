@@ -1,6 +1,7 @@
 // Orchestrator shared by both ingest functions. Pure of HTTP framing; the
 // Edge Function index.ts files turn the summary or error into a response.
 
+import { assertStorableSpot } from "./normalize.ts";
 import { withoutNul } from "./strip_nul.ts";
 import type {
   IngestDb,
@@ -19,8 +20,9 @@ function errorMessage(error: unknown): string {
  * One ingest run:
  *   1. (optional) compare the upstream epoch with the stored one; stop if unchanged
  *   2. fetch and parse the feed
- *   3. strip U+0000 from every item, then normalize it, collecting unprocessable
- *      ones instead of failing the run
+ *   3. strip U+0000 and lone surrogates from every item, then normalize and
+ *      bound-check it (assertStorableSpot), collecting unprocessable ones
+ *      instead of failing the run
  *   4. insert the batch and enqueue the newly inserted rows (ingest_spots RPC)
  *   5. write the dead letters and the run outcome to ingest_state
  *   6. run the matcher when anything was inserted
@@ -66,6 +68,7 @@ export async function runIngest(
       try {
         const result = await adapter.normalize(raw, now);
         if (result.kind === "spot") {
+          assertStorableSpot(result.spot, now);
           spots.push(result.spot);
         } else {
           summary.skipped[result.reason satisfies SkipReason] += 1;
