@@ -151,7 +151,9 @@ labels. The sender amendment adds, all *decided 2026-10-16*:
   name checked in SQL against `push_fields()`.
 - `vite.config.ts`: `VITE_VAPID_PUBLIC_KEY` is the one new `define` entry; `envPrefix` stays.
 - Copy is word for word from the **Copy** section below, then the spec's Copy. Say "subscription",
-  never "connection".
+  never "connection". *Amended 2026-10-17 (Part 5 review): CLAUDE.md's Subscription rules now make
+  "connection" the word users see, so the pages say "connection(s)" where the Copy below says
+  "subscription(s)"; nothing else changes.*
 - No new runtime dependency anywhere.
 - MUI 9 rules from CLAUDE.md: `sx` for layout only; colours, borders and shadows from props and
   variants (the preview mock-ups use `Paper` elevation and palette colours, never the canvas's hex
@@ -331,8 +333,8 @@ labels. The sender amendment adds, all *decided 2026-10-16*:
 
 ### Task 13: Docs, rules, gates and end to end
 
-- [ ] README: local push needs the `LONGLINES_VAPID_*` lines in `supabase/functions/.env` (for `send-test`), the same three in the environment of `npm run sender`, and `LONGLINES_VAPID_PUBLIC_KEY` in `web/.env.local`. OPERATIONS: the Vercel `VAPID_PUBLIC_KEY` step. ARCHITECTURE: the browser side. CLAUDE.md: the web push rules from Global Constraints if missing. Spec: both amendments' Status → shipped.
-- [ ] Gates: `npm run coverage`, `npm run build` (`dist/sw.js` check), `npm run lint`, `npm run test:all` on a reset stack.
+- [x] README: local push needs the `LONGLINES_VAPID_*` lines in `supabase/functions/.env` (for `send-test`), the same three in the environment of `npm run sender`, and `LONGLINES_VAPID_PUBLIC_KEY` in `web/.env.local`. OPERATIONS: the Vercel `VAPID_PUBLIC_KEY` step. ARCHITECTURE: the browser side. CLAUDE.md: the web push rules from Global Constraints if missing. Spec: both amendments' Status → shipped.
+- [x] Gates: `npm run coverage`, `npm run build` (`dist/sw.js` check), `npm run lint`, `npm run test:all` on a reset stack.
 - [ ] End to end on the local stack, with a generated VAPID pair in `supabase/functions/.env`, the sender's environment and `web/.env.local`; `npm run dev:full` plus `LONGLINES_ALLOW_INSECURE_DESTINATIONS=1 npm run sender` in a second terminal:
   1. Desktop Chrome at `localhost:5173`: Add destination → Push notification → Continue → the editor. Add this device → Enable notifications → the device appears checked with "This device". Save. The card shows the device chip and "Never used".
   2. Edit → Send test notification with the sample spot: "N0CALL · 14.062 MHz · CW" / "POTA · US-0000 · Test Park · TEST"; clicking opens `/call/N0CALL`; Open on POTA opens the park page.
@@ -343,8 +345,12 @@ labels. The sender amendment adds, all *decided 2026-10-16*:
   7. Drop if offline 5 minutes, then stop the sender, match a spot, wait 6 minutes, start it: the row is `dropped` with `dropped_at` set and nothing arrives.
   8. Revoke the permission in Chrome, reload: Blocked chip and alert; deliver: the device is skipped.
   9. Sign out: the device row is gone.
+  *Run 2026-10-17 without a browser (details in PR #212): the RPC text behind steps 2 and 3, the
+  Duplicate half of step 6, Send test without a device, the PWA files from the dev server and the
+  sender starting with the pair. Steps 1, 4, 5, 7, 8 and 9 and the browser halves of 2, 3 and 6
+  need a browser with a push service and are still to do.*
 - [ ] On a Vercel preview with Brad's steps done: Chrome's Installable audit, Android, and an iPhone after Add to Home Screen (the not-installed screen first, then the real flow). Record in the PR text which steps ran.
-- [ ] `gh pr ready`; PR text per #157.
+- [x] `gh pr ready`; PR text per #157.
 
 ---
 

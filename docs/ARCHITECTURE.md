@@ -1094,7 +1094,25 @@ optional actions; the service worker never formats text), `notificationclick` fo
 Long Lines window and navigates it, or opens one (a source site always gets its own window), and
 `pushsubscriptionchange` re-subscribes with the old key and posts `push-subscription-changed` to
 open windows. The worker never holds a session or token, so re-registering the device is the
-page's job (the push UI listens for that message and re-registers on every load); the old
-endpoint is pruned on its first 410. The worker calls `skipWaiting()` at startup, since there is
-no cache for a new version to keep consistent, and the build fails if `sw.js` would import another
-chunk: it is registered as a classic worker.
+page's job; the old endpoint is pruned on its first 410. The worker calls `skipWaiting()` at
+startup, since there is no cache for a new version to keep consistent, and the build fails if
+`sw.js` would import another chunk: it is registered as a classic worker.
+
+The browser side lives in `web/src/pwa/`. `push.ts` is the only module that touches
+`PushManager`, `Notification` and `PushSubscription`, behind an injectable `PushEnv` so its tests
+run in node: `pushSupport()` reports `unsupported` (no push APIs, or no VAPID public key in the
+build), `ios-needs-install` (Safari outside an installed app), `denied`, `off` or `on`;
+`enablePush(label)` runs on the user's click with `Notification.requestPermission()` as its first
+statement (Safari drops the gesture after an `await`), subscribes with the public key and
+registers the device (`register_push_device`, with "{Browser} on {Platform}" from
+`deviceAgent()` and whether the app is installed); `disablePush()` unregisters and unsubscribes.
+The browser remembers only its own last endpoint, in `localStorage`, and never reads one back
+from the database. Three things keep the registration current: `AppProvider` runs
+`refreshPushRegistration()` once per load with a session (a granted, subscribed browser re-sends
+its keys; a denied one reports its remembered endpoint blocked), `register.ts` runs it again when
+the worker posts `push-subscription-changed`, and every local sign-out passes `pushCleanup` to
+`signOut`, so the device leaves with the session ("Sign out other devices" keeps it). Installing
+is `install.ts`: `main.tsx` captures Chrome's `beforeinstallprompt` before the first render, the
+account menu shows Install app while `installState()` is `prompt` or `ios`, and Safari gets the
+Home Screen steps in a dialog since it has no prompt. Push and install share the same copy
+source as the editor (the spec's Copy, as amended for page 5).

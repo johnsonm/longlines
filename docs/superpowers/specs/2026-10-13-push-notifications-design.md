@@ -7,7 +7,9 @@ changes during a PR, update this file in that PR.
 
 ## Amendment, 2026-10-15: page 5
 
-Status: **decisions 1 to 15 accepted by Brad, 2026-10-16** (16 is withdrawn by the sender amendment).
+Status: **shipped** (decisions 1 to 15 accepted by Brad, 2026-10-16; 16 is withdrawn by the sender
+amendment). The schema and the sender side landed in #211; the web side (Parts 3 to 5 of the plan)
+is PR #212.
 PR 1 (#157, merged 2026-10-14) shipped the model the rest of
 this file describes. Page 5 of Brad's design canvas ("Push notification destination (draft)",
 artboards `PushList-Desktop`, `PushType-Desktop`, `PushNew-Desktop`, `PushDevice-Desktop`,
@@ -262,7 +264,7 @@ listed here comes from Copy at the end of this file.
 
 ## Amendment, 2026-10-16: the sender
 
-Status: **accepted by Brad, 2026-10-16** (the plan's S1 to S6). Outbound delivery moved off the `deliver` Edge Function onto
+Status: **shipped in #211** (accepted by Brad, 2026-10-16; the plan's S1 to S6). Outbound delivery moved off the `deliver` Edge Function onto
 the sender, a Deno process on Fly.io (`sender/`, `docs/superpowers/specs/2026-10-15-outbound-sender-design.md`,
 Phase 1 complete 2026-10-16). The page 5 amendment above was written against the Edge worker; this
 section says what changes. Where it and the page 5 amendment disagree, this section wins.

@@ -477,7 +477,14 @@ screens and for notification text.
 - `web/src/pwa/push.ts` is the only module that touches `PushManager`, `Notification` and
   `PushSubscription`; `Notification.requestPermission()` is the first statement of `enablePush()`,
   before any `await`. `web/src/pwa/register.ts` is the only module that calls
-  `navigator.serviceWorker.register`.
+  `navigator.serviceWorker.register`. `web/src/pwa/install.ts` is the only module that handles
+  `beforeinstallprompt`; `main.tsx` captures it before the first render, and the account menu's
+  Install app item sits between Account and Sign out only while `installState()` isn't `none`.
+- The registration stays current in three places, nowhere else: `AppProvider` runs
+  `refreshPushRegistration()` once per load with a session, `register.ts` runs it again on the
+  worker's `push-subscription-changed` message, and every local sign-out passes `pushCleanup` to
+  `signOut` ("Sign out other devices" passes nothing). The web never reads an endpoint back; it
+  keeps only its own last one in `localStorage`.
 - The service worker (`web/src/pwa/sw.ts`, emitted unhashed as `/sw.js` with no `import`
   statements) handles `push`, `notificationclick` and `pushsubscriptionchange` only. It never
   imports app code and never holds a token: on `pushsubscriptionchange` it re-subscribes and
