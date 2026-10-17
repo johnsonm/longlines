@@ -6,7 +6,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(70);
+select plan(71);
 select pgmq.purge_queue('spot_events');
 select pgmq.purge_queue('deliveries_queue');
 
@@ -120,6 +120,11 @@ select register_push_device('https://web.push.apple.com/b2', 'BCVxsr7N_eNgVRqvHt
 reset role;
 select results_eq($$ select label, blocked_at from push_devices where endpoint like '%/b2' $$,
   $$ values ('My iPhone'::text, null::timestamptz) $$, 'a null label keeps the name and registering clears blocked_at');
+select pg_temp.as_user('22222222-2222-2222-2222-222222222222');
+select register_push_device('https://web.push.apple.com/b2', 'BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4', 'BTBZMqHH6r4Tts7J_aSIgg', null);
+reset role;
+select results_eq($$ select label, agent, standalone from push_devices where endpoint like '%/b2' $$,
+  $$ values ('My iPhone'::text, 'Safari on iPhone'::text, true) $$, 'a refresh with only the keys keeps the name, the descriptor and the installed flag');
 
 -- An endpoint that moves to another account is reassigned with its status cleared.
 select record_push_results(array['https://fcm.googleapis.com/fcm/send/b1'], '{}'::jsonb);

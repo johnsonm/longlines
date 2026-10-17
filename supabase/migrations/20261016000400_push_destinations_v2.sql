@@ -892,16 +892,23 @@ begin
 
   -- 7. Return, in the order chosen: every destination's newest spot first.
   -- A push destination's members, settings and quiet flag are built once
-  -- per destination; its spots carry the text built from its fields.
+  -- per destination; its spots carry the text built from its fields. A push
+  -- destination somehow without a settings row (the trigger makes one for
+  -- every insert) is handed the defaults rather than left undeliverable.
   return query
     with push_dests as (
-      select dest.id as p_id, ps as p_settings,
+      select dest.id as p_id, ps.s as p_settings,
              jsonb_build_object(
                'devices', public.push_member_devices(dest.id),
-               'push', to_jsonb(ps) - 'destination_id',
-               'quiet_now', public.push_quiet_now(ps, pr.timezone, v_now)) as p_extra
+               'push', to_jsonb(ps.s) - 'destination_id',
+               'quiet_now', public.push_quiet_now(ps.s, pr.timezone, v_now)) as p_extra
       from destinations dest
-      join push_destination_settings ps on ps.destination_id = dest.id
+      cross join lateral (
+        select coalesce(
+          (select st from push_destination_settings st where st.destination_id = dest.id),
+          jsonb_populate_record(null::push_destination_settings,
+                                public.push_default_settings() || jsonb_build_object('destination_id', dest.id))) as s
+      ) ps
       left join profiles pr on pr.id = dest.user_id
       where dest.type = 'push'
         and dest.id in (select distinct (x ->> 'destination_id')::uuid from jsonb_array_elements(v_claimed) x)
@@ -968,15 +975,15 @@ $$;
 
 -- Turn notifications on for one browser. Upserts by endpoint as in
 -- 20261014000100, but never creates a destination: the editor adds the
--- device to destinations. Returns the device id. A null p_label on a browser
--- the caller already has keeps the name they gave it (the app refreshes the
--- subscription on load); a blank one becomes "This browser". Registering
--- clears blocked_at. A browser that moves to another account leaves the old
--- account's destinations.
+-- device to destinations. Returns the device id. On a browser the caller
+-- already has, a null p_label, p_agent or p_standalone keeps what is stored
+-- (the app refreshes the subscription on load with only the keys); a blank
+-- label becomes "This browser". Registering clears blocked_at. A browser
+-- that moves to another account leaves the old account's destinations.
 drop function public.register_push_device(text, text, text, text, text);
 create function public.register_push_device(
   p_endpoint text, p_p256dh text, p_auth text, p_label text,
-  p_agent text default '', p_standalone boolean default false)
+  p_agent text default null, p_standalone boolean default null)
 returns uuid
 language plpgsql
 security definer
@@ -1014,8 +1021,8 @@ begin
       p256dh          = excluded.p256dh,
       auth            = excluded.auth,
       label           = case when p_label is null and p.user_id = excluded.user_id then p.label else excluded.label end,
-      agent           = excluded.agent,
-      standalone      = excluded.standalone,
+      agent           = case when p_agent is null and p.user_id = excluded.user_id then p.agent else excluded.agent end,
+      standalone      = case when p_standalone is null and p.user_id = excluded.user_id then p.standalone else excluded.standalone end,
       created_at      = case when p.user_id = excluded.user_id then p.created_at else now() end,
       last_success_at = case when p.user_id = excluded.user_id then p.last_success_at end,
       last_error      = null,
@@ -1217,7 +1224,8 @@ $$;
 -- Copies one of the caller's push destinations: same settings and devices,
 -- named "Copy of {name}" (with " (2)"... when that is taken), and disabled
 -- so the copy never double-sends before it is edited. Fresh throttle and
--- health state, since it is a new row. Returns the new id.
+-- health state, since it is a new row. Returns the new id. A copy that loses
+-- a race for its name gets the name-taken message, like every other creator.
 create function public.duplicate_destination(p_id uuid)
 returns uuid
 language plpgsql
@@ -1228,6 +1236,8 @@ declare
   v_user uuid := auth.uid();
   v_src  destinations;
   v_id   uuid;
+  v_name text;
+  v_constraint text;
 begin
   if v_user is null then
     raise exception 'Not signed in.';
@@ -1239,12 +1249,18 @@ begin
   if v_src.type <> 'push' then
     raise exception 'Only push destinations can be duplicated.';
   end if;
-  -- One account's copies at a time, so two can't pick the same free name.
-  perform pg_advisory_xact_lock(hashtextextended('destination_names:' || v_user::text, 0));
-  insert into destinations (user_id, type, name, url, url_display, enabled)
-  values (v_user, 'push', public.unique_destination_name(v_user, 'Copy of ' || v_src.name), null,
-          v_src.url_display, false)
-  returning id into v_id;
+  v_name := public.unique_destination_name(v_user, 'Copy of ' || v_src.name);
+  begin
+    insert into destinations (user_id, type, name, url, url_display, enabled)
+    values (v_user, 'push', v_name, null, v_src.url_display, false)
+    returning id into v_id;
+  exception when unique_violation then
+    get stacked diagnostics v_constraint = constraint_name;
+    if v_constraint = 'destinations_user_name_key' then
+      raise exception 'A destination named % already exists. Choose a different name.', v_name;
+    end if;
+    raise;
+  end;
   update push_destination_settings s
   set title_fields = o.title_fields, body_fields = o.body_fields, show_field_names = o.show_field_names,
       body_separator = o.body_separator, tap_target = o.tap_target, action_buttons = o.action_buttons,

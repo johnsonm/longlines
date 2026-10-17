@@ -190,6 +190,13 @@ Deno.test("handleSendTest reports a push lookup error and an unknown spot", asyn
   });
   assertEquals(missing.res.status, 404);
   assertEquals(missing.body, { error: "Spot not found." });
+  // Without a spot, null can only mean the destination has no settings row.
+  const noSettings = await run(post({ destination_id: "p1" }), {
+    from: { destinations: { data: PUSH } },
+    rpc: { push_test_delivery: { data: null } },
+  });
+  assertEquals(noSettings.res.status, 404);
+  assertEquals(noSettings.body, { error: "Destination not found." });
 });
 
 Deno.test("handleSendTest prunes and records devices after a push test", async () => {

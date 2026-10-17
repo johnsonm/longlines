@@ -95,7 +95,11 @@ export async function sendTestTo(
     });
     if (test.error) return json({ error: "Couldn't load that destination." }, 500);
     const found = test.data as PushTest | null;
-    if (!found) return json({ error: "Spot not found." }, 404);
+    // Null means the spot is unknown, or the destination has no settings row (which the
+    // trigger rules out; the message then points at the destination, not a spot).
+    if (!found) {
+      return json({ error: spotId === null ? "Destination not found." : "Spot not found." }, 404);
+    }
     destination.devices = found.devices;
     destination.push = found.push;
     destination.quiet_now = found.quiet_now;

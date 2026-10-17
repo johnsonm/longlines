@@ -6,7 +6,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(121);
+select plan(122);
 select pgmq.purge_queue('spot_events');
 select pgmq.purge_queue('deliveries_queue');
 delete from deliveries;
@@ -344,6 +344,25 @@ select results_eq($$ select status, dropped_at from deliveries where id = (selec
 select is((select count(*) from pgmq.q_deliveries_queue where (message ->> 'delivery_id')::bigint = (select id from off_delivery)),
   0::bigint, 'and its message is archived');
 select mark_deliveries_sent(array(select delivery_id from claimed2), array(select msg_id from claimed2));
+
+-- A push destination that somehow lost its settings row is still handed its members and the defaults.
+delete from push_destination_settings where destination_id = (select id from pota);
+update push_devices set blocked_at = null where id = (select id from a_phone);
+select count(*) from ingest_spots(jsonb_build_array(
+  jsonb_build_object('source','pota','source_spot_id','s4','content_hash','h4','spot_time',now(),'callsign','KK4PWJ/P',
+    'spotter','W1AW','frequency_khz',14062,'band','20m','mode','cw','comment','','pota_reference','US-2763',
+    'pota_park_name','Pisgah National Forest','pota_location','US-NC','raw_payload','{}'::jsonb)));
+select match_pending_spots();
+create temp table claimed3 as select * from claim_deliveries(200, 60);
+select results_eq(format($$ select jsonb_array_length(destination -> 'devices'), destination -> 'push' = (select j from defaults),
+                                   (destination ->> 'quiet_now')::boolean, spot ->> 'push_title'
+                            from claimed3 where destination ->> 'id' = %L $$, (select id from pota)),
+  $$ values (1, true, false, 'KK4PWJ/P · 14.062 MHz · CW'::text) $$,
+  'without a settings row the claim uses the defaults and still lists the members');
+select mark_deliveries_sent(array(select delivery_id from claimed3), array(select msg_id from claimed3));
+insert into push_destination_settings
+select (jsonb_populate_record(null::push_destination_settings, push_default_settings() || jsonb_build_object('destination_id', (select id from pota)))).*;
+update push_devices set blocked_at = now() where id = (select id from a_phone);
 
 -- "Drop if the device is offline for" is the expiry sweep's limit per push destination.
 update push_destination_settings set ttl_seconds = 14400 where destination_id = (select id from desk);

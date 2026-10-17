@@ -133,7 +133,13 @@ export function pushSkipped(destination: Pick<DeliveryDestination, "push" | "qui
   return destination.quiet_now === true && pushSettingsOf(destination).quiet_mode === "skip";
 }
 
-/** Today's text for a spot the claim did not render: the call, then two lines of facts. */
+/**
+ * Today's text for a spot the claim did not render: two lines of facts under
+ * the call. Transitional: it runs only for rows claimed by the new sender
+ * before migration 20261016000400 is on hosted, so the two can ship in either
+ * order. Once the migration is pushed every push row carries push_body, and
+ * this and the `/call/` fallback in pushForSpot can go.
+ */
 function legacyPushBody(spot: DeliverySpot): string {
   const facts = [
     spot.pota_reference,
