@@ -544,6 +544,26 @@ Deno.test("runDeliveryBatch prunes gone push devices and records device status b
   ]);
 });
 
+Deno.test("runDeliveryBatch acks a quiet-skipped push batch with the cycle's one mark_deliveries_sent and nothing else", async () => {
+  // sendPush on a "Don't send" destination in quiet hours makes no request and
+  // reports the whole batch sent, with no device results to record.
+  const d = dest("p", {
+    type: "push",
+    url: null,
+    signing_secret: null,
+    devices: [],
+    quiet_now: true,
+  });
+  const { result, calls } = await run(
+    [row(1, d), row(2, d)],
+    (_d, b) => Promise.resolve({ ok: true, sent: b.length }),
+  );
+  assertEquals(result.sent, 2);
+  assertEquals(result.failed, 0);
+  assertEquals(calls.map((c) => c.fn), ["claim_deliveries", "mark_deliveries_sent"]);
+  assertEquals(calls[1]!.args, { p_delivery_ids: [1, 2], p_msg_ids: [10, 20] });
+});
+
 Deno.test("runDeliveryBatch skips the push bookkeeping when there is nothing to report", async () => {
   const p = dest("p", { type: "push", url: null, signing_secret: null, devices: [] });
   const { calls } = await run([row(1, p)], () =>

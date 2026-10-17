@@ -3,14 +3,17 @@ import {
   backoffSeconds,
   discordMessages,
   embedForSpot,
-  PUSH_NOTIFICATIONS_PER_RUN,
+  LEGACY_PUSH_SETTINGS,
   pushNotifications,
   pushPayload,
+  pushSettingsOf,
+  pushSkipped,
   sampleSpot,
   sourceLabel,
   webhookPayloads,
+  webhookSpot,
 } from "../delivery/format.ts";
-import type { DeliverySpot, PendingDelivery } from "../delivery/types.ts";
+import type { DeliverySpot, PendingDelivery, PushSettings } from "../delivery/types.ts";
 
 const spot: DeliverySpot = {
   id: 42,
@@ -135,29 +138,144 @@ Deno.test("backoffSeconds follows 30s, 1m, 2m, 5m, 15m, then every 30m", () => {
 
 Deno.test("sourceLabel names every source and passes an unknown one through", () => {
   assertEquals(
-    ["pota", "sotawatch", "rbn", "dxcluster", "other"].map(sourceLabel),
-    ["POTA", "SOTAwatch", "RBN", "DX Cluster", "other"],
+    ["pota", "sotawatch", "rbn", "dxcluster", "wwff", "other"].map(sourceLabel),
+    ["POTA", "SOTAwatch", "RBN", "DX Cluster", "WWFF", "other"],
   );
 });
 
-const call = (callsign: string, id = 0): DeliverySpot => ({
+Deno.test("webhookPayloads leaves out the push-only fields SQL adds", () => {
+  const pushedSpot: DeliverySpot = {
+    ...spot,
+    push_title: "t",
+    push_body: "b",
+    push_url: "/call/KK4PWJ",
+    push_source_url: null,
+  };
+  const [payload] = webhookPayloads([delivery(1, pushedSpot)]);
+  assertEquals(payload?.deliveries[0]?.spot, spot);
+  assertEquals(webhookSpot(spot), spot);
+});
+
+// A spot as claim_deliveries hands it to a push destination: text and URLs built in SQL.
+const pushed = (callsign: string, id = 0, more: Partial<DeliverySpot> = {}): DeliverySpot => ({
   ...spot,
   id,
   callsign,
   base_callsign: callsign,
+  push_title: `${callsign} · 14.062 MHz · CW`,
+  push_body: "POTA · US-2763 · Eno River State Park · NC",
+  push_url: `/call/${callsign}`,
+  push_source_url: "https://pota.app/#/park/US-2763",
+  ...more,
 });
 
-Deno.test("pushNotifications titles a spot with its call and two lines of facts", () => {
+// The defaults as push_default_settings() stores them.
+const SETTINGS: PushSettings = {
+  title_fields: ["callsign", "frequency", "mode"],
+  body_fields: ["source", "reference", "place_name", "state"],
+  show_field_names: false,
+  body_separator: "dot",
+  tap_target: "profile",
+  action_buttons: true,
+  urgency: "normal",
+  ttl_seconds: 1800,
+  replace_same_station: true,
+  sound: true,
+  quiet_enabled: false,
+  quiet_from: "22:00:00",
+  quiet_until: "07:00:00",
+  quiet_mode: "silent",
+};
+
+Deno.test("pushNotifications passes SQL's text and URLs through, with both buttons", () => {
+  assertEquals(pushNotifications([pushed("KK4PWJ", 7)], SETTINGS), [{
+    title: "KK4PWJ · 14.062 MHz · CW",
+    body: "POTA · US-2763 · Eno River State Park · NC",
+    tag: "spot:KK4PWJ",
+    url: "/call/KK4PWJ",
+    sourceUrl: "https://pota.app/#/park/US-2763",
+    actions: [{ action: "profile", title: "Open profile" }, {
+      action: "source",
+      title: "Open on POTA",
+    }],
+    silent: false,
+    renotify: true,
+  }]);
+});
+
+Deno.test("pushNotifications follows the tap URL SQL chose", () => {
+  const [n] = pushNotifications(
+    [pushed("KK4PWJ", 7, { push_url: "https://pota.app/#/park/US-2763" })],
+    { ...SETTINGS, tap_target: "source" },
+  );
+  assertEquals(n?.url, "https://pota.app/#/park/US-2763");
+});
+
+Deno.test("pushNotifications offers the source button only when the spot has a source page", () => {
+  const [rbn] = pushNotifications(
+    [pushed("W1AW", 1, { source: "rbn", push_source_url: null })],
+    SETTINGS,
+  );
+  assertEquals(rbn?.actions, [{ action: "profile", title: "Open profile" }]);
+  assertEquals("sourceUrl" in (rbn ?? {}), false);
+  const [none] = pushNotifications([pushed("W1AW")], { ...SETTINGS, action_buttons: false });
+  assertEquals("actions" in (none ?? {}), false);
+  const [wwff] = pushNotifications(
+    [pushed("W1AW", 1, {
+      source: "wwff",
+      push_source_url: "https://wwff.co/directory/?showRef=KFF-6101",
+    })],
+    SETTINGS,
+  );
+  assertEquals(wwff?.actions?.[1], { action: "source", title: "Open on WWFF" });
+});
+
+Deno.test("pushNotifications tags per station, or per spot when replacing is off", () => {
+  const spots = [pushed("w1aw", 1), pushed("w1aw", 2)];
+  assertEquals(pushNotifications(spots, SETTINGS).map((n) => n.tag), ["spot:W1AW", "spot:W1AW"]);
+  assertEquals(
+    pushNotifications(spots, { ...SETTINGS, replace_same_station: false }).map((n) => n.tag),
+    ["spot:W1AW:1", "spot:W1AW:2"],
+  );
+});
+
+Deno.test("pushNotifications is silent without sound, or in quiet hours set to send silently", () => {
+  const flags = (settings: PushSettings, quietNow: boolean) => {
+    const [n] = pushNotifications([pushed("W1AW")], settings, quietNow);
+    return [n?.silent, n?.renotify];
+  };
+  assertEquals(flags(SETTINGS, false), [false, true]);
+  assertEquals(flags({ ...SETTINGS, sound: false }, false), [true, false]);
+  assertEquals(flags(SETTINGS, true), [true, false]);
+  // "Don't send" never reaches the formatter (sendPush skips the batch); if it did, nothing is silenced.
+  assertEquals(flags({ ...SETTINGS, quiet_mode: "skip" }, true), [false, true]);
+});
+
+Deno.test("pushSkipped: only quiet hours on a Don't send destination", () => {
+  const skip = { ...SETTINGS, quiet_mode: "skip" as const };
+  assertEquals(pushSkipped({ push: skip, quiet_now: true }), true);
+  assertEquals(pushSkipped({ push: SETTINGS, quiet_now: true }), false);
+  assertEquals(pushSkipped({ push: skip, quiet_now: false }), false);
+  assertEquals(pushSkipped({ push: skip }), false);
+  assertEquals(pushSkipped({ quiet_now: true }), false);
+});
+
+Deno.test("pushSettingsOf falls back to the legacy settings when the claim carried none", () => {
+  assertEquals(pushSettingsOf({}), LEGACY_PUSH_SETTINGS);
+  assertEquals(pushSettingsOf({ push: SETTINGS }), SETTINGS);
+  assertEquals([LEGACY_PUSH_SETTINGS.urgency, LEGACY_PUSH_SETTINGS.ttl_seconds], ["high", 900]);
+});
+
+Deno.test("a spot claimed without push fields sends today's text with the legacy settings", () => {
   assertEquals(pushNotifications([spot]), [{
     title: "KK4PWJ",
     body: "14062.0 kHz CW (20m)\nUS-2763 · Eno River State Park · POTA",
     tag: "spot:KK4PWJ",
     url: "/call/KK4PWJ",
+    silent: false,
+    renotify: true,
   }]);
-});
-
-Deno.test("pushNotifications lists only the facts present and links the base call from SQL", () => {
-  const [n] = pushNotifications([{
+  const [sota] = pushNotifications([{
     ...spot,
     source: "sotawatch",
     callsign: "W4/KK4PWJ/P",
@@ -168,83 +286,56 @@ Deno.test("pushNotifications lists only the facts present and links the base cal
     mode: null,
     band: null,
   }]);
-  assertEquals(n, {
-    title: "W4/KK4PWJ/P",
-    body: "14062.0 kHz\nW4C/CM-001 · SOTAwatch",
-    tag: "spot:W4/KK4PWJ/P",
-    url: "/call/KK4PWJ",
-  });
-  const [ww] = pushNotifications([{
-    ...spot,
-    source: "wwff",
-    pota_reference: null,
-    pota_park_name: null,
-    wwff_reference: "KFF-6101",
-    wwff_reference_name: "State Game Land PA 013",
-  }]);
-  assertEquals(ww?.body.split("\n")[1], "KFF-6101 · State Game Land PA 013 · WWFF");
+  assertEquals([sota?.title, sota?.body, sota?.tag, sota?.url], [
+    "W4/KK4PWJ/P",
+    "14062.0 kHz\nW4C/CM-001 · SOTAwatch",
+    "spot:W4/KK4PWJ/P",
+    "/call/KK4PWJ",
+  ]);
   const [rbn] = pushNotifications([{
-    ...call("w1aw"),
+    ...spot,
+    callsign: "w1aw",
+    base_callsign: null,
     source: "rbn",
     pota_reference: null,
     pota_park_name: null,
-    base_callsign: null,
   }]);
-  assertEquals(rbn?.tag, "spot:W1AW");
-  assertEquals(rbn?.url, "/call/w1aw");
-  assertEquals(rbn?.body.split("\n")[1], "RBN");
+  assertEquals([rbn?.tag, rbn?.url, rbn?.body.split("\n")[1]], ["spot:W1AW", "/call/w1aw", "RBN"]);
 });
 
-Deno.test("pushNotifications sends at most three spots, then one summary", () => {
-  assertEquals(PUSH_NOTIFICATIONS_PER_RUN, 3);
-  const three = pushNotifications([call("A1A"), call("B1B"), call("C1C")]);
-  assertEquals(three.map((n) => n.tag), ["spot:A1A", "spot:B1B", "spot:C1C"]);
-
-  const four = pushNotifications([call("A1A"), call("B1B"), call("C1C"), call("D1D")]);
-  assertEquals(four.length, 4);
-  assertEquals(four[3], { title: "1 more spot", body: "D1D", tag: "summary", url: "/sources" });
+Deno.test("pushNotifications sends one notification per spot at any count, never a summary", () => {
+  for (const count of [1, 3, 4, 50]) {
+    const spots = Array.from({ length: count }, (_, i) => pushed(`A${i}A`, i));
+    const notifications = pushNotifications(spots, SETTINGS);
+    assertEquals(notifications.length, count);
+    assertEquals(notifications.map((n) => n.tag), spots.map((s) => `spot:${s.callsign}`));
+  }
 });
 
-Deno.test("the summary lists the remaining calls in spot order, deduplicated", () => {
-  const rest = (...calls: string[]) =>
-    pushNotifications([call("A1A"), call("B1B"), call("C1C"), ...calls.map((c) => call(c))])[3];
-  assertEquals(rest("D1D", "E1E")?.title, "2 more spots");
-  assertEquals(rest("D1D", "E1E")?.body, "D1D and E1E");
-  assertEquals(rest("D1D", "E1E", "D1D", "F1F")?.title, "4 more spots");
-  assertEquals(rest("D1D", "E1E", "D1D", "F1F")?.body, "D1D, E1E and F1F");
-  assertEquals(rest("D1D", "E1E", "F1F", "G1G")?.body, "D1D, E1E, F1F and 1 other");
-  assertEquals(rest("D1D", "E1E", "F1F", "G1G", "H1H", "G1G")?.body, "D1D, E1E, F1F and 2 others");
-});
-
-Deno.test("a worst-case push payload stays under 3,000 bytes", () => {
-  const long = (n: number) => "X".repeat(n);
-  const worst: DeliverySpot = {
-    ...spot,
-    callsign: long(30),
-    base_callsign: long(30),
-    frequency_khz: 10_000_000.5,
-    mode: long(20),
-    band: long(10),
-    pota_reference: long(40),
-    pota_park_name: "Ä".repeat(300),
-    sota_summit_ref: long(40),
-    wwff_reference: long(40),
-    wwff_reference_name: "Ä".repeat(300),
-    source: "dxcluster",
-  };
+Deno.test("a worst-case push payload stays under 3,000 bytes with both buttons", () => {
+  // SQL clips the title at 160 characters and the body at 400 (push_clip in push_spot_fields).
+  const worst = (i: number): DeliverySpot =>
+    pushed(`${"X".repeat(25)}${i}`, 9_999_999_999 + i, {
+      source: "dxcluster",
+      push_title: "Ä".repeat(160),
+      push_body: "Ä".repeat(400),
+      push_url: `https://summits.sota.org.uk/summit/${"X".repeat(40)}`,
+      push_source_url: `https://summits.sota.org.uk/summit/${"X".repeat(40)}`,
+    });
   const notifications = pushNotifications(
-    Array.from({ length: 50 }, (_, i) => ({ ...worst, callsign: `${long(25)}${i}` })),
+    Array.from({ length: 50 }, (_, i) => worst(i)),
+    { ...SETTINGS, replace_same_station: false },
   );
   for (const n of notifications) {
     const bytes = new TextEncoder().encode(pushPayload(n)).length;
     if (bytes >= 3000) throw new Error(`${n.tag}: ${bytes} bytes`);
   }
+  assertEquals(notifications[0]?.actions?.length, 2);
   assertEquals(JSON.parse(pushPayload(notifications[0]!)), notifications[0]);
 });
 
-Deno.test("the test notification is the sample spot through the same formatter", () => {
-  const [n] = pushNotifications([sampleSpot({ ...delivery(1).destination, name: "Phone" })]);
-  assertEquals(n?.title, "N0CALL");
-  assertEquals(n?.body, "14062.0 kHz CW (20m)\nUS-0000 · Test Park · POTA");
-  assertEquals(n?.url, "/call/N0CALL");
+Deno.test("sampleSpot is the labeled test spot for Discord and webhooks", () => {
+  const s = sampleSpot({ ...delivery(1).destination, name: "Phone" });
+  assertEquals([s.callsign, s.base_callsign, s.pota_reference], ["N0CALL", "N0CALL", "US-0000"]);
+  assertEquals(s.comment.includes('"Phone"'), true);
 });

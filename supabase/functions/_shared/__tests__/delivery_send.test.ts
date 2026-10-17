@@ -15,6 +15,7 @@ import type {
   PendingDelivery,
   PushDevice,
   PushNotification,
+  PushSettings,
 } from "../delivery/types.ts";
 
 async function withServer(
@@ -617,7 +618,25 @@ async function withPushServer(
   }, (base) => fn(base, requests));
 }
 
-Deno.test("sendPush encrypts three spots and a summary to a device with the push headers", async () => {
+// The settings a push destination carries from SQL (push_destination_settings), the defaults.
+const PUSH_SETTINGS: PushSettings = {
+  title_fields: ["callsign", "frequency", "mode"],
+  body_fields: ["source", "reference", "place_name", "state"],
+  show_field_names: false,
+  body_separator: "dot",
+  tap_target: "profile",
+  action_buttons: true,
+  urgency: "normal",
+  ttl_seconds: 1800,
+  replace_same_station: true,
+  sound: true,
+  quiet_enabled: false,
+  quiet_from: "22:00:00",
+  quiet_until: "07:00:00",
+  quiet_mode: "silent",
+};
+
+Deno.test("sendPush encrypts one notification per spot to a device, with the legacy headers when the claim carried no settings", async () => {
   await withPushServer(async (base, requests) => {
     const d = pushDest([device(base, "/201/a")]);
     const batch = Array.from({ length: 5 }, (_, i) => delivery(i + 1, d));
@@ -630,16 +649,17 @@ Deno.test("sendPush encrypts three spots and a summary to a device with the push
       expiredEndpoints: [],
       deviceResults: { ok: [`${base}/201/a`], errors: {} },
     });
-    assertEquals(requests.length, 4);
+    assertEquals(requests.length, 5);
     const notes = await Promise.all(requests.map((r) => decrypt(r.body)));
     assertEquals(notes.map((n) => n.tag), [
       "spot:KK4PWJ",
       "spot:W4/KK4PWJ/P",
       "spot:KK4PWJ",
-      "summary",
+      "spot:KK4PWJ",
+      "spot:KK4PWJ",
     ]);
-    assertEquals(notes[3]?.title, "2 more spots");
     assertEquals(notes[0]?.url, "/call/KK4PWJ");
+    assertEquals(notes[0]?.title, "KK4PWJ");
 
     const h = requests[1]!.headers;
     assertEquals(h.get("ttl"), "900");
@@ -649,7 +669,68 @@ Deno.test("sendPush encrypts three spots and a summary to a device with the push
     assertEquals(h.get("content-type"), "application/octet-stream");
     assertMatch(h.get("user-agent") ?? "", /^LongLines\//);
     assertMatch(h.get("authorization") ?? "", /^vapid t=[\w-]+\.[\w-]+\.[\w-]+, k=B[\w-]+$/);
-    assertEquals(requests[3]!.headers.get("topic"), "summary");
+  });
+});
+
+Deno.test("sendPush sends the destination's urgency and TTL and SQL's text", async () => {
+  await withPushServer(async (base, requests) => {
+    const d = {
+      ...pushDest([device(base, "/201/a")]),
+      push: { ...PUSH_SETTINGS, urgency: "low" as const, ttl_seconds: 14400 },
+    };
+    const row = delivery(1, d);
+    row.spot = {
+      ...row.spot,
+      push_title: "KK4PWJ · 14.062 MHz · CW",
+      push_body: "POTA · US-2763 · Eno River State Park · NC",
+      push_url: "/call/KK4PWJ",
+      push_source_url: "https://pota.app/#/park/US-2763",
+    };
+    const result = await sendPush(d, [row], { allowInsecure: true, vapid: await vapid() });
+    assertEquals(result.ok, true);
+    assertEquals(requests.length, 1);
+    assertEquals(requests[0]!.headers.get("ttl"), "14400");
+    assertEquals(requests[0]!.headers.get("urgency"), "low");
+    const note = await decrypt(requests[0]!.body);
+    assertEquals(note.title, "KK4PWJ · 14.062 MHz · CW");
+    assertEquals(note.body, "POTA · US-2763 · Eno River State Park · NC");
+    assertEquals(note.actions?.map((a) => a.title), ["Open profile", "Open on POTA"]);
+    assertEquals(note.silent, false);
+  });
+});
+
+Deno.test("sendPush in quiet hours set to Don't send makes no request and reports the batch sent", async () => {
+  await withPushServer(async (base, requests) => {
+    const d = {
+      ...pushDest([device(base, "/201/a")]),
+      push: { ...PUSH_SETTINGS, quiet_mode: "skip" as const },
+      quiet_now: true,
+    };
+    const batch = [delivery(1, d), delivery(2, d)];
+    // No VAPID keys and no devices needed: nothing is sent and nothing is reported per device.
+    assertEquals(await sendPush({ ...d, devices: [] }, batch, { allowInsecure: true }), {
+      ok: true,
+      sent: 2,
+    });
+    assertEquals(await sendPush(d, batch, { allowInsecure: true, vapid: await vapid() }), {
+      ok: true,
+      sent: 2,
+    });
+    assertEquals(requests.length, 0);
+  });
+});
+
+Deno.test("sendPush in quiet hours set to Send silently still sends, silently", async () => {
+  await withPushServer(async (base, requests) => {
+    const d = { ...pushDest([device(base, "/201/a")]), push: PUSH_SETTINGS, quiet_now: true };
+    const result = await sendPush(d, [delivery(1, d)], {
+      allowInsecure: true,
+      vapid: await vapid(),
+    });
+    assertEquals(result.ok, true);
+    assertEquals(requests.length, 1);
+    const note = await decrypt(requests[0]!.body);
+    assertEquals([note.silent, note.renotify], [true, false]);
   });
 });
 

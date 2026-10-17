@@ -113,29 +113,92 @@ const PUSH: DeliveryDestination = {
 };
 const DEVICES = [{ endpoint: "https://fcm.googleapis.com/fcm/send/a", p256dh: "k", auth: "a" }];
 
-Deno.test("handleSendTest loads the owner's devices for a push destination", async () => {
+const TEST_SPOT = {
+  id: 0,
+  source: "pota",
+  spot_time: NOW.toISOString(),
+  callsign: "N0CALL",
+  base_callsign: "N0CALL",
+  spotter: "LONGLINES",
+  frequency_khz: 14062,
+  band: "20m",
+  mode: "cw",
+  mode_family: "cw",
+  comment: "Test spot from Long Lines. Not a real activation.",
+  pota_reference: "US-0000",
+  pota_park_name: "Test Park",
+  pota_location: "US-TEST",
+  sota_summit_ref: null,
+  wwff_reference: null,
+  wwff_reference_name: null,
+  push_title: "N0CALL · 14.062 MHz · CW",
+  push_body: "POTA · US-0000 · Test Park · TEST",
+  push_url: "/call/N0CALL",
+  push_source_url: "https://pota.app/#/park/US-0000",
+};
+const PUSH_TEST = {
+  push: { urgency: "normal", ttl_seconds: 1800 },
+  quiet_now: false,
+  devices: DEVICES,
+  spot: TEST_SPOT,
+};
+
+Deno.test("handleSendTest sends a push destination's members the text SQL built from its fields", async () => {
   const { res, sent, calls } = await run(post({ destination_id: "p1" }), {
-    from: { destinations: { data: PUSH }, push_devices: { data: DEVICES } },
+    from: { destinations: { data: PUSH } },
+    rpc: { push_test_delivery: { data: PUSH_TEST } },
   });
   assertEquals(res.status, 200);
+  assertEquals(calls.rpc[0], {
+    fn: "push_test_delivery",
+    args: { p_destination_id: "p1", p_spot_id: null },
+  });
   assertEquals(sent[0]!.destination.devices, DEVICES);
-  assertEquals(sent[0]!.batch[0]!.spot.base_callsign, "N0CALL");
-  const devices = calls.from.find((f) => f.table === "push_devices")!;
-  assertEquals(devices.ops, [["select", ["endpoint, p256dh, auth"]], ["eq", ["user_id", "u1"]]]);
+  assertEquals(sent[0]!.destination.push, PUSH_TEST.push);
+  assertEquals(sent[0]!.destination.quiet_now, false);
+  assertEquals(sent[0]!.batch[0]!.spot.push_title, "N0CALL · 14.062 MHz · CW");
+  // Members come from SQL, never from the owner's device list.
+  assertEquals(calls.from.map((f) => f.table), ["destinations"]);
 });
 
-Deno.test("handleSendTest reports a device lookup error", async () => {
-  const { res, sent } = await run(post({ destination_id: "p1" }), {
-    from: { destinations: { data: PUSH }, push_devices: { error: { message: "x" } } },
+Deno.test("handleSendTest renders the spot the preview shows", async () => {
+  const { calls } = await run(post({ destination_id: "p1", spot_id: 42 }), {
+    from: { destinations: { data: PUSH } },
+    rpc: { push_test_delivery: { data: PUSH_TEST } },
   });
-  assertEquals(res.status, 500);
-  assertEquals(sent, []);
+  assertEquals(calls.rpc[0]?.args, { p_destination_id: "p1", p_spot_id: 42 });
+});
+
+Deno.test("handleSendTest refuses a spot id that is not an integer", async () => {
+  for (const spotId of ["42", 1.5, {}]) {
+    const { body, sent } = await run(post({ destination_id: "p1", spot_id: spotId }));
+    assertEquals(body, { error: "Pick a spot." });
+    assertEquals(sent, []);
+  }
+});
+
+Deno.test("handleSendTest reports a push lookup error and an unknown spot", async () => {
+  const failed = await run(post({ destination_id: "p1" }), {
+    from: { destinations: { data: PUSH } },
+    rpc: { push_test_delivery: { error: { message: "x" } } },
+  });
+  assertEquals(failed.res.status, 500);
+  assertEquals(failed.sent, []);
+  const missing = await run(post({ destination_id: "p1", spot_id: 7 }), {
+    from: { destinations: { data: PUSH } },
+    rpc: { push_test_delivery: { data: null } },
+  });
+  assertEquals(missing.res.status, 404);
+  assertEquals(missing.body, { error: "Spot not found." });
 });
 
 Deno.test("handleSendTest prunes and records devices after a push test", async () => {
   const { body, calls } = await run(
     post({ destination_id: "p1" }),
-    { from: { destinations: { data: PUSH }, push_devices: { data: [] } } },
+    {
+      from: { destinations: { data: PUSH } },
+      rpc: { push_test_delivery: { data: { ...PUSH_TEST, devices: [] } } },
+    },
     {
       ok: false,
       sent: 0,
@@ -145,7 +208,7 @@ Deno.test("handleSendTest prunes and records devices after a push test", async (
     },
   );
   assertEquals(body, { error: "Turn on notifications on a device first." });
-  assertEquals(calls.rpc, [{
+  assertEquals(calls.rpc.slice(1), [{
     fn: "prune_push_devices",
     args: { p_endpoints: ["https://fcm.googleapis.com/gone"] },
   }]);
