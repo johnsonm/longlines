@@ -1,15 +1,38 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { renderPage } from "../test/render";
 import { setMobile } from "../test/media";
-import { getPushDestination, savePushDestination, type Destination, type PushDestination } from "../lib/api";
+import {
+  deletePushDevice, getPushDestination, listPushDevices, renamePushDevice, savePushDestination, type Destination, type PushDestination,
+  type PushDevice,
+} from "../lib/api";
+import { currentEndpoint, disablePush, enablePush, pushSupport } from "../pwa/push";
 import { DEFAULT_SETTINGS } from "./pushModel";
 import { PushDestinationPage } from "./PushDestinationPage";
 
 vi.mock("../lib/api", () => ({
+  deletePushDevice: vi.fn(),
   getPushDestination: vi.fn(),
+  listPushDevices: vi.fn(),
+  renamePushDevice: vi.fn(),
   savePushDestination: vi.fn(),
 }));
+vi.mock("../pwa/push", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../pwa/push")>()),
+  currentEndpoint: vi.fn(),
+  deviceAgent: vi.fn(() => "Chrome on Linux"),
+  disablePush: vi.fn(),
+  enablePush: vi.fn(),
+  isIos: vi.fn(() => false),
+  pushSupport: vi.fn(),
+}));
+
+function device(id: string, overrides: Partial<PushDevice> = {}): PushDevice {
+  return {
+    id, label: `Device ${id}`, agent: "Chrome on Android", standalone: false, created_at: "2026-10-01T00:00:00Z", last_success_at: null,
+    last_error: null, last_error_at: null, blocked_at: null, is_current: false, destination_ids: [], ...overrides,
+  };
+}
 
 function dest(id: string, overrides: Partial<Destination> = {}): Destination {
   return {
@@ -27,9 +50,18 @@ const LOADED: PushDestination = {
 
 const DESTS = [dest("p1", { name: "Phone" }), dest("w1", { type: "webhook", url_display: "https://example.com/…" })];
 
+const DEVICES = [device("dev1", { label: "Laptop", agent: "Firefox on Linux", is_current: true }), device("dev2", { label: "Phone" })];
+
 beforeEach(() => {
   vi.mocked(getPushDestination).mockReset().mockResolvedValue(LOADED);
   vi.mocked(savePushDestination).mockReset().mockResolvedValue("p9");
+  vi.mocked(listPushDevices).mockReset().mockResolvedValue(DEVICES);
+  vi.mocked(deletePushDevice).mockReset().mockResolvedValue();
+  vi.mocked(renamePushDevice).mockReset().mockResolvedValue();
+  vi.mocked(currentEndpoint).mockReset().mockReturnValue("https://fcm.googleapis.com/fcm/send/abc");
+  vi.mocked(disablePush).mockReset().mockResolvedValue();
+  vi.mocked(enablePush).mockReset().mockResolvedValue("dev3");
+  vi.mocked(pushSupport).mockReset().mockResolvedValue("off");
 });
 
 interface Opts {
@@ -157,6 +189,103 @@ describe("editing", () => {
     render({ id: "p1", mobile: true });
     expect(await screen.findByRole("button", { name: "Save" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Save destination" })).not.toBeInTheDocument();
+  });
+});
+
+describe("devices", () => {
+  it("lists the account's devices with the members checked and saves the picks", async () => {
+    const { user } = render({ id: "p1" });
+    expect(await screen.findByRole("checkbox", { name: "Send to Laptop" })).toBeChecked();
+    expect(listPushDevices).toHaveBeenCalledWith("https://fcm.googleapis.com/fcm/send/abc");
+    expect(screen.getByRole("checkbox", { name: "Send to Phone" })).not.toBeChecked();
+    await user.click(screen.getByRole("checkbox", { name: "Send to Phone" }));
+    await user.click(screen.getByRole("checkbox", { name: "Send to Laptop" }));
+    await user.click(screen.getByRole("button", { name: "Save destination" }));
+    await waitFor(() => expect(savePushDestination).toHaveBeenCalled());
+    expect(vi.mocked(savePushDestination).mock.calls[0]![0].device_ids).toEqual(["dev2"]);
+  });
+
+  it("toasts when the devices cannot load and shows the empty state", async () => {
+    vi.mocked(listPushDevices).mockRejectedValue(new Error("Couldn't load your devices."));
+    const { app } = render({ type: "push" });
+    await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Couldn't load your devices."));
+    expect(screen.getByText("No devices yet")).toBeInTheDocument();
+  });
+
+  it("checks a device added from the dialog", async () => {
+    vi.mocked(listPushDevices).mockResolvedValueOnce([]);
+    const { user } = render({ type: "push" });
+    await user.click(await screen.findByRole("button", { name: "Add this device" }));
+    const dialog = await screen.findByRole("dialog", { name: "Add a device" });
+    vi.mocked(listPushDevices).mockResolvedValue([...DEVICES, device("dev3", { label: "Chrome on Linux", agent: "Chrome on Linux", is_current: true })]);
+    const enable = within(dialog).getByRole("button", { name: "Enable notifications" });
+    await waitFor(() => expect(enable).toBeEnabled());
+    await user.click(enable);
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(enablePush).toHaveBeenCalledWith("Chrome on Linux");
+    expect(await screen.findByRole("checkbox", { name: "Send to Chrome on Linux" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Send to Phone" })).not.toBeChecked();
+
+    await user.type(nameField(), "Here");
+    await user.click(screen.getByRole("button", { name: "Add destination" }));
+    await waitFor(() => expect(savePushDestination).toHaveBeenCalled());
+    expect(vi.mocked(savePushDestination).mock.calls[0]![0].device_ids).toEqual(["dev3"]);
+  });
+
+  it("renames a device and reloads the list", async () => {
+    const { user, app } = render({ id: "p1" });
+    await user.click(await screen.findByRole("button", { name: "Rename Phone" }));
+    const dialog = screen.getByRole("dialog", { name: "Rename device" });
+    const field = within(dialog).getByRole("textbox", { name: "Device name" });
+    await user.clear(field);
+    await user.type(field, "Pixel");
+    vi.mocked(listPushDevices).mockResolvedValue([DEVICES[0]!, device("dev2", { label: "Pixel" })]);
+    await user.click(within(dialog).getByRole("button", { name: "Rename" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(renamePushDevice).toHaveBeenCalledWith("dev2", "Pixel");
+    expect(app.notify).toHaveBeenCalledWith("Renamed Pixel");
+    expect(await screen.findByRole("checkbox", { name: "Send to Pixel" })).toBeInTheDocument();
+  });
+
+  it("removes another device without touching this browser", async () => {
+    const { user, app } = render({ id: "p1" });
+    const remove = await screen.findByRole("button", { name: "Remove Phone" });
+    vi.mocked(listPushDevices).mockResolvedValue([DEVICES[0]!]);
+    await user.click(remove);
+    await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Removed Phone"));
+    expect(deletePushDevice).toHaveBeenCalledWith("dev2");
+    expect(disablePush).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByRole("checkbox", { name: "Send to Phone" })).not.toBeInTheDocument());
+  });
+
+  it("removing this device also turns its notifications off and unchecks it", async () => {
+    const { user, app } = render({ id: "p1" });
+    const remove = await screen.findByRole("button", { name: "Remove Laptop" });
+    vi.mocked(listPushDevices).mockResolvedValue([DEVICES[1]!]);
+    await user.click(remove);
+    await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Removed Laptop"));
+    expect(deletePushDevice).toHaveBeenCalledWith("dev1");
+    expect(disablePush).toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Save destination" }));
+    await waitFor(() => expect(savePushDestination).toHaveBeenCalled());
+    expect(vi.mocked(savePushDestination).mock.calls[0]![0].device_ids).toEqual([]);
+  });
+
+  it("toasts when removing fails", async () => {
+    vi.mocked(deletePushDevice).mockRejectedValue(new Error("Device not found."));
+    const { user, app } = render({ id: "p1" });
+    await user.click(await screen.findByRole("button", { name: "Remove Phone" }));
+    await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Device not found."));
+    expect(screen.getByRole("checkbox", { name: "Send to Phone" })).toBeInTheDocument();
+  });
+
+  it("opens the dialog full screen on phones", async () => {
+    setMobile(true);
+    const { user } = render({ id: "p1", mobile: true });
+    await user.click(await screen.findByRole("button", { name: "Add a device" }));
+    const dialog = await screen.findByRole("dialog", { name: "Add a device" });
+    await user.click(within(dialog).getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 });
 

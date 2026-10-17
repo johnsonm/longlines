@@ -1,4 +1,4 @@
-import type { Destination } from "../lib/api";
+import type { Destination, PushDevice } from "../lib/api";
 import { timeAgo } from "../lib/time";
 
 /** "used by 2 subscriptions · Last delivery 3 minutes ago", per the page 5 copy. */
@@ -11,4 +11,12 @@ export function cardMeta(dest: Destination, usedBy: number, now: Date = new Date
     ? `Last delivery ${timeAgo(dest.last_success_at, now)}`
     : "Never used";
   return `${usage} · ${last}`;
+}
+
+/** A device row's caption: "{agent}[, installed app] · last delivery {age} ago" and its two variants, per page 5. */
+export function deviceCaption(device: PushDevice, now: Date = new Date()): string {
+  const agent = `${device.agent}${device.standalone ? ", installed app" : ""}`;
+  if (device.blocked_at !== null) return `${agent} · notifications blocked in this browser`;
+  if (device.last_success_at === null) return `${agent} · no deliveries yet`;
+  return `${agent} · last delivery ${timeAgo(device.last_success_at, now)}`;
 }

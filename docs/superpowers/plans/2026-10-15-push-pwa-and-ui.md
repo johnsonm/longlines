@@ -298,12 +298,12 @@ labels. The sender amendment adds, all *decided 2026-10-16*:
 
 **Files:** `web/src/destinations/DevicesCard.tsx`, `AddDeviceDialog.tsx`, `RenameDeviceDialog.tsx` (new, + tests).
 
-- [ ] Devices card (page 5): one row per account device: `Checkbox` (`aria-label="Send to {label}"`, disabled when blocked), phone or laptop icon from `agent`, name with "This device" and "Blocked" chips, caption "{agent}[, installed app] · last delivery {age} ago" / "{agent} · no deliveries yet" / "{agent} · notifications blocked in this browser", Rename and Remove `IconButton`s, then **Add a device**. Empty state: the dashed box with its copy, **Add this device** and **Add my phone**. Checked ids are the form's `deviceIds`; a newly added device is checked automatically.
-- [ ] Add a device dialog (page 5 `PushDevice`): **This device** with icon, `{agent}` chip, the permission sentence, the Device name field prefilled with `deviceAgent()`, **Enable notifications** → `enablePush(name)`; `Divider`; **Another device** with the two steps and the iPhone info alert; Cancel. `denied` and `unsupported` show the spec's sentences in place of the button. `fullScreen` on phones with a close button, as drawn.
-- [ ] iPhone not installed (`PushDevice-iOS-Mobile`): the same dialog when `ios-needs-install`: warning alert, three steps, disabled **Enable notifications**, its caption.
-- [ ] Rename: a one-field dialog, **Rename**; Remove: `deletePushDevice` with "Removed {label}"; removing the current device also runs `disablePush()`.
-- [ ] Tests: rows in every state; checkbox round-trip; empty state; the dialog in `off`, `denied`, `unsupported`, `ios-needs-install`; Enable calls `enablePush` with the typed name and checks the new device; rename; remove current and other; phone layout.
-- [ ] Commit `Destinations: devices card and the Add a device dialog`.
+- [x] Devices card (page 5): one row per account device: `Checkbox` (`aria-label="Send to {label}"`, disabled when blocked), phone or laptop icon from `agent`, name with "This device" and "Blocked" chips, caption "{agent}[, installed app] · last delivery {age} ago" / "{agent} · no deliveries yet" / "{agent} · notifications blocked in this browser", Rename and Remove `IconButton`s, then **Add a device**. Empty state: the dashed box with its copy, **Add this device** and **Add my phone**. Checked ids are the form's `deviceIds`; a newly added device is checked automatically.
+- [x] Add a device dialog (page 5 `PushDevice`): **This device** with icon, `{agent}` chip, the permission sentence, the Device name field prefilled with `deviceAgent()`, **Enable notifications** → `enablePush(name)`; `Divider`; **Another device** with the two steps and the iPhone info alert; Cancel. `denied` and `unsupported` show the spec's sentences in place of the button. `fullScreen` on phones with a close button, as drawn.
+- [x] iPhone not installed (`PushDevice-iOS-Mobile`): the same dialog when `ios-needs-install`: warning alert, three steps, disabled **Enable notifications**, its caption.
+- [x] Rename: a one-field dialog, **Rename**; Remove: `deletePushDevice` with "Removed {label}"; removing the current device also runs `disablePush()`.
+- [x] Tests: rows in every state; checkbox round-trip; empty state; the dialog in `off`, `denied`, `unsupported`, `ios-needs-install`; Enable calls `enablePush` with the typed name and checks the new device; rename; remove current and other; phone layout.
+- [x] Commit `Destinations: devices card and the Add a device dialog`.
 
 ### Task 11: Notification content and the preview
 

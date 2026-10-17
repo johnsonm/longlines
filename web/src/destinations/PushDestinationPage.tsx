@@ -1,13 +1,19 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Alert, Box, Breadcrumbs, Button, Card, CardContent, CardHeader, Chip, Divider, FormControlLabel, Grid, LinearProgress, Link, MenuItem,
   Stack, Switch, TextField, Typography,
 } from "@mui/material";
 import { Navigate, Link as RouterLink, useNavigate } from "react-router";
 import { PageTitle } from "../layout/PageTitle";
-import { getPushDestination, savePushDestination, type Destination, type PushSettings } from "../lib/api";
+import {
+  deletePushDevice, getPushDestination, listPushDevices, savePushDestination, type Destination, type PushDevice, type PushSettings,
+} from "../lib/api";
+import { currentEndpoint, disablePush } from "../pwa/push";
 import { errorText, useApp } from "../app/hooks";
 import { DEST_TYPES, typeLabel } from "./types";
+import { DevicesCard } from "./DevicesCard";
+import { AddDeviceDialog } from "./AddDeviceDialog";
+import { RenameDeviceDialog } from "./RenameDeviceDialog";
 import { blankForm, formOf, QUIET_MODES, toInput, TTL_OPTIONS, URGENCIES, type PushForm } from "./pushModel";
 
 interface Props {
@@ -69,9 +75,53 @@ function Editor({ initial, reload, mobile }: EditorProps) {
   const [form, setForm] = useState(initial);
   const [busy, setBusy] = useState(false);
   const [nameError, setNameError] = useState<string | null>(null);
+  const [devices, setDevices] = useState<PushDevice[] | null>(null);
+  const [deviceBusy, setDeviceBusy] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [renaming, setRenaming] = useState<PushDevice | null>(null);
   const timezone = profile?.timezone ?? "UTC";
 
   const setSettings = (patch: Partial<PushSettings>) => setForm((f) => ({ ...f, settings: { ...f.settings, ...patch } }));
+
+  // The account's devices, with this browser's marked by the endpoint it remembers.
+  const loadDevices = useCallback(async () => {
+    try {
+      setDevices(await listPushDevices(currentEndpoint()));
+    } catch (err) {
+      notify(errorText(err, "Couldn't load your devices."));
+      setDevices((d) => d ?? []);
+    }
+  }, [notify]);
+
+  useEffect(() => {
+    void loadDevices();
+  }, [loadDevices]);
+
+  const toggleDevice = (id: string, on: boolean) =>
+    setForm((f) => ({ ...f, deviceIds: on ? (f.deviceIds.includes(id) ? f.deviceIds : [...f.deviceIds, id]) : f.deviceIds.filter((x) => x !== id) }));
+
+  // A device added from this page is checked at once.
+  const added = (id: string) => {
+    setAdding(false);
+    toggleDevice(id, true);
+    void loadDevices();
+  };
+
+  const removeDevice = async (device: PushDevice) => {
+    setDeviceBusy(true);
+    try {
+      await deletePushDevice(device.id);
+      // This browser also drops its subscription, so the next load does not register it again.
+      if (device.is_current) await disablePush();
+      toggleDevice(device.id, false);
+      notify(`Removed ${device.label}`);
+      await loadDevices();
+    } catch (err) {
+      notify(errorText(err, "Couldn't remove the device."));
+    } finally {
+      setDeviceBusy(false);
+    }
+  };
 
   const save = async () => {
     setBusy(true);
@@ -136,11 +186,25 @@ function Editor({ initial, reload, mobile }: EditorProps) {
       <Grid container spacing={3} sx={{ alignItems: "flex-start" }}>
         <Grid size={{ xs: 12, md: 7 }}>
           <Stack spacing={3}>
+            <DevicesCard
+              devices={devices} checked={form.deviceIds} busy={deviceBusy}
+              onToggle={toggleDevice} onAdd={() => setAdding(true)} onRename={setRenaming} onRemove={(d) => void removeDevice(d)}
+            />
             <DeliveryCard settings={form.settings} timezone={timezone} onChange={setSettings} />
           </Stack>
         </Grid>
         <Grid size={{ xs: 12, md: 5 }} sx={{ position: { md: "sticky" }, top: { md: 16 } }} />
       </Grid>
+      <AddDeviceDialog open={adding} fullScreen={mobile} onClose={() => setAdding(false)} onAdded={added} />
+      {renaming && (
+        <RenameDeviceDialog
+          device={renaming} onClose={() => setRenaming(null)}
+          onRenamed={() => {
+            setRenaming(null);
+            void loadDevices();
+          }}
+        />
+      )}
     </Stack>
   );
 }
