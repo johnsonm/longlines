@@ -298,9 +298,13 @@ describe("push", () => {
     expect(await api.registerPushDevice(keys, "My laptop", "Chrome on Linux", false)).toBe("dev1");
     expect(fake.client.rpc).toHaveBeenLastCalledWith("register_push_device", {
       p_endpoint: keys.endpoint, p_p256dh: "p256", p_auth: "auth16", p_label: "My laptop", p_agent: "Chrome on Linux", p_standalone: false,
+      p_previous_endpoint: null,
     });
     await api.registerPushDevice(keys, null, null, null);
     expect(fake.client.rpc).toHaveBeenLastCalledWith("register_push_device", expect.objectContaining({ p_label: null, p_agent: null, p_standalone: null }));
+    await api.registerPushDevice(keys, null, null, null, "https://fcm.googleapis.com/fcm/send/old");
+    expect(fake.client.rpc).toHaveBeenLastCalledWith("register_push_device",
+      expect.objectContaining({ p_endpoint: keys.endpoint, p_previous_endpoint: "https://fcm.googleapis.com/fcm/send/old" }));
     fake.rpcs.set("register_push_device", { error: { message: "" } });
     await expect(api.registerPushDevice(keys, "x", null, null)).rejects.toThrow("Couldn't turn on notifications.");
   });

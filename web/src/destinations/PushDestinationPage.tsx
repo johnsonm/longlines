@@ -79,6 +79,7 @@ function Editor({ initial, reload, mobile }: EditorProps) {
   const [busy, setBusy] = useState(false);
   const [nameError, setNameError] = useState<string | null>(null);
   const [devices, setDevices] = useState<PushDevice[] | null>(null);
+  const [devicesFailed, setDevicesFailed] = useState(false);
   const [deviceBusy, setDeviceBusy] = useState(false);
   const [adding, setAdding] = useState(false);
   const [renaming, setRenaming] = useState<PushDevice | null>(null);
@@ -90,9 +91,11 @@ function Editor({ initial, reload, mobile }: EditorProps) {
   const loadDevices = useCallback(async () => {
     try {
       setDevices(await listPushDevices(currentEndpoint()));
+      setDevicesFailed(false);
     } catch (err) {
       notify(errorText(err, "Couldn't load your devices."));
-      setDevices((d) => d ?? []);
+      // devices stays null on a failed first load, so save() sends the members unchanged instead of none.
+      setDevicesFailed(true);
     }
   }, [notify]);
 
@@ -192,7 +195,7 @@ function Editor({ initial, reload, mobile }: EditorProps) {
         <Grid size={{ xs: 12, md: 7 }}>
           <Stack spacing={3}>
             <DevicesCard
-              devices={devices} checked={form.deviceIds} busy={deviceBusy}
+              devices={devices} failed={devicesFailed} checked={form.deviceIds} busy={deviceBusy}
               onToggle={toggleDevice} onAdd={() => setAdding(true)} onRename={setRenaming} onRemove={(d) => void removeDevice(d)}
             />
             <NotificationContentCard settings={form.settings} onChange={setSettings} />
