@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { PushSettings } from "./api";
 
 type Result = { data?: unknown; error?: { message: string; code?: string } | null };
 
@@ -111,6 +112,15 @@ describe("Edge Function calls", () => {
     fake.client.auth.getSession.mockResolvedValueOnce({ data: { session: null } });
     await expect(api.sendTest("d1")).rejects.toThrow("Sign in again.");
   });
+
+  it("sendTest sends the chosen spot only when there is one", async () => {
+    const fetchMock = respond(200, { ok: true });
+    await api.sendTest("d1", 42);
+    await api.sendTest("d1", null);
+    const calls = fetchMock.mock.calls as unknown as Array<[string, RequestInit]>;
+    expect(JSON.parse(calls[0]![1].body as string)).toEqual({ destination_id: "d1", spot_id: 42 });
+    expect(JSON.parse(calls[1]![1].body as string)).toEqual({ destination_id: "d1" });
+  });
 });
 
 describe("auth wrappers", () => {
@@ -161,6 +171,22 @@ describe("auth wrappers", () => {
     expect(fake.client.auth.updateUser).toHaveBeenCalledWith({ password: "newpass1" });
     expect(fake.client.auth.updateUser).toHaveBeenCalledWith({ email: "new@b.c" });
     expect(fake.client.auth.signOut).toHaveBeenCalledWith({ scope: "local" });
+  });
+
+  it("signOut runs the cleanup first and signs out even when it rejects", async () => {
+    fake.client.auth.signOut.mockClear();
+    const order: string[] = [];
+    fake.client.auth.signOut.mockImplementationOnce(() => {
+      order.push("signOut");
+      return Promise.resolve({ error: null });
+    });
+    await api.signOut("local", () => {
+      order.push("cleanup");
+      return Promise.resolve();
+    });
+    expect(order).toEqual(["cleanup", "signOut"]);
+    await api.signOut("local", () => Promise.reject(new Error("offline")));
+    expect(fake.client.auth.signOut).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -214,6 +240,7 @@ describe("sources and destinations", () => {
     const select = fake.ops.find(([t, m]) => t === "destinations" && m === "select");
     expect(select?.[2][0]).toBe(api.DESTINATION_COLUMNS);
     expect(api.DESTINATION_COLUMNS).not.toMatch(/signing_secret|\burl\b/);
+    expect(api.DESTINATION_COLUMNS).toMatch(/\benabled\b/);
   });
 
   it("createDestination returns the created row or fails", async () => {
@@ -224,6 +251,21 @@ describe("sources and destinations", () => {
     await expect(api.createDestination("webhook", "n", "https://x")).rejects.toThrow("Couldn't add the destination.");
     fake.rpcs.set("create_destination", { error: boom });
     await expect(api.createDestination("webhook", "n", "https://x")).rejects.toThrow("boom");
+  });
+
+  it("createDestination sends a null URL for push", async () => {
+    fake.rpcs.set("create_destination", { data: [{ id: "p1", type: "push", name: "Phone", url_display: "Your devices", signing_secret: null }] });
+    expect((await api.createDestination("push", "Phone", null)).type).toBe("push");
+    expect(fake.client.rpc).toHaveBeenLastCalledWith("create_destination", { p_type: "push", p_name: "Phone", p_url: null });
+  });
+
+  it("updateDestination sends null for what it keeps", async () => {
+    await api.updateDestination("d1", { enabled: false });
+    expect(fake.client.rpc).toHaveBeenLastCalledWith("update_destination", { p_id: "d1", p_name: null, p_url: null, p_enabled: false });
+    await api.updateDestination("d1", { name: "New", url: "https://x" });
+    expect(fake.client.rpc).toHaveBeenLastCalledWith("update_destination", { p_id: "d1", p_name: "New", p_url: "https://x", p_enabled: null });
+    fake.rpcs.set("update_destination", { error: boom });
+    await expect(api.updateDestination("d1", {})).rejects.toThrow("boom");
   });
 
   it("rotateSigningSecret returns the new secret", async () => {
@@ -240,6 +282,104 @@ describe("sources and destinations", () => {
     await expect(api.deleteDestination("d1")).rejects.toThrow("Remove it from its connections first.");
     fake.tables.set("destinations", { error: boom });
     await expect(api.deleteDestination("d1")).rejects.toThrow("boom");
+  });
+});
+
+describe("push", () => {
+  const keys = { endpoint: "https://fcm.googleapis.com/fcm/send/abc", p256dh: "p256", auth: "auth16" };
+  const settings: PushSettings = {
+    title_fields: ["callsign", "frequency", "mode"], body_fields: ["source", "reference", "place_name", "state"],
+    show_field_names: false, body_separator: "dot", tap_target: "profile", action_buttons: true, urgency: "normal", ttl_seconds: 1800,
+    replace_same_station: true, sound: true, quiet_enabled: false, quiet_from: "22:00", quiet_until: "07:00", quiet_mode: "silent",
+  };
+
+  it("registerPushDevice sends the keys and the descriptor, or nulls to keep them", async () => {
+    fake.rpcs.set("register_push_device", { data: "dev1" });
+    expect(await api.registerPushDevice(keys, "My laptop", "Chrome on Linux", false)).toBe("dev1");
+    expect(fake.client.rpc).toHaveBeenLastCalledWith("register_push_device", {
+      p_endpoint: keys.endpoint, p_p256dh: "p256", p_auth: "auth16", p_label: "My laptop", p_agent: "Chrome on Linux", p_standalone: false,
+    });
+    await api.registerPushDevice(keys, null, null, null);
+    expect(fake.client.rpc).toHaveBeenLastCalledWith("register_push_device", expect.objectContaining({ p_label: null, p_agent: null, p_standalone: null }));
+    fake.rpcs.set("register_push_device", { error: { message: "" } });
+    await expect(api.registerPushDevice(keys, "x", null, null)).rejects.toThrow("Couldn't turn on notifications.");
+  });
+
+  it("device RPCs pass their arguments through", async () => {
+    await api.unregisterPushDevice(keys.endpoint);
+    expect(fake.client.rpc).toHaveBeenLastCalledWith("unregister_push_device", { p_endpoint: keys.endpoint });
+    await api.deletePushDevice("dev1");
+    expect(fake.client.rpc).toHaveBeenLastCalledWith("delete_push_device", { p_id: "dev1" });
+    await api.renamePushDevice("dev1", "Phone");
+    expect(fake.client.rpc).toHaveBeenLastCalledWith("rename_push_device", { p_id: "dev1", p_label: "Phone" });
+    await api.reportPushDeviceBlocked(keys.endpoint);
+    expect(fake.client.rpc).toHaveBeenLastCalledWith("report_push_device_blocked", { p_endpoint: keys.endpoint });
+    for (const name of ["unregister_push_device", "delete_push_device", "rename_push_device", "report_push_device_blocked"]) {
+      fake.rpcs.set(name, { error: boom });
+    }
+    await expect(api.unregisterPushDevice("e")).rejects.toThrow("boom");
+    await expect(api.deletePushDevice("d")).rejects.toThrow("boom");
+    await expect(api.renamePushDevice("d", "x")).rejects.toThrow("boom");
+    await expect(api.reportPushDeviceBlocked("e")).rejects.toThrow("boom");
+  });
+
+  it("listPushDevices marks the current endpoint only when there is one", async () => {
+    const row = { id: "dev1", label: "Phone", agent: "Chrome on Android", standalone: true, created_at: "x", last_success_at: null,
+      last_error: null, last_error_at: null, blocked_at: null, is_current: true, destination_ids: ["p1"] };
+    fake.rpcs.set("list_push_devices", { data: [row] });
+    expect(await api.listPushDevices(keys.endpoint)).toEqual([row]);
+    expect(fake.client.rpc).toHaveBeenLastCalledWith("list_push_devices", { p_current_endpoint: keys.endpoint });
+    await api.listPushDevices(null);
+    expect(fake.client.rpc).toHaveBeenLastCalledWith("list_push_devices", {});
+    fake.rpcs.set("list_push_devices", { error: boom });
+    await expect(api.listPushDevices(null)).rejects.toThrow("boom");
+  });
+
+  it("savePushDestination creates without an id and replaces with one", async () => {
+    fake.rpcs.set("save_push_destination", { data: "p1" });
+    expect(await api.savePushDestination({ name: "Phone", enabled: true, settings, device_ids: ["dev1"] })).toBe("p1");
+    expect(fake.client.rpc).toHaveBeenLastCalledWith("save_push_destination", {
+      p_id: null, p_name: "Phone", p_enabled: true, p_settings: settings, p_device_ids: ["dev1"],
+    });
+    await api.savePushDestination({ id: "p1", name: "Phone", enabled: false, settings, device_ids: [] });
+    expect(fake.client.rpc).toHaveBeenLastCalledWith("save_push_destination", expect.objectContaining({ p_id: "p1", p_enabled: false, p_device_ids: [] }));
+    fake.rpcs.set("save_push_destination", { error: { message: "A destination named Phone already exists. Choose a different name." } });
+    await expect(api.savePushDestination({ name: "Phone", enabled: true, settings, device_ids: [] })).rejects.toThrow(/already exists/);
+  });
+
+  it("getPushDestination returns the RPC's json", async () => {
+    const dest = { id: "p1", name: "Phone", enabled: true, settings, device_ids: ["dev1"] };
+    fake.rpcs.set("get_push_destination", { data: dest });
+    expect(await api.getPushDestination("p1")).toEqual(dest);
+    expect(fake.client.rpc).toHaveBeenLastCalledWith("get_push_destination", { p_id: "p1" });
+    fake.rpcs.set("get_push_destination", { error: { message: "Destination not found." } });
+    await expect(api.getPushDestination("p1")).rejects.toThrow("Destination not found.");
+  });
+
+  it("duplicateDestination returns the copy's id", async () => {
+    fake.rpcs.set("duplicate_destination", { data: "p2" });
+    expect(await api.duplicateDestination("p1")).toBe("p2");
+    expect(fake.client.rpc).toHaveBeenLastCalledWith("duplicate_destination", { p_id: "p1" });
+    fake.rpcs.set("duplicate_destination", { error: boom });
+    await expect(api.duplicateDestination("p1")).rejects.toThrow("boom");
+  });
+
+  it("previewPushNotification sends the picks and the spot, and returns the one row", async () => {
+    const row = { title: "KK4PWJ · 14.062 MHz · CW", body: "POTA · US-2763", url: "https://longlines.io/call/KK4PWJ", source_url: null };
+    fake.rpcs.set("preview_push_notification", { data: [row] });
+    expect(await api.previewPushNotification(["callsign", "frequency", "mode"], ["source", "reference"], false, "dot", 42)).toEqual(row);
+    expect(fake.client.rpc).toHaveBeenLastCalledWith("preview_push_notification", {
+      p_title_fields: ["callsign", "frequency", "mode"], p_body_fields: ["source", "reference"], p_show_field_names: false,
+      p_body_separator: "dot", p_spot_id: 42,
+    });
+    await api.previewPushNotification(["callsign"], [], true, "newline", null);
+    expect(fake.client.rpc).toHaveBeenLastCalledWith("preview_push_notification", {
+      p_title_fields: ["callsign"], p_body_fields: [], p_show_field_names: true, p_body_separator: "newline",
+    });
+    fake.rpcs.set("preview_push_notification", { data: [] });
+    await expect(api.previewPushNotification(["callsign"], [], false, "dot", null)).rejects.toThrow("Couldn't load the preview.");
+    fake.rpcs.set("preview_push_notification", { error: { message: "Pick 1 to 4 fields for the title." } });
+    await expect(api.previewPushNotification([], [], false, "dot", null)).rejects.toThrow("Pick 1 to 4 fields for the title.");
   });
 });
 

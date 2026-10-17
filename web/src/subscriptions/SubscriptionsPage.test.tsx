@@ -18,7 +18,7 @@ vi.mock("../stats/useStats", () => ({ useStats: vi.fn() }));
 
 function dest(id: string, name: string, overrides: Partial<Destination> = {}): Destination {
   return {
-    id, user_id: "u1", type: "discord", name, url_display: "x", health: "ok", consecutive_failures: 0, last_success_at: null,
+    id, user_id: "u1", type: "discord", name, enabled: true, url_display: "x", health: "ok", consecutive_failures: 0, last_success_at: null,
     last_error: null, last_error_at: null, created_at: "2026-10-01T00:00:00Z", ...overrides,
   };
 }

@@ -11,6 +11,7 @@ import type { Rules } from "../subscriptions/model";
 
 type Tables = Database["public"]["Tables"];
 type Views = Database["public"]["Views"];
+type Functions = Database["public"]["Functions"];
 export type Profile = Tables["profiles"]["Row"];
 /** A table row without its computed fields (`api_*_json`), which PostgREST never returns for `*`. */
 type Row<T extends keyof Tables> = Omit<Tables[T]["Row"], Tables[T]["ComputedFields"]>;
@@ -21,6 +22,7 @@ export type Destination = Pick<
   | "user_id"
   | "type"
   | "name"
+  | "enabled"
   | "url_display"
   | "health"
   | "consecutive_failures"
@@ -33,12 +35,12 @@ export type Subscription = Row<"subscriptions">;
 export type SubscriptionLink = Tables["subscription_destinations"]["Row"];
 export type RecentSpot = Views["recent_spots"]["Row"];
 export type IngestHealth = Database["public"]["Functions"]["list_ingest_health"]["Returns"][number];
-export type DestinationType = "discord" | "webhook";
+export type DestinationType = "discord" | "webhook" | "push";
 export type ApiToken = Omit<Tables["api_tokens"]["Row"], "token_hash">;
 export type ApiTokenScope = "read" | "write";
 
 export const DESTINATION_COLUMNS =
-  "id, user_id, type, name, url_display, health, consecutive_failures, last_success_at, last_error, last_error_at, created_at";
+  "id, user_id, type, name, enabled, url_display, health, consecutive_failures, last_success_at, last_error, last_error_at, created_at";
 
 export const API_TOKEN_COLUMNS =
   "id, user_id, name, scope, token_prefix, lifetime_days, expires_at, created_at, rotated_at, last_used_at";
@@ -53,6 +55,16 @@ export class ApiError extends Error {
 
 function fail(error: { message: string; code?: string } | null, fallback: string): never {
   throw new ApiError(error?.message || fallback, error?.code);
+}
+
+/**
+ * RPC arguments with nulls. The generated Args type every argument as its
+ * non-null type; these RPCs read a null as "keep what is there" or "none".
+ */
+function withNulls<F extends keyof Functions>(
+  args: { [K in keyof Functions[F]["Args"]]: Functions[F]["Args"][K] | null },
+): Functions[F]["Args"] {
+  return args as Functions[F]["Args"];
 }
 
 // ---- Edge Functions ---------------------------------------------------------
@@ -99,8 +111,10 @@ async function accessToken(): Promise<string> {
   return data.session.access_token;
 }
 
-export async function sendTest(destinationId: string): Promise<void> {
-  await callFunction<{ ok: true }>("send-test", { destination_id: destinationId }, await accessToken());
+/** Sends the sample spot, or raw_spots row `spotId`, to a destination with its saved settings. */
+export async function sendTest(destinationId: string, spotId?: number | null): Promise<void> {
+  const body = { destination_id: destinationId, ...(spotId === undefined || spotId === null ? {} : { spot_id: spotId }) };
+  await callFunction<{ ok: true }>("send-test", body, await accessToken());
 }
 
 export async function deleteAccount(): Promise<void> {
@@ -139,7 +153,13 @@ export async function updateEmail(email: string): Promise<void> {
   if (error) fail(error, "Couldn't change your email.");
 }
 
-export async function signOut(scope: "local" | "others" = "local"): Promise<void> {
+/**
+ * Signs out this device, or every other one. `cleanup` runs first while the
+ * session is still valid (this device's push registration, see pwa/push.ts)
+ * and is best effort: its failure never keeps the user signed in.
+ */
+export async function signOut(scope: "local" | "others" = "local", cleanup?: () => Promise<void>): Promise<void> {
+  if (cleanup) await cleanup().catch(() => undefined);
   const { error } = await supabase.auth.signOut({ scope });
   if (error) fail(error, "Couldn't sign out.");
 }
@@ -194,8 +214,9 @@ export interface CreatedDestination {
   signing_secret: string | null;
 }
 
-export async function createDestination(type: DestinationType, name: string, url: string): Promise<CreatedDestination> {
-  const { data, error } = await supabase.rpc("create_destination", { p_type: type, p_name: name, p_url: url });
+/** A Discord or webhook destination from its URL; a push destination has none (`null`). */
+export async function createDestination(type: DestinationType, name: string, url: string | null): Promise<CreatedDestination> {
+  const { data, error } = await supabase.rpc("create_destination", withNulls<"create_destination">({ p_type: type, p_name: name, p_url: url }));
   if (error) fail(error, "Couldn't add the destination.");
   const row = data[0];
   if (!row) throw new ApiError("Couldn't add the destination.");
@@ -208,12 +229,197 @@ export async function rotateSigningSecret(destinationId: string): Promise<string
   return data;
 }
 
+/** Renames, re-points or enables a destination; a field left out keeps its value. */
+export async function updateDestination(
+  destinationId: string,
+  patch: { name?: string; url?: string; enabled?: boolean },
+): Promise<void> {
+  const { error } = await supabase.rpc("update_destination", withNulls<"update_destination">({
+    p_id: destinationId, p_name: patch.name ?? null, p_url: patch.url ?? null, p_enabled: patch.enabled ?? null,
+  }));
+  if (error) fail(error, "Couldn't save the destination.");
+}
+
 export async function deleteDestination(destinationId: string): Promise<void> {
   const { error } = await supabase.from("destinations").delete().eq("id", destinationId);
   if (error) {
     if (error.code === "23503") throw new ApiError("Remove it from its connections first.", error.code);
     fail(error, "Couldn't delete the destination.");
   }
+}
+
+// ---- Push ------------------------------------------------------------------
+//
+// Devices belong to the account; each push destination picks some of them.
+// Endpoints and keys travel to the database once, in registerPushDevice, and
+// never come back: list_push_devices and get_push_destination return ids,
+// names, descriptors and status only.
+
+/** The browser's subscription, as PushSubscription.toJSON() gives it. */
+export interface PushKeys {
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+}
+
+/** One row of list_push_devices: no endpoint, no keys. */
+export interface PushDevice {
+  id: string;
+  label: string;
+  /** "{Browser} on {Platform}", worked out by the browser when it registered. */
+  agent: string;
+  /** Running as an installed app when it registered. */
+  standalone: boolean;
+  created_at: string;
+  last_success_at: string | null;
+  last_error: string | null;
+  last_error_at: string | null;
+  /** Set when the browser reported notifications blocked; cleared by registering again. */
+  blocked_at: string | null;
+  /** True for the device whose endpoint the caller passed. */
+  is_current: boolean;
+  /** The push destinations it is a member of. */
+  destination_ids: string[];
+}
+
+/** The fields a notification can show, rendered and labelled in SQL (push_fields()). */
+export type PushField =
+  | "callsign" | "frequency" | "band" | "mode" | "source" | "reference" | "place_name" | "state" | "spotter" | "comment" | "time";
+
+/** A push destination's settings row, as SQL stores it (push_destination_settings). */
+export interface PushSettings {
+  title_fields: PushField[];
+  body_fields: PushField[];
+  show_field_names: boolean;
+  body_separator: "dot" | "comma" | "newline";
+  tap_target: "profile" | "source";
+  action_buttons: boolean;
+  urgency: "low" | "normal" | "high";
+  /** Drop if the device is offline for: 300, 900, 1800, 3600 or 14400. */
+  ttl_seconds: number;
+  replace_same_station: boolean;
+  sound: boolean;
+  quiet_enabled: boolean;
+  /** "HH:MM" in the account time zone. */
+  quiet_from: string;
+  quiet_until: string;
+  quiet_mode: "silent" | "skip";
+}
+
+/** What the editor saves: without `id` it creates the destination. */
+export interface PushDestinationInput {
+  id?: string;
+  name: string;
+  enabled: boolean;
+  settings: PushSettings;
+  device_ids: string[];
+}
+
+/** What the editor loads (get_push_destination). */
+export interface PushDestination {
+  id: string;
+  name: string;
+  enabled: boolean;
+  settings: PushSettings;
+  device_ids: string[];
+}
+
+/** The text SQL would send for a field pick, from preview_push_notification. */
+export interface PushPreview {
+  title: string;
+  body: string;
+  /** The tap URL: the callsign profile. */
+  url: string;
+  /** The source's page for the spot, or null when it has none (RBN, DX Cluster). */
+  source_url: string | null;
+}
+
+/**
+ * Registers this browser's subscription, or refreshes it. A null label, agent
+ * or standalone keeps what the device already has, so the on-load refresh
+ * sends the keys only. Returns the device id.
+ */
+export async function registerPushDevice(
+  keys: PushKeys,
+  label: string | null,
+  agent: string | null,
+  standalone: boolean | null,
+): Promise<string> {
+  const { data, error } = await supabase.rpc("register_push_device", withNulls<"register_push_device">({
+    p_endpoint: keys.endpoint, p_p256dh: keys.p256dh, p_auth: keys.auth, p_label: label, p_agent: agent, p_standalone: standalone,
+  }));
+  if (error) fail(error, "Couldn't turn on notifications.");
+  return data;
+}
+
+export async function unregisterPushDevice(endpoint: string): Promise<void> {
+  const { error } = await supabase.rpc("unregister_push_device", { p_endpoint: endpoint });
+  if (error) fail(error, "Couldn't turn off notifications.");
+}
+
+/** Every device of the account, newest first; `currentEndpoint` marks this browser's as is_current. */
+export async function listPushDevices(currentEndpoint: string | null): Promise<PushDevice[]> {
+  const { data, error } = await supabase.rpc("list_push_devices", currentEndpoint ? { p_current_endpoint: currentEndpoint } : {});
+  if (error) fail(error, "Couldn't load your devices.");
+  return data;
+}
+
+export async function deletePushDevice(id: string): Promise<void> {
+  const { error } = await supabase.rpc("delete_push_device", { p_id: id });
+  if (error) fail(error, "Couldn't remove the device.");
+}
+
+export async function renamePushDevice(id: string, label: string): Promise<void> {
+  const { error } = await supabase.rpc("rename_push_device", { p_id: id, p_label: label });
+  if (error) fail(error, "Couldn't rename the device.");
+}
+
+/** A browser that finds notifications denied reports the endpoint it last registered. */
+export async function reportPushDeviceBlocked(endpoint: string): Promise<void> {
+  const { error } = await supabase.rpc("report_push_device_blocked", { p_endpoint: endpoint });
+  if (error) fail(error, "Couldn't update the device.");
+}
+
+/** Creates (no id) or replaces a push destination's name, enabled, settings and members. Returns the id. */
+export async function savePushDestination(input: PushDestinationInput): Promise<string> {
+  const settings: Json = { ...input.settings };
+  const { data, error } = await supabase.rpc("save_push_destination", withNulls<"save_push_destination">({
+    p_id: input.id ?? null, p_name: input.name, p_enabled: input.enabled, p_settings: settings, p_device_ids: input.device_ids,
+  }));
+  if (error) fail(error, "Couldn't save the destination.");
+  return data;
+}
+
+export async function getPushDestination(id: string): Promise<PushDestination> {
+  const { data, error } = await supabase.rpc("get_push_destination", { p_id: id });
+  if (error) fail(error, "Couldn't load the destination.");
+  // jsonb in the generated types; its shape is fixed by get_push_destination().
+  return data as unknown as PushDestination;
+}
+
+/** Copies a push destination (settings and devices) as "Copy of {name}", disabled. Returns the new id. */
+export async function duplicateDestination(id: string): Promise<string> {
+  const { data, error } = await supabase.rpc("duplicate_destination", { p_id: id });
+  if (error) fail(error, "Couldn't duplicate the destination.");
+  return data;
+}
+
+/** The notification SQL would build from a field pick, for the sample spot or raw_spots row `spotId`. */
+export async function previewPushNotification(
+  titleFields: PushField[],
+  bodyFields: PushField[],
+  showFieldNames: boolean,
+  bodySeparator: PushSettings["body_separator"],
+  spotId: number | null,
+): Promise<PushPreview> {
+  const { data, error } = await supabase.rpc("preview_push_notification", {
+    p_title_fields: titleFields, p_body_fields: bodyFields, p_show_field_names: showFieldNames, p_body_separator: bodySeparator,
+    ...(spotId === null ? {} : { p_spot_id: spotId }),
+  });
+  if (error) fail(error, "Couldn't load the preview.");
+  const row = data[0];
+  if (!row) throw new ApiError("Couldn't load the preview.");
+  return row;
 }
 
 // ---- API tokens ------------------------------------------------------------

@@ -13,7 +13,7 @@ vi.mock("../lib/api", () => ({
 
 function dest(id: string, overrides: Partial<Destination> = {}): Destination {
   return {
-    id, user_id: "u1", type: "webhook", name: `Dest ${id}`, url_display: "https://example.com/…", health: "ok",
+    id, user_id: "u1", type: "webhook", name: `Dest ${id}`, enabled: true, url_display: "https://example.com/…", health: "ok",
     consecutive_failures: 0, last_success_at: null, last_error: null, last_error_at: null, created_at: "2026-10-01T00:00:00Z",
     ...overrides,
   };

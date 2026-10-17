@@ -29,8 +29,14 @@ export default defineConfig(({ mode }) => {
   const anonKey = env.VITE_SUPABASE_ANON_KEY ?? env.SUPABASE_ANON_KEY ?? env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??
     env.SUPABASE_PUBLISHABLE_KEY ?? env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? "";
   const contactEmail = env.VITE_CONTACT_EMAIL ?? env.CONTACT_EMAIL ?? "";
+  // The VAPID public key is public by design (the browser hands it to the push
+  // service); the private key stays in the sender's and the Edge Functions' env.
+  const vapidPublicKey = env.VITE_VAPID_PUBLIC_KEY ?? env.VAPID_PUBLIC_KEY ?? env.LONGLINES_VAPID_PUBLIC_KEY ?? "";
   if (!url || !anonKey) {
     console.warn("vite: SUPABASE_URL / SUPABASE_ANON_KEY (or VITE_ equivalents) are not set; the app will fail at startup.");
+  }
+  if (!vapidPublicKey) {
+    console.warn("vite: VAPID_PUBLIC_KEY (or LONGLINES_VAPID_PUBLIC_KEY) is not set; push notifications will be unsupported.");
   }
   return {
     plugins: [react(), standaloneServiceWorker()],
@@ -38,6 +44,7 @@ export default defineConfig(({ mode }) => {
       "import.meta.env.VITE_SUPABASE_URL": JSON.stringify(url),
       "import.meta.env.VITE_SUPABASE_ANON_KEY": JSON.stringify(anonKey),
       "import.meta.env.VITE_CONTACT_EMAIL": JSON.stringify(contactEmail),
+      "import.meta.env.VITE_VAPID_PUBLIC_KEY": JSON.stringify(vapidPublicKey),
     },
     // In dev the app registers /src/pwa/sw.ts; this lets it take the root scope.
     server: { headers: { "Service-Worker-Allowed": "/" } },
