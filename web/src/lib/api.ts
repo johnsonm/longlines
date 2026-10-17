@@ -329,7 +329,8 @@ export interface PushPreview {
  * sends the keys only. `previousEndpoint` is the endpoint this browser last
  * registered when the push service has since rotated it: the account's device
  * with that endpoint takes the new one and keeps its destinations. Returns
- * the device id.
+ * the device id. The argument is sent only when there is one, so this works
+ * against the function before and after `20261017002000` while they deploy.
  */
 export async function registerPushDevice(
   keys: PushKeys,
@@ -340,7 +341,7 @@ export async function registerPushDevice(
 ): Promise<string> {
   const { data, error } = await supabase.rpc("register_push_device", withNulls<"register_push_device">({
     p_endpoint: keys.endpoint, p_p256dh: keys.p256dh, p_auth: keys.auth, p_label: label, p_agent: agent, p_standalone: standalone,
-    p_previous_endpoint: previousEndpoint,
+    ...(previousEndpoint === null ? {} : { p_previous_endpoint: previousEndpoint }),
   }));
   if (error) fail(error, "Couldn't turn on notifications.");
   return data;

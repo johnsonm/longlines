@@ -178,7 +178,12 @@ deploys automatically.
   `throttle_destination` (with `Retry-After` when there is one, else null so SQL picks the level's
   backoff), which sets `throttled_until`, `throttle_level` and the messages' vt together and never
   touches `consecutive_failures`. Never delay or drop a message outside those RPCs: the claim's
-  expiry sweep is the only thing that drops a delivery.
+  expiry sweep is the only thing that drops a delivery. `ready` in `claim_deliveries` applies the
+  sweep's age predicate too, so a row past its age is never claimed when more than the sweep's
+  batch expire at once; change the two together.
+- Nothing in the app sets `destinations.health = 'paused'`; it is an operator tool, and the claim
+  drops a paused destination's queued rows as unwanted, like `enabled = false`. To hold a queue
+  and resume it, set `throttled_until`.
 
 ## Web app rules
 
@@ -290,9 +295,12 @@ deploys automatically.
   `record_push_results`) are retried within the cycle (`BOOKKEEPING_RETRY_MS`); the counting ones
   (`mark_deliveries_failed`, `throttle_destination`) are tried once. A failed claim or mark is then
   logged and the next claim backs off, never an exit. Exit 1 otherwise means bad config, a pool
-  that cannot open at start, or an unhandled rejection.
+  that cannot open within `OPEN_DEADLINE_MS` (the start-up probe retries with the claim backoff and
+  times out after `PROBE_TIMEOUT_MS`), or an unhandled rejection.
 - Knobs are env variables read in `sender/config.ts` (`SENDER_POLL_MS`, `SENDER_CONCURRENCY`,
-  `SENDER_STALE_MS`, `SENDER_STATS_MS`, `SENDER_HEALTH_PORT`); the Dockerfile's `--allow-env` must
+  `SENDER_STALE_MS`, `SENDER_STATS_MS`, `SENDER_HEALTH_PORT`, `SENDER_DATABASE_CA`).
+  `SENDER_STALE_MS` must exceed max(`SENDER_POLL_MS`, `RETRY_MAX_MS`) + `STALE_MARGIN_MS`, and
+  every ms knob is capped at `MAX_INTERVAL_MS` (one hour). The Dockerfile's `--allow-env` must
   name every variable the sender reads (`sender/__tests__/modules.test.ts`), and `deno.json`'s test
   permissions mirror it. `LONGLINES_ALLOW_INSECURE_DESTINATIONS` is honoured only with a local
   database host.
@@ -302,7 +310,12 @@ deploys automatically.
   a merge that changes `sender/` or `_shared/delivery/*` ships to production.
 - The app lives on its own Fly network (`--network sender`, fixed at creation) and the hostname
   suffix denylist (`.internal`, `.flycast`, `.local`, `.localdomain`, `.home.arpa`, `.arpa`) is in
-  both `validate_destination_url` and `urlsafety.ts`; change both together.
+  both `validate_destination_url` and `urlsafety.ts`; change both together. So are the private
+  address ranges (`is_private_host` and `isPrivateIp`, including IPv4 embedded in mapped,
+  compatible, NAT64 and 6to4 addresses); both refuse URL userinfo, and SQL refuses a numeric host
+  that is not a canonical dotted quad.
+- TLS to the pooler is verified only with `SENDER_DATABASE_CA` (PEM); `sslmode=verify-full` or
+  `verify-ca` in the URL without it is refused at start. Never fabricate or commit a CA.
 
 ## Archive rules
 
@@ -314,7 +327,9 @@ deploys automatically.
   `ARCHIVE_SCHEMAS` (`_shared/archive.ts`) together; a test compares them.
 - A slice is logged in `archive_log` only after its upload succeeds. Nothing leaves `rbn_spots`
   unless `rbn_day_archived` finds every slice of the day logged with a matching count; `raw_spots` is
-  never pruned by the archive.
+  never pruned by the archive. `rbn_day_archived` / `aprs_day_archived` reset a log row only when
+  the database has more rows than it; a day with no partition and a logged slice holding more rows
+  than the database is retired, and its late rows are deleted, never archived again.
 - The archive bucket is Backblaze B2, reached only through `_shared/s3.ts` (SigV4, no dependency)
   from the `archive` function, configured by the `LONGLINES_ARCHIVE_S3_*` secrets. Its key is
   restricted to the bucket with `writeFiles` only; B2 keys never go in the web app, the relay or
@@ -349,7 +364,10 @@ deploys automatically.
   or `cty_lookup()` on spotters.
 - The rate limit keys on a header the edge proxy sets (`LONGLINES_CLIENT_IP_HEADER`, its last
   entry), never on the first `x-forwarded-for` entry. It accepts only a parsed IP, keys IPv6 by /64,
-  and stores only an HMAC (`_shared/hmac.ts`, key imported once per isolate).
+  and stores only an HMAC (`_shared/hmac.ts`, key imported once per isolate). Sign-in uses the
+  same key (`rateLimitKey`) and limits failed attempts in SQL per (identifier, client), 10 per 15
+  minutes plus 100 per identifier (`begin_sign_in_attempt` / `forget_sign_in_attempt`); an attempt
+  is forgotten unless Auth answered `invalid_credentials`, so a right password never counts.
 - A `verify_jwt = false` function never imports `isServiceRole`, which trusts an unverified JWT
   claim; `function_config.test.ts` walks every such function's imports and fails if one does.
 - The header flag comes from `web/src/profile/flags.ts`, a table keyed by cty.dat entity name
@@ -411,6 +429,9 @@ deploys automatically.
 - `normalize_subscription_rules` is the only validator and normaliser; `save_subscription` and
   `preview_subscription` both go through it. `group_ids` is derived from the rules (every group
   named, `is` or `is_not`) and written only by `save_subscription`; never set it elsewhere.
+  `normalize_subscription_sources` is the only check on `sources` (both call it); its list is
+  `raw_spots_source_check` without `aprs`, so a new source goes in both. Band values are stored
+  lowercase, and a rule takes at most 1,000 values.
 - Matching is `rule_matches` per rule inside `spot_matches`; never evaluate rules in TypeScript.
   The web's `model.ts` only converts builder rows to rules (`rulesOf` drops rows without values) and
   mirrors the RBN guard as a form check (`needsCallsign`).
@@ -480,6 +501,10 @@ screens and for notification text.
   `navigator.serviceWorker.register`. `web/src/pwa/install.ts` is the only module that handles
   `beforeinstallprompt`; `main.tsx` captures it before the first render, and the account menu's
   Install app item sits between Account and Sign out only while `installState()` isn't `none`.
+- When the subscription's endpoint differs from the one the browser remembers, the refresh passes
+  the remembered one as `p_previous_endpoint`, and `register_push_device` moves the caller's own
+  device to the new endpoint in place (same id, name and destinations). It never matches another
+  account's device. A failed enable unsubscribes a subscription it just created.
 - The registration stays current in three places, nowhere else: `AppProvider` runs
   `refreshPushRegistration()` once per load with a session, `register.ts` runs it again on the
   worker's `push-subscription-changed` message, and every local sign-out passes `pushCleanup` to
@@ -516,7 +541,11 @@ screens and for notification text.
 - Tables, the view and the RPCs have `anon`/`authenticated` grants revoked; keep that on any new
   object. The exception is `select` on `stats_snapshots` (anon). `callsign_licenses` is public FCC
   data but stays service-role only, so `hidden_callsigns` cannot be read around; clients get
-  licenses from the `callsign-profile` function.
+  licenses from the `callsign-profile` function. Every `public` table has RLS on
+  (`advisor.test.sql` checks it).
+- `runIngest` bound-checks every spot (`assertStorableSpot`: spot time at most a day ahead and not
+  before 2000, calls and references at most 64 characters, `source_spot_id` at most 256); the
+  firehose row builders apply the same bounds, and `withoutNul` also makes strings well formed.
 - New functions start executable by `public`; `revoke all ... from public` leaves only
   `service_role` (default privileges, `20261012000120`), then grant clients explicitly. New
   functions pin `search_path` except one-expression SQL helpers that must stay inlinable.
