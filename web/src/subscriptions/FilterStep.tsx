@@ -20,6 +20,8 @@ interface Props {
   setRows: (r: RuleRow[]) => void;
   /** null while loading or when loading failed: the group rule is shown but can't be edited. */
   groups: CallsignGroup[] | null;
+  /** Loading the groups failed, as opposed to still loading. */
+  groupsFailed: boolean;
   /** The source's spots per day, for the high volume warning; null until the stats load. */
   perDay: string | null;
   source: SourceInfo | null;
@@ -28,7 +30,7 @@ interface Props {
   mobile: boolean;
 }
 
-export function FilterStep({ sub, setSub, rows, setRows, groups, perDay, source, stationCount, mobile }: Props) {
+export function FilterStep({ sub, setSub, rows, setRows, groups, groupsFailed, perDay, source, stationCount, mobile }: Props) {
   const available = fieldsFor(sub.sources);
   const rules = rulesOf(rows);
   const missingCall = needsCallsign(sub.sources, rules);
@@ -55,7 +57,7 @@ export function FilterStep({ sub, setSub, rows, setRows, groups, perDay, source,
         }
         return "Type a call and press Enter.";
       case "group":
-        if (groups === null) return "Couldn't load your groups.";
+        if (groups === null) return groupsFailed ? "Couldn't load your groups." : "";
         if (groups.length === 0) {
           return <>No callsign groups yet. <Link component={RouterLink} to="/groups">Create a group</Link> to watch a club roster or an award list.</>;
         }

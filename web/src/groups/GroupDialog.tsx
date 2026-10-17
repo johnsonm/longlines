@@ -192,7 +192,7 @@ export function GroupDialog({ initial, onClose, onSaved }: Props) {
             {feedback && <Alert severity={feedback.severity} sx={{ mt: 2 }}>{feedback.text}</Alert>}
           </Box>
           <Box sx={{ flex: 1, minWidth: 0 }}>
-            <MemberPanel calls={calls} onChange={setCalls} />
+            <MemberPanel calls={calls} onChange={setCalls} disabled={adding} />
           </Box>
         </Stack>
       </DialogContent>
@@ -209,14 +209,20 @@ export function GroupDialog({ initial, onClose, onSaved }: Props) {
 /**
  * The list being edited. Memoised so typing on the left doesn't re-render up
  * to 1,000 chips on every keystroke; onChange is the dialog's state setter.
+ * Disabled while an add is being checked: the add merges into the list as it
+ * was when it started, so a removal in the meantime would come back.
  */
-const MemberPanel = memo(function MemberPanel({ calls, onChange }: { calls: string[]; onChange: (calls: string[]) => void }) {
+const MemberPanel = memo(function MemberPanel({ calls, onChange, disabled }: {
+  calls: string[];
+  onChange: (calls: string[]) => void;
+  disabled: boolean;
+}) {
   return (
     <Paper variant="outlined">
       <Box sx={{ p: 2 }}>
         <Stack direction="row" spacing={1} sx={{ justifyContent: "space-between", alignItems: "center" }}>
           <Typography variant="subtitle1">{plural(calls.length, "callsign", "callsigns")}</Typography>
-          <Button size="small" color="error" disabled={calls.length === 0} onClick={() => onChange([])}>Remove all</Button>
+          <Button size="small" color="error" disabled={disabled || calls.length === 0} onClick={() => onChange([])}>Remove all</Button>
         </Stack>
         <Typography variant="caption" color="text.secondary" component="p" sx={{ mt: 0.5 }}>
           Portable suffixes like /P are removed, so KK4PWJ also matches KK4PWJ/P. Up to 1,000 per group.
@@ -228,7 +234,7 @@ const MemberPanel = memo(function MemberPanel({ calls, onChange }: { calls: stri
           ? (
             <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap" }} data-testid="group-members">
               {calls.map((c) => (
-                <Chip key={c} size="small" label={c} onDelete={() => onChange(calls.filter((x) => x !== c))} />
+                <Chip key={c} size="small" label={c} disabled={disabled} onDelete={() => onChange(calls.filter((x) => x !== c))} />
               ))}
             </Stack>
           )

@@ -56,9 +56,22 @@ export function AccountPage({ profile }: { profile: Profile }) {
         callsign: normalizeCallsign(draft.callsign), name: draft.name.trim(), timezone: draft.timezone, utc_times: draft.utcTimes,
       });
       const emailChanged = draft.email.trim() !== saved.email;
-      if (emailChanged) await updateEmail(draft.email.trim());
+      let emailError: unknown = null;
+      if (emailChanged) {
+        try {
+          await updateEmail(draft.email.trim());
+        } catch (err) {
+          emailError = err ?? new Error("");
+        }
+      }
+      // The profile saved either way, so show it even when the email change failed.
       await refreshProfile();
-      notify(emailChanged ? `Saved. Check ${draft.email.trim()} to confirm the change.` : "Saved changes");
+      if (emailError) {
+        const reason = errorText(emailError, "");
+        notify(`Saved your profile, but your email didn't change.${reason ? ` ${reason}` : ""}`);
+      } else {
+        notify(emailChanged ? `Saved. Check ${draft.email.trim()} to confirm the change.` : "Saved changes");
+      }
     } catch (err) {
       notify(errorText(err, "Couldn't save your changes."));
     } finally {

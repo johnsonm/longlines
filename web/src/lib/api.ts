@@ -229,17 +229,6 @@ export async function rotateSigningSecret(destinationId: string): Promise<string
   return data;
 }
 
-/** Renames, re-points or enables a destination; a field left out keeps its value. */
-export async function updateDestination(
-  destinationId: string,
-  patch: { name?: string; url?: string; enabled?: boolean },
-): Promise<void> {
-  const { error } = await supabase.rpc("update_destination", withNulls<"update_destination">({
-    p_id: destinationId, p_name: patch.name ?? null, p_url: patch.url ?? null, p_enabled: patch.enabled ?? null,
-  }));
-  if (error) fail(error, "Couldn't save the destination.");
-}
-
 export async function deleteDestination(destinationId: string): Promise<void> {
   const { error } = await supabase.from("destinations").delete().eq("id", destinationId);
   if (error) {

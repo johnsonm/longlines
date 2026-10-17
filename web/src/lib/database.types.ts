@@ -1158,6 +1158,9 @@ isOneToOne: false
 "normalize_subscription_rules":
 { Args: { "p_rules": Json,"p_strict": boolean,"p_user": string }; Returns: Json
                            },
+"normalize_subscription_sources":
+{ Args: { "p_sources": Json }; Returns: (string)[]
+                           },
 "parse_https_url":
 { Args: { "p_url": string }; Returns: (string)[]
                            },
