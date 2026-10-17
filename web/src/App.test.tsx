@@ -16,7 +16,12 @@ vi.mock("@vercel/analytics/react", () => ({ Analytics: () => null }));
 
 // App's job is routing and loading shared data; each page has its own tests.
 // The stubs show which page rendered and the props App passed it.
-vi.mock("./auth/SignInPage", () => ({ SignInPage: () => <p>sign-in page</p> }));
+vi.mock("./auth/SignInPage", async () => {
+  const { useLocation } = await import("react-router");
+  return {
+    SignInPage: () => <p>sign-in page {(useLocation().state as { from?: string } | null)?.from ?? ""}</p>,
+  };
+});
 vi.mock("./auth/CheckEmailPage", () => ({ CheckEmailPage: () => <p>check-email page</p> }));
 vi.mock("./auth/ResetPasswordPage", () => ({ ResetPasswordPage: () => <p>reset page</p> }));
 vi.mock("./auth/SetPasswordPage", () => ({ SetPasswordPage: () => <p>set-password page</p> }));
@@ -35,8 +40,8 @@ vi.mock("./subscriptions/SubscriptionsPage", () => ({
   SubscriptionsPage: ({ subs }: { subs: unknown[] }) => <p>subscriptions page {subs.length}</p>,
 }));
 vi.mock("./subscriptions/SubscriptionEditorPage", () => ({
-  SubscriptionEditorPage: ({ id, source, callsign }: { id?: string; source?: string | null; callsign?: string | null }) => (
-    <p>subscription editor {id ?? "new"} {source ?? "none"} {callsign ?? "any"}</p>
+  SubscriptionEditorPage: ({ id, source, callsign, group }: { id?: string; source?: string | null; callsign?: string | null; group?: string | null }) => (
+    <p>subscription editor {id ?? "new"} {source ?? "none"} {callsign ?? "any"}{group ? ` group ${group}` : ""}</p>
   ),
 }));
 vi.mock("./groups/GroupsPage", () => ({ GroupsPage: () => <p>groups page</p> }));
@@ -76,7 +81,13 @@ describe("App routing", () => {
   it("sends signed-out visitors to sign in", async () => {
     session(null);
     renderAt("/destinations");
-    expect(await screen.findByText("sign-in page")).toBeInTheDocument();
+    expect(await screen.findByText("sign-in page /destinations")).toBeInTheDocument();
+  });
+
+  it("comes back to the whole address after sign in, query string and hash included", async () => {
+    session(null);
+    renderAt("/connections/new?source=rbn&callsign=KK4PWJ#top");
+    expect(await screen.findByText("sign-in page /connections/new?source=rbn&callsign=KK4PWJ#top")).toBeInTheDocument();
   });
 
   it("renders a source's detail page at /sources/:id", async () => {
@@ -195,6 +206,7 @@ describe("App routing", () => {
     ["/connections", "subscriptions page 0"],
     ["/connections/new?source=pota", "subscription editor new pota any"],
     ["/connections/new?source=rbn&callsign=KK4PWJ", "subscription editor new rbn KK4PWJ"],
+    ["/connections/new?source=pota&group=g1", "subscription editor new pota any group g1"],
     ["/connections/s1", "subscription editor s1 none any"],
     // Old bookmarks redirect, keeping the id and query string.
     ["/subscriptions", "subscriptions page 0"],

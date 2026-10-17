@@ -122,7 +122,7 @@ A connection says which spots you want and where to send them.
 |---|---|---|
 | `name` | string | Required. |
 | `enabled` | boolean | Defaults to `true`. |
-| `sources` | strings | `pota`, `sotawatch`, `wwff`, `rbn`, `dxcluster`. Empty means any. A DX Cluster spot only matches a connection that lists `dxcluster`, and a WWFF spot one that lists `wwff`. |
+| `sources` | strings | `pota`, `sotawatch`, `wwff`, `rbn`, `dxcluster`; any other value is refused. Empty means any. A DX Cluster spot only matches a connection that lists `dxcluster`, and a WWFF spot one that lists `wwff`. |
 | `rules` | list of lists | The filter. See Rules. Defaults to `[]`, which passes every spot. |
 | `quiet_minutes` | integer | 0, 5, 10, 30 or 60. Defaults to 10. |
 | `destinations` | UUIDs | Zero or more. With none, the connection stays off whatever `enabled` says, and starts once it has one. |
@@ -154,14 +154,14 @@ tighter, so "band is 20m and mode is CW or callsign is W1AW" is:
 |---|---|---|
 | `callsign` | `is`, `is_not` | Calls, uppercased for you. A call matches exactly or by its base call. |
 | `group` | `is`, `is_not` | Callsign group ids. A spot's base call is checked against the members. |
-| `band` | `is`, `is_not` | Bands, for example `20m`. |
+| `band` | `is`, `is_not` | Bands, for example `20m`, lowercased for you. |
 | `mode` | `is`, `is_not` | Modes or mode families, for example `cw`, `ft8`, `digital`. |
 | `reference` | `contains`, `not_contains` | Text to look for in a POTA reference or location, a SOTA summit code or a WWFF reference, such as `US-NC` or `KFF-`. Ignores case. |
 | `frequency` | `is`, `is_not`, `gt`, `lt` | One number, in kHz. `gt` is greater than and `lt` less than. |
 
 `is` passes a spot that has any of the values and `is_not` one that has none of them, so a spot
-with no band passes `band is_not 20m`. A connection can have at most 50 rules, and each group
-needs at least one.
+with no band passes `band is_not 20m`. A connection can have at most 50 rules, each group
+needs at least one, and a rule can have at most 1,000 values.
 
 RBN spots only pass a group that has a `callsign` or `group` rule with `is`, so a connection
 whose only source is `rbn` needs one in every group.

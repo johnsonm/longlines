@@ -73,16 +73,17 @@ interface Opts {
   id?: string;
   source?: string | null;
   callsign?: string | null;
+  group?: string | null;
   subs?: SubscriptionWithLinks[];
   dests?: Destination[];
   loading?: boolean;
   mobile?: boolean;
 }
 
-function render({ id, source = null, callsign = null, subs = [sub()], dests = DESTS, loading = false, mobile = false }: Opts) {
+function render({ id, source = null, callsign = null, group: startGroup = null, subs = [sub()], dests = DESTS, loading = false, mobile = false }: Opts) {
   const reload = vi.fn(() => Promise.resolve());
   const r = renderPage(
-    <SubscriptionEditorPage id={id} source={source} callsign={callsign} subs={subs} dests={dests} loading={loading} reload={reload} prefs={PREFS} mobile={mobile} />,
+    <SubscriptionEditorPage id={id} source={source} callsign={callsign} group={startGroup} subs={subs} dests={dests} loading={loading} reload={reload} prefs={PREFS} mobile={mobile} />,
     { route: "/connections/x" },
   );
   return { ...r, reload };
@@ -142,6 +143,29 @@ describe("new subscription", () => {
     expect(saveSubscription).toHaveBeenCalledWith(expect.objectContaining({
       name: "KK4PWJ on the air", sources: ["rbn"], rules: [[{ field: "callsign", op: "is", values: ["KK4PWJ"] }]],
     }));
+  });
+
+  it("starts filtered to the group a group's Get alerts passed, named once the groups load", async () => {
+    const { user } = render({ source: "rbn", group: "g2" });
+    expect(await screen.findByLabelText(/^Name/)).toHaveValue("RARS members on the air");
+    expect(screen.queryByText("High volume source: at least one callsign or group is required.")).not.toBeInTheDocument();
+    await waitFor(() => expect(previewSubscription).toHaveBeenCalledWith({
+      sources: ["rbn"], rules: [[{ field: "group", op: "is", values: ["g2"] }]],
+    }));
+    await user.click(save());
+    expect(saveSubscription).toHaveBeenCalledWith(expect.objectContaining({
+      name: "RARS members on the air", sources: ["rbn"], rules: [[{ field: "group", op: "is", values: ["g2"] }]],
+    }));
+  });
+
+  it("keeps a name typed before the groups load", async () => {
+    let resolve: (g: CallsignGroup[]) => void = () => undefined;
+    vi.mocked(listGroups).mockReturnValue(new Promise((r) => (resolve = r)));
+    const { user } = render({ source: "pota", group: "g2" });
+    await user.type(screen.getByLabelText(/^Name/), "Club");
+    resolve([group("g2", "RARS members")]);
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Values" })).toBeEnabled());
+    expect(screen.getByLabelText(/^Name/)).toHaveValue("Club");
   });
 
   it("requires a callsign or group on RBN, with the day's volume", async () => {
@@ -417,6 +441,13 @@ describe("callsign groups", () => {
     const link = await screen.findByRole("link", { name: "Create a group" });
     await user.click(link);
     expect(screen.getByTestId("location")).toHaveTextContent("/groups");
+  });
+
+  it("says nothing about the groups while they load", async () => {
+    vi.mocked(listGroups).mockReturnValue(new Promise(() => undefined));
+    render({ id: "s1", subs: [sub({ rules: [[GROUP]] })] });
+    expect(screen.getByRole("combobox", { name: "Values" })).toBeDisabled();
+    expect(screen.queryByText("Couldn't load your groups.")).not.toBeInTheDocument();
   });
 
   it("keeps the groups when the list doesn't load", async () => {

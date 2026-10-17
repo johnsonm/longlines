@@ -1,22 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import { renderPage } from "../test/render";
-import {
-  deleteGroup, listGroups, loadDestinations, loadSubscriptions, saveGroup, saveSubscription,
-  type Destination, type SubscriptionWithLinks,
-} from "../lib/api";
+import { deleteGroup, listGroups, loadSubscriptions, saveGroup, type SubscriptionWithLinks } from "../lib/api";
 import { GroupsPage } from "./GroupsPage";
 import type { CallsignGroup } from "./types";
 
 vi.mock("../lib/api", () => ({
   deleteGroup: vi.fn(),
   listGroups: vi.fn(),
-  loadDestinations: vi.fn(),
   loadSubscriptions: vi.fn(),
   normalizeCallsigns: vi.fn(),
   saveGroup: vi.fn(),
-  saveSubscription: vi.fn(),
 }));
+vi.mock("../stats/useStats", () => ({ useStats: () => ({ stats: null, loading: false, error: null }) }));
 
 const CALLS = ["AA4MS", "AB4RD", "K4SWL", "KD4AA", "KK4PWJ", "KN4QHW", "KO4YUF", "N4CPA", "N4DXX", "W4ABC", "W4KNX", "WB4SZK"];
 
@@ -27,19 +23,16 @@ function group(id: string, overrides: Partial<CallsignGroup> = {}): CallsignGrou
   };
 }
 
-const dest = (id: string, health: Destination["health"]) => ({ id, name: id, health }) as Destination;
 const sub = (name: string, group_ids: string[], op = "is") =>
   ({ id: name, name, group_ids, rules: [[{ field: "group", op, values: group_ids }]] }) as unknown as SubscriptionWithLinks;
 
 beforeEach(() => {
-  for (const fn of [deleteGroup, listGroups, loadDestinations, loadSubscriptions, saveGroup, saveSubscription]) vi.mocked(fn).mockReset();
+  for (const fn of [deleteGroup, listGroups, loadSubscriptions, saveGroup]) vi.mocked(fn).mockReset();
 });
 
 function render(groups: CallsignGroup[]) {
   vi.mocked(listGroups).mockResolvedValue(groups);
-  const reload = vi.fn(() => Promise.resolve());
-  const r = renderPage(<GroupsPage reload={reload} />, { route: "/groups" });
-  return { ...r, reload };
+  return renderPage(<GroupsPage />, { route: "/groups" });
 }
 
 const card = (name: string) => screen.getByRole("heading", { name }).closest(".MuiCard-root") as HTMLElement;
@@ -56,7 +49,7 @@ describe("GroupsPage", () => {
 
   it("reports a load failure", async () => {
     vi.mocked(listGroups).mockRejectedValue(new Error("Not signed in."));
-    const { app } = renderPage(<GroupsPage reload={vi.fn()} />, { route: "/groups" });
+    const { app } = renderPage(<GroupsPage />, { route: "/groups" });
     await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Not signed in."));
   });
 
@@ -107,51 +100,44 @@ describe("GroupsPage", () => {
   });
 
   describe("Get alerts", () => {
-    it("creates a subscription on the group with the first healthy destination", async () => {
-      vi.mocked(loadDestinations).mockResolvedValue([dest("bad", "failing"), dest("good", "ok")]);
+    it("asks for a source, then opens the editor on it with the group as the filter", async () => {
       // A subscription that only leaves the group out doesn't count as alerts on it.
       vi.mocked(loadSubscriptions).mockResolvedValue([sub("Other", ["z"]), sub("Not RARS", ["a"], "is_not")]);
-      vi.mocked(saveSubscription).mockResolvedValue("s1");
-      const { user, app, reload } = render([group("a", { name: "RARS" })]);
+      const { user } = render([group("a", { name: "RARS" })]);
       await user.click(await screen.findByRole("button", { name: "Get alerts" }));
-      await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Created RARS on the air"));
-      expect(saveSubscription).toHaveBeenCalledWith({
-        name: "RARS on the air", enabled: true, quiet_minutes: 30, destinations: ["good"],
-        sources: [], rules: [[{ field: "group", op: "is", values: ["a"] }]],
-      });
-      expect(reload).toHaveBeenCalled();
-      await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/connections/s1"));
+      const dialog = within(await screen.findByRole("dialog", { name: "New connection" }));
+      await user.click(dialog.getByRole("radio", { name: /Reverse Beacon Network/ }));
+      await user.click(dialog.getByRole("button", { name: "Continue" }));
+      const where = screen.getByTestId("location");
+      expect(where).toHaveTextContent(/^\/connections\/new$/);
+      expect(where.dataset.search).toBe("?source=rbn&group=a");
     });
 
-    it("opens the subscription that already uses the group", async () => {
-      vi.mocked(loadDestinations).mockResolvedValue([dest("good", "ok")]);
+    it("stays on Groups when the picker is cancelled", async () => {
+      vi.mocked(loadSubscriptions).mockResolvedValue([]);
+      const { user } = render([group("a")]);
+      await user.click(await screen.findByRole("button", { name: "Get alerts" }));
+      await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Cancel" }));
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+      expect(screen.getByTestId("location")).toHaveTextContent(/^\/groups$/);
+    });
+
+    it("opens the connection that already uses the group", async () => {
       vi.mocked(loadSubscriptions).mockResolvedValue([sub("Club alerts", ["a"])]);
       const { user, app } = render([group("a")]);
       await user.click(await screen.findByRole("button", { name: "Get alerts" }));
       await waitFor(() => expect(app.notify).toHaveBeenCalledWith("You already have Club alerts."));
-      expect(saveSubscription).not.toHaveBeenCalled();
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
       // The fixture's id is its name.
       await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/connections/Club"));
     });
 
-    it("creates it without a destination when none is healthy and opens its editor", async () => {
-      vi.mocked(loadDestinations).mockResolvedValue([dest("paused", "paused")]);
-      vi.mocked(loadSubscriptions).mockResolvedValue([]);
-      vi.mocked(saveSubscription).mockResolvedValue("s1");
-      const { user, app } = render([group("a", { name: "RARS" })]);
-      await user.click(await screen.findByRole("button", { name: "Get alerts" }));
-      await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Created RARS on the air"));
-      expect(saveSubscription).toHaveBeenCalledWith(expect.objectContaining({ destinations: [] }));
-      await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/connections/s1"));
-    });
-
-    it("reports a failed save", async () => {
-      vi.mocked(loadDestinations).mockResolvedValue([dest("good", "ok")]);
-      vi.mocked(loadSubscriptions).mockResolvedValue([]);
-      vi.mocked(saveSubscription).mockRejectedValue(new Error(""));
+    it("reports connections that don't load", async () => {
+      vi.mocked(loadSubscriptions).mockRejectedValue(new Error(""));
       const { user, app } = render([group("a")]);
       await user.click(await screen.findByRole("button", { name: "Get alerts" }));
-      await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Couldn't save the connection."));
+      await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Couldn't load your connections."));
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Get alerts" })).toBeEnabled();
     });
   });

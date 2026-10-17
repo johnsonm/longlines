@@ -194,6 +194,20 @@ describe("GroupDialog", () => {
     expect(screen.getByRole("button", { name: "Remove all" })).toBeDisabled();
   });
 
+  it("locks the list while an add is being checked, so a removal can't be undone by it", async () => {
+    let finish: (r: NormalizedCallsigns) => void = () => undefined;
+    vi.mocked(normalizeCallsigns).mockReturnValue(new Promise((r) => (finish = r)));
+    const { user } = render({ id: "g1", name: "RARS", callsigns: ["AB4RD", "KK4PWJ"] });
+    await user.type(screen.getByRole("textbox", { name: "Callsign" }), "n4dxx{Enter}");
+    const chip = within(screen.getByTestId("group-members")).getByRole("button", { name: "KK4PWJ" });
+    expect(chip).toHaveClass("Mui-disabled");
+    expect(screen.getByRole("button", { name: "Remove all" })).toBeDisabled();
+    finish({ callsigns: ["N4DXX"], rejected: [] });
+    await waitFor(() => expect(members()).toEqual(["AB4RD", "KK4PWJ", "N4DXX"]));
+    expect(within(screen.getByTestId("group-members")).getByRole("button", { name: "KK4PWJ" })).not.toHaveClass("Mui-disabled");
+    expect(screen.getByRole("button", { name: "Remove all" })).toBeEnabled();
+  });
+
   it("saves the whole list with the group's id", async () => {
     vi.mocked(saveGroup).mockResolvedValue("g1");
     const { user, onSaved } = render({ id: "g1", name: "RARS", callsigns: ["KK4PWJ"] });

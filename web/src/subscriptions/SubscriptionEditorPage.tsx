@@ -37,6 +37,8 @@ interface Props {
   source?: string | null;
   /** With `source`: the callsign a profile's Get alerts starts the filter with. */
   callsign?: string | null;
+  /** With `source` and no `callsign`: the group id a group's Get alerts starts the filter with. */
+  group?: string | null;
   subs: SubscriptionWithLinks[];
   dests: Destination[];
   loading: boolean;
@@ -45,8 +47,8 @@ interface Props {
   mobile: boolean;
 }
 
-/** /connections/new?source=…[&callsign=…] and /connections/:id. An unknown id or source goes back to the list. */
-export function SubscriptionEditorPage({ id, source, callsign, subs, loading, ...rest }: Props) {
+/** /connections/new?source=…[&callsign=…|&group=…] and /connections/:id. An unknown id or source goes back to the list. */
+export function SubscriptionEditorPage({ id, source, callsign, group, subs, loading, ...rest }: Props) {
   if (id) {
     const existing = subs.find((s) => s.id === id);
     if (!existing) return loading ? <LinearProgress /> : <Navigate to="/connections" replace />;
@@ -55,7 +57,12 @@ export function SubscriptionEditorPage({ id, source, callsign, subs, loading, ..
   const picked = pickableSource(source ?? null);
   if (!picked) return <Navigate to="/connections" replace />;
   const call = callsign?.trim() || null;
-  return <Editor key={`${picked.id}:${call ?? ""}`} initial={blankSub(picked.id, call)} {...rest} />;
+  const startGroup = call ? null : group?.trim() || null;
+  return (
+    <Editor
+      key={`${picked.id}:${call ?? ""}:${startGroup ?? ""}`} initial={blankSub(picked.id, call, startGroup)} startGroup={startGroup} {...rest}
+    />
+  );
 }
 
 function Step({ n, title, subheader, children }: { n: number; title: string; subheader: string; children: ReactNode }) {
@@ -81,13 +88,15 @@ function Arrow() {
 
 interface EditorProps {
   initial: SubscriptionInput;
+  /** The group a new subscription starts filtered to; its name names the subscription once the groups load. */
+  startGroup?: string | null;
   dests: Destination[];
   reload: () => Promise<void>;
   prefs: TimePrefs;
   mobile: boolean;
 }
 
-function Editor({ initial, dests, reload, prefs, mobile }: EditorProps) {
+function Editor({ initial, startGroup = null, dests, reload, prefs, mobile }: EditorProps) {
   const notify = useNotify();
   const navigate = useNavigate();
   const isNew = !initial.id;
@@ -98,6 +107,7 @@ function Editor({ initial, dests, reload, prefs, mobile }: EditorProps) {
     return r.length === 0 && needsCallsign(initial.sources, initial.rules) ? [newRow(["callsign"], [])] : r;
   });
   const [groups, setGroups] = useState<CallsignGroup[] | null>(null);
+  const [groupsFailed, setGroupsFailed] = useState(false);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -114,13 +124,18 @@ function Editor({ initial, dests, reload, prefs, mobile }: EditorProps) {
     let active = true;
     listGroups()
       .then((g) => {
-        if (active) setGroups(g);
+        if (!active) return;
+        setGroups(g);
+        const named = startGroup ? g.find((x) => x.id === startGroup) : undefined;
+        if (named) setSub((s) => (s.name ? s : { ...s, name: `${named.name} on the air` }));
       })
-      .catch(() => undefined);
+      .catch(() => {
+        if (active) setGroupsFailed(true);
+      });
     return () => {
       active = false;
     };
-  }, []);
+  }, [startGroup]);
 
   const filterKey = useMemo(() => JSON.stringify({ sources: sub.sources, rules }), [sub.sources, rules]);
 
@@ -216,7 +231,7 @@ function Editor({ initial, dests, reload, prefs, mobile }: EditorProps) {
               <Arrow />
               <Step n={2} title="Filter" subheader={source?.volume === "high" ? "Required for this source" : "Optional. Leave it empty to pass every spot"}>
                 <FilterStep
-                  sub={sub} setSub={setSub} rows={rows} setRows={setRows} groups={groups} source={source} mobile={mobile}
+                  sub={sub} setSub={setSub} rows={rows} setRows={setRows} groups={groups} groupsFailed={groupsFailed} source={source} mobile={mobile}
                   perDay={rates ? formatPerDay(rates.perDay) : null}
                   stationCount={preview && picksStations(rules) ? preview.station_count : null}
                 />
