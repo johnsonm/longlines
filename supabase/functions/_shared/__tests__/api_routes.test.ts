@@ -133,6 +133,13 @@ Deno.test("checkBody checks scalar types and lets null through", () => {
   }
   const dest = route("PATCH", `/v1/destinations/${ID}`);
   assertEquals(checkBody(dest, { name: { x: 1 } }), "name must be a string.");
+  assertEquals(checkBody(dest, { enabled: false, name: null }), null);
+  assertEquals(checkBody(dest, { enabled: "no" }), "enabled must be a boolean.");
+  assertEquals(
+    checkBody(route("POST", "/v1/destinations"), { enabled: "no" }),
+    null,
+    "POST has no enabled",
+  );
   assertEquals(
     checkBody(route("POST", "/v1/destinations"), { type: "discord", name: "Club", url: 5 }),
     "url must be a string.",

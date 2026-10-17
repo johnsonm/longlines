@@ -445,14 +445,14 @@ isOneToOne: false
                   ]
                 },"destinations": {
                   Row: {
-                    "claim_tokens": number,"claim_tokens_at": string,"consecutive_failures": number,"created_at": string,"health": string,"id": string,"last_error": string | null,"last_error_at": string | null,"last_success_at": string | null,"name": string,"signing_secret": string | null,"throttle_level": number,"throttled_until": string | null,"type": string,"url": string | null,"url_display": string,"user_id": string,"api_destination_json": Json | null
+                    "claim_tokens": number,"claim_tokens_at": string,"consecutive_failures": number,"created_at": string,"enabled": boolean,"health": string,"id": string,"last_error": string | null,"last_error_at": string | null,"last_success_at": string | null,"name": string,"signing_secret": string | null,"throttle_level": number,"throttled_until": string | null,"type": string,"url": string | null,"url_display": string,"user_id": string,"api_destination_json": Json | null
                   }
                   ComputedFields: "api_destination_json"
                   Insert: {
-                    "claim_tokens"?: number,"claim_tokens_at"?: string,"consecutive_failures"?: number,"created_at"?: string,"health"?: string,"id"?: string,"last_error"?: string | null,"last_error_at"?: string | null,"last_success_at"?: string | null,"name": string,"signing_secret"?: string | null,"throttle_level"?: number,"throttled_until"?: string | null,"type": string,"url"?: string | null,"url_display": string,"user_id": string
+                    "claim_tokens"?: number,"claim_tokens_at"?: string,"consecutive_failures"?: number,"created_at"?: string,"enabled"?: boolean,"health"?: string,"id"?: string,"last_error"?: string | null,"last_error_at"?: string | null,"last_success_at"?: string | null,"name": string,"signing_secret"?: string | null,"throttle_level"?: number,"throttled_until"?: string | null,"type": string,"url"?: string | null,"url_display": string,"user_id": string
                   }
                   Update: {
-                    "claim_tokens"?: number,"claim_tokens_at"?: string,"consecutive_failures"?: number,"created_at"?: string,"health"?: string,"id"?: string,"last_error"?: string | null,"last_error_at"?: string | null,"last_success_at"?: string | null,"name"?: string,"signing_secret"?: string | null,"throttle_level"?: number,"throttled_until"?: string | null,"type"?: string,"url"?: string | null,"url_display"?: string,"user_id"?: string
+                    "claim_tokens"?: number,"claim_tokens_at"?: string,"consecutive_failures"?: number,"created_at"?: string,"enabled"?: boolean,"health"?: string,"id"?: string,"last_error"?: string | null,"last_error_at"?: string | null,"last_success_at"?: string | null,"name"?: string,"signing_secret"?: string | null,"throttle_level"?: number,"throttled_until"?: string | null,"type"?: string,"url"?: string | null,"url_display"?: string,"user_id"?: string
                   }
                   Relationships: [
                     
@@ -583,25 +583,71 @@ isOneToOne: false
                   Relationships: [
                     
                   ]
-                },"push_devices": {
+                },"push_destination_devices": {
                   Row: {
-                    "auth": string,"created_at": string,"endpoint": string,"id": string,"label": string,"last_error": string | null,"last_error_at": string | null,"last_success_at": string | null,"p256dh": string,"user_id": string
+                    "destination_id": string,"device_id": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "auth": string,"created_at"?: string,"endpoint": string,"id"?: string,"label": string,"last_error"?: string | null,"last_error_at"?: string | null,"last_success_at"?: string | null,"p256dh": string,"user_id": string
+                    "destination_id": string,"device_id": string
                   }
                   Update: {
-                    "auth"?: string,"created_at"?: string,"endpoint"?: string,"id"?: string,"label"?: string,"last_error"?: string | null,"last_error_at"?: string | null,"last_success_at"?: string | null,"p256dh"?: string,"user_id"?: string
+                    "destination_id"?: string,"device_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "push_destination_devices_destination_id_fkey"
+      columns: ["destination_id"]
+isOneToOne: false
+      referencedRelation: "destinations"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "push_destination_devices_device_id_fkey"
+      columns: ["device_id"]
+isOneToOne: false
+      referencedRelation: "push_devices"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"push_destination_settings": {
+                  Row: {
+                    "action_buttons": boolean,"body_fields": (string)[],"body_separator": string,"destination_id": string,"quiet_enabled": boolean,"quiet_from": string,"quiet_mode": string,"quiet_until": string,"replace_same_station": boolean,"show_field_names": boolean,"sound": boolean,"tap_target": string,"title_fields": (string)[],"ttl_seconds": number,"urgency": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "action_buttons": boolean,"body_fields": (string)[],"body_separator": string,"destination_id": string,"quiet_enabled": boolean,"quiet_from": string,"quiet_mode": string,"quiet_until": string,"replace_same_station": boolean,"show_field_names": boolean,"sound": boolean,"tap_target": string,"title_fields": (string)[],"ttl_seconds": number,"urgency": string
+                  }
+                  Update: {
+                    "action_buttons"?: boolean,"body_fields"?: (string)[],"body_separator"?: string,"destination_id"?: string,"quiet_enabled"?: boolean,"quiet_from"?: string,"quiet_mode"?: string,"quiet_until"?: string,"replace_same_station"?: boolean,"show_field_names"?: boolean,"sound"?: boolean,"tap_target"?: string,"title_fields"?: (string)[],"ttl_seconds"?: number,"urgency"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "push_destination_settings_destination_id_fkey"
+      columns: ["destination_id"]
+isOneToOne: true
+      referencedRelation: "destinations"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"push_devices": {
+                  Row: {
+                    "agent": string,"auth": string,"blocked_at": string | null,"created_at": string,"endpoint": string,"id": string,"label": string,"last_error": string | null,"last_error_at": string | null,"last_success_at": string | null,"p256dh": string,"standalone": boolean,"user_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "agent"?: string,"auth": string,"blocked_at"?: string | null,"created_at"?: string,"endpoint": string,"id"?: string,"label": string,"last_error"?: string | null,"last_error_at"?: string | null,"last_success_at"?: string | null,"p256dh": string,"standalone"?: boolean,"user_id": string
+                  }
+                  Update: {
+                    "agent"?: string,"auth"?: string,"blocked_at"?: string | null,"created_at"?: string,"endpoint"?: string,"id"?: string,"label"?: string,"last_error"?: string | null,"last_error_at"?: string | null,"last_success_at"?: string | null,"p256dh"?: string,"standalone"?: boolean,"user_id"?: string
                   }
                   Relationships: [
                     
                   ]
                 },"raw_spots": {
                   Row: {
-                    "band": string | null,"base_callsign": string | null,"callsign": string,"comment": string,"content_hash": string,"frequency_khz": number,"id": number,"ingested_at": string,"mode": string | null,"mode_family": string | null,"pota_location": string | null,"pota_park_name": string | null,"pota_reference": string | null,"raw_payload": NonNullable<Json>,"sota_summit_ref": string | null,"source": string,"source_spot_id": string,"spot_time": string,"spotter": string | null,"wwff_reference": string | null,"wwff_reference_name": string | null
+                    "band": string | null,"base_callsign": string | null,"callsign": string,"comment": string,"content_hash": string,"frequency_khz": number,"id": number,"ingested_at": string,"mode": string | null,"mode_family": string | null,"pota_location": string | null,"pota_park_name": string | null,"pota_reference": string | null,"raw_payload": NonNullable<Json>,"sota_summit_ref": string | null,"source": string,"source_spot_id": string,"spot_time": string,"spotter": string | null,"wwff_reference": string | null,"wwff_reference_name": string | null,"delivery_spot_json": Json | null
                   }
-                  ComputedFields: never
+                  ComputedFields: "delivery_spot_json"
                   Insert: {
                     "band"?: string | null,"base_callsign"?: never,"callsign": string,"comment"?: string,"content_hash": string,"frequency_khz": number,"id"?: number,"ingested_at"?: string,"mode"?: string | null,"mode_family"?: string | null,"pota_location"?: string | null,"pota_park_name"?: string | null,"pota_reference"?: string | null,"raw_payload": NonNullable<Json>,"sota_summit_ref"?: string | null,"source": string,"source_spot_id": string,"spot_time": string,"spotter"?: string | null,"wwff_reference"?: string | null,"wwff_reference_name"?: string | null
                   }
@@ -853,6 +899,9 @@ isOneToOne: false
 "api_destination_json":
 { Args: { "d": Omit<Database["public"]['Tables']["destinations"]['Row'], Database["public"]['Tables']["destinations"]['ComputedFields']> }; Returns: Json
                            },
+"api_group_json":
+{ Args: { "g": Json }; Returns: Json
+                           },
 "api_subscription_json":
 { Args: { "s": Omit<Database["public"]['Tables']["subscriptions"]['Row'], Database["public"]['Tables']["subscriptions"]['ComputedFields']> }; Returns: Json
                            },
@@ -960,6 +1009,9 @@ isOneToOne: false
               "depth": number,"expired_last_hour": number
             }[]
                            },
+"delivery_spot_json":
+{ Args: { "r": Omit<Database["public"]['Tables']["raw_spots"]['Row'], Database["public"]['Tables']["raw_spots"]['ComputedFields']> }; Returns: Json
+                           },
 "destination_budget":
 { Args: { "p_type": string }; Returns: {
               "burst": number,"rate_per_minute": number
@@ -973,6 +1025,9 @@ isOneToOne: false
                            },
 "destination_url_display":
 { Args: { "p_type": string,"p_url": string }; Returns: string
+                           },
+"duplicate_destination":
+{ Args: { "p_id": string }; Returns: string
                            },
 "edit_group_callsigns":
 { Args: { "p_add": Json,"p_id": string,"p_remove": Json }; Returns: undefined
@@ -997,6 +1052,9 @@ isOneToOne: false
                            },
 "fcc_license_staged_counts":
 { Args: Record<PropertyKey, never>; Returns: Json
+                           },
+"get_push_destination":
+{ Args: { "p_id": string }; Returns: Json
                            },
 "group_matches":
 { Args: { "p_base": string,"p_group_ids": (string)[] }; Returns: boolean
@@ -1039,7 +1097,7 @@ isOneToOne: false
                            },
 "list_push_devices":
 { Args: { "p_current_endpoint"?: string }; Returns: {
-              "created_at": string,"id": string,"is_current": boolean,"label": string,"last_error": string,"last_error_at": string,"last_success_at": string
+              "agent": string,"blocked_at": string,"created_at": string,"destination_ids": (string)[],"id": string,"is_current": boolean,"label": string,"last_error": string,"last_error_at": string,"last_success_at": string,"standalone": boolean
             }[]
                            },
 "list_recent_spots":
@@ -1109,6 +1167,11 @@ isOneToOne: false
 "patch_subscription":
 { Args: { "p_id": string,"p_patch": Json }; Returns: undefined
                            },
+"preview_push_notification":
+{ Args: { "p_body_fields": (string)[],"p_body_separator": string,"p_show_field_names": boolean,"p_spot_id"?: number,"p_title_fields": (string)[] }; Returns: {
+              "body": string,"source_url": string,"title": string,"url": string
+            }[]
+                           },
 "preview_subscription":
 { Args: { "filter": Json }; Returns: {
               "count": number,"spots": Json,"station_count": number,"window_size": number
@@ -1119,6 +1182,45 @@ isOneToOne: false
                            },
 "prune_push_devices":
 { Args: { "p_endpoints": (string)[] }; Returns: number
+                           },
+"push_clip":
+{ Args: { "p_max": number,"p_text": string }; Returns: string
+                           },
+"push_default_settings":
+{ Args: Record<PropertyKey, never>; Returns: Json
+                           },
+"push_field_label":
+{ Args: { "p_field": string }; Returns: string
+                           },
+"push_fields":
+{ Args: Record<PropertyKey, never>; Returns: (string)[]
+                           },
+"push_fields_valid":
+{ Args: { "p_fields": (string)[],"p_max": number,"p_min": number }; Returns: boolean
+                           },
+"push_member_devices":
+{ Args: { "p_destination_id": string }; Returns: Json
+                           },
+"push_profile_url":
+{ Args: { "p_spot": Json }; Returns: string
+                           },
+"push_quiet_now":
+{ Args: { "p_at": string,"p_settings": Omit<Database["public"]['Tables']["push_destination_settings"]['Row'], Database["public"]['Tables']["push_destination_settings"]['ComputedFields']>,"p_timezone": string }; Returns: boolean
+                           },
+"push_sample_spot":
+{ Args: Record<PropertyKey, never>; Returns: Json
+                           },
+"push_separator":
+{ Args: { "p_separator": string }; Returns: string
+                           },
+"push_source_label":
+{ Args: { "p_source": string }; Returns: string
+                           },
+"push_spot_fields":
+{ Args: { "p_settings": Omit<Database["public"]['Tables']["push_destination_settings"]['Row'], Database["public"]['Tables']["push_destination_settings"]['ComputedFields']>,"p_spot": Json }; Returns: Json
+                           },
+"push_test_delivery":
+{ Args: { "p_destination_id": string,"p_spot_id"?: number }; Returns: Json
                            },
 "rbn_day_archived":
 { Args: { "p_day": string }; Returns: boolean
@@ -1153,7 +1255,22 @@ isOneToOne: false
 { Args: { "p_now": string }; Returns: undefined
                            },
 "register_push_device":
-{ Args: { "p_auth": string,"p_endpoint": string,"p_label": string,"p_name"?: string,"p_p256dh": string }; Returns: string
+{ Args: { "p_agent"?: string,"p_auth": string,"p_endpoint": string,"p_label": string,"p_p256dh": string,"p_standalone"?: boolean }; Returns: string
+                           },
+"rename_duplicate_destination_names":
+{ Args: Record<PropertyKey, never>; Returns: number
+                           },
+"rename_push_device":
+{ Args: { "p_id": string,"p_label": string }; Returns: undefined
+                           },
+"render_push_field":
+{ Args: { "p_field": string,"p_spot": Json }; Returns: string
+                           },
+"render_push_fields":
+{ Args: { "p_fields": (string)[],"p_labels": boolean,"p_separator": string,"p_spot": Json }; Returns: string
+                           },
+"report_push_device_blocked":
+{ Args: { "p_endpoint": string }; Returns: undefined
                            },
 "retire_aprs_day":
 { Args: { "p_day": string }; Returns: undefined
@@ -1196,6 +1313,9 @@ isOneToOne: false
 "save_callsign_group":
 { Args: { "payload": Json }; Returns: string
                            },
+"save_push_destination":
+{ Args: { "p_device_ids": (string)[],"p_enabled": boolean,"p_id": string,"p_name": string,"p_settings": Json }; Returns: string
+                           },
 "save_subscription":
 { Args: { "payload": Json }; Returns: string
                            },
@@ -1205,23 +1325,32 @@ isOneToOne: false
 "spot_matches":
 { Args: { "spot": Omit<Database["public"]['Tables']["raw_spots"]['Row'], Database["public"]['Tables']["raw_spots"]['ComputedFields']>,"sub": Omit<Database["public"]['Tables']["subscriptions"]['Row'], Database["public"]['Tables']["subscriptions"]['ComputedFields']> }; Returns: boolean
                            },
+"spot_source_url":
+{ Args: { "p_spot": Json }; Returns: string
+                           },
 "stats_payload_without_hidden":
 { Args: { "p_payload": Json }; Returns: Json
                            },
 "throttle_destination":
 { Args: { "p_destination_id": string,"p_msg_ids": (number)[],"p_seconds": number }; Returns: number
                            },
+"unique_destination_name":
+{ Args: { "p_name": string,"p_user": string }; Returns: string
+                           },
 "unregister_push_device":
 { Args: { "p_endpoint": string }; Returns: undefined
                            },
 "update_destination":
-{ Args: { "p_id": string,"p_name": string,"p_url": string }; Returns: undefined
+{ Args: { "p_enabled"?: boolean,"p_id": string,"p_name": string,"p_url": string }; Returns: undefined
                            },
 "validate_destination_url":
 { Args: { "p_type": string,"p_url": string }; Returns: undefined
                            },
 "validate_push_endpoint":
 { Args: { "p_endpoint": string }; Returns: undefined
+                           },
+"validate_push_fields":
+{ Args: { "p_fields": (string)[],"p_what": string }; Returns: undefined
                            },
 "watched_among":
 { Args: { "p_callsigns": (string)[],"p_source": string }; Returns: string[]

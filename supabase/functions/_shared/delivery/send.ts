@@ -3,7 +3,15 @@
 // deliveries went out so the worker can mark exactly those as sent.
 
 import { signWebhookBody } from "./hmac.ts";
-import { discordMessages, pushNotifications, pushPayload, webhookPayloads } from "./format.ts";
+import {
+  discordMessages,
+  LEGACY_PUSH_SETTINGS,
+  pushNotifications,
+  pushPayload,
+  pushSettingsOf,
+  pushSkipped,
+  webhookPayloads,
+} from "./format.ts";
 import {
   assertSafeDestinationUrl,
   assertSafePushEndpoint,
@@ -13,7 +21,7 @@ import {
 } from "./urlsafety.ts";
 import { PinnedConnectError, pinnedPost, type PinnedResponse } from "./pinned_http.ts";
 import { encryptPushPayload, vapidAuthorization, type VapidKeys } from "./webpush.ts";
-import type { DeliveryDestination, PendingDelivery, PushDevice } from "./types.ts";
+import type { DeliveryDestination, PendingDelivery, PushDevice, PushSettings } from "./types.ts";
 
 export const USER_AGENT = "LongLines/0.2";
 export const DISCORD_MESSAGES_PER_RUN = 30; // Discord allows ~30 messages/minute per webhook
@@ -22,8 +30,12 @@ const DISCORD_TIMEOUT_MS = 10_000;
 const PUSH_TIMEOUT_MS = 10_000;
 /** Longest Retry-After honoured: throttle_destination takes an int, and a day is plenty. */
 export const MAX_RETRY_AFTER_SECONDS = 86_400;
-/** A push service drops a spot it couldn't deliver within 15 minutes. */
-export const PUSH_TTL_SECONDS = 900;
+/**
+ * The TTL header for a push destination claimed without settings: a push
+ * service drops a spot it couldn't deliver within 15 minutes. A destination's
+ * own "drop if the device is offline for" (push.ttl_seconds) replaces it.
+ */
+export const PUSH_TTL_SECONDS = LEGACY_PUSH_SETTINGS.ttl_seconds;
 const NO_DEVICES = "Turn on notifications on a device first.";
 const NO_URL = "Destination has no URL";
 
@@ -334,6 +346,7 @@ async function pushToDevice(
   payloads: readonly Uint8Array[],
   topics: readonly string[],
   authorization: (endpoint: string) => string | undefined,
+  settings: PushSettings,
   options: SendOptions,
 ): Promise<DeviceOutcome> {
   let accepted = 0;
@@ -351,8 +364,8 @@ async function pushToDevice(
             "Authorization": vapid,
             "Content-Encoding": "aes128gcm",
             "Content-Type": "application/octet-stream",
-            "TTL": String(PUSH_TTL_SECONDS),
-            "Urgency": "high",
+            "TTL": String(settings.ttl_seconds),
+            "Urgency": settings.urgency,
             "Topic": topics[index] ?? "",
             "User-Agent": USER_AGENT,
           },
@@ -419,17 +432,22 @@ async function vapidHeaders(
 }
 
 /**
- * Sends a run's notifications (three spots, then a summary) to every device.
- * The batch counts as sent once any device took at least one notification:
- * retrying would show that device the same spots again. A device that is gone
- * (404/410) is reported for pruning, not as a failure; a 429 with no device
- * reached delays the batch.
+ * Sends a run's notifications (one per spot; SQL's budget decides how many)
+ * to every member device, with the destination's urgency and TTL. A
+ * destination in quiet hours set to "Don't send" makes no request and reports
+ * the whole batch sent, so the loop acks it. Otherwise the batch counts as
+ * sent once any device took at least one notification: retrying would show
+ * that device the same spots again. A device that is gone (404/410) is
+ * reported for pruning, not as a failure; a 429 with no device reached delays
+ * the batch.
  */
 export async function sendPush(
   destination: DeliveryDestination,
   deliveries: readonly PendingDelivery[],
   options: SendOptions = {},
 ): Promise<SendResult> {
+  if (pushSkipped(destination)) return { ok: true, sent: deliveries.length };
+  const settings = pushSettingsOf(destination);
   const devices = destination.devices ?? [];
   if (devices.length === 0) return { ok: false, sent: 0, error: NO_DEVICES };
   const headers = options.vapid
@@ -437,12 +455,18 @@ export async function sendPush(
     : null;
   if (!headers) return { ok: false, sent: 0, error: "Push isn't configured on the server." };
 
-  const notifications = pushNotifications(deliveries.map((d) => d.spot));
+  const notifications = pushNotifications(
+    deliveries.map((d) => d.spot),
+    settings,
+    destination.quiet_now ?? false,
+  );
   const payloads = notifications.map((n) => new TextEncoder().encode(pushPayload(n)));
   const topics = notifications.map((n) => pushTopic(n.tag));
   const authorization = (endpoint: string) => headers.get(new URL(endpoint).origin);
   const outcomes = await Promise.all(
-    devices.map((device) => pushToDevice(device, payloads, topics, authorization, options)),
+    devices.map((device) =>
+      pushToDevice(device, payloads, topics, authorization, settings, options)
+    ),
   );
 
   const expiredEndpoints: string[] = [];

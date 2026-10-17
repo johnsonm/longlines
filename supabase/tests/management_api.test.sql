@@ -2,7 +2,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(57);
+select plan(63);
 
 -- ---------------------------------------------------------------------------
 -- Tokens
@@ -172,8 +172,25 @@ select is((select count(*) from jsonb_array_elements(pg_temp.call('list_destinat
   'push is listed like any other destination');
 select throws_ok(format($$ select pg_temp.call('update_destination', '{"id": "%s", "url": "https://example.com/x"}') $$,
   (select j ->> 'id' from pushed)), 'Push notifications don''t use a URL.');
-select throws_ok($$ select pg_temp.call('create_destination', '{"type": "push", "name": "Again"}') $$,
-  'You already have push notifications.');
+-- Many push destinations per account (20261016000400), each with its settings and a device count.
+select is((pg_temp.call('create_destination', '{"type": "push", "name": "Desktop"}') ->> 'url_display'), 'Your devices',
+  'a second push destination is created');
+select throws_ok($$ select pg_temp.call('create_destination', '{"type": "push", "name": "phones"}') $$,
+  'A destination named phones already exists. Choose a different name.');
+select is((select d -> 'push' from jsonb_array_elements(pg_temp.call('list_destinations')) d where d ->> 'name' = 'Phones'),
+  '{"sound": true, "urgency": "normal", "quiet_from": "22:00:00", "quiet_mode": "silent", "tap_target": "profile",
+    "quiet_until": "07:00:00", "ttl_seconds": 1800, "device_count": 0, "quiet_enabled": false, "action_buttons": true,
+    "replace_same_station": true, "title_fields": ["callsign", "frequency", "mode"],
+    "body_fields": ["source", "reference", "place_name", "state"], "show_field_names": false, "body_separator": "dot"}'::jsonb,
+  'a push destination shows its settings and device count, never devices');
+select is((select count(*) from jsonb_array_elements(pg_temp.call('list_destinations')) d where d ? 'push'), 2::bigint,
+  'only push destinations carry push');
+select is(pg_temp.call('update_destination', jsonb_build_object('id', (select j ->> 'id' from pushed), 'enabled', false)) -> 'enabled',
+  'false'::jsonb, 'PATCH turns a destination off');
+select is(pg_temp.call('update_destination', jsonb_build_object('id', (select j ->> 'id' from pushed), 'name', 'Phone')) -> 'enabled',
+  'false'::jsonb, 'and a PATCH without enabled leaves it off');
+select is((pg_temp.call('get_destination', jsonb_build_object('id', (select id from dest))) -> 'enabled'), 'true'::jsonb,
+  'destinations start enabled');
 
 -- Another user's token cannot see or change user 1's rows.
 reset role;

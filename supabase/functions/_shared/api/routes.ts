@@ -57,6 +57,7 @@ const SUB = {
   scalars: { name: "string", enabled: "boolean", quiet_minutes: "number" },
 } as const;
 const DEST = { scalars: { type: "string", name: "string", url: "string" } } as const;
+const DEST_PATCH = { scalars: { name: "string", url: "string", enabled: "boolean" } } as const;
 const GROUP = { arrays: CALLSIGN_ARRAYS, scalars: { name: "string" } } as const;
 const CALLS = { arrays: CALLSIGN_ARRAYS, required: CALLSIGN_ARRAYS };
 const CREATED = { status: 201 } as const;
@@ -66,7 +67,7 @@ export const ROUTES: ReadonlyArray<readonly [string, string, Route]> = [
   ["GET",    "/v1/destinations",                   read("list_destinations")],
   ["POST",   "/v1/destinations",                   write("create_destination", "fields", { ...DEST, ...CREATED })],
   ["GET",    "/v1/destinations/:id",               read("get_destination")],
-  ["PATCH",  "/v1/destinations/:id",               write("update_destination", "fields", DEST)],
+  ["PATCH",  "/v1/destinations/:id",               write("update_destination", "fields", DEST_PATCH)],
   ["DELETE", "/v1/destinations/:id",               write("delete_destination")],
   ["POST",   "/v1/destinations/:id/rotate-secret", write("rotate_signing_secret")],
   ["POST",   "/v1/destinations/:id/test",          write("send_test")],

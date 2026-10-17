@@ -8,13 +8,12 @@ import type {
   DiscordMessage,
   PendingDelivery,
   PushNotification,
+  PushSettings,
   WebhookPayload,
 } from "./types.ts";
 
 export const DISCORD_EMBEDS_PER_MESSAGE = 10; // Discord's per-message limit
 export const WEBHOOK_SPOTS_PER_REQUEST = 50;
-/** Spot notifications per device per run; the rest become one summary. */
-export const PUSH_NOTIFICATIONS_PER_RUN = 3;
 
 const SOURCE_LABELS: Record<string, string> = {
   pota: "POTA",
@@ -39,7 +38,7 @@ export function utcClock(iso: string): string {
   return new Date(iso).toISOString().slice(11, 19);
 }
 
-/** "14062.0 kHz CW (20m)": the Discord description and a push notification's first line. */
+/** "14062.0 kHz CW (20m)": the Discord description and the legacy push body's first line. */
 export function spotDescription(spot: DeliverySpot): string {
   const parts = [`${spot.frequency_khz.toFixed(1)} kHz`];
   if (spot.mode) parts.push(spot.mode.toUpperCase());
@@ -73,18 +72,75 @@ export function discordMessages(spots: readonly DeliverySpot[]): DiscordMessage[
   return chunk(spots.map(embedForSpot), DISCORD_EMBEDS_PER_MESSAGE).map((embeds) => ({ embeds }));
 }
 
+/** The spot as docs/WEBHOOKS.md documents it: without the push-only fields SQL adds. */
+export function webhookSpot(spot: DeliverySpot): DeliverySpot {
+  const {
+    push_title: _title,
+    push_body: _body,
+    push_url: _url,
+    push_source_url: _source,
+    ...rest
+  } = spot;
+  return rest;
+}
+
 export function webhookPayloads(deliveries: readonly PendingDelivery[]): WebhookPayload[] {
   return chunk(deliveries, WEBHOOK_SPOTS_PER_REQUEST).map((batch) => ({
     deliveries: batch.map((d) => ({
       delivery_id: d.delivery_id,
       // Webhook receivers know a subscription as a connection.
       connection_id: d.subscription_id,
-      spot: d.spot,
+      spot: webhookSpot(d.spot),
     })),
   }));
 }
 
-function pushForSpot(spot: DeliverySpot): PushNotification {
+/**
+ * Settings for a push destination claimed without them (a row claimed before
+ * the migration is pushed): how push behaved before per-destination settings
+ * existed. High urgency, 15 minutes, one tag per station, sound, no buttons,
+ * no quiet hours. The field lists are unused: SQL did not render text for
+ * such a row, so the legacy text below is used instead.
+ */
+export const LEGACY_PUSH_SETTINGS: PushSettings = {
+  title_fields: [],
+  body_fields: [],
+  show_field_names: false,
+  body_separator: "dot",
+  tap_target: "profile",
+  action_buttons: false,
+  urgency: "high",
+  ttl_seconds: 900,
+  replace_same_station: true,
+  sound: true,
+  quiet_enabled: false,
+  quiet_from: "22:00:00",
+  quiet_until: "07:00:00",
+  quiet_mode: "silent",
+};
+
+/** The push settings a destination carries, or the legacy ones when the claim had none. */
+export function pushSettingsOf(destination: Pick<DeliveryDestination, "push">): PushSettings {
+  return destination.push ?? LEGACY_PUSH_SETTINGS;
+}
+
+/**
+ * True when the destination is in its quiet hours (SQL decided, once per
+ * destination at claim time) and set to "Don't send": the batch is marked
+ * sent without a request, never retried, never a failure.
+ */
+export function pushSkipped(destination: Pick<DeliveryDestination, "push" | "quiet_now">): boolean {
+  return destination.quiet_now === true && pushSettingsOf(destination).quiet_mode === "skip";
+}
+
+/**
+ * Today's text for a spot the claim did not render: two lines of facts under
+ * the call. Transitional: it runs only for rows claimed by the new sender
+ * before migration 20261016000400 is on hosted, so the two can ship in either
+ * order. Once the migration is pushed every push row carries push_body, and
+ * this and the `/call/` fallback in pushForSpot can go.
+ */
+function legacyPushBody(spot: DeliverySpot): string {
   const facts = [
     spot.pota_reference,
     spot.pota_park_name,
@@ -94,40 +150,51 @@ function pushForSpot(spot: DeliverySpot): PushNotification {
   ]
     .filter((fact): fact is string => !!fact);
   facts.push(sourceLabel(spot.source));
-  return {
-    title: spot.callsign,
-    body: `${spotDescription(spot)}\n${facts.join(" · ")}`,
-    tag: `spot:${spot.callsign.toUpperCase()}`,
-    // The base call comes from SQL; the profile page resolves a typed call itself.
-    url: `/call/${encodeURIComponent(spot.base_callsign ?? spot.callsign)}`,
-  };
-}
-
-/** "A", "A and B", "A, B and C", "A, B, C and 2 others". */
-function summaryCalls(calls: readonly string[]): string {
-  const shown = calls.slice(0, 3);
-  const others = calls.length - shown.length;
-  if (others > 0) return `${shown.join(", ")} and ${others} ${others === 1 ? "other" : "others"}`;
-  if (shown.length === 1) return shown[0] ?? "";
-  return `${shown.slice(0, -1).join(", ")} and ${shown[shown.length - 1]}`;
+  return `${spotDescription(spot)}\n${facts.join(" · ")}`;
 }
 
 /**
- * What one device gets for a run: the first three spots, each tagged by call
- * so a re-spot replaces the older notification, then one summary for the rest.
+ * One notification. The text and URLs come from SQL (push_spot_fields); this
+ * only shapes them: the tag (per station, so a re-spot replaces the earlier
+ * notification, or per spot), the action buttons, silent and renotify.
  */
-export function pushNotifications(spots: readonly DeliverySpot[]): PushNotification[] {
-  const out = spots.slice(0, PUSH_NOTIFICATIONS_PER_RUN).map(pushForSpot);
-  const rest = spots.slice(PUSH_NOTIFICATIONS_PER_RUN);
-  if (rest.length > 0) {
-    out.push({
-      title: rest.length === 1 ? "1 more spot" : `${rest.length} more spots`,
-      body: summaryCalls([...new Set(rest.map((s) => s.callsign))]),
-      tag: "summary",
-      url: "/sources",
-    });
+function pushForSpot(
+  spot: DeliverySpot,
+  settings: PushSettings,
+  quietNow: boolean,
+): PushNotification {
+  const call = spot.callsign.toUpperCase();
+  const silent = !settings.sound || (quietNow && settings.quiet_mode === "silent");
+  const notification: PushNotification = {
+    title: spot.push_title ?? spot.callsign,
+    body: spot.push_body ?? legacyPushBody(spot),
+    tag: settings.replace_same_station ? `spot:${call}` : `spot:${call}:${spot.id}`,
+    // The base call comes from SQL; the profile page resolves a typed call itself.
+    url: spot.push_url ?? `/call/${encodeURIComponent(spot.base_callsign ?? spot.callsign)}`,
+    silent,
+    renotify: !silent,
+  };
+  if (spot.push_source_url) notification.sourceUrl = spot.push_source_url;
+  if (settings.action_buttons) {
+    notification.actions = [{ action: "profile", title: "Open profile" }];
+    if (spot.push_source_url) {
+      notification.actions.push({ action: "source", title: `Open on ${sourceLabel(spot.source)}` });
+    }
   }
-  return out;
+  return notification;
+}
+
+/**
+ * What one device gets for a run: one notification per claimed spot, nothing
+ * else. How many spots a run holds is SQL's budget (3 a minute per push
+ * destination, newest first), so there is no summary.
+ */
+export function pushNotifications(
+  spots: readonly DeliverySpot[],
+  settings: PushSettings = LEGACY_PUSH_SETTINGS,
+  quietNow = false,
+): PushNotification[] {
+  return spots.map((s) => pushForSpot(s, settings, quietNow));
 }
 
 /** The plaintext the service worker parses, before encryption. */
@@ -141,7 +208,11 @@ export function backoffSeconds(attempt: number): number {
   return steps[Math.max(attempt, 1) - 1] ?? 1800;
 }
 
-/** The sample spot used by "Send test". Clearly labeled so nobody chases it. */
+/**
+ * The sample spot used by "Send test" for Discord and webhooks. Clearly
+ * labeled so nobody chases it. A push test's spot comes from SQL
+ * (push_test_delivery), rendered with the destination's fields.
+ */
 export function sampleSpot(destination: DeliveryDestination): DeliverySpot {
   return {
     id: 0,

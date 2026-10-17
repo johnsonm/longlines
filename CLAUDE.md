@@ -445,10 +445,18 @@ screens and for notification text.
   push destination picks some of them through `push_destination_devices`, and only its members
   with `blocked_at is null` receive it. A push destination has no URL
   (`check ((type = 'push') = (url is null))`).
-- Notification text comes from the destination's templates, rendered by `render_push_template` in
-  SQL: `claim_deliveries` hands the worker `push_title`, `push_body` and `push_url`, and
-  `preview_push_notification` calls the same function, so the preview and the delivered text agree.
-  Never interpolate a template or build a tap URL in TypeScript. Quiet hours are decided in SQL too.
+- Notification text is an ordered pick of fields (`push_fields()`), never a template or free text,
+  built by `push_spot_fields` in SQL: `claim_deliveries` hands the sender `push_title`, `push_body`,
+  `push_url` and `push_source_url` in the spot jsonb, and `preview_push_notification` (the editor)
+  and `push_test_delivery` (Send test, service role) call the same function, so the preview, the
+  test and the delivered text agree. Never join spot fields, interpolate text or build a tap URL in
+  TypeScript. Each push destination's settings travel in the claim's destination jsonb as `push`,
+  with `quiet_now` decided once per destination in SQL in the account time zone; `send.ts` reads
+  `Urgency` and `TTL` from `push` and falls back to high and 15 minutes when the key is absent, so
+  the sender and the migration can ship in either order. The claim's signature and result columns
+  never change for this. "Drop if the device is offline for" is `push_destination_settings.ttl_seconds`,
+  read by the claim's expiry sweep; `destinations.enabled` is enforced by the matcher,
+  `watched_among` and the claim's unwanted sweep, nowhere in TypeScript.
 - Device endpoints must be https on an allowlisted push-service host: `fcm.googleapis.com`,
   `updates.push.services.mozilla.com`, `*.push.apple.com`, `*.notify.windows.com`. The list lives
   in SQL (`validate_push_endpoint`, checked by `register_push_device`) and in
@@ -462,8 +470,10 @@ screens and for notification text.
 - `_shared/delivery/webpush.ts` (VAPID and RFC 8291 `aes128gcm`) uses WebCrypto only and has no
   dependency. Its tests pin the RFC 8291 Appendix A vector byte for byte. If the vector fails, fix
   the code, never the vector.
-- `format.ts` (`pushNotifications`) only shapes what SQL rendered: tags, actions,
-  `silent`/`renotify`, and the 3-then-summary limit per run. The service worker only displays it.
+- `format.ts` (`pushNotifications`) only shapes what SQL rendered: one notification per claimed
+  spot (the budget is SQL's 3 a minute per push destination; there is no summary), tags, actions,
+  `silent`/`renotify`. The service worker only displays it. A "Don't send" destination in quiet
+  hours makes `sendPush` return the batch as sent without a request.
 - `web/src/pwa/push.ts` is the only module that touches `PushManager`, `Notification` and
   `PushSubscription`; `Notification.requestPermission()` is the first statement of `enablePush()`,
   before any `await`. `web/src/pwa/register.ts` is the only module that calls
