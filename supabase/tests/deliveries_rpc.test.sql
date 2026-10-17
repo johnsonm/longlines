@@ -1,11 +1,12 @@
 -- pgTAP: the RPCs the sender uses to claim, complete, retry and throttle
 -- deliveries, and the sweeps that drop them (20261006000010 delivery_rpcs,
 -- 20261015000400 rate_aware_claim, 20261015001400 sender_cleanup,
--- 20261016000100 claim_drops_unwanted, 20261016000300 throttle_cap).
+-- 20261016000100 claim_drops_unwanted, 20261016000300 throttle_cap,
+-- 20261016000400 push_destinations_v2 for the enabled sweep).
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(88);
+select plan(92);
 select pgmq.purge_queue('spot_events');
 select pgmq.purge_queue('deliveries_queue');
 
@@ -25,7 +26,10 @@ select count(*) from ingest_spots(jsonb_build_array(
   jsonb_build_object('source','pota','source_spot_id','s1','content_hash','h1','spot_time',now(),'callsign','KK4PWJ','frequency_khz',14062,'band','20m','mode','cw','comment','','pota_reference','US-2763','pota_location','US-NC','raw_payload','{"secret":1}'::jsonb)));
 select is(match_pending_spots(), 1, 'one delivery queued');
 
--- claim_deliveries returns everything the worker needs in one call.
+-- claim_deliveries returns everything the worker needs in one call. The bucket
+-- refills from claim_tokens_at by the wall clock, so stamp it now rather than
+-- at the transaction's start, which the prelude above can leave 60 ms behind.
+update destinations set claim_tokens_at = clock_timestamp();
 select is((select count(*) from claim_deliveries(200, 60)), 0::bigint, 'a new destination has no tokens yet');
 select pg_temp.fill_buckets();
 create temp table claimed as select * from claim_deliveries(200, 60);
@@ -243,8 +247,10 @@ create temp table expw as select id, n from unnest(pg_temp.queue((select id from
 create temp table expp as select id, n from unnest(pg_temp.queue((select id from dp), 'exp-p-', 2, now())) with ordinality as t(id, n);
 update deliveries set created_at = now() - interval '25 hours' where id = (select id from expw where n = 1);
 update deliveries set created_at = now() - interval '23 hours' where id = (select id from expw where n = 2);
-update deliveries set created_at = now() - interval '16 minutes' where id = (select id from expp where n = 1);
-update deliveries set created_at = now() - interval '14 minutes' where id = (select id from expp where n = 2);
+-- A push destination's own "drop if the device is offline for" (30 minutes by default) replaces
+-- destination_max_age for it (20261016000400); push_destinations.test.sql covers the other values.
+update deliveries set created_at = now() - interval '31 minutes' where id = (select id from expp where n = 1);
+update deliveries set created_at = now() - interval '29 minutes' where id = (select id from expp where n = 2);
 -- Nothing is claimable, so the sweep is the only thing the call does.
 update destinations set health = 'paused';
 select is((select count(*) from claim_deliveries(200, 60)), 0::bigint, 'nothing claimed while every destination is paused');
@@ -252,12 +258,12 @@ select results_eq(
   $$ select d.status, d.dropped_at is not null from deliveries d
      where d.id in ((select id from expw where n = 1), (select id from expp where n = 1)) $$,
   $$ values ('dropped', true), ('dropped', true) $$,
-  'a 25 h old webhook row and a 16 min old push row are dropped with dropped_at set');
+  'a 25 h old webhook row and a 31 min old push row are dropped with dropped_at set');
 select results_eq(
   $$ select d.status, d.dropped_at from deliveries d
      where d.id in ((select id from expw where n = 2), (select id from expp where n = 2)) $$,
   $$ values ('pending', null::timestamptz), ('pending', null::timestamptz) $$,
-  'a 23 h old webhook row and a 14 min old push row wait');
+  'a 23 h old webhook row and a 29 min old push row wait');
 select is((select count(*) from pgmq.q_deliveries_queue), 2::bigint, 'the dropped messages left the queue');
 select is((select count(*) from pgmq.a_deliveries_queue
            where (message ->> 'delivery_id')::bigint in ((select id from expw where n = 1), (select id from expp where n = 1))),
@@ -284,8 +290,8 @@ select count(*) from claim_deliveries(200, 60);
 select is((select count(*) from pgmq.q_deliveries_queue where (message ->> 'delivery_id')::bigint = 999999999), 0::bigint,
   'a message without a delivery row is archived');
 
--- The sweep is the only source of drops: the 14 min old push row is still queued,
--- and the two drops inside the hour are the 16 min old push row and the swept webhook row.
+-- The sweep is the only source of drops: the 29 min old push row is still queued,
+-- and the two drops inside the hour are the 31 min old push row and the swept webhook row.
 select results_eq($$ select * from delivery_queue_stats() $$, $$ values (1::bigint, 2::bigint) $$,
   'stats count the sweep drops only');
 
@@ -326,6 +332,22 @@ select results_eq($$ select status, dropped_at from deliveries where id = (selec
   $$ values ('dropped', null::timestamptz) $$, 'the unlinked delivery is dropped without dropped_at');
 select is((select count(*) from pgmq.q_deliveries_queue where (message ->> 'delivery_id')::bigint = (select id from unl_c)),
   0::bigint, 'and its message is archived');
+insert into subscription_destinations (subscription_id, destination_id) values ((select id from sub), (select id from dd));
+
+-- Disabled destination (20261016000400): its queued rows go the same way; the others are claimed.
+select pg_temp.reset_queue();
+create temp table dis_c as select unnest(pg_temp.queue((select id from dd), 'dis-c-', 1, now())) as id;
+create temp table dis_s as select unnest(pg_temp.queue((select id from dw), 'dis-s-', 1, now())) as id;
+update destinations set enabled = false where id = (select id from dd);
+create temp table dis_claim as select * from claim_deliveries(200, 60);
+select results_eq($$ select delivery_id from dis_claim $$, $$ select id from dis_s $$,
+  'a disabled destination''s delivery is not claimed; an enabled one is');
+select results_eq($$ select status, dropped_at from deliveries where id = (select id from dis_c) $$,
+  $$ values ('dropped', null::timestamptz) $$, 'the disabled destination''s delivery is dropped without dropped_at');
+select is((select count(*) from pgmq.q_deliveries_queue where (message ->> 'delivery_id')::bigint = (select id from dis_c)),
+  0::bigint, 'and its message is archived');
+update destinations set enabled = true where id = (select id from dd);
+select is((select count(*) from pg_temp.queue((select id from dd), 'dis-c2-', 1, now())), 1::bigint, 'enabled again: a new delivery queues');
 
 select * from finish();
 rollback;

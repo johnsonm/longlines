@@ -44,7 +44,7 @@ select throws_ok($$ select create_destination('webhook', 'x', 'https://1.0.0.10.
 select throws_ok($$ select create_destination('webhook', 'x', 'https://API.Internal:8443/spots') $$, 'P0001', 'That address is not allowed.', 'suffix check ignores case and port');
 select throws_ok($$ select create_destination('webhook', 'x', 'https://api.internal./spots') $$, 'P0001', 'That address is not allowed.', 'a trailing dot does not evade the suffix check');
 select throws_ok($$ select create_destination('webhook', 'x', 'https://[fdaa:0:1::3]/spots') $$, 'P0001', 'That address is not allowed.', 'rejects fdaa::/16 (Fly 6PN)');
-select lives_ok($$ select create_destination('webhook', 'x', 'https://internal.example.com/spots') $$, 'a denied word inside a public name is fine');
+select lives_ok($$ select create_destination('webhook', 'Public host', 'https://internal.example.com/spots') $$, 'a denied word inside a public name is fine');
 select throws_ok($$ select create_destination('webhook', 'x', 'not a url') $$, 'P0001', 'Use an https URL.', 'rejects garbage');
 select throws_ok($$ select create_destination('email', 'x', 'https://example.com') $$, 'P0001', 'Unknown destination type.', 'rejects unknown type');
 

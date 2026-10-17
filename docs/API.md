@@ -64,32 +64,55 @@ A destination is where matching spots go: a Discord channel webhook, your own HT
 push notifications to your devices. See [WEBHOOKS.md](WEBHOOKS.md) for the webhook payload and its
 signature. The API never returns a destination's URL, only `url_display`, a masked form.
 
-An account has at most one push destination. It has no URL (`url_display` is "Your devices") and
-reaches every browser where you turned notifications on. Devices can only be added from a browser
-signed in to Long Lines; the API creates, lists, tests and deletes the destination but doesn't
-manage devices.
+An account can have any number of push destinations. A push destination has no URL
+(`url_display` is "Your devices"); it reaches the devices picked for it in the web app. Devices,
+and which destination gets which, can only be managed from a browser signed in to Long Lines. The
+API creates, lists, tests, renames, turns off and deletes push destinations, and shows their
+notification settings and how many devices they have, but never the devices.
+
+Names are unique per account across every type, ignoring case. A name already in use is a `400`:
+"A destination named {name} already exists. Choose a different name."
 
 | Method | Path | Body | Returns |
 |---|---|---|---|
 | GET | `/destinations` | | All your destinations. |
-| POST | `/destinations` | `{"type": "discord" or "webhook", "name", "url"}`, or `{"type": "push", "name"}` | The destination. A webhook also gets `signing_secret`, shown only here. A second push destination is a `400`: "You already have push notifications." |
+| POST | `/destinations` | `{"type": "discord" or "webhook", "name", "url"}`, or `{"type": "push", "name"}` | The destination. A webhook also gets `signing_secret`, shown only here. A new push destination has the default notification settings and no devices. |
 | GET | `/destinations/{id}` | | The destination. |
-| PATCH | `/destinations/{id}` | `{"name"?, "url"?}` | The destination. The type can't change, and a push destination takes no `url`. A new `url` clears `failing` health and the failure count. |
+| PATCH | `/destinations/{id}` | `{"name"?, "url"?, "enabled"?}` | The destination. The type can't change, and a push destination takes no `url`. A new `url` clears `failing` health and the failure count. `"enabled": false` stops new spots going to it and drops the ones already queued; connections that use it keep their other destinations. |
 | DELETE | `/destinations/{id}` | | `{"deleted": true}`, or `409` while a connection uses it. |
 | POST | `/destinations/{id}/rotate-secret` | | `{"signing_secret"}`, for webhooks. The old secret stops working. |
-| POST | `/destinations/{id}/test` | | `{"ok": true}` once a sample spot is delivered (for push, to at least one device), or `502` with the destination's error. |
+| POST | `/destinations/{id}/test` | | `{"ok": true}` once a sample spot is delivered (for push, to at least one of its devices, with the notification text its saved fields build), or `502` with the destination's error. |
 
 A destination looks like this:
 
 ```json
 {
   "id": "4b0e…", "type": "discord", "name": "Club #spots",
-  "url_display": "https://discord.com/api/webhooks/1234…/abc",
+  "url_display": "https://discord.com/api/webhooks/1234…/abc", "enabled": true,
   "health": "ok", "consecutive_failures": 0,
   "last_success_at": "2026-10-13T14:02:11Z", "last_error": null, "last_error_at": null,
   "created_at": "2026-10-01T18:30:00Z"
 }
 ```
+
+A push destination also has `push`: its notification settings as the web app's editor sets them
+(the title and body are ordered lists of field names from `callsign`, `frequency`, `band`, `mode`,
+`source`, `reference`, `place_name`, `state`, `spotter`, `comment` and `time`; there is no custom
+text), and `device_count`:
+
+```json
+"push": {
+  "title_fields": ["callsign", "frequency", "mode"],
+  "body_fields": ["source", "reference", "place_name", "state"],
+  "show_field_names": false, "body_separator": "dot",
+  "tap_target": "profile", "action_buttons": true, "urgency": "normal", "ttl_seconds": 1800,
+  "replace_same_station": true, "sound": true,
+  "quiet_enabled": false, "quiet_from": "22:00:00", "quiet_until": "07:00:00", "quiet_mode": "silent",
+  "device_count": 2
+}
+```
+
+The API does not change these settings; the web app's editor does.
 
 ## Connections
 

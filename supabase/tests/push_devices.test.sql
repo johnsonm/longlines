@@ -1,11 +1,12 @@
--- pgTAP: push destinations and devices (20261014000100_push_destinations).
--- Endpoint allowlist, one push destination per account, device registration,
--- the client RPCs, service-role-only storage, and what claim_deliveries hands
--- the worker.
+-- pgTAP: push destinations and devices (20261014000100_push_destinations, as
+-- changed by 20261016000400_push_destinations_v2). Endpoint allowlist, device
+-- registration, the device RPCs, service-role-only storage, and what
+-- claim_deliveries hands the sender. Many destinations per account, field
+-- picks and settings are in push_destinations.test.sql.
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(62);
+select plan(70);
 select pgmq.purge_queue('spot_events');
 select pgmq.purge_queue('deliveries_queue');
 
@@ -33,19 +34,22 @@ select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
 create temp table pa as select * from create_destination('push', 'Push notifications', null);
 select is((select url_display from pa), 'Your devices', 'a push destination shows "Your devices"');
 select is((select signing_secret from pa), null, 'a push destination gets no signing secret');
-select throws_ok($$ select create_destination('push', 'Again', null) $$, 'P0001', 'You already have push notifications.', 'one push destination per account');
+select lives_ok($$ select create_destination('push', 'Again', null) $$, 'an account can have a second push destination');
+reset role;
+delete from destinations where name = 'Again';
+select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
 reset role; -- update_destination is the API's (api_call runs it); A's claims stay set
 select throws_ok(format('select update_destination(%L, null, %L)', (select id from pa), 'https://example.com/x'),
   'P0001', 'Push notifications don''t use a URL.', 'a push destination cannot gain a URL');
--- Only the one-push index gets the push message; any other unique violation stays itself.
-create unique index destinations_probe_name on destinations (user_id, name);
+-- Only the name index gets the name message; any other unique violation stays itself.
+create unique index destinations_probe_display on destinations (user_id, url_display);
 select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
 select create_destination('webhook', 'Probe', 'https://probe.example.com/x');
-select throws_ok($$ select create_destination('webhook', 'Probe', 'https://probe.example.com/y') $$,
-  '23505', null, 'another unique violation is not reported as a second push destination');
+select throws_ok($$ select create_destination('webhook', 'Probe 2', 'https://probe.example.com/x') $$,
+  '23505', null, 'another unique violation is not reported as a taken name');
 reset role;
 delete from destinations where name = 'Probe';
-drop index destinations_probe_name;
+drop index destinations_probe_display;
 select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
 create temp table wa as select * from create_destination('webhook', 'Shack', 'https://shack.example.com/spots');
 
@@ -70,18 +74,20 @@ select throws_ok($$ select register_push_device('https://fcm.googleapis.com/fcm/
 select throws_ok($$ select unregister_push_device('https://fcm.googleapis.com/fcm/send/x') $$, 'P0001', 'Not signed in.', 'unregister needs a session');
 select throws_ok($$ select * from list_push_devices() $$, 'P0001', 'Not signed in.', 'list needs a session');
 select throws_ok(format('select delete_push_device(%L)', gen_random_uuid()), 'P0001', 'Not signed in.', 'delete needs a session');
+select throws_ok(format('select rename_push_device(%L, %L)', gen_random_uuid(), 'x'), 'P0001', 'Not signed in.', 'rename needs a session');
+select throws_ok($$ select report_push_device_blocked('https://fcm.googleapis.com/fcm/send/x') $$, 'P0001', 'Not signed in.', 'report needs a session');
 
--- B has no push destination: the first device creates it, named from p_name.
+-- B has no push destination, and registering creates none: the editor adds devices to destinations.
 select pg_temp.as_user('22222222-2222-2222-2222-222222222222');
 create temp table rb1 as select register_push_device('https://fcm.googleapis.com/fcm/send/b1',
   'BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4', 'BTBZMqHH6r4Tts7J_aSIgg',
-  '  Chrome on Android  ', 'My devices') as id;
+  '  Pixel  ', '  Chrome on Android  ', false) as id;
 create temp table rb2 as select register_push_device('https://web.push.apple.com/b2',
   'BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4', 'BTBZMqHH6r4Tts7J_aSIgg',
-  'Safari on iPhone', 'Ignored') as id;
-select is((select id from rb2), (select id from rb1), 'a second device reuses the push destination');
-select results_eq($$ select name, url_display from destinations where type = 'push' $$,
-  $$ values ('My devices'::text, 'Your devices'::text) $$, 'register created exactly one destination, named from p_name');
+  'My iPhone', 'Safari on iPhone', true) as id;
+select isnt((select id from rb2), (select id from rb1), 'each device gets its own id');
+select is((select count(*) from destinations where type = 'push' and user_id = auth.uid()), 0::bigint,
+  'register creates no destination');
 select throws_ok($$ select register_push_device('https://fcm.googleapis.com/fcm/send/b3', 'AAAA', 'BTBZMqHH6r4Tts7J_aSIgg', 'x') $$,
   'P0001', 'That browser sent an invalid subscription.', 'short p256dh rejected');
 select throws_ok($$ select register_push_device('https://fcm.googleapis.com/fcm/send/b3',
@@ -96,24 +102,36 @@ select throws_ok($$ select register_push_device('https://evil.example.com/b3',
 
 -- A already has a push destination from create_destination.
 select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
-select is(register_push_device('https://updates.push.services.mozilla.com/wpush/v2/a1',
+create temp table ra1 as select register_push_device('https://updates.push.services.mozilla.com/wpush/v2/a1',
   'BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4', 'BTBZMqHH6r4Tts7J_aSIgg',
-  '   ' || repeat('x', 80)), (select id from pa), 'register returns the existing push destination');
+  '   ' || repeat('x', 80)) as id;
 reset role;
+select is((select id from ra1), (select id from push_devices where endpoint like '%/a1'), 'register returns the device id');
 select is((select label from push_devices where endpoint like '%/a1'), repeat('x', 60), 'label trimmed and capped at 60');
-select is((select label from push_devices where endpoint like '%/b1'), 'Chrome on Android', 'label trimmed');
-select is((select count(*) from destinations where type = 'push'), 2::bigint, 'no extra push destinations');
+select results_eq($$ select label, agent, standalone from push_devices where endpoint like '%/b%' order by endpoint $$,
+  $$ values ('Pixel'::text, 'Chrome on Android'::text, false), ('My iPhone', 'Safari on iPhone', true) $$,
+  'label and agent trimmed, standalone stored');
+select is((select count(*) from destinations where type = 'push'), 1::bigint, 'no extra push destinations');
+
+-- Refreshing on load passes no label and keeps the one the user picked; a blocked device is cleared.
+update push_devices set blocked_at = now() where endpoint like '%/b2';
+select pg_temp.as_user('22222222-2222-2222-2222-222222222222');
+select register_push_device('https://web.push.apple.com/b2', 'BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4', 'BTBZMqHH6r4Tts7J_aSIgg', null, 'Safari on iPhone', true);
+reset role;
+select results_eq($$ select label, blocked_at from push_devices where endpoint like '%/b2' $$,
+  $$ values ('My iPhone'::text, null::timestamptz) $$, 'a null label keeps the name and registering clears blocked_at');
 
 -- An endpoint that moves to another account is reassigned with its status cleared.
 select record_push_results(array['https://fcm.googleapis.com/fcm/send/b1'], '{}'::jsonb);
 select record_push_results(array[]::text[], '{"https://fcm.googleapis.com/fcm/send/b1": "Push HTTP 500"}'::jsonb);
 select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
 select register_push_device('https://fcm.googleapis.com/fcm/send/b1',
-  'BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4', 'BTBZMqHH6r4Tts7J_aSIgg', 'Moved', null);
+  'BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4', 'BTBZMqHH6r4Tts7J_aSIgg', null, 'Chrome on Android', false);
 reset role;
 select results_eq($$ select user_id, label, last_success_at, last_error, last_error_at from push_devices where endpoint like '%/b1' $$,
-  $$ values ('11111111-1111-1111-1111-111111111111'::uuid, 'Moved'::text, null::timestamptz, null::text, null::timestamptz) $$,
-  'a moved endpoint belongs to the caller with its status cleared');
+  $$ values ('11111111-1111-1111-1111-111111111111'::uuid, 'This browser'::text, null::timestamptz, null::text, null::timestamptz) $$,
+  'a moved endpoint belongs to the caller with its status cleared, and not the old name');
+update push_devices set label = 'Moved' where endpoint like '%/b1';
 
 -- Device cap: 20 per account; re-registering one of them still works.
 insert into push_devices (user_id, endpoint, p256dh, auth, label)
@@ -124,7 +142,7 @@ select throws_ok($$ select register_push_device('https://fcm.googleapis.com/fcm/
   'BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4', 'BTBZMqHH6r4Tts7J_aSIgg', 'x') $$,
   'P0001', 'You can turn on notifications on up to 20 devices. Remove one first.', 'the 21st device is refused');
 select lives_ok($$ select register_push_device('https://web.push.apple.com/b2',
-  'BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4', 'BTBZMqHH6r4Tts7J_aSIgg', 'Safari on iPhone') $$,
+  'BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4', 'BTBZMqHH6r4Tts7J_aSIgg', null) $$,
   'a registered device can refresh at the cap');
 reset role;
 delete from push_devices where endpoint like '%/cap%';
@@ -136,8 +154,9 @@ delete from push_devices where endpoint like '%/cap%';
 update push_devices set created_at = now() - interval '1 hour' where endpoint like '%/a1';
 select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
 select is((select array_agg(k order by k) from list_push_devices() l, jsonb_object_keys(to_jsonb(l)) k where l.label = 'Moved'),
-  array['created_at', 'id', 'is_current', 'label', 'last_error', 'last_error_at', 'last_success_at'],
-  'list_push_devices returns labels and status, never the endpoint or keys');
+  array['agent', 'blocked_at', 'created_at', 'destination_ids', 'id', 'is_current', 'label', 'last_error',
+        'last_error_at', 'last_success_at', 'standalone'],
+  'list_push_devices returns names, descriptors and status, never the endpoint or keys');
 select results_eq($$ select label, is_current from list_push_devices('https://fcm.googleapis.com/fcm/send/b1') $$,
   $$ values ('Moved'::text, true), (repeat('x', 60), false) $$, 'newest first, with the current device flagged');
 select is((select count(*) from list_push_devices() where not is_current), 2::bigint, 'no endpoint: nothing is current');
@@ -160,6 +179,20 @@ select lives_ok(format('select delete_push_device(%L)', :'a1_id'), 'the owner de
 reset role;
 select is((select count(*) from push_devices where endpoint = 'https://web.push.apple.com/b2'), 1::bigint, 'unregister leaves another account''s device');
 select is((select count(*) from push_devices where endpoint like '%/a1'), 0::bigint, 'delete removed the device');
+
+-- Rename and report blocked, as B.
+select pg_temp.as_user('22222222-2222-2222-2222-222222222222');
+select lives_ok(format('select rename_push_device(%L, %L)', :'b2_id', '  Kitchen iPad  '), 'the owner renames a device');
+select throws_ok(format('select rename_push_device(%L, %L)', gen_random_uuid(), 'Mine'), 'P0001', 'Device not found.', 'an unknown device cannot be renamed');
+select report_push_device_blocked('https://web.push.apple.com/b2');
+select report_push_device_blocked('https://fcm.googleapis.com/fcm/send/b1'); -- A's now: silently ignored
+select results_eq($$ select label, blocked_at is not null from list_push_devices() $$,
+  $$ values ('Kitchen iPad'::text, true) $$, 'rename trims, and report stamps blocked_at');
+select rename_push_device(:'b2_id', '   ');
+select is((select label from list_push_devices()), 'This browser', 'a blank name becomes "This browser"');
+reset role;
+select is((select blocked_at from push_devices where endpoint like '%/b1'), null, 'report ignores another account''s endpoint');
+update push_devices set blocked_at = null where endpoint like '%/b2';
 -- Put it back for the claim below.
 select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
 select register_push_device('https://updates.push.services.mozilla.com/wpush/v2/a1',
@@ -174,8 +207,12 @@ select save_subscription(jsonb_build_object('name', 'all', 'quiet_minutes', 0,
   'destinations', array[(select id from pa), (select id from wa)]));
 select pg_temp.as_user('22222222-2222-2222-2222-222222222222');
 select unregister_push_device('https://web.push.apple.com/b2');
-select save_subscription(jsonb_build_object('name', 'all', 'quiet_minutes', 0, 'destinations', array[(select id from rb1)]));
+create temp table pb as select save_push_destination(null, 'Phone', true, null, null) as id;
+select save_subscription(jsonb_build_object('name', 'all', 'quiet_minutes', 0, 'destinations', array[(select id from pb)]));
 reset role;
+-- A's destination picks both of A's devices.
+insert into push_destination_devices (destination_id, device_id)
+select (select id from pa), p.id from push_devices p where p.user_id = '11111111-1111-1111-1111-111111111111';
 
 select count(*) from ingest_spots(jsonb_build_array(
   jsonb_build_object('source','pota','source_spot_id','s1','content_hash','h1','spot_time',now(),'callsign','KK4PWJ/P',
@@ -189,8 +226,8 @@ select is((select jsonb_agg(d order by d ->> 'endpoint') from claimed, jsonb_arr
            where destination ->> 'id' = (select id::text from pa)),
   (select jsonb_agg(jsonb_build_object('endpoint', endpoint, 'p256dh', p256dh, 'auth', auth) order by endpoint)
    from push_devices where user_id = '11111111-1111-1111-1111-111111111111'),
-  'a push destination carries its owner''s devices and keys');
-select is((select destination -> 'devices' from claimed where destination ->> 'id' = (select id::text from rb1)), '[]'::jsonb,
+  'a push destination carries its member devices and keys');
+select is((select destination -> 'devices' from claimed where destination ->> 'id' = (select id::text from pb)), '[]'::jsonb,
   'a push destination with no devices gets an empty list');
 select is((select destination ? 'devices' from claimed where type = 'webhook'), false, 'other destinations carry no devices');
 select is((select destination ->> 'url' from claimed where destination ->> 'id' = (select id::text from pa)), null, 'push has no url');
