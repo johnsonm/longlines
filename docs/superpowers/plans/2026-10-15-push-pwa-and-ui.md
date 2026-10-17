@@ -224,7 +224,9 @@ labels. The sender amendment adds, all *decided 2026-10-16*:
   Done with two deviations, both recorded in the spec: Send test reads `push_test_delivery`
   (service-role only) rather than `preview_push_notification`, which needs `auth.uid()`; and
   `watched_among` gained the matcher's enabled-destination check, as CLAUDE.md asks. The seed is
-  unchanged: it has no synthetic user to own a push destination.
+  unchanged: it has no synthetic user to own a push destination. `api_call` lives in
+  `20261016000600_push_api_call.sql`, after #210's `20261016000500` recreated it, with that
+  migration's two changes folded in.
 
 ### Task 4: Delivery on the sender, and send-test
 

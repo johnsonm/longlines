@@ -899,6 +899,9 @@ isOneToOne: false
 "api_destination_json":
 { Args: { "d": Omit<Database["public"]['Tables']["destinations"]['Row'], Database["public"]['Tables']["destinations"]['ComputedFields']> }; Returns: Json
                            },
+"api_group_json":
+{ Args: { "g": Json }; Returns: Json
+                           },
 "api_subscription_json":
 { Args: { "s": Omit<Database["public"]['Tables']["subscriptions"]['Row'], Database["public"]['Tables']["subscriptions"]['ComputedFields']> }; Returns: Json
                            },
