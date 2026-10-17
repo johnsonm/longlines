@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import {
-  Alert, Box, Breadcrumbs, Button, Card, CardContent, CardHeader, Chip, Divider, FormControlLabel, Grid, LinearProgress, Link, MenuItem,
-  Stack, Switch, TextField, Typography,
+  Alert, Breadcrumbs, Button, Card, CardContent, CardHeader, Chip, Divider, FormControlLabel, Grid, LinearProgress, Link, MenuItem, Stack,
+  Switch, TextField, Typography,
 } from "@mui/material";
 import { Navigate, Link as RouterLink, useNavigate } from "react-router";
 import { PageTitle } from "../layout/PageTitle";
@@ -14,7 +14,10 @@ import { DEST_TYPES, typeLabel } from "./types";
 import { DevicesCard } from "./DevicesCard";
 import { AddDeviceDialog } from "./AddDeviceDialog";
 import { RenameDeviceDialog } from "./RenameDeviceDialog";
-import { blankForm, formOf, QUIET_MODES, toInput, TTL_OPTIONS, URGENCIES, type PushForm } from "./pushModel";
+import { NotificationContentCard } from "./NotificationContentCard";
+import { PushPreviewCard } from "./PushPreviewCard";
+import { SettingSwitch } from "./SettingSwitch";
+import { blankForm, dirty, formOf, QUIET_MODES, toInput, TTL_OPTIONS, URGENCIES, type PushForm } from "./pushModel";
 
 interface Props {
   /** Set when editing; otherwise `type` must be "push" (the Add destination picker's hand-off). */
@@ -190,10 +193,16 @@ function Editor({ initial, reload, mobile }: EditorProps) {
               devices={devices} checked={form.deviceIds} busy={deviceBusy}
               onToggle={toggleDevice} onAdd={() => setAdding(true)} onRename={setRenaming} onRemove={(d) => void removeDevice(d)}
             />
+            <NotificationContentCard settings={form.settings} onChange={setSettings} />
             <DeliveryCard settings={form.settings} timezone={timezone} onChange={setSettings} />
           </Stack>
         </Grid>
-        <Grid size={{ xs: 12, md: 5 }} sx={{ position: { md: "sticky" }, top: { md: 16 } }} />
+        <Grid size={{ xs: 12, md: 5 }} sx={{ position: { md: "sticky" }, top: { md: 16 } }}>
+          <PushPreviewCard
+            settings={form.settings} destinationId={initial.id} name={initial.name} savedDeviceCount={initial.deviceIds.length}
+            dirty={dirty(initial, form)}
+          />
+        </Grid>
       </Grid>
       <AddDeviceDialog open={adding} fullScreen={mobile} onClose={() => setAdding(false)} onAdded={added} />
       {renaming && (
@@ -205,19 +214,6 @@ function Editor({ initial, reload, mobile }: EditorProps) {
           }}
         />
       )}
-    </Stack>
-  );
-}
-
-/** A switch with its sentence under the label; the switch is named by the label alone. */
-function SettingSwitch({ label, help, checked, onChange }: { label: string; help: string; checked: boolean; onChange: (on: boolean) => void }) {
-  return (
-    <Stack direction="row" spacing={2} sx={{ justifyContent: "space-between", alignItems: "center" }}>
-      <Box>
-        <Typography>{label}</Typography>
-        <Typography variant="body2" color="text.secondary">{help}</Typography>
-      </Box>
-      <Switch checked={checked} onChange={(e) => onChange(e.target.checked)} slotProps={{ input: { "aria-label": label } }} />
     </Stack>
   );
 }

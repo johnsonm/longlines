@@ -3,8 +3,8 @@ import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { renderPage } from "../test/render";
 import { setMobile } from "../test/media";
 import {
-  deletePushDevice, getPushDestination, listPushDevices, renamePushDevice, savePushDestination, type Destination, type PushDestination,
-  type PushDevice,
+  deletePushDevice, getPushDestination, listPushDevices, loadRecentSpots, previewPushNotification, renamePushDevice, savePushDestination,
+  sendTest, type Destination, type PushDestination, type PushDevice,
 } from "../lib/api";
 import { currentEndpoint, disablePush, enablePush, pushSupport } from "../pwa/push";
 import { DEFAULT_SETTINGS } from "./pushModel";
@@ -14,8 +14,11 @@ vi.mock("../lib/api", () => ({
   deletePushDevice: vi.fn(),
   getPushDestination: vi.fn(),
   listPushDevices: vi.fn(),
+  loadRecentSpots: vi.fn(),
+  previewPushNotification: vi.fn(),
   renamePushDevice: vi.fn(),
   savePushDestination: vi.fn(),
+  sendTest: vi.fn(),
 }));
 vi.mock("../pwa/push", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../pwa/push")>()),
@@ -58,6 +61,9 @@ beforeEach(() => {
   vi.mocked(listPushDevices).mockReset().mockResolvedValue(DEVICES);
   vi.mocked(deletePushDevice).mockReset().mockResolvedValue();
   vi.mocked(renamePushDevice).mockReset().mockResolvedValue();
+  vi.mocked(loadRecentSpots).mockReset().mockResolvedValue([]);
+  vi.mocked(previewPushNotification).mockReset().mockResolvedValue({ title: "N0CALL · 14.062 MHz · CW", body: "POTA · US-0000", url: "/call/N0CALL", source_url: null });
+  vi.mocked(sendTest).mockReset().mockResolvedValue();
   vi.mocked(currentEndpoint).mockReset().mockReturnValue("https://fcm.googleapis.com/fcm/send/abc");
   vi.mocked(disablePush).mockReset().mockResolvedValue();
   vi.mocked(enablePush).mockReset().mockResolvedValue("dev3");
@@ -286,6 +292,44 @@ describe("devices", () => {
     const dialog = await screen.findByRole("dialog", { name: "Add a device" });
     await user.click(within(dialog).getByRole("button", { name: "Close" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+});
+
+describe("notification content", () => {
+  it("round-trips the field picks and text settings into the saved input, with the preview following", async () => {
+    const { user } = render({ type: "push" });
+    await user.type(nameField(), "Phone");
+    await user.click(screen.getByRole("button", { name: "Move Mode up" }));
+    await user.click(screen.getByRole("button", { name: "Remove State" }));
+    await user.click(screen.getByRole("switch", { name: "Show field names" }));
+    await user.click(screen.getByRole("combobox", { name: "Separate body fields with" }));
+    await user.click(screen.getByRole("option", { name: "A comma" }));
+    await user.click(screen.getByRole("combobox", { name: "When tapped, open" }));
+    await user.click(screen.getByRole("option", { name: "Source site" }));
+    await user.click(screen.getByRole("switch", { name: "Show action buttons" }));
+    await waitFor(() => expect(previewPushNotification).toHaveBeenLastCalledWith(["callsign", "mode", "frequency"], ["source", "reference", "place_name"], true, "comma", null));
+    expect(await screen.findAllByText("N0CALL · 14.062 MHz · CW")).toHaveLength(3);
+
+    await user.click(screen.getByRole("button", { name: "Add destination" }));
+    await waitFor(() => expect(savePushDestination).toHaveBeenCalled());
+    expect(vi.mocked(savePushDestination).mock.calls[0]![0].settings).toEqual({
+      ...DEFAULT_SETTINGS,
+      title_fields: ["callsign", "mode", "frequency"], body_fields: ["source", "reference", "place_name"],
+      show_field_names: true, body_separator: "comma", tap_target: "source", action_buttons: false,
+    });
+  });
+
+  it("enables Send test only for a saved destination with members and no changes", async () => {
+    const { user, app } = render({ id: "p1" });
+    const button = await screen.findByRole("button", { name: "Send test notification" });
+    expect(button).toBeEnabled();
+    expect(screen.getByText("Sends this example to the 1 selected device.")).toBeInTheDocument();
+    await user.click(button);
+    await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Test spot sent to Phone"));
+    expect(sendTest).toHaveBeenCalledWith("p1", null);
+    await user.click(screen.getByRole("switch", { name: "Sound and vibration" }));
+    expect(button).toBeDisabled();
+    expect(screen.getByText("Save your changes to send a test.")).toBeInTheDocument();
   });
 });
 

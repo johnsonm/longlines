@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { PushDestination, PushField, RecentSpot } from "../lib/api";
 import {
-  addField, BODY_MAX, blankForm, DEFAULT_SETTINGS, dirty, fieldLabel, formOf, moveField, PUSH_FIELDS, removeField, spotLabel, TITLE_MAX,
-  TITLE_MIN, toInput, unpickedFields,
+  addField, BODY_MAX, blankForm, DEFAULT_SETTINGS, dirty, fieldLabel, formOf, moveField, PUSH_FIELDS, removeField, sendTestBlocker, spotLabel,
+  TITLE_MAX, TITLE_MIN, toInput, unpickedFields,
 } from "./pushModel";
 
 // Read at transform time by Vite, so the node suite needs no fs access.
@@ -136,5 +136,14 @@ describe("spotLabel", () => {
     expect(spotLabel(spot({ source: "sotawatch", pota_reference: null, sota_summit_ref: "W4C/CM-001", frequency_khz: 7032.5, mode: "ssb" })))
       .toBe("KK4PWJ, SOTAwatch W4C/CM-001, 7032.5 SSB");
     expect(spotLabel(spot({ source: "dxcluster", pota_reference: null, mode: null, frequency_khz: null }))).toBe("KK4PWJ, DX Cluster");
+  });
+});
+
+describe("sendTestBlocker", () => {
+  it("needs a saved destination with members and no unsaved changes", () => {
+    expect(sendTestBlocker(undefined, 0, false)).toBe("Add a device to send a test.");
+    expect(sendTestBlocker("d1", 0, false)).toBe("Add a device to send a test.");
+    expect(sendTestBlocker("d1", 2, true)).toBe("Save your changes to send a test.");
+    expect(sendTestBlocker("d1", 2, false)).toBeNull();
   });
 });

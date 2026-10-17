@@ -166,3 +166,19 @@ export function spotLabel(spot: RecentSpot): string {
   const how = [spot.frequency_khz === null ? "" : `${Number(spot.frequency_khz)}`, (spot.mode ?? "").toUpperCase()].filter(Boolean).join(" ");
   return [spot.callsign ?? "", where, how].filter(Boolean).join(", ");
 }
+
+/** Decision 10: why Send test is disabled, or null when the test can go (it uses the saved settings and members). */
+export function sendTestBlocker(destinationId: string | undefined, savedDeviceCount: number, isDirty: boolean): string | null {
+  if (!destinationId || savedDeviceCount === 0) return "Add a device to send a test.";
+  if (isDirty) return "Save your changes to send a test.";
+  return null;
+}
+
+export type MockupVariant = "android" | "iphone" | "desktop";
+
+/** The caption under each preview mock-up, per page 5. */
+export const MOCKUP_CAPTIONS: Record<MockupVariant, string> = {
+  android: "Action buttons shown on Android and desktop Chrome.",
+  iphone: "Action buttons are not shown on iPhone.",
+  desktop: "Style follows the operating system.",
+};
