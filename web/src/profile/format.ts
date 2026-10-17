@@ -23,13 +23,19 @@ export function plural(n: number, one: string, many: string): string {
 /**
  * The profile path for a callsign as typed, uppercased: "/call/KK4PWJ/P".
  * The profile page swaps it for the base call SQL returns; TypeScript never
- * works out the base call itself. Null for blank input.
+ * works out the base call itself. Null for blank input, and for a `.` or `..`
+ * segment, which the router would resolve to another page ("../STATS").
  */
 export function lookupPath(input: string): string | null {
   const call = normalizeCallsign(input);
   if (!call) return null;
-  return `/call/${call.split("/").map(encodeURIComponent).join("/")}`;
+  const segments = call.split("/");
+  if (segments.some((s) => s === "." || s === "..")) return null;
+  return `/call/${segments.map(encodeURIComponent).join("/")}`;
 }
+
+/** What the search boxes say when lookupPath refuses non-blank input; the callsign-profile function's 400 message. */
+export const INVALID_CALLSIGN = "Enter a callsign, like KK4PWJ.";
 
 /** The canonical, shareable link of a profile. */
 export function profileUrl(origin: string, callsign: string): string {

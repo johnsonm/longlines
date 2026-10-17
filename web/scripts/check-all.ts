@@ -75,7 +75,8 @@ const steps: Step[] = [
   },
   { group: "deno", name: "lint", cmd: "deno", args: ["task", "lint"], cwd: repoRoot },
   { group: "deno", name: "check", cmd: "deno", args: ["task", "check"], cwd: repoRoot },
-  { group: "deno", name: "test", cmd: "deno", args: ["task", "test"], cwd: repoRoot },
+  // Coverage runs the tests too, and fails below 80% or on a module no test loads, as CI does.
+  { group: "deno", name: "coverage", cmd: "deno", args: ["task", "coverage"], cwd: repoRoot },
   ...(fresh
     ? [{ group: "db" as const, name: "db reset", cmd: "supabase", args: ["db", "reset", ...workdir], cwd: repoRoot }]
     : []),
@@ -105,7 +106,7 @@ const steps: Step[] = [
     env: { SENDER_TEST_DATABASE_URL: dbUrl },
   },
   { group: "web", name: "lint", cmd: "npm", args: ["run", "lint"], cwd: webRoot },
-  { group: "web", name: "test", cmd: "npm", args: ["test"], cwd: webRoot },
+  { group: "web", name: "coverage", cmd: "npm", args: ["run", "coverage"], cwd: webRoot },
   { group: "web", name: "build", cmd: "npm", args: ["run", "build"], cwd: webRoot },
 ];
 

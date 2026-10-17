@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { BAND_PLAN, type BandPlan } from "../lib/bandplan";
 import {
-  bandStations, CROWD_DIVISOR, crowdAround, crowdDetail, crowdTitle, crowdTolerance, heardLabel, laneFor, mhz,
+  bandStations, CROWD_DIVISOR, crowdAround, crowdDetail, crowdTitle, crowdTolerance, heardLabel, mhz,
   segmentMarks, sourceInfo, spotAge, tooltipText, updatedLabel,
 } from "./model";
 import type { BandMapPayload, BandMapSource, BandMapSpot } from "./types";
@@ -33,9 +33,9 @@ const payload = (band: string, spots: BandMapSpot[]): BandMapPayload => ({
 
 describe("lanes", () => {
   it("puts DX Cluster at the bottom, POTA in the middle and SOTA on top", () => {
-    expect(laneFor("dxcluster")).toBe(0);
-    expect(laneFor("pota")).toBe(1);
-    expect(laneFor("sotawatch")).toBe(2);
+    expect(sourceInfo("dxcluster").lane).toBe(0);
+    expect(sourceInfo("pota").lane).toBe(1);
+    expect(sourceInfo("sotawatch").lane).toBe(2);
   });
 
   it("gives each source its app-wide color and label", () => {

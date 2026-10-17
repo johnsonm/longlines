@@ -103,6 +103,17 @@ describe("AppShell", () => {
     expect(box).toHaveValue("");
   });
 
+  it("says a dot segment in the app bar search isn't a callsign, and stays put", async () => {
+    const { user } = renderPage(shell(), { route: "/sources" });
+    const box = screen.getByRole("textbox", { name: "Look up a callsign" });
+    await user.type(box, "../stats{Enter}");
+    expect(screen.getByTestId("location")).toHaveTextContent("/sources");
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Enter a callsign, like KK4PWJ.");
+    expect(box).toHaveAttribute("aria-invalid", "true");
+    await user.type(box, "x");
+    expect(box).toHaveAttribute("aria-invalid", "false");
+  });
+
   it("swaps the search box for an icon that opens lookup on phones", async () => {
     setMobile(true);
     const { user } = renderPage(shell(), { route: "/sources" });

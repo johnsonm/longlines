@@ -7,21 +7,31 @@ import { repoRoot } from "./local-stack.ts";
 
 const LABEL = "label=com.supabase.cli.project=longlines";
 
-function docker(args: string[]): string[] {
+// Every docker command that failed; the summary reports them instead of success.
+const failures: string[] = [];
+
+/** The command's output lines, or null when docker ran but failed (stderr is printed and recorded). */
+function docker(args: string[]): string[] | null {
   const result = spawnSync("docker", args, { encoding: "utf8" });
   if (result.error) {
     console.error(`✗ could not run docker: ${result.error.message}`);
     process.exit(1);
+  }
+  if (result.status !== 0) {
+    const detail = result.stderr.trim();
+    console.error(`  ✗ docker ${args.join(" ")} failed${detail ? `: ${detail}` : ""}`);
+    failures.push(`docker ${args.join(" ")}`);
+    return null;
   }
   return result.stdout.split("\n").filter(Boolean);
 }
 
 function removeAll(kind: string, list: string[], remove: string[]): void {
   const ids = docker([...list, "--filter", LABEL]);
+  if (ids === null) return;
   console.log(`\nRemoving ${kind}: ${ids.length === 0 ? "none found" : ids.length}`);
   for (const id of ids) {
-    docker([...remove, id]);
-    console.log(`  removed ${id}`);
+    if (docker([...remove, id]) !== null) console.log(`  removed ${id}`);
   }
 }
 
@@ -32,4 +42,10 @@ removeAll("containers", ["ps", "-aq"], ["rm", "-f"]);
 removeAll("volumes", ["volume", "ls", "-q"], ["volume", "rm", "-f"]);
 removeAll("networks", ["network", "ls", "-q"], ["network", "rm"]);
 
-console.log("\n✓ Local Supabase stack removed. Start fresh with `npm run supabase:start`.");
+if (failures.length > 0) {
+  console.error(`\n✗ ${failures.length} docker command(s) failed; the stack may be partly removed:`);
+  for (const failure of failures) console.error(`  ${failure}`);
+  process.exitCode = 1;
+} else {
+  console.log("\n✓ Local Supabase stack removed. Start fresh with `npm run supabase:start`.");
+}
