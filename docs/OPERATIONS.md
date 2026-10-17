@@ -279,7 +279,8 @@ bookkeeping call; the start before any) is under `SENDER_STALE_MS` old and 503 a
 cycle that is still sending stays healthy. A 503 restarts nothing: Fly restarts the machine only when the process exits, and
 the watchdog exits 1 at the same threshold, which is what a wedged pooler connection looks like.
 `queue.depth` should stay near zero. `queue.expired_last_hour` counts deliveries that waited past
-their age limit (push 15 minutes, everything else 24 hours) and were dropped undelivered; that is
+their age limit (push: the destination's "drop if offline" setting, 30 minutes by default;
+everything else 24 hours) and were dropped undelivered; that is
 the figure to watch.
 
 ```sql
@@ -400,17 +401,35 @@ the time, so new keys break every registered device until it subscribes again.
 Is it working?
 
 ```sql
-select count(*) as devices, count(last_error) as with_errors, max(last_success_at) as last_success
+select count(*) as devices, count(last_error) as with_errors, count(blocked_at) as blocked,
+       max(last_success_at) as last_success
 from push_devices;
-select label, last_success_at, last_error, last_error_at from push_devices
-where last_error_at > now() - interval '1 day' order by last_error_at desc;
+select label, agent, last_success_at, last_error, last_error_at, blocked_at from push_devices
+where last_error_at > now() - interval '1 day' or blocked_at is not null
+order by greatest(last_error_at, blocked_at) desc;
+-- Each push destination: on or off, health, members that can receive, and its delivery settings.
+select d.name, d.enabled, d.health, d.last_error,
+       count(p.id) filter (where p.blocked_at is null) as receiving, count(p.id) as members,
+       s.urgency, s.ttl_seconds, s.quiet_enabled, s.quiet_mode
+from destinations d
+join push_destination_settings s on s.destination_id = d.id
+left join push_destination_devices m on m.destination_id = d.id
+left join push_devices p on p.id = m.device_id
+where d.type = 'push'
+group by d.id, s.destination_id
+order by d.name;
 ```
 
 Endpoints and keys in `push_devices` are capability secrets: don't paste them anywhere. A device
-the push service reports gone (404/410) is deleted on the next send. A push destination with no
-devices fails each cycle with "Turn on notifications on a device first." and goes `failing` after
-five, like any other destination. A push delivery older than 15 minutes is dropped undelivered
-(`dropped_at`); a stale notification is worse than none.
+the push service reports gone (404/410) is deleted on the next send. A browser that finds
+notifications blocked reports it (`blocked_at`); blocked devices are skipped until they register
+again. A push destination with no receiving members fails each cycle with "Turn on notifications
+on a device first." and goes `failing` after five, like any other destination. Spots skipped by
+quiet hours ("Don't send") are marked sent, not failed. A push delivery older than the
+destination's "Drop if the device is offline for" (`push_destination_settings.ttl_seconds`, 30
+minutes by default, 5 minutes to 4 hours) is dropped undelivered (`dropped_at`); that setting
+overrides the 15-minute `destination_max_age('push')` default, which now applies only to a push
+destination without a settings row. A stale notification is worse than none.
 
 ### Housekeeping
 

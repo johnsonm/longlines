@@ -270,10 +270,12 @@ the Phase 2 plan, is `docs/superpowers/specs/2026-10-15-outbound-sender-design.m
   It has no table privileges, nothing on `pgmq` and no Supabase API key; `sender_role.test.sql`
   pins that list. Its loop (`_shared/delivery/run.ts`, `runDeliveryBatch`) claims, sends and
   reports. What to send, in what order, how much and when to give up are decided in SQL.
-- **The claim is rate-aware and newest first.** `claim_deliveries(p_limit, p_vt)` first expires
-  pending rows older than `destination_max_age(type)` (push 15 minutes, everything else 24 hours),
-  stamping `deliveries.dropped_at` and archiving their messages, so the oldest rows retire
-  without ever being claimed. Then, per destination, it refills a token bucket kept on the
+- **The claim is rate-aware and newest first.** `claim_deliveries(p_limit, p_vt)` first drops
+  rows the user no longer wants (a disabled subscription, an unlinked or disabled destination),
+  then expires pending rows older than `destination_max_age(type)` (push 15 minutes, everything
+  else 24 hours) or, for a push destination, its own "drop if the device is offline for"
+  (`push_destination_settings.ttl_seconds`), stamping `deliveries.dropped_at` and archiving their
+  messages, so the oldest rows retire without ever being claimed. Then, per destination, it refills a token bucket kept on the
   `destinations` row (`claim_tokens`, `claim_tokens_at`; `destination_budget(type)` is the rate
   in spots per minute: Discord 300, push 3, webhooks 1000, burst equal to the rate), ranks the
   destination's visible messages newest first, takes the ranks its tokens cover, and interleaves
@@ -293,8 +295,9 @@ the Phase 2 plan, is `docs/superpowers/specs/2026-10-15-outbound-sender-design.m
 - **Within a cycle,** destinations are sent concurrently up to `SENDER_CONCURRENCY` (4) and
   sequentially within a destination (Discord message order, webhook request order). Discord goes
   as embeds, ten per message; webhooks as signed JSON, fifty spots per request, 10 s timeout;
-  push as one encrypted notification per device, at most three spots a minute per destination
-  from the budget. Successes are acked in one `mark_deliveries_sent` per cycle, so write load
+  push as one encrypted notification per spot per member device, at most three spots a minute
+  per destination from the budget, with the destination's urgency and TTL (see "Push
+  destinations" below). Successes are acked in one `mark_deliveries_sent` per cycle, so write load
   scales with problems, not with sends. Every response status is read; nothing is
   fire-and-forget.
 - **A 429 is alive, not dead.** For every type, a rate limit calls `throttle_destination`: it
@@ -306,7 +309,8 @@ the Phase 2 plan, is `docs/superpowers/specs/2026-10-15-outbound-sender-design.m
   the base delay. A 5xx, a timeout or a connection error is a failure as before:
   `mark_deliveries_failed` backs the messages off (30 s to 30 m) and five in a row mark the
   destination `failing`. A push device reported gone (404/410) is pruned, and a push destination
-  with no deliverable device fails.
+  with no deliverable device fails. A push destination in its quiet hours set to "Don't send" is
+  acked without a request: not a failure, not retried.
 - **Health and the watchdog.** `/healthz` answers on Fly's private network: 200 while the last
   progress (a successful claim, a finished send or a successful bookkeeping call; the start before
   any) is under `SENDER_STALE_MS` (2 minutes) old, 503 after; the body carries `last_claim_at`,
@@ -341,6 +345,48 @@ the Phase 2 plan, is `docs/superpowers/specs/2026-10-15-outbound-sender-design.m
 
 `send-test` reuses the same formatting and sending code for one labeled sample spot, from an Edge
 Function, which is why the VAPID pair also lives in function env.
+
+## Push destinations
+
+An account has any number of push destinations (canvas page 5; the amendments at the top of
+`docs/superpowers/specs/2026-10-13-push-notifications-design.md`). Devices (browsers that allowed
+notifications) belong to the account in `push_devices`; each push destination picks some of them
+through `push_destination_devices` and has its own row in `push_destination_settings`: the title
+and body as ordered lists of field names (`push_fields()`: callsign, frequency, band, mode, source,
+reference, place name, state, spotter, comment, time), field labels on or off, the body separator,
+the tap target, action buttons, urgency, "drop if the device is offline for", replace same
+station, sound and quiet hours. There is no template and no free text: each field has one fixed
+rendering (`render_push_field`) and one display name, so nothing is parsed and nothing a user
+types can reach a notification. A trigger gives every new push destination the defaults
+(`push_default_settings()`), and names are unique per account across every destination type. The
+path a spot takes:
+
+```mermaid
+flowchart LR
+  E[Editor] -->|save_push_destination| T[(destinations, push_destination_settings, push_destination_devices)]
+  T --> C[claim_deliveries]
+  C -->|push_spot_fields: render_push_fields, spot_source_url; push_quiet_now| W[sender: sendPush]
+  W -->|aes128gcm + VAPID, per member device| P[Push service]
+  P --> S[Service worker]
+  S -->|tap or button| U[Profile or source site]
+```
+
+Everything that depends on the fields, the clock or the devices happens in SQL, and the sender
+stays dumb: `claim_deliveries` keeps its signature and result columns and, for a push
+destination, puts the settings row (`push`), whether it is quiet hours (`quiet_now`, once per
+destination in the account's time zone) and the unblocked members (`devices`) in the destination
+jsonb, and the text built from the picked fields (`push_title`, `push_body`, clipped to 160 and
+400 characters), the tap URL (`push_url`) and the source page (`push_source_url`) in the spot
+jsonb. The editor's preview (`preview_push_notification`), Send test (`push_test_delivery`, read
+by the `send-test` and `api` functions as the service role) and real deliveries go through the
+same `push_spot_fields`, so all three show the same text. `format.ts` only shapes what SQL built:
+a tag per station (or per spot), the Open profile and Open on {Source} buttons, `silent` and
+`renotify`. `send.ts` sends with the destination's `Urgency` and `TTL`, falls back to today's high
+and 15 minutes when a row claimed before the migration carries no `push`, and for a "Don't send"
+destination in quiet hours makes no request and reports the batch sent. The claim's expiry sweep
+uses the destination's TTL, and its unwanted sweep drops a disabled destination's queued rows as
+it does a disabled subscription's; the matcher creates none for it in the first place. Webhook
+payloads strip the `push_*` keys, so `docs/WEBHOOKS.md` is unchanged.
 
 # Phase 3: stats snapshot
 

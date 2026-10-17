@@ -7,15 +7,16 @@ changes during a PR, update this file in that PR.
 
 ## Amendment, 2026-10-15: page 5
 
-Status: **waiting for Brad's review.** PR 1 (#157, merged 2026-10-14) shipped the model the rest of
+Status: **decisions 1 to 15 accepted by Brad, 2026-10-16** (16 is withdrawn by the sender amendment).
+PR 1 (#157, merged 2026-10-14) shipped the model the rest of
 this file describes. Page 5 of Brad's design canvas ("Push notification destination (draft)",
 artboards `PushList-Desktop`, `PushType-Desktop`, `PushNew-Desktop`, `PushDevice-Desktop`,
 `PushEdit-Desktop`, `PushEdit-Mobile`, `PushDevice-iOS-Mobile`) draws a different one, and this
 amendment records it. Where this section and the rest of the file disagree, this section wins. The
 implementation plan is `docs/superpowers/plans/2026-10-15-push-pwa-and-ui.md`.
 
-Brad gave no answers in Part 0, so every decision below is the plan's proposal and is marked
-*proposed*. Each needs an explicit yes before Part 2 starts.
+Brad gave no answers in Part 0, so every decision below was the plan's proposal; he accepted them
+all on 2026-10-16, before Part 2 started, and each is marked *decided*.
 
 ### The model change
 
@@ -80,8 +81,12 @@ the same SQL; the worker keeps only the per-run "3 spots then a summary" shaping
   null, validates the settings, rejects devices that aren't the caller's with "Device not found."
   and replaces membership. `get_push_destination(p_id)` returns settings and `device_ids`.
   `duplicate_destination(p_id)` (decision 9). `preview_push_notification(p_title_fields,
-  p_body_fields, p_spot_id)` renders against a `raw_spots` row, or `push_sample_spot()` when null,
-  through the same `render_push_fields` that `claim_deliveries` calls, after the same field checks. None of them returns an endpoint or a key.
+  p_body_fields, p_show_field_names, p_body_separator, p_spot_id)` renders against a `raw_spots`
+  row, or `push_sample_spot()` when null, through the same `push_spot_fields` that
+  `claim_deliveries` calls, after the same field checks. None of them returns an endpoint or a key.
+  Send test cannot use it (the Edge Function runs as the service role, with no `auth.uid()`), so it
+  reads `push_test_delivery(p_destination_id, p_spot_id)`, service-role only, which returns the
+  settings, the unblocked members and the spot rendered through the same function.
 - **Worker.** `send.ts` takes `Urgency` and `TTL` from the destination's settings (today's values
   when absent). `deliver.ts` drops a push delivery older than that destination's TTL instead of the
   fixed 15 minutes. `format.ts` passes the SQL-rendered text through and only builds tags, actions,
@@ -96,12 +101,12 @@ the same SQL; the worker keeps only the per-run "3 spots then a summary" shaping
 
 ### Decisions
 
-1. **Many push destinations per account, devices picked per destination**, as above. *Proposed.*
+1. **Many push destinations per account, devices picked per destination**, as above. *Decided 2026-10-16.*
 2. **Enabled switch.** A real `destinations.enabled` that `match_pending_spots` honours for every
    type, rather than reusing `health = 'paused'`, which is a delivery-side state. Discord and
-   webhook cards don't show the switch (page 1), but the API exposes `enabled` for all. *Proposed.*
+   webhook cards don't show the switch (page 1), but the API exposes `enabled` for all. *Decided 2026-10-16.*
 3. **Unique names** per account across every destination type, case-insensitive, with hosted
-   duplicates renamed as above. *Proposed.*
+   duplicates renamed as above. *Decided 2026-10-16.*
 4. **Fields, not templates** (Brad, 2026-10-15; canvas updated 2026-10-16, decided). The title
    and the body are each an ordered list of fields from `callsign`, `frequency`, `band`, `mode`,
    `source`, `reference`, `place_name`, `state`, `spotter`, `comment` and `time`. No custom text
@@ -117,48 +122,48 @@ the same SQL; the worker keeps only the per-run "3 spots then a summary" shaping
    Defaults: title Callsign, Frequency, Mode; body Source, Reference, Place name, State, rendering
    "KK4PWJ · 14.062 MHz · CW" / "POTA · US-2763 · Falls Lake SRA · NC", as the canvas previews
    show. Limits: title 1 to 4 fields, body 0 to 8, no field twice in a list. *The separator
-   options beyond the dot and whether labels apply to the title are proposed.*
+   options beyond the dot and labels on the title as well as the body: decided 2026-10-16.*
 5. **When tapped, open.** Callsign profile (`/call/<base>`, the default) or Source site
    (`spot_source_url`; RBN and DX Cluster spots fall back to the profile). URLs are built in SQL.
-   *Proposed.*
+   *Decided 2026-10-16.*
 6. **Action buttons.** "Open profile" and "Open on {Source}", the latter only when the source URL
    differs from the profile, through the notification `actions` API. iOS ignores them, as the
-   preview caption says. *Proposed.*
+   preview caption says. *Decided 2026-10-16.*
 7. **Delivery values.** Urgency Low / Normal / High, default Normal (today's worker sends High).
    Drop if offline for 5 min / 15 min / 30 min / 1 hour / 4 hours, default 30 minutes (today 15).
    Replace the earlier notification for the same station: default on (tag per station; off gives
    each spot its own tag). Sound and vibration: default on (`silent: false`). Quiet hours: default
    off, 22:00 to 07:00; during them, **Send silently** (default) or **Don't send** (marked sent
    without a push). Quiet hours use the account time zone and are evaluated in SQL when the delivery
-   is claimed. *Proposed.*
+   is claimed. *Decided 2026-10-16.*
 8. **Blocked devices.** A browser that finds `Notification.permission === "denied"` on load reports
    its last endpoint through `report_push_device_blocked`. Blocked devices are skipped at claim time
    and shown as page 5 draws them. The browser keeps its last endpoint in `localStorage` (a
    per-viewer convenience), since a denied browser can no longer read its subscription.
-   Re-registering clears `blocked_at`. *Proposed.*
+   Re-registering clears `blocked_at`. *Decided 2026-10-16.*
 9. **Duplicate.** `duplicate_destination(p_id)`, push destinations only (page 5 shows it only
    there): same settings and devices, named "Copy of {name}", `enabled` false so a copy never
-   double-sends until it's edited. It returns the new id and the web opens the editor. *Proposed.*
+   double-sends until it's edited. It returns the new id and the web opens the editor. *Decided 2026-10-16.*
 10. **Send test from the editor** uses the destination's *saved* settings and devices and the chosen
     preview spot. While the form has unsaved changes the button is disabled with "Save your changes
-    to send a test."; on a new destination, "Add a device to send a test.". *Proposed.*
+    to send a test."; on a new destination, "Add a device to send a test.". *Decided 2026-10-16.*
 11. **Device name.** The Add a device dialog prefills "{Browser} on {Platform}" and the user can
     change it. The descriptor is stored separately in `agent` and shown under the name, with ",
-    installed app" for standalone browsers. *Proposed.*
+    installed app" for standalone browsers. *Decided 2026-10-16.*
 12. **Install app** stays in the account menu, between Account and Sign out (the tour it sat next
-    to is gone). *Proposed.*
+    to is gone). *Decided 2026-10-16.*
 13. **`pushsubscriptionchange`.** The service worker can't reach the supabase-js session and must
     never hold a token, so it re-subscribes and posts `{type: "push-subscription-changed"}` to open
     windows, which re-register. The next app load covers the no-window case, and the old endpoint
     is pruned on its first 410. This replaces PR 2's "call `register_push_device` through a plain
-    `fetch` with the stored session". *Proposed.*
+    `fetch` with the stored session". *Decided 2026-10-16.*
 14. **Icons.** No SVG rasteriser is installed: a throwaway resvg script in the session scratchpad
-    renders them, the PNGs are committed, and nothing is added to the build. *Proposed.*
+    renders them, the PNGs are committed, and nothing is added to the build. *Decided 2026-10-16.*
 15. **Manifest colours.** `theme_color` is the stock MUI light primary `#1976d2`, `background_color`
-    `#ffffff`; the `index.html` `theme-color` metas keep light and dark variants. *Proposed.*
+    `#ffffff`; the `index.html` `theme-color` metas keep light and dark variants. *Decided 2026-10-16.*
 16. **Per-run shaping stays.** Page 5 doesn't show it, so the worker keeps "at most 3 notifications
     per device per run, then one summary". The summary keeps the fixed text in Copy below and uses
-    the destination's tap target. *Proposed.*
+    the destination's tap target. *Withdrawn by the 2026-10-16 amendment (S1): no summary.*
 
 ### What this supersedes
 
@@ -257,7 +262,7 @@ listed here comes from Copy at the end of this file.
 
 ## Amendment, 2026-10-16: the sender
 
-Status: **waiting for Brad's review.** Outbound delivery moved off the `deliver` Edge Function onto
+Status: **accepted by Brad, 2026-10-16** (the plan's S1 to S6). Outbound delivery moved off the `deliver` Edge Function onto
 the sender, a Deno process on Fly.io (`sender/`, `docs/superpowers/specs/2026-10-15-outbound-sender-design.md`,
 Phase 1 complete 2026-10-16). The page 5 amendment above was written against the Edge worker; this
 section says what changes. Where it and the page 5 amendment disagree, this section wins.
