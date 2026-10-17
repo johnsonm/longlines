@@ -178,12 +178,18 @@ supabase functions deploy send-test
 
 ## Sign-in rate limiting
 
-`sign_in_attempts` logs every attempt. To see who is being throttled:
+`sign_in_attempts` logs failed attempts per identifier and client (`begin_sign_in_attempt` logs each
+attempt before the password check and `forget_sign_in_attempt` removes it unless the password was
+wrong). A client gets 10 failures per identifier in 15 minutes, and an identifier 100 from all clients.
+`client` is the same HMAC of the caller's address that `callsign-profile` rate limits on, from the
+`LONGLINES_CLIENT_IP_HEADER` header (see "Which client IP the rate limit sees"); the first request that
+falls back to `x-forwarded-for` logs `sign-in: no client address in <header>`. To see who is being
+throttled:
 
 ```sql
-select identifier, count(*) from sign_in_attempts
+select identifier, client, count(*) from sign_in_attempts
 where attempted_at > now() - interval '15 minutes'
-group by 1 having count(*) >= 10;
+group by 1, 2 having count(*) >= 10;
 ```
 
 Rows older than a day are deleted by the daily housekeeping job.

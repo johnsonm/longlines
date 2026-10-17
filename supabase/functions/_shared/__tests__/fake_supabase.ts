@@ -8,6 +8,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 export interface FakeError {
   message: string;
   code?: string;
+  /** HTTP status, as on an AuthError. */
+  status?: number;
 }
 
 export interface FakeResult {

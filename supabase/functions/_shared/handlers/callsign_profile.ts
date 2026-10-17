@@ -120,8 +120,32 @@ export function clientSubject(
   return { subject: forwarded ?? "unknown", trusted: false };
 }
 
-// The fallback warning is logged once per isolate and header, not per request.
+// The fallback warning is logged once per isolate, function and header, not per request.
 const warnedFallback = new Set<string>();
+
+/**
+ * The stored rate-limit key for a request: an HMAC of clientSubject's subject
+ * read from `clientIpHeader` (DEFAULT_CLIENT_IP_HEADER when unset). The first
+ * request that falls back logs a warning prefixed with `fn`. Shared with
+ * sign-in, which keys its attempt log the same way.
+ */
+export async function rateLimitKey(
+  req: Request,
+  clientIpHeader: string | undefined,
+  key: CryptoKey,
+  fn: string,
+): Promise<string> {
+  const header = clientIpHeader?.trim() || DEFAULT_CLIENT_IP_HEADER;
+  const { subject, trusted } = clientSubject(req, header);
+  if (!trusted && !warnedFallback.has(`${fn} ${header}`)) {
+    warnedFallback.add(`${fn} ${header}`);
+    console.warn(
+      `${fn}: no client address in ${header}; rate limiting on the last x-forwarded-for ` +
+        "entry, which may be shared by every client (see LONGLINES_CLIENT_IP_HEADER)",
+    );
+  }
+  return await hmacSha256Hex(key, subject);
+}
 
 export async function handleProfile(req: Request, deps: ProfileDeps): Promise<Response> {
   const preflight = preflightResponse(req);
@@ -135,19 +159,9 @@ export async function handleProfile(req: Request, deps: ProfileDeps): Promise<Re
     console.error("callsign-profile: missing environment variable SUPABASE_SERVICE_ROLE_KEY");
     return json({ error: LOOKUP_UNAVAILABLE }, 500);
   }
-  const header = deps.clientIpHeader?.trim() || DEFAULT_CLIENT_IP_HEADER;
-  const { subject, trusted } = clientSubject(req, header);
-  if (!trusted && !warnedFallback.has(header)) {
-    warnedFallback.add(header);
-    console.warn(
-      `callsign-profile: no client address in ${header}; rate limiting on the last x-forwarded-for ` +
-        "entry, which may be shared by every client (see LONGLINES_CLIENT_IP_HEADER)",
-    );
-  }
+  const client = await rateLimitKey(req, deps.clientIpHeader, deps.key, "callsign-profile");
   const db = deps.db();
-  const lookups = await db.rpc("record_profile_lookup", {
-    p_client: await hmacSha256Hex(deps.key, subject),
-  });
+  const lookups = await db.rpc("record_profile_lookup", { p_client: client });
   // Anything but a count fails closed: a limit that cannot be read is not a pass.
   if (lookups.error || typeof lookups.data !== "number") {
     const why = lookups.error?.message ?? `unexpected result ${JSON.stringify(lookups.data)}`;

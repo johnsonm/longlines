@@ -70,7 +70,8 @@ select throws_ok('select * from deliveries', '42501', null, 'deliveries hidden f
 select throws_ok('select * from subscription_quiet', '42501', null, 'subscription_quiet hidden from clients');
 select throws_ok('select * from sign_in_attempts', '42501', null, 'sign_in_attempts hidden from clients');
 select throws_ok($$ select email_for_identifier('KK4PWJ') $$, '42501', null, 'email lookup not callable by clients');
-select throws_ok($$ select record_sign_in_attempt('KK4PWJ') $$, '42501', null, 'attempt recording not callable by clients');
+select throws_ok($$ select begin_sign_in_attempt('KK4PWJ', 'c') $$, '42501', null, 'attempt recording not callable by clients');
+select throws_ok($$ select forget_sign_in_attempt(1) $$, '42501', null, 'forgetting attempts not callable by clients');
 
 -- Anonymous users see nothing.
 set local role anon;
@@ -88,7 +89,6 @@ select is((select count(*) from pg_class c where c.relnamespace = 'public'::regn
 select is(email_for_identifier(' kk4pwj '), 'a@example.com', 'callsign resolves to email, case-insensitive');
 select is(email_for_identifier('b@example.com'), 'b@example.com', 'email passes through');
 select is(email_for_identifier('N0SUCH'), null, 'unknown callsign gives null');
-select is((select record_sign_in_attempt('x') + record_sign_in_attempt('x')), 3, 'attempts accumulate within the window');
 
 select * from finish();
 rollback;
