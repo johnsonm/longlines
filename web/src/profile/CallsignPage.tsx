@@ -118,7 +118,7 @@ function Header({ profile, signedIn }: { profile: CallsignProfile; signedIn: boo
 
   // The editor opens on the picked source with this call as its filter; nothing is saved until the user saves there.
   const pick = (source: string) =>
-    void navigate(`/subscriptions/new?source=${encodeURIComponent(source)}&callsign=${encodeURIComponent(callsign)}`);
+    void navigate(`/connections/new?source=${encodeURIComponent(source)}&callsign=${encodeURIComponent(callsign)}`);
 
   return (
     <Card variant="outlined">

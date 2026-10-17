@@ -322,7 +322,7 @@ describe("Get alerts", () => {
     const dialog = within(screen.getByRole("dialog"));
     await user.click(dialog.getByRole("radio", { name: /Reverse Beacon Network/ }));
     await user.click(dialog.getByRole("button", { name: "Continue" }));
-    expect(where()).toHaveTextContent(/^\/subscriptions\/new$/);
+    expect(where()).toHaveTextContent(/^\/connections\/new$/);
     expect(where().dataset.search).toBe("?source=rbn&callsign=KK4PWJ");
   });
 

@@ -103,7 +103,7 @@ export function AccountPage({ profile }: { profile: Profile }) {
         <Stack spacing={2.5} sx={{ mt: 2 }}>
           <TextField
             label="Callsign" value={draft.callsign} onChange={(e) => set("callsign", e.target.value.toUpperCase().trim())}
-            error={!callsignValid} helperText={callsignValid ? "Shown on your subscriptions and in group rosters." : "Enter a valid amateur callsign, like KK4PWJ."} fullWidth
+            error={!callsignValid} helperText={callsignValid ? "Shown on your connections and in group rosters." : "Enter a valid amateur callsign, like KK4PWJ."} fullWidth
           />
           <TextField label="Name" value={draft.name} onChange={(e) => set("name", e.target.value)} fullWidth />
           <TextField
@@ -140,7 +140,7 @@ export function AccountPage({ profile }: { profile: Profile }) {
       <Paper variant="outlined" sx={{ p: 3 }}>
         <Typography variant="h6" color="error" gutterBottom>Delete account</Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Removes your subscriptions and destinations immediately. Spots already delivered are not recalled.
+          Removes your connections and destinations immediately. Spots already delivered are not recalled.
         </Typography>
         <Button variant="outlined" color="error" onClick={() => setConfirmOpen(true)} disabled={busy}>Delete account</Button>
       </Paper>

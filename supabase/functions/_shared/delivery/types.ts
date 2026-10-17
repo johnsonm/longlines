@@ -70,7 +70,7 @@ export interface DiscordMessage {
 }
 
 export interface WebhookPayload {
-  deliveries: Array<{ delivery_id: number; subscription_id: string; spot: DeliverySpot }>;
+  deliveries: Array<{ delivery_id: number; connection_id: string; spot: DeliverySpot }>;
 }
 
 /** One notification as the service worker shows it. */

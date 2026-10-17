@@ -70,7 +70,7 @@ describe("GroupsPage", () => {
       },
     })]);
     const c = await screen.findByRole("heading", { name: "RARS members" }).then(() => card("RARS members"));
-    expect(within(c).getByText("12 callsigns · used by 1 subscription")).toBeInTheDocument();
+    expect(within(c).getByText("12 callsigns · used by 1 connection")).toBeInTheDocument();
     for (const call of CALLS.slice(0, 10)) expect(within(c).getByText(call)).toBeInTheDocument();
     expect(within(c).queryByText("W4KNX")).not.toBeInTheDocument();
     expect(within(c).getByText("+2 more")).toBeInTheDocument();
@@ -83,11 +83,11 @@ describe("GroupsPage", () => {
   it("shows an unused group that is off the air", async () => {
     render([group("a", { name: "Field Day crew", callsigns: ["AC4ZO", "KK4PWJ"], member_count: 2 }), group("b", { callsigns: [], member_count: 0 })]);
     const c = await screen.findByRole("heading", { name: "Field Day crew" }).then(() => card("Field Day crew"));
-    expect(within(c).getByText("2 callsigns · used by 0 subscriptions")).toBeInTheDocument();
+    expect(within(c).getByText("2 callsigns · used by 0 connections")).toBeInTheDocument();
     expect(within(c).queryByText(/more$/)).not.toBeInTheDocument();
     expect(within(c).queryByText(/on the air now/)).not.toBeInTheDocument();
     expect(within(c).getByRole("button", { name: "Delete Field Day crew" })).toBeEnabled();
-    expect(within(card("Group b")).getByText("0 callsigns · used by 0 subscriptions")).toBeInTheDocument();
+    expect(within(card("Group b")).getByText("0 callsigns · used by 0 connections")).toBeInTheDocument();
   });
 
   it("deletes an unused group and reloads", async () => {
@@ -100,10 +100,10 @@ describe("GroupsPage", () => {
   });
 
   it("reports a delete the server refuses", async () => {
-    vi.mocked(deleteGroup).mockRejectedValue(new Error("Remove it from its subscriptions first."));
+    vi.mocked(deleteGroup).mockRejectedValue(new Error("Remove it from its connections first."));
     const { user, app } = render([group("a")]);
     await user.click(await screen.findByRole("button", { name: "Delete Group a" }));
-    await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Remove it from its subscriptions first."));
+    await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Remove it from its connections first."));
   });
 
   describe("Get alerts", () => {
@@ -120,7 +120,7 @@ describe("GroupsPage", () => {
         sources: [], rules: [[{ field: "group", op: "is", values: ["a"] }]],
       });
       expect(reload).toHaveBeenCalled();
-      await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/subscriptions/s1"));
+      await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/connections/s1"));
     });
 
     it("opens the subscription that already uses the group", async () => {
@@ -131,7 +131,7 @@ describe("GroupsPage", () => {
       await waitFor(() => expect(app.notify).toHaveBeenCalledWith("You already have Club alerts."));
       expect(saveSubscription).not.toHaveBeenCalled();
       // The fixture's id is its name.
-      await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/subscriptions/Club"));
+      await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/connections/Club"));
     });
 
     it("creates it without a destination when none is healthy and opens its editor", async () => {
@@ -142,7 +142,7 @@ describe("GroupsPage", () => {
       await user.click(await screen.findByRole("button", { name: "Get alerts" }));
       await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Created RARS on the air"));
       expect(saveSubscription).toHaveBeenCalledWith(expect.objectContaining({ destinations: [] }));
-      await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/subscriptions/s1"));
+      await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/connections/s1"));
     });
 
     it("reports a failed save", async () => {
@@ -151,7 +151,7 @@ describe("GroupsPage", () => {
       vi.mocked(saveSubscription).mockRejectedValue(new Error(""));
       const { user, app } = render([group("a")]);
       await user.click(await screen.findByRole("button", { name: "Get alerts" }));
-      await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Couldn't save the subscription."));
+      await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Couldn't save the connection."));
       expect(screen.getByRole("button", { name: "Get alerts" })).toBeEnabled();
     });
   });

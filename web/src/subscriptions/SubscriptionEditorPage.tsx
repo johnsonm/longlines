@@ -45,15 +45,15 @@ interface Props {
   mobile: boolean;
 }
 
-/** /subscriptions/new?source=…[&callsign=…] and /subscriptions/:id. An unknown id or source goes back to the list. */
+/** /connections/new?source=…[&callsign=…] and /connections/:id. An unknown id or source goes back to the list. */
 export function SubscriptionEditorPage({ id, source, callsign, subs, loading, ...rest }: Props) {
   if (id) {
     const existing = subs.find((s) => s.id === id);
-    if (!existing) return loading ? <LinearProgress /> : <Navigate to="/subscriptions" replace />;
+    if (!existing) return loading ? <LinearProgress /> : <Navigate to="/connections" replace />;
     return <Editor key={id} initial={toInput(existing)} {...rest} />;
   }
   const picked = pickableSource(source ?? null);
-  if (!picked) return <Navigate to="/subscriptions" replace />;
+  if (!picked) return <Navigate to="/connections" replace />;
   const call = callsign?.trim() || null;
   return <Editor key={`${picked.id}:${call ?? ""}`} initial={blankSub(picked.id, call)} {...rest} />;
 }
@@ -151,14 +151,14 @@ function Editor({ initial, dests, reload, prefs, mobile }: EditorProps) {
       await saveSubscription({ ...sub, name: sub.name.trim(), rules });
       await reload();
       notify(isNew ? `Created ${sub.name.trim()}` : "Saved changes");
-      void navigate("/subscriptions");
+      void navigate("/connections");
     } catch (err) {
-      notify(errorText(err, "Couldn't save the subscription."));
+      notify(errorText(err, "Couldn't save the connection."));
       setBusy(false);
     }
   };
 
-  const cancel = () => void navigate("/subscriptions");
+  const cancel = () => void navigate("/connections");
 
   const chosen = linkedDestinations(sub.destinations, dests);
   const remaining = dests
@@ -169,12 +169,12 @@ function Editor({ initial, dests, reload, prefs, mobile }: EditorProps) {
     setSub({ ...sub, destinations: [...sub.destinations, id] });
   };
 
-  const title = isNew ? "New subscription" : "Edit subscription";
+  const title = isNew ? "New connection" : "Edit connection";
   const actions = (
     <Stack direction="row" spacing={1}>
       <Button onClick={cancel} disabled={busy}>Cancel</Button>
       <Button variant="contained" disabled={!sub.name.trim() || missingCall || invalid || busy} onClick={() => void save()}>
-        Save subscription
+        Save connection
       </Button>
     </Stack>
   );
@@ -182,7 +182,7 @@ function Editor({ initial, dests, reload, prefs, mobile }: EditorProps) {
   return (
     <Stack spacing={3}>
       <Breadcrumbs>
-        <Link component={RouterLink} to="/subscriptions" underline="hover" color="inherit">Subscriptions</Link>
+        <Link component={RouterLink} to="/connections" underline="hover" color="inherit">Connections</Link>
         <Typography color="text.primary">{initial.name || title}</Typography>
       </Breadcrumbs>
       <Stack direction="row" spacing={2} useFlexGap sx={{ justifyContent: "space-between", alignItems: "center", flexWrap: "wrap" }}>
@@ -228,7 +228,7 @@ function Editor({ initial, dests, reload, prefs, mobile }: EditorProps) {
                     <Paper variant="outlined" sx={{ p: 2 }}>
                       <Typography variant="subtitle2">No destinations yet</Typography>
                       <Typography variant="body2" color="text.secondary">
-                        That is fine. The subscription stays off until it has a destination, so add one whenever you are ready.
+                        That is fine. The connection stays off until it has a destination, so add one whenever you are ready.
                       </Typography>
                     </Paper>
                   ) : (
@@ -291,7 +291,7 @@ function SourceStep({ sources, source, average }: { sources: string[]; source: S
           {sources.length ? sources.map((s) => <Chip key={s} label={sourceName(s)} />) : <Chip label="All sources" />}
         </Stack>
         <Typography variant="body2" color="text.secondary">
-          This subscription was made before subscriptions had one source. Saving keeps its sources as they are.
+          This connection was made before connections had one source. Saving keeps its sources as they are.
         </Typography>
       </Stack>
     );
@@ -307,7 +307,7 @@ function SourceStep({ sources, source, average }: { sources: string[]; source: S
         <Button size="small" component={RouterLink} to={`/sources/${source.id}`}>View schema</Button>
       </Stack>
       <Typography variant="body2" color="text.secondary">
-        A subscription has one source. To use a different source, create a new subscription.
+        A connection has one source. To use a different source, create a new connection.
       </Typography>
     </Stack>
   );

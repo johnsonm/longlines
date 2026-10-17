@@ -58,7 +58,7 @@ export function DestinationsPage({ dests, subs, loading, reload }: Props) {
       <Stack direction={{ xs: "column", sm: "row" }} spacing={2} sx={{ justifyContent: "space-between", alignItems: { sm: "flex-end" } }}>
         <Box>
           <PageTitle>Destinations</PageTitle>
-          <Typography color="text.secondary">Places Long Lines can deliver spots. A destination does nothing until a subscription sends spots to it.</Typography>
+          <Typography color="text.secondary">Places Long Lines can deliver spots. A destination does nothing until a connection sends spots to it.</Typography>
         </Box>
         <Button variant="contained" startIcon={<AddIcon />} onClick={openDialog} sx={{ flexShrink: 0 }}>Add destination</Button>
       </Stack>
@@ -89,7 +89,7 @@ export function DestinationsPage({ dests, subs, loading, reload }: Props) {
                           {typeLabel(d.type)} · {d.url_display}
                         </Box>
                         <Box component="span" sx={{ display: "block" }}>
-                          Used by {usedBy(d.id)} subscription{usedBy(d.id) === 1 ? "" : "s"}
+                          Used by {usedBy(d.id)} connection{usedBy(d.id) === 1 ? "" : "s"}
                         </Box>
                       </>
                     }
@@ -116,7 +116,7 @@ export function DestinationsPage({ dests, subs, loading, reload }: Props) {
                     >
                       Send test
                     </Button>
-                    <Tooltip title={usedBy(d.id) ? "Remove it from its subscriptions first" : "Delete"}>
+                    <Tooltip title={usedBy(d.id) ? "Remove it from its connections first" : "Delete"}>
                       <Box component="span">
                         <IconButton
                           aria-label={`Delete ${d.name}`} disabled={usedBy(d.id) > 0 || busyId === d.id}

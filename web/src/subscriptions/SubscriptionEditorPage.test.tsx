@@ -83,12 +83,12 @@ function render({ id, source = null, callsign = null, subs = [sub()], dests = DE
   const reload = vi.fn(() => Promise.resolve());
   const r = renderPage(
     <SubscriptionEditorPage id={id} source={source} callsign={callsign} subs={subs} dests={dests} loading={loading} reload={reload} prefs={PREFS} mobile={mobile} />,
-    { route: "/subscriptions/x" },
+    { route: "/connections/x" },
   );
   return { ...r, reload };
 }
 
-const save = () => screen.getByRole("button", { name: "Save subscription" });
+const save = () => screen.getByRole("button", { name: "Save connection" });
 
 describe("routing", () => {
   it("waits for subscriptions to load before giving up on an id", () => {
@@ -98,19 +98,19 @@ describe("routing", () => {
 
   it("sends an unknown id back to the list", () => {
     render({ id: "nope" });
-    expect(screen.getByTestId("location")).toHaveTextContent("/subscriptions");
+    expect(screen.getByTestId("location")).toHaveTextContent("/connections");
   });
 
   it("sends a source that can't alert back to the list", () => {
     render({ source: "aprs" });
-    expect(screen.getByTestId("location")).toHaveTextContent(/^\/subscriptions$/);
+    expect(screen.getByTestId("location")).toHaveTextContent(/^\/connections$/);
   });
 });
 
 describe("new subscription", () => {
   it("starts from the picked source and saves with no destinations", async () => {
     const { user, app, reload } = render({ source: "pota" });
-    expect(screen.getByRole("heading", { name: "New subscription" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "New connection" })).toBeInTheDocument();
     expect(screen.getByText("Parks on the Air")).toBeInTheDocument();
     expect(screen.getByText("36 spots/hour on average")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "View schema" })).toHaveAttribute("href", "/sources/pota");
@@ -126,7 +126,7 @@ describe("new subscription", () => {
     expect(saveSubscription).toHaveBeenCalledWith(expect.objectContaining({ name: "Parks", sources: ["pota"], destinations: [], enabled: true }));
     await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Created Parks"));
     expect(reload).toHaveBeenCalled();
-    expect(screen.getByTestId("location")).toHaveTextContent(/^\/subscriptions$/);
+    expect(screen.getByTestId("location")).toHaveTextContent(/^\/connections$/);
   });
 
   it("starts filtered to the callsign a profile's Get alerts passed", async () => {
@@ -195,7 +195,7 @@ describe("new subscription", () => {
     await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Group not found."));
     expect(save()).toBeEnabled();
     await user.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(screen.getByTestId("location")).toHaveTextContent(/^\/subscriptions$/);
+    expect(screen.getByTestId("location")).toHaveTextContent(/^\/connections$/);
   });
 });
 
@@ -203,7 +203,7 @@ describe("edit subscription", () => {
   it("loads the subscription's rules, destinations and preview", async () => {
     const rules = [[BAND, rule("callsign", "is", "W1AW")]];
     render({ id: "s1", subs: [sub({ destinations: ["d1", "d2"], rules })] });
-    expect(screen.getByRole("heading", { name: "Edit subscription" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Edit connection" })).toBeInTheDocument();
     expect(screen.getByText("Pass spots that match all of these rules")).toBeInTheDocument();
     expect(screen.getAllByLabelText("Field")).toHaveLength(2);
     expect(screen.getByText("W1AW")).toBeInTheDocument();
@@ -342,7 +342,7 @@ describe("edit subscription", () => {
 
   it("keeps an older subscription's sources", async () => {
     const { user } = render({ id: "s1", subs: [sub({ sources: ["pota", "sotawatch"] })] });
-    expect(screen.getByText(/made before subscriptions had one source/)).toBeInTheDocument();
+    expect(screen.getByText(/made before connections had one source/)).toBeInTheDocument();
     expect(screen.getByText("SOTAwatch")).toBeInTheDocument();
     expect(await screen.findByText("7 of the last 42 spots would pass")).toBeInTheDocument();
     await user.click(save());

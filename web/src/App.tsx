@@ -59,9 +59,10 @@ function Router() {
       <Route path="/set-password" element={<SetPasswordPage />} />
       <Route path="/sources" element={<RequireAuth page="sources" />} />
       <Route path="/sources/:id" element={<RequireAuth page="source" />} />
-      <Route path="/subscriptions" element={<RequireAuth page="subscriptions" />} />
-      <Route path="/subscriptions/new" element={<RequireAuth page="subscription-new" />} />
-      <Route path="/subscriptions/:id" element={<RequireAuth page="subscription" />} />
+      <Route path="/connections" element={<RequireAuth page="subscriptions" />} />
+      <Route path="/connections/new" element={<RequireAuth page="subscription-new" />} />
+      <Route path="/connections/:id" element={<RequireAuth page="subscription" />} />
+      <Route path="/subscriptions/*" element={<OldConnectionsPath />} />
       <Route path="/groups" element={<RequireAuth page="groups" />} />
       <Route path="/destinations" element={<RequireAuth page="destinations" />} />
       <Route path="/band-map" element={<PublicRoute page="band-map" />} />
@@ -73,6 +74,12 @@ function Router() {
       <Route path="*" element={<Navigate to="/sources" replace />} />
     </Routes>
   );
+}
+
+/** Subscriptions are now Connections: old /subscriptions bookmarks keep their id and query string. */
+function OldConnectionsPath() {
+  const { pathname, search, hash } = useLocation();
+  return <Navigate to={`${pathname.replace(/^\/subscriptions/, "/connections")}${search}${hash}`} replace />;
 }
 
 /** Signed-in users skip the sign-in screen. */
@@ -157,7 +164,7 @@ function SignedIn({ page }: { page: Page }) {
       setDests(d);
       setSubs(s);
     } catch {
-      notify("Couldn't load your destinations and subscriptions.");
+      notify("Couldn't load your destinations and connections.");
     } finally {
       setLoading(false);
     }

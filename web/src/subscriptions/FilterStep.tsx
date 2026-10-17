@@ -128,7 +128,7 @@ export function FilterStep({ sub, setSub, rows, setRows, groups, perDay, source,
       {source?.volume === "high" && (
         <Alert severity="warning">
           <AlertTitle>{source.title} is a high volume source</AlertTitle>
-          Add a callsign or callsign group rule to save this subscription.
+          Add a callsign or callsign group rule to save this connection.
           {perDay && ` Without one it would pass about ${perDay} spots a day.`}
         </Alert>
       )}

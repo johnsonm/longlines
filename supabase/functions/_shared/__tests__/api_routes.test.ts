@@ -18,26 +18,28 @@ function route(method: string, path: string): Route {
 }
 
 Deno.test("apiPath takes the path after the function name", () => {
-  assertEquals(apiPath("/api/v1/subscriptions"), "/v1/subscriptions");
+  assertEquals(apiPath("/api/v1/connections"), "/v1/connections");
   assertEquals(apiPath("/functions/v1/api/v1/groups/"), "/v1/groups");
   assertEquals(apiPath("/api"), "");
-  assertEquals(apiPath("/other/v1/subscriptions"), null);
+  assertEquals(apiPath("/other/v1/connections"), null);
   assertEquals(apiPath("/apix/v1"), null);
 });
 
 Deno.test("matchRoute finds each route with its id", () => {
-  const match = matchRoute("GET", `/v1/subscriptions/${ID.toUpperCase()}`);
+  const match = matchRoute("GET", `/v1/connections/${ID.toUpperCase()}`);
   assertEquals(match.kind === "route" && [match.route.op, match.id], ["get_subscription", ID]);
   assertEquals(route("POST", `/v1/groups/${ID}/members`).op, "add_group_members");
   assertEquals(route("POST", `/v1/groups/${ID}/members/remove`).op, "remove_group_members");
-  assertEquals(matchRoute("POST", `/v1/subscriptions/${ID}/callsigns`), { kind: "not_found" });
+  assertEquals(matchRoute("POST", `/v1/connections/${ID}/callsigns`), { kind: "not_found" });
   assertEquals(route("POST", `/v1/destinations/${ID}/test`).op, "send_test");
   assertEquals(route("GET", "/v1/destinations").op, "list_destinations");
 });
 
 Deno.test("matchRoute separates unknown paths from wrong methods", () => {
   assertEquals(matchRoute("GET", "/v1/nope"), { kind: "not_found" });
-  assertEquals(matchRoute("GET", "/v1/subscriptions/not-a-uuid"), { kind: "not_found" });
+  assertEquals(matchRoute("GET", "/v1/connections/not-a-uuid"), { kind: "not_found" });
+  // Subscriptions are connections to API clients; the old paths are gone, not aliased.
+  assertEquals(matchRoute("GET", "/v1/subscriptions"), { kind: "not_found" });
   assertEquals(matchRoute("GET", ""), { kind: "not_found" });
   assertEquals(matchRoute("PUT", `/v1/groups/${ID}`), {
     kind: "method_not_allowed",
@@ -53,7 +55,7 @@ Deno.test("only GET routes are readable with a read token", () => {
 
 Deno.test("creates answer 201 and everything else 200", () => {
   const created = ROUTES.filter(([, , r]) => r.status === 201).map(([m, p]) => `${m} ${p}`);
-  assertEquals(created, ["POST /v1/destinations", "POST /v1/subscriptions", "POST /v1/groups"]);
+  assertEquals(created, ["POST /v1/destinations", "POST /v1/connections", "POST /v1/groups"]);
 });
 
 // api_call's allowlist is the other half of the route table: an op missing
@@ -81,7 +83,7 @@ Deno.test("every routed op is in api_call's allowlist with the same scope", () =
 });
 
 Deno.test("checkBody wants lists of strings within the cap", () => {
-  const r = route("POST", "/v1/subscriptions");
+  const r = route("POST", "/v1/connections");
   assertEquals(checkBody(r, { sources: ["pota"], destinations: [] }), null);
   assertEquals(checkBody(r, { sources: "pota" }), "sources must be a list of strings.");
   assertEquals(checkBody(r, { destinations: [20] }), "destinations must be a list of strings.");
@@ -98,11 +100,11 @@ Deno.test("checkBody wants lists of strings within the cap", () => {
 
 Deno.test("checkBody refuses a null list, which SQL can't read as empty", () => {
   assertEquals(
-    checkBody(route("POST", "/v1/subscriptions"), { sources: null }),
+    checkBody(route("POST", "/v1/connections"), { sources: null }),
     "sources must be a list of strings.",
   );
   assertEquals(
-    checkBody(route("PATCH", `/v1/subscriptions/${ID}`), { destinations: null }),
+    checkBody(route("PATCH", `/v1/connections/${ID}`), { destinations: null }),
     "destinations must be a list of strings.",
   );
   assertEquals(
@@ -112,7 +114,7 @@ Deno.test("checkBody refuses a null list, which SQL can't read as empty", () => 
 });
 
 Deno.test("checkBody checks scalar types and lets null through", () => {
-  const sub = route("PATCH", `/v1/subscriptions/${ID}`);
+  const sub = route("PATCH", `/v1/connections/${ID}`);
   assertEquals(
     checkBody(sub, { name: null, enabled: false, quiet_minutes: 30 }),
     null,
@@ -163,7 +165,7 @@ Deno.test("checkBody requires callsigns on the add and remove routes", () => {
 
 Deno.test("checkBody wants rules as a list and leaves its contents to SQL", () => {
   const rule = { field: "band", op: "is", values: ["20m"] };
-  for (const r of [route("POST", "/v1/subscriptions"), route("PATCH", `/v1/subscriptions/${ID}`)]) {
+  for (const r of [route("POST", "/v1/connections"), route("PATCH", `/v1/connections/${ID}`)]) {
     assertEquals(checkBody(r, { rules: [[rule], [{ field: "x" }]] }), null);
     assertEquals(checkBody(r, { rules: [] }), null);
     assertEquals(checkBody(r, { rules: rule }), "rules must be a list.");
@@ -177,10 +179,10 @@ Deno.test("routeArgs builds each input kind, the path id winning", () => {
     routeArgs(route("PATCH", `/v1/groups/${ID}`), ID, { id: "other", name: "Club" }),
     { id: ID, name: "Club" },
   );
-  assertEquals(routeArgs(route("POST", "/v1/subscriptions"), undefined, { name: "A" }), {
+  assertEquals(routeArgs(route("POST", "/v1/connections"), undefined, { name: "A" }), {
     body: { name: "A" },
   });
-  assertEquals(routeArgs(route("PUT", `/v1/subscriptions/${ID}`), ID, { name: "A" }), {
+  assertEquals(routeArgs(route("PUT", `/v1/connections/${ID}`), ID, { name: "A" }), {
     id: ID,
     body: { name: "A" },
   });

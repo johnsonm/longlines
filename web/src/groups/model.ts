@@ -13,9 +13,9 @@ export const MAX_CALLSIGNS = 1000;
 export const CARD_CHIPS = 10;
 const REJECTED_SHOWN = 20;
 
-/** "12 callsigns · used by 1 subscription". */
+/** "12 callsigns · used by 1 connection". */
 export function groupMeta(members: number, subscriptions: number): string {
-  return `${plural(members, "callsign", "callsigns")} · used by ${plural(subscriptions, "subscription", "subscriptions")}`;
+  return `${plural(members, "callsign", "callsigns")} · used by ${plural(subscriptions, "connection", "connections")}`;
 }
 
 /** The latest on-air spot on two lines: "KK4PWJ 14062.0 kHz CW" and "20m · POTA · US-2763 · 2m ago". */

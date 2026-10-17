@@ -2,7 +2,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(56);
+select plan(57);
 
 -- ---------------------------------------------------------------------------
 -- Tokens
@@ -114,6 +114,9 @@ select is(pg_temp.call('remove_group_members', jsonb_build_object('id', (select 
   'callsigns', '["w1aw/p"]'::jsonb)) -> 'callsigns', '["KN4XYZ"]'::jsonb, 'removal matches on the base call');
 select is(pg_temp.call('update_group', jsonb_build_object('id', (select id from grp), 'name', 'Club')) -> 'callsigns',
   '["KN4XYZ"]'::jsonb, 'renaming a group keeps its members');
+select ok((select g ? 'connection_count' and not g ? 'subscription_count'
+            from pg_temp.call('get_group', jsonb_build_object('id', (select id from grp))) g),
+  'a group shows connection_count, not subscription_count');
 select is(pg_temp.call('patch_subscription', jsonb_build_object('id', (select id from sub),
   'body', '{"quiet_minutes": 30}'::jsonb)) -> 'rules', '[[{"field": "callsign", "op": "is", "values": ["W1AW"]}]]'::jsonb,
   'a patch keeps the fields it does not name');
@@ -158,7 +161,7 @@ select is(pg_temp.call('patch_subscription', jsonb_build_object('id', (select id
   'body', jsonb_build_object('destinations', jsonb_build_array((select id from dest))))) -> 'destinations',
   jsonb_build_array((select id from dest)), 'and get one back');
 select throws_ok(format($$ select pg_temp.call('delete_destination', '{"id": "%s"}') $$, (select id from dest)),
-  'Remove it from its subscriptions first.');
+  'Remove it from its connections first.');
 
 -- Push: created without a URL, listed as "Your devices", and never given a URL.
 create temp table pushed as
@@ -179,9 +182,9 @@ delete from api_tokens where name = 'ten';
 create temp table other as select * from create_api_token('Other', 'write', null);
 reset role;
 select throws_ok(format($$ select api_call((select id from other), 'get_subscription', '{"id": "%s"}') $$,
-  (select id from sub)), 'Subscription not found.');
+  (select id from sub)), 'Connection not found.');
 select throws_ok(format($$ select api_call((select id from other), 'patch_subscription', '{"id": "%s", "body": {"rules": []}}') $$,
-  (select id from sub)), 'Subscription not found.');
+  (select id from sub)), 'Connection not found.');
 
 select * from finish();
 rollback;

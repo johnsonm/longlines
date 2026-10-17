@@ -84,7 +84,7 @@ export const SOURCES: SourceInfo[] = [
     showsUp: [
       "Callsign profile: last heard, parks and summits, activity",
       "Stats: POTA activity by state, most spotted parks and summits",
-      "Subscription filters: Bands, Modes, Callsigns, Callsign groups, Park, summit, or location contains",
+      "Connection filters: Bands, Modes, Callsigns, Callsign groups, Park, summit, or location contains",
     ],
     schema: deliveredSchema("pota", {}, [
       { name: "pota_reference", type: "string", description: "Park reference.", derived: false },
@@ -109,7 +109,7 @@ export const SOURCES: SourceInfo[] = [
     showsUp: [
       "Callsign profile: last heard, parks and summits, activity",
       "Stats: top SOTA associations, most spotted parks and summits",
-      "Subscription filters: Bands, Modes, Callsigns, Callsign groups, Park, summit, or location contains",
+      "Connection filters: Bands, Modes, Callsigns, Callsign groups, Park, summit, or location contains",
     ],
     schema: deliveredSchema("sotawatch", {}, [
       { name: "sota_summit_ref", type: "string", description: "Summit reference.", derived: false },
@@ -132,7 +132,7 @@ export const SOURCES: SourceInfo[] = [
     showsUp: [
       "Callsign profile: Heard by, last heard, activity",
       "Stats: RBN skimmers, most heard on RBN",
-      "Subscription filters: Bands, Modes, Callsigns or Callsign groups (required)",
+      "Connection filters: Bands, Modes, Callsigns or Callsign groups (required)",
     ],
     schema: deliveredSchema("rbn", {
       spotter: { description: "Callsign of the skimmer that heard the signal." },
@@ -152,11 +152,11 @@ export const SOURCES: SourceInfo[] = [
     runBy: { operator: "Volunteer cluster node operators", feed: "Telnet stream from a DXSpider node", modes: "Any, as the spotter enters it" },
     about: [
       "A DX Cluster is a network of nodes where operators post the stations they hear, often rare or distant ones, for everyone connected to see.",
-      "Long Lines stores every DX Cluster spot and shows them on profiles. Only subscriptions that pick DX Cluster get them.",
+      "Long Lines stores every DX Cluster spot and shows them on profiles. Only connections that pick DX Cluster get them.",
     ],
     showsUp: [
       "Callsign profile: last heard, activity",
-      "Subscription filters: Bands, Modes, Callsigns, Callsign groups",
+      "Connection filters: Bands, Modes, Callsigns, Callsign groups",
       "Not in Stats",
     ],
     schema: deliveredSchema("dxcluster", { mode: { description: "From the comment, else the band plan.", derived: true } }),
@@ -173,9 +173,9 @@ export const SOURCES: SourceInfo[] = [
     runBy: { operator: "APRS-IS tier 2 network volunteers", feed: "Full feed over TCP, receive only", modes: "APRS packets" },
     about: [
       "APRS-IS links the world's APRS radio networks over the internet. Igates forward the packets they hear, from positions and weather reports to messages.",
-      "Long Lines stores every packet on the full feed for about two days and archives it after that. Packets are not spots: they never reach profiles or subscriptions, so there is no schema or recent spots list here. You see them in Stats.",
+      "Long Lines stores every packet on the full feed for about two days and archives it after that. Packets are not spots: they never reach profiles or connections, so there is no schema or recent spots list here. You see them in Stats.",
     ],
-    showsUp: ["Stats: APRS-IS packets, stations, igates and packet types", "Not on profiles or in subscriptions"],
+    showsUp: ["Stats: APRS-IS packets, stations, igates and packet types", "Not on profiles or in connections"],
     schema: null,
     example: null,
   },
@@ -186,12 +186,12 @@ export const SOURCES: SourceInfo[] = [
     runBy: { operator: "World Wide Flora & Fauna", feed: "Spot list, polled every 60 seconds", modes: "CW, SSB, digital" },
     about: [
       "World Wide Flora & Fauna is an award program for portable operation from nature reserves and protected areas. Activators and hunters post spots to the WWFF spotting page as they operate.",
-      "Long Lines stores every WWFF spot, keeps the reference and its name, and shows them on profiles and in Stats. Only subscriptions that pick WWFF get them.",
+      "Long Lines stores every WWFF spot, keeps the reference and its name, and shows them on profiles and in Stats. Only connections that pick WWFF get them.",
     ],
     showsUp: [
       "Callsign profile: last heard, references, activity",
       "Stats: top WWFF programs, most spotted parks, summits and WWFF references",
-      "Subscription filters: Bands, Modes, Callsigns, Callsign groups, Park, summit, or location contains",
+      "Connection filters: Bands, Modes, Callsigns, Callsign groups, Park, summit, or location contains",
     ],
     schema: deliveredSchema("wwff", {}, [
       { name: "wwff_reference", type: "string", description: "WWFF reference.", derived: false },

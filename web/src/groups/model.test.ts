@@ -4,9 +4,9 @@ import type { GroupSpot } from "./types";
 
 describe("groupMeta", () => {
   it("counts callsigns and subscriptions with singular forms", () => {
-    expect(groupMeta(12, 1)).toBe("12 callsigns · used by 1 subscription");
-    expect(groupMeta(1, 0)).toBe("1 callsign · used by 0 subscriptions");
-    expect(groupMeta(1000, 2)).toBe("1,000 callsigns · used by 2 subscriptions");
+    expect(groupMeta(12, 1)).toBe("12 callsigns · used by 1 connection");
+    expect(groupMeta(1, 0)).toBe("1 callsign · used by 0 connections");
+    expect(groupMeta(1000, 2)).toBe("1,000 callsigns · used by 2 connections");
   });
 });
 
