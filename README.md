@@ -176,6 +176,14 @@ The sender connects to the stack's Postgres and allows plain-http destinations o
 reads the VAPID keys from `supabase/functions/.env` when that file has them. The matcher's
 `pg_notify` has no listener locally; the sender finds new rows on its next poll.
 
+Push notifications need a VAPID pair locally, in three places (all gitignored). Generate one with
+`deno run scripts/generate-vapid-keys.ts mailto:you@example.com`, then put its three
+`LONGLINES_VAPID_*` lines in `supabase/functions/.env` (the file `supabase functions serve` reads,
+for `send-test`) and in the environment of `npm run sender` (it passes that file through, so the
+same file does), and `LONGLINES_VAPID_PUBLIC_KEY=<public>` in `web/.env.local` (Vite maps it onto
+`VITE_VAPID_PUBLIC_KEY`; without it the app reports push as unsupported). `localhost` counts as a
+secure context, so Chrome and Firefox can turn notifications on at http://localhost:5173.
+
 RBN spots arrive through the relay rather than an invoke. To run it against the local stack,
 serve the functions with a relay secret and start the relay with the same value:
 

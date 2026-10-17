@@ -392,8 +392,14 @@ fly secrets set -a longlines-sender LONGLINES_VAPID_PUBLIC_KEY=<public> \
   LONGLINES_VAPID_PRIVATE_KEY=<private> LONGLINES_VAPID_SUBJECT=mailto:you@example.com
 ```
 
-Locally, put the same three lines in `supabase/functions/.env`; `npm run sender` passes them
-through. The web app needs the public key too (`VAPID_PUBLIC_KEY` on Vercel).
+The web app needs the public key too, so browsers subscribe with it: set `VAPID_PUBLIC_KEY=<public>`
+in the Vercel project's environment variables for production and preview ("Web app on Vercel"
+below) and redeploy. `web/vite.config.ts` maps it onto `VITE_VAPID_PUBLIC_KEY`; the private key
+never goes there. Without it the app reports push as unsupported and the Add a device dialog
+shows "This browser can't receive push notifications."
+
+Locally, put the same three lines in `supabase/functions/.env` (`npm run sender` passes them
+through) and `LONGLINES_VAPID_PUBLIC_KEY` in `web/.env.local`.
 
 Don't rotate the pair casually. Every browser subscribed with the public key that was current at
 the time, so new keys break every registered device until it subscribes again.
@@ -466,6 +472,9 @@ Create a Vercel project from the GitHub repo with these settings:
 - `VITE_CONTACT_EMAIL` (set by hand): the address callsign profiles give for
   hiding a page ("To have this page hidden, email …"). Without it the footer
   leaves that sentence out. It is public; it ships in the bundle.
+- `VAPID_PUBLIC_KEY` (set by hand, production and preview): the public half of
+  the push pair ("Push notifications" above). It is public by design and ships
+  in the bundle; without it push is unsupported in the app.
 - Domain: `app.longlines.io`
 
 `web/vercel.json` rewrites every path to `index.html` so client-side routes

@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import { PROFILE, renderPage } from "../test/render";
 import { deleteAccount, signOut, updateEmail, updatePassword, updateProfile, verifyPassword } from "../lib/api";
+import { pushCleanup } from "../pwa/push";
 import { AccountPage } from "./AccountPage";
 
 vi.mock("../lib/api", () => ({
@@ -13,6 +14,7 @@ vi.mock("../lib/api", () => ({
   updatePassword: vi.fn(),
   verifyPassword: vi.fn(),
 }));
+vi.mock("../pwa/push", () => ({ pushCleanup: vi.fn() }));
 
 beforeEach(() => {
   for (const fn of [deleteAccount, signOut, updateEmail, updateProfile, updatePassword, verifyPassword]) {
@@ -92,11 +94,17 @@ describe("AccountPage profile", () => {
 });
 
 describe("AccountPage sessions", () => {
-  it("signs out other devices", async () => {
+  it("signs out other devices, keeping this browser's push device", async () => {
     const { user, app } = render();
     await user.click(screen.getByRole("button", { name: "Sign out other devices" }));
     expect(signOut).toHaveBeenCalledWith("others");
     await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Signed out of all other devices"));
+  });
+
+  it("signs out here with the push cleanup", async () => {
+    const { user } = render();
+    await user.click(screen.getByRole("button", { name: "Sign out" }));
+    expect(signOut).toHaveBeenCalledWith("local", pushCleanup);
   });
 
   it("reports sign-out failures", async () => {
@@ -125,7 +133,7 @@ describe("AccountPage delete", () => {
     expect(deleteAccount).toHaveBeenCalled();
     await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/signin"));
     expect(app.setSignInNotice).toHaveBeenCalledWith("Your account was deleted. You can create a new one any time.");
-    expect(signOut).toHaveBeenCalled();
+    expect(signOut).toHaveBeenCalledWith("local", pushCleanup);
   });
 
   it("reports a failed delete", async () => {

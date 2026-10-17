@@ -14,6 +14,7 @@ import { PublicShell } from "./layout/PublicShell";
 import { SourcesPage } from "./sources/SourcesPage";
 import { SourceDetailPage } from "./sources/SourceDetailPage";
 import { DestinationsPage } from "./destinations/DestinationsPage";
+import { PushDestinationPage } from "./destinations/PushDestinationPage";
 import { SubscriptionsPage } from "./subscriptions/SubscriptionsPage";
 import { SubscriptionEditorPage } from "./subscriptions/SubscriptionEditorPage";
 import { GroupsPage } from "./groups/GroupsPage";
@@ -25,6 +26,7 @@ import { LookupPage } from "./profile/LookupPage";
 import { CallsignPage } from "./profile/CallsignPage";
 import { loadDestinations, loadSubscriptions, signOut, type Destination, type SubscriptionWithLinks } from "./lib/api";
 import type { TimePrefs } from "./lib/time";
+import { pushCleanup } from "./pwa/push";
 
 // Both schemes, so useColorScheme() can pick light, dark or system; MUI keeps the choice in localStorage.
 const theme = createTheme({ colorSchemes: { light: true, dark: true } });
@@ -65,6 +67,8 @@ function Router() {
       <Route path="/subscriptions/*" element={<OldConnectionsPath />} />
       <Route path="/groups" element={<RequireAuth page="groups" />} />
       <Route path="/destinations" element={<RequireAuth page="destinations" />} />
+      <Route path="/destinations/new" element={<RequireAuth page="destination-new" />} />
+      <Route path="/destinations/:id" element={<RequireAuth page="destination" />} />
       <Route path="/band-map" element={<PublicRoute page="band-map" />} />
       <Route path="/stats" element={<PublicRoute page="stats" />} />
       <Route path="/lookup" element={<PublicRoute page="lookup" />} />
@@ -90,7 +94,7 @@ function PublicOnly({ children }: { children: ReactNode }) {
   return children;
 }
 
-type Page = "sources" | "source" | "band-map" | "subscriptions" | "subscription-new" | "subscription" | "groups" | "destinations" | "stats" | "lookup" | "call" | "account" | "api-tokens";
+type Page = "sources" | "source" | "band-map" | "subscriptions" | "subscription-new" | "subscription" | "groups" | "destinations" | "destination-new" | "destination" | "stats" | "lookup" | "call" | "account" | "api-tokens";
 type PublicPage = "band-map" | "stats" | "lookup" | "call";
 
 // Signed-out visitors read profiles in UTC.
@@ -131,7 +135,7 @@ function ProfileError({ message }: { message: string }) {
         action={
           <>
             <Button color="inherit" size="small" onClick={() => void refreshProfile()}>Retry</Button>
-            <Button color="inherit" size="small" onClick={() => void signOut().catch(() => notify("Couldn't sign out. Try again."))}>
+            <Button color="inherit" size="small" onClick={() => void signOut("local", pushCleanup).catch(() => notify("Couldn't sign out. Try again."))}>
               Sign out
             </Button>
           </>
@@ -148,6 +152,13 @@ function SubscriptionRoute(props: Omit<ComponentProps<typeof SubscriptionEditorP
   const { id } = useParams();
   const [search] = useSearchParams();
   return <SubscriptionEditorPage {...props} id={id} source={search.get("source")} callsign={search.get("callsign")} />;
+}
+
+/** The push editor likewise: its id or type comes in as props. */
+function DestinationRoute(props: Omit<ComponentProps<typeof PushDestinationPage>, "id" | "type">) {
+  const { id } = useParams();
+  const [search] = useSearchParams();
+  return <PushDestinationPage {...props} id={id} type={search.get("type")} />;
 }
 
 function SignedIn({ page }: { page: Page }) {
@@ -189,6 +200,9 @@ function SignedIn({ page }: { page: Page }) {
       )}
       {page === "groups" && <GroupsPage reload={reload} />}
       {page === "destinations" && <DestinationsPage dests={dests} subs={subs} loading={loading} reload={reload} />}
+      {(page === "destination-new" || page === "destination") && (
+        <DestinationRoute dests={dests} loading={loading} reload={reload} mobile={mobile} />
+      )}
       {page === "stats" && <StatsPage />}
       {page === "lookup" && <LookupPage />}
       {page === "call" && <CallsignPage prefs={prefs} signedIn />}

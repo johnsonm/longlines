@@ -3,13 +3,20 @@ import { screen, waitFor } from "@testing-library/react";
 import { renderPage } from "../test/render";
 import { setMobile } from "../test/media";
 import { signOut } from "../lib/api";
+import { installState, promptInstall, subscribeInstall } from "../pwa/install";
+import { pushCleanup } from "../pwa/push";
 import { AppShell } from "./AppShell";
 import { PublicShell } from "./PublicShell";
 
 vi.mock("../lib/api", () => ({ signOut: vi.fn() }));
+vi.mock("../pwa/install", () => ({ installState: vi.fn(), promptInstall: vi.fn(), subscribeInstall: vi.fn() }));
+vi.mock("../pwa/push", () => ({ pushCleanup: vi.fn() }));
 
 beforeEach(() => {
   vi.mocked(signOut).mockReset().mockResolvedValue(undefined);
+  vi.mocked(installState).mockReset().mockReturnValue("none");
+  vi.mocked(promptInstall).mockReset().mockResolvedValue(true);
+  vi.mocked(subscribeInstall).mockReset().mockReturnValue(() => {});
 });
 
 const shell = (failing = false) => <AppShell destinationsFailing={failing}><p>page body</p></AppShell>;
@@ -66,11 +73,11 @@ describe("AppShell", () => {
     expect(screen.getByRole("button", { name: "Light" })).toHaveAttribute("aria-pressed", "true");
   });
 
-  it("signs out, and reports a failure", async () => {
+  it("signs out with the push cleanup, and reports a failure", async () => {
     const { user, app } = renderPage(shell(), { route: "/sources" });
     await user.click(screen.getAllByRole("button", { name: "Account menu" })[0]!);
     await user.click(screen.getByRole("menuitem", { name: "Sign out" }));
-    expect(signOut).toHaveBeenCalled();
+    expect(signOut).toHaveBeenCalledWith("local", pushCleanup);
 
     vi.mocked(signOut).mockRejectedValue(new Error("offline"));
     await user.click(screen.getAllByRole("button", { name: "Account menu" })[0]!);
@@ -102,6 +109,37 @@ describe("AppShell", () => {
     expect(screen.queryByRole("textbox", { name: "Look up a callsign" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Callsign lookup" }));
     expect(screen.getByTestId("location")).toHaveTextContent("/lookup");
+  });
+
+  it("has no Install app item where the app cannot be installed", async () => {
+    const { user } = renderPage(shell(), { route: "/sources" });
+    await user.click(screen.getAllByRole("button", { name: "Account menu" })[0]!);
+    const items = screen.getAllByRole("menuitem").map((m) => m.textContent);
+    expect(items).toEqual(["Account", "Sign out"]);
+  });
+
+  it("offers Install app between Account and Sign out, and shows the browser's prompt", async () => {
+    vi.mocked(installState).mockReturnValue("prompt");
+    const { user } = renderPage(shell(), { route: "/sources" });
+    await user.click(screen.getAllByRole("button", { name: "Account menu" })[0]!);
+    expect(screen.getAllByRole("menuitem").map((m) => m.textContent)).toEqual(["Account", "Install app", "Sign out"]);
+    await user.click(screen.getByRole("menuitem", { name: "Install app" }));
+    expect(promptInstall).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("walks Safari on iPhone through Add to Home Screen", async () => {
+    vi.mocked(installState).mockReturnValue("ios");
+    const { user } = renderPage(shell(), { route: "/sources" });
+    await user.click(screen.getAllByRole("button", { name: "Account menu" })[0]!);
+    await user.click(screen.getByRole("menuitem", { name: "Install app" }));
+    expect(promptInstall).not.toHaveBeenCalled();
+    const dialog = await screen.findByRole("dialog", { name: "Install Long Lines" });
+    expect(dialog).toHaveTextContent("Tap the Share button in Safari.");
+    expect(dialog).toHaveTextContent("Choose Add to Home Screen, then Add.");
+    expect(dialog).toHaveTextContent("Open Long Lines from your Home Screen.");
+    await user.click(screen.getByRole("button", { name: "Done" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Install Long Lines" })).not.toBeInTheDocument());
   });
 
   it("falls back to the callsign and a placeholder avatar", () => {

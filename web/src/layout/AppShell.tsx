@@ -1,4 +1,4 @@
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useState, useSyncExternalStore, type FormEvent, type ReactNode } from "react";
 import {
   AppBar, Avatar, Badge, Box, Button, Container, Divider, Drawer, IconButton, InputBase, List,
   ListItemButton, ListItemIcon, ListItemText, Menu, MenuItem, Paper, ToggleButton, ToggleButtonGroup, Toolbar, Typography,
@@ -21,6 +21,9 @@ import { useLocation, useNavigate } from "react-router";
 import { useApp } from "../app/hooks";
 import { signOut } from "../lib/api";
 import { lookupPath } from "../profile/format";
+import { installState, promptInstall, subscribeInstall } from "../pwa/install";
+import { pushCleanup } from "../pwa/push";
+import { InstallDialog } from "./InstallDialog";
 
 const NAV = [
   { id: "sources", label: "Sources", icon: <SensorsIcon /> },
@@ -42,6 +45,9 @@ export function AppShell({ children, destinationsFailing }: { children: ReactNod
   const { profile, session, notify } = useApp();
   const [navOpen, setNavOpen] = useState(false);
   const [menuEl, setMenuEl] = useState<HTMLElement | null>(null);
+  const [installOpen, setInstallOpen] = useState(false);
+  // Chrome's captured prompt, or Safari's steps; `none` once installed.
+  const install = useSyncExternalStore(subscribeInstall, installState);
   const section = location.pathname.replace(/^\//, "").split("/")[0] ?? "";
   // A profile belongs to Callsign lookup in the nav.
   const page = section === "call" ? "lookup" : section;
@@ -54,10 +60,17 @@ export function AppShell({ children, destinationsFailing }: { children: ReactNod
     void navigate(`/${path}`);
   };
 
+  const handleInstall = () => {
+    setMenuEl(null);
+    if (install === "ios") setInstallOpen(true);
+    else void promptInstall();
+  };
+
+  // This browser's push device goes with the session (pushCleanup is best effort).
   const handleSignOut = async () => {
     setMenuEl(null);
     try {
-      await signOut();
+      await signOut("local", pushCleanup);
     } catch {
       notify("Couldn't sign out. Try again.");
     }
@@ -125,8 +138,10 @@ export function AppShell({ children, destinationsFailing }: { children: ReactNod
             <ThemeSwitch />
             <Divider />
             <MenuItem onClick={() => go("account")}>Account</MenuItem>
+            {install !== "none" && <MenuItem onClick={handleInstall}>Install app</MenuItem>}
             <MenuItem onClick={() => void handleSignOut()}>Sign out</MenuItem>
           </Menu>
+          <InstallDialog open={installOpen} onClose={() => setInstallOpen(false)} />
         </Toolbar>
       </AppBar>
       <Drawer

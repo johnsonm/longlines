@@ -3,6 +3,7 @@ import { AppContext, type AppContextValue } from "./context";
 import { errorText } from "./hooks";
 import { loadProfile, type Profile } from "../lib/api";
 import { useSession } from "../auth/useSession";
+import { refreshPushRegistration } from "../pwa/push";
 
 // A load's result, kept with the user it belongs to so a switch of user hides it at once.
 type ProfileLoad = { userId: string; profile: Profile | null; error: string | null };
@@ -16,6 +17,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // The user whose profile is wanted, and the latest request for it: an older response is dropped.
   const currentUser = useRef<string | null>(null);
   const latest = useRef(0);
+  // Once per load, with a session: this browser's push device re-registers its keys (or reports itself blocked).
+  const pushRefreshed = useRef(false);
 
   const refreshProfile = useCallback(async () => {
     // A caller holding a callback from before a user switch must not disturb the new user's load.
@@ -40,6 +43,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     currentUser.current = userId;
     void refreshProfile();
   }, [userId, refreshProfile]);
+
+  useEffect(() => {
+    if (!userId || pushRefreshed.current) return;
+    pushRefreshed.current = true;
+    void refreshPushRegistration();
+  }, [userId]);
 
   const own = load && load.userId === userId ? load : null;
   const profile = own?.profile ?? null;

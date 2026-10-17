@@ -9,6 +9,7 @@ import { deleteAccount, signOut, updateEmail, updateProfile, type Profile } from
 import { isValidCallsign, normalizeCallsign } from "../lib/callsign";
 import { formatDate } from "../lib/time";
 import { errorText, useApp } from "../app/hooks";
+import { pushCleanup } from "../pwa/push";
 import { ChangePassword } from "./ChangePassword";
 
 const TIMEZONES = ["UTC", "America/New_York", "America/Chicago", "America/Denver", "America/Los_Angeles", "Europe/London", "Europe/Berlin", "Asia/Tokyo"];
@@ -83,7 +84,7 @@ export function AccountPage({ profile }: { profile: Profile }) {
       // The notice lives in app state: signing out redirects to /signin on its own,
       // and that redirect would overwrite anything passed in navigation state.
       setSignInNotice("Your account was deleted. You can create a new one any time.");
-      await signOut().catch(() => undefined);
+      await signOut("local", pushCleanup).catch(() => undefined);
       void navigate("/signin", { replace: true });
     } catch (err) {
       notify(errorText(err, "Couldn't delete your account."));
@@ -133,7 +134,7 @@ export function AccountPage({ profile }: { profile: Profile }) {
         </Typography>
         <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
           <Button variant="outlined" onClick={() => void signOutOthers()}>Sign out other devices</Button>
-          <Button variant="outlined" onClick={() => void signOut().catch(() => notify("Couldn't sign out."))}>Sign out</Button>
+          <Button variant="outlined" onClick={() => void signOut("local", pushCleanup).catch(() => notify("Couldn't sign out."))}>Sign out</Button>
         </Stack>
       </Paper>
 

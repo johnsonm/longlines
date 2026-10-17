@@ -42,7 +42,7 @@ Functions (`send-test`, `api`), React 19, MUI 9, react-router 8, Vitest + Testin
 | PR 1 (#157): `push_devices`, device RPCs, `webpush.ts`, `sendPush`, `prune_push_devices`, `record_push_results` | Merged; the sender calls the last two through its allowlist |
 | Outbound sender, Phase 1 | Merged (#188 to #204), hosted; `deliver` deleted. The sender holds `SENDER_DATABASE_URL` only: **no VAPID pair exists yet** |
 | Part 2, schema and delivery for page 5 | PR 3 (`push-schema-3`): migration `20261016000400`, delivery on the sender, send-test, API, docs. The `push-schema-2` draft was quarried, not merged |
-| Parts 3 to 5, the web | Not started. `DEST_TYPES` has Discord and webhook; the Destinations page is a `List` |
+| Parts 3 to 5, the web | Part 3 (Tasks 6 to 8) on `push-ui`, PR 4 draft (#212): api wrappers, `pwa/push.ts`, the card grid and the type picker. Parts 4 and 5 not started |
 | `VAPID_PUBLIC_KEY` on Vercel | Not set |
 
 ## What the sender changes for this plan
@@ -151,7 +151,9 @@ labels. The sender amendment adds, all *decided 2026-10-16*:
   name checked in SQL against `push_fields()`.
 - `vite.config.ts`: `VITE_VAPID_PUBLIC_KEY` is the one new `define` entry; `envPrefix` stays.
 - Copy is word for word from the **Copy** section below, then the spec's Copy. Say "subscription",
-  never "connection".
+  never "connection". *Amended 2026-10-17 (Part 5 review): CLAUDE.md's Subscription rules now make
+  "connection" the word users see, so the pages say "connection(s)" where the Copy below says
+  "subscription(s)"; nothing else changes.*
 - No new runtime dependency anywhere.
 - MUI 9 rules from CLAUDE.md: `sx` for layout only; colours, borders and shadows from props and
   variants (the preview mock-ups use `Paper` elevation and palette colours, never the canvas's hex
@@ -253,31 +255,31 @@ labels. The sender amendment adds, all *decided 2026-10-16*:
 
 **Files:** `web/src/lib/api.ts` (+ test), `web/src/pwa/push.ts` (+ test), `web/vite.config.ts`.
 
-- [ ] `api.ts`: `DestinationType` gains `"push"`; `Destination` (a `Pick` of exactly `DESTINATION_COLUMNS`) and `DESTINATION_COLUMNS` both gain `enabled`; `createDestination(type, name, url: string | null)`; `updateDestination` gains `enabled`. New: `registerPushDevice({endpoint, p256dh, auth}, label, agent, standalone) → deviceId`, `unregisterPushDevice(endpoint)`, `listPushDevices(currentEndpoint)`, `deletePushDevice(id)`, `renamePushDevice(id, label)`, `reportPushDeviceBlocked(endpoint)`, `savePushDestination(input) → id`, `getPushDestination(id)`, `duplicateDestination(id) → id`, `previewPushNotification(titleFields, bodyFields, showFieldNames, bodySeparator, spotId | null)`, `sendTest(id, spotId?)`. `signOut(scope, cleanup?)` runs `cleanup` first, best effort. Types `PushDevice`, `PushSettings`, `PushDestinationInput` live here.
-- [ ] `vite.config.ts`: `VITE_VAPID_PUBLIC_KEY` from `VITE_VAPID_PUBLIC_KEY` / `VAPID_PUBLIC_KEY` / `LONGLINES_VAPID_PUBLIC_KEY`, with a warning when empty.
-- [ ] `push.ts` with an injectable `PushEnv`: `pushSupport()` → `unsupported | ios-needs-install | denied | off | on` (`unsupported` also when the public key is empty); `enablePush(label)` with `Notification.requestPermission()` as its first statement, then `serviceWorker.ready`, `subscribe`, `registerPushDevice(keys, label, deviceAgent(), isStandalone())`, remembering the endpoint in `localStorage` (try/catch); `disablePush()`; `currentEndpoint()`; `refreshPushRegistration()` (re-register when granted and subscribed; when `denied` and a remembered endpoint exists, `reportPushDeviceBlocked`); `deviceAgent()` → "{Browser} on {Platform}" from `userAgentData` with a UA fallback and "This browser"; `isStandalone()`; `isIos()`; `pushCleanup()` (a `disablePush` that resolves even when unsupported).
-- [ ] Tests: every wrapper's RPC name and arguments; `signOut` still signs out when cleanup rejects; every `pushSupport` state; permission before any await; denied → report blocked; `deviceAgent` for Chrome/Android, Safari/iPhone, Firefox/Linux, Edge/Windows, fallback.
-- [ ] Commit `Push: api wrappers, browser push state and the VAPID public key define`. Push `push-ui`, open PR 4 as a draft.
+- [x] `api.ts`: `DestinationType` gains `"push"`; `Destination` (a `Pick` of exactly `DESTINATION_COLUMNS`) and `DESTINATION_COLUMNS` both gain `enabled`; `createDestination(type, name, url: string | null)`; `updateDestination` gains `enabled`. New: `registerPushDevice({endpoint, p256dh, auth}, label, agent, standalone) → deviceId`, `unregisterPushDevice(endpoint)`, `listPushDevices(currentEndpoint)`, `deletePushDevice(id)`, `renamePushDevice(id, label)`, `reportPushDeviceBlocked(endpoint)`, `savePushDestination(input) → id`, `getPushDestination(id)`, `duplicateDestination(id) → id`, `previewPushNotification(titleFields, bodyFields, showFieldNames, bodySeparator, spotId | null)`, `sendTest(id, spotId?)`. `signOut(scope, cleanup?)` runs `cleanup` first, best effort. Types `PushDevice`, `PushSettings`, `PushDestinationInput` live here.
+- [x] `vite.config.ts`: `VITE_VAPID_PUBLIC_KEY` from `VITE_VAPID_PUBLIC_KEY` / `VAPID_PUBLIC_KEY` / `LONGLINES_VAPID_PUBLIC_KEY`, with a warning when empty.
+- [x] `push.ts` with an injectable `PushEnv`: `pushSupport()` → `unsupported | ios-needs-install | denied | off | on` (`unsupported` also when the public key is empty); `enablePush(label)` with `Notification.requestPermission()` as its first statement, then `serviceWorker.ready`, `subscribe`, `registerPushDevice(keys, label, deviceAgent(), isStandalone())`, remembering the endpoint in `localStorage` (try/catch); `disablePush()`; `currentEndpoint()`; `refreshPushRegistration()` (re-register when granted and subscribed; when `denied` and a remembered endpoint exists, `reportPushDeviceBlocked`); `deviceAgent()` → "{Browser} on {Platform}" from `userAgentData` with a UA fallback and "This browser"; `isStandalone()`; `isIos()`; `pushCleanup()` (a `disablePush` that resolves even when unsupported).
+- [x] Tests: every wrapper's RPC name and arguments; `signOut` still signs out when cleanup rejects; every `pushSupport` state; permission before any await; denied → report blocked; `deviceAgent` for Chrome/Android, Safari/iPhone, Firefox/Linux, Edge/Windows, fallback.
+- [x] Commit `Push: api wrappers, browser push state and the VAPID public key define`. Push `push-ui`, open PR 4 as a draft.
 
 ### Task 7: Destinations as a card grid
 
 **Files:** `web/src/destinations/DestinationsPage.tsx` (+ test), `web/src/destinations/DestinationCard.tsx` (new), `web/src/destinations/HealthChip.tsx`.
 
-- [ ] Replace the `List` with a `Grid` of `Card variant="outlined"` (two columns from `md`, one below), page 1 for Discord and webhook cards, page 5 for push cards: name (`h6`) and chip; type line; the masked URL in a monospace `Paper variant="outlined"` for Discord/webhook, device chips for push (`Chip size="small" variant="outlined"`, blocked ones `color="error"` with " (blocked)"); the meta line "used by {N} subscription(s) · Last delivery {age} ago" / "Never used" / "Last delivery failed {age} ago" from `last_success_at`/`last_error_at`; `Divider`; `CardActions` with Send test, [push: Edit, Duplicate], Delete (disabled with tooltip "Used by {N} subscriptions. Remove it from them first.").
-- [ ] Push chip: `HealthChip` as today, except `Chip color="warning" label="{N} device(s) blocked"` when any member is blocked. Devices per card come from one `listPushDevices()` call on the page (`destination_ids`), never per card.
-- [ ] Alerts above the grid: the failing alert per page 1 (with a Send test action, replacing today's one-sentence alert) and the blocked alert per page 5 (Manage devices → the editor).
-- [ ] Duplicate: `duplicateDestination(id)` then navigate to `/destinations/{newId}`; toast "Duplicated {name}".
-- [ ] Tests: both layouts; each card type; chips; meta variants; Delete tooltip; Duplicate navigation; both alerts.
-- [ ] Commit `Destinations: card grid with push cards`.
+- [x] Replace the `List` with a `Grid` of `Card variant="outlined"` (two columns from `md`, one below), page 1 for Discord and webhook cards, page 5 for push cards: name (`h6`) and chip; type line; the masked URL in a monospace `Paper variant="outlined"` for Discord/webhook, device chips for push (`Chip size="small" variant="outlined"`, blocked ones `color="error"` with " (blocked)"); the meta line "used by {N} subscription(s) · Last delivery {age} ago" / "Never used" / "Last delivery failed {age} ago" from `last_success_at`/`last_error_at`; `Divider`; `CardActions` with Send test, [push: Edit, Duplicate], Delete (disabled with tooltip "Used by {N} subscriptions. Remove it from them first.").
+- [x] Push chip: `HealthChip` as today, except `Chip color="warning" label="{N} device(s) blocked"` when any member is blocked. Devices per card come from one `listPushDevices()` call on the page (`destination_ids`), never per card.
+- [x] Alerts above the grid: the failing alert per page 1 (with a Send test action, replacing today's one-sentence alert) and the blocked alert per page 5 (Manage devices → the editor).
+- [x] Duplicate: `duplicateDestination(id)` then navigate to `/destinations/{newId}`; toast "Duplicated {name}".
+- [x] Tests: both layouts; each card type; chips; meta variants; Delete tooltip; Duplicate navigation; both alerts.
+- [x] Commit `Destinations: card grid with push cards`.
 
 ### Task 8: Add destination as a type picker
 
 **Files:** `web/src/destinations/DestinationDialog.tsx` (+ test), `web/src/destinations/types.ts`.
 
-- [ ] `DEST_TYPES` gains push and the page 5 help strings for all three, each with an icon (`ForumOutlined`, `Http`, `NotificationsOutlined`); the list is data so the sender spec's future `email` type is one more entry.
-- [ ] Step 1 (page 5 `PushType`): intro sentence, three selectable cards (a `RadioGroup` whose labels are `Card variant="outlined"` rows; the selected card takes the `primary` border through a prop, not `sx`), Cancel and **Continue**. Step 2 for Discord and webhook: today's Name and URL fields with **Add destination**. Continue with push navigates to `/destinations/new?type=push`.
-- [ ] Tests: the picker; Continue → step 2 keeps today's assertions; Continue with push navigates (`LocationProbe`).
-- [ ] Commit `Destinations: pick a type, then its details`.
+- [x] `DEST_TYPES` gains push and the page 5 help strings for all three, each with an icon (`ForumOutlined`, `Http`, `NotificationsOutlined`); the list is data so the sender spec's future `email` type is one more entry.
+- [x] Step 1 (page 5 `PushType`): intro sentence, three selectable cards (a `RadioGroup` whose labels are `Card variant="outlined"` rows; the selected card takes the `primary` border through a prop, not `sx`), Cancel and **Continue**. Step 2 for Discord and webhook: today's Name and URL fields with **Add destination**. Continue with push navigates to `/destinations/new?type=push`.
+- [x] Tests: the picker; Continue → step 2 keeps today's assertions; Continue with push navigates (`LocationProbe`).
+- [x] Commit `Destinations: pick a type, then its details`.
 
 ---
 
@@ -287,32 +289,32 @@ labels. The sender amendment adds, all *decided 2026-10-16*:
 
 **Files:** `web/src/destinations/PushDestinationPage.tsx` (new, + test), `web/src/destinations/pushModel.ts` (new, pure, + test), `web/src/App.tsx`.
 
-- [ ] Routes `/destinations/new?type=push` and `/destinations/:id` (a non-push id redirects to `/destinations`). Layout mirrors `SubscriptionEditorPage`: `Breadcrumbs`, `PageTitle` with Cancel and **Add destination** / **Save destination** (phones: **Save**), the Name field with its helper and the taken-name error, the Enabled `Switch`, the type `Chip` and the sentence "Filtering and repeat limits are set on each subscription. This page controls where and how notifications arrive.", then a `Grid` with `size={{xs: 12, md: 7}}` (Devices, Notification content, Delivery) and `size={{xs: 12, md: 5}}` sticky (Preview).
-- [ ] `pushModel.ts`: the default settings (pinned by a node test against the seed's push row or a fixture), the field list with display names, `addField`, `removeField`, `moveField(list, index, delta)`, `dirty(initial, current)`, the option lists (Urgency; Drop if offline: 5 min, 15 min, 30 min, 1 hour, 4 hours; During quiet hours; Separate body fields with: A dot, A comma, A new line), `toInput`.
-- [ ] Delivery card: Urgency `Select`, Drop if the device is offline for `Select` (helper as in Copy; this overrides the sender's 15-minute default for this destination), Replace the earlier notification `Switch`, divider, Sound and vibration `Switch`, divider, Quiet hours `Switch` with "Uses your account time zone, {profile.timezone}.", From/Until (`TextField type="time"`) and During quiet hours `Select`, the time row disabled while quiet hours are off.
-- [ ] Save: `savePushDestination(...)` → toast "Added {name}" / "Saved changes", navigate to `/destinations`.
-- [ ] Tests: new and edit modes; redirect; name error; every control round-trips into the saved input; phone layout.
-- [ ] Commit `Destinations: push destination editor with delivery settings`.
+- [x] Routes `/destinations/new?type=push` and `/destinations/:id` (a non-push id redirects to `/destinations`). Layout mirrors `SubscriptionEditorPage`: `Breadcrumbs`, `PageTitle` with Cancel and **Add destination** / **Save destination** (phones: **Save**), the Name field with its helper and the taken-name error, the Enabled `Switch`, the type `Chip` and the sentence "Filtering and repeat limits are set on each subscription. This page controls where and how notifications arrive.", then a `Grid` with `size={{xs: 12, md: 7}}` (Devices, Notification content, Delivery) and `size={{xs: 12, md: 5}}` sticky (Preview).
+- [x] `pushModel.ts`: the default settings (pinned by a node test against the seed's push row or a fixture), the field list with display names, `addField`, `removeField`, `moveField(list, index, delta)`, `dirty(initial, current)`, the option lists (Urgency; Drop if offline: 5 min, 15 min, 30 min, 1 hour, 4 hours; During quiet hours; Separate body fields with: A dot, A comma, A new line), `toInput`.
+- [x] Delivery card: Urgency `Select`, Drop if the device is offline for `Select` (helper as in Copy; this overrides the sender's 15-minute default for this destination), Replace the earlier notification `Switch`, divider, Sound and vibration `Switch`, divider, Quiet hours `Switch` with "Uses your account time zone, {profile.timezone}.", From/Until (`TextField type="time"`) and During quiet hours `Select`, the time row disabled while quiet hours are off.
+- [x] Save: `savePushDestination(...)` → toast "Added {name}" / "Saved changes", navigate to `/destinations`.
+- [x] Tests: new and edit modes; redirect; name error; every control round-trips into the saved input; phone layout.
+- [x] Commit `Destinations: push destination editor with delivery settings`.
 
 ### Task 10: Devices card, Add a device dialog, rename and remove
 
 **Files:** `web/src/destinations/DevicesCard.tsx`, `AddDeviceDialog.tsx`, `RenameDeviceDialog.tsx` (new, + tests).
 
-- [ ] Devices card (page 5): one row per account device: `Checkbox` (`aria-label="Send to {label}"`, disabled when blocked), phone or laptop icon from `agent`, name with "This device" and "Blocked" chips, caption "{agent}[, installed app] · last delivery {age} ago" / "{agent} · no deliveries yet" / "{agent} · notifications blocked in this browser", Rename and Remove `IconButton`s, then **Add a device**. Empty state: the dashed box with its copy, **Add this device** and **Add my phone**. Checked ids are the form's `deviceIds`; a newly added device is checked automatically.
-- [ ] Add a device dialog (page 5 `PushDevice`): **This device** with icon, `{agent}` chip, the permission sentence, the Device name field prefilled with `deviceAgent()`, **Enable notifications** → `enablePush(name)`; `Divider`; **Another device** with the two steps and the iPhone info alert; Cancel. `denied` and `unsupported` show the spec's sentences in place of the button. `fullScreen` on phones with a close button, as drawn.
-- [ ] iPhone not installed (`PushDevice-iOS-Mobile`): the same dialog when `ios-needs-install`: warning alert, three steps, disabled **Enable notifications**, its caption.
-- [ ] Rename: a one-field dialog, **Rename**; Remove: `deletePushDevice` with "Removed {label}"; removing the current device also runs `disablePush()`.
-- [ ] Tests: rows in every state; checkbox round-trip; empty state; the dialog in `off`, `denied`, `unsupported`, `ios-needs-install`; Enable calls `enablePush` with the typed name and checks the new device; rename; remove current and other; phone layout.
-- [ ] Commit `Destinations: devices card and the Add a device dialog`.
+- [x] Devices card (page 5): one row per account device: `Checkbox` (`aria-label="Send to {label}"`, disabled when blocked), phone or laptop icon from `agent`, name with "This device" and "Blocked" chips, caption "{agent}[, installed app] · last delivery {age} ago" / "{agent} · no deliveries yet" / "{agent} · notifications blocked in this browser", Rename and Remove `IconButton`s, then **Add a device**. Empty state: the dashed box with its copy, **Add this device** and **Add my phone**. Checked ids are the form's `deviceIds`; a newly added device is checked automatically.
+- [x] Add a device dialog (page 5 `PushDevice`): **This device** with icon, `{agent}` chip, the permission sentence, the Device name field prefilled with `deviceAgent()`, **Enable notifications** → `enablePush(name)`; `Divider`; **Another device** with the two steps and the iPhone info alert; Cancel. `denied` and `unsupported` show the spec's sentences in place of the button. `fullScreen` on phones with a close button, as drawn.
+- [x] iPhone not installed (`PushDevice-iOS-Mobile`): the same dialog when `ios-needs-install`: warning alert, three steps, disabled **Enable notifications**, its caption.
+- [x] Rename: a one-field dialog, **Rename**; Remove: `deletePushDevice` with "Removed {label}"; removing the current device also runs `disablePush()`.
+- [x] Tests: rows in every state; checkbox round-trip; empty state; the dialog in `off`, `denied`, `unsupported`, `ios-needs-install`; Enable calls `enablePush` with the typed name and checks the new device; rename; remove current and other; phone layout.
+- [x] Commit `Destinations: devices card and the Add a device dialog`.
 
 ### Task 11: Notification content and the preview
 
 **Files:** `web/src/destinations/NotificationContentCard.tsx`, `PushPreviewCard.tsx`, `NotificationMockup.tsx` (new, + tests).
 
-- [ ] Notification content card (page 5, as redrawn 2026-10-16): header "Notification content" with its subheader; a two-column grid (one column on phones) with a `FieldPicker` for Title and one for Body: the picked fields as a numbered `List` inside an outlined `Paper` (position, display name, move up / move down / remove `IconButton`s with aria-labels "Move {field} up" / "Move {field} down" / "Remove {field}"; the first row's up and the last row's down disabled), below it an "Add a field" `Select` (placeholder "Choose a field") listing only unpicked fields, and the helper text. No text input anywhere; the title refuses a fifth field and an empty list, the body a ninth. Then the "Show field names" `Switch` with its sentence, the "Separate body fields with" `Select`, the skipped-field sentence, "When tapped, open" `Select`, "Show action buttons" `Switch`, **Reset to default fields**.
-- [ ] Preview card: "Preview" overline; "Preview with this spot" `Select` of the last 10 recent spots from `listRecentSpots` across sources, labelled "{CALL}, {Source} {reference}, {kHz} {MODE}" (display only), plus "Sample spot"; `previewPushNotification(titleFields, bodyFields, showFieldNames, bodySeparator, spotId)` debounced 300 ms; three `NotificationMockup` variants (android, iphone, desktop) with their captions, from `Paper` elevation, `Avatar` and palette colours only; **Send test notification** (`variant="outlined"`, full width) with the caption rules from decision 10, calling `sendTest(id, spotId)`.
-- [ ] Tests: add, remove, move (and the disabled ends), limits, reset, field names, separator, tap target and action switch round-trip; the preview RPC called with the picked lists, labels, separator and the chosen spot, mock-ups showing its result; the Send test states.
-- [ ] Commit `Destinations: notification content and live preview`.
+- [x] Notification content card (page 5, as redrawn 2026-10-16): header "Notification content" with its subheader; a two-column grid (one column on phones) with a `FieldPicker` for Title and one for Body: the picked fields as a numbered `List` inside an outlined `Paper` (position, display name, move up / move down / remove `IconButton`s with aria-labels "Move {field} up" / "Move {field} down" / "Remove {field}"; the first row's up and the last row's down disabled), below it an "Add a field" `Select` (placeholder "Choose a field") listing only unpicked fields, and the helper text. No text input anywhere; the title refuses a fifth field and an empty list, the body a ninth. Then the "Show field names" `Switch` with its sentence, the "Separate body fields with" `Select`, the skipped-field sentence, "When tapped, open" `Select`, "Show action buttons" `Switch`, **Reset to default fields**.
+- [x] Preview card: "Preview" overline; "Preview with this spot" `Select` of the last 10 recent spots from `listRecentSpots` across sources, labelled "{CALL}, {Source} {reference}, {kHz} {MODE}" (display only), plus "Sample spot"; `previewPushNotification(titleFields, bodyFields, showFieldNames, bodySeparator, spotId)` debounced 300 ms; three `NotificationMockup` variants (android, iphone, desktop) with their captions, from `Paper` elevation, `Avatar` and palette colours only; **Send test notification** (`variant="outlined"`, full width) with the caption rules from decision 10, calling `sendTest(id, spotId)`.
+- [x] Tests: add, remove, move (and the disabled ends), limits, reset, field names, separator, tap target and action switch round-trip; the preview RPC called with the picked lists, labels, separator and the chosen spot, mock-ups showing its result; the Send test states.
+- [x] Commit `Destinations: notification content and live preview`.
 
 ---
 
@@ -322,17 +324,17 @@ labels. The sender amendment adds, all *decided 2026-10-16*:
 
 **Files:** `web/src/pwa/install.ts` (+ test), `web/src/layout/InstallDialog.tsx`, `web/src/layout/AppShell.tsx` (+ test), `web/src/account/AccountPage.tsx`, `web/src/app/AppContext.tsx`, `web/src/pwa/register.ts`, `web/src/main.tsx`.
 
-- [ ] `install.ts`: capture `beforeinstallprompt` from `main.tsx` before render; `installState()` → `prompt | ios | none`; `promptInstall()`; a subscribe/notify pair.
-- [ ] AppShell: **Install app** between Account and Sign out when state isn't `none`; `ios` opens `InstallDialog` (spec Copy).
-- [ ] With a session, `refreshPushRegistration()` once per load. `register.ts` listens for `push-subscription-changed` and calls it again (the service worker already posts it).
-- [ ] Every local sign-out (`AppShell`, both in `AccountPage`) passes `pushCleanup`; "Sign out others" passes nothing.
-- [ ] Tests for each.
-- [ ] Commit `Install app, re-register on load and on subscription change, unregister on sign out`.
+- [x] `install.ts`: capture `beforeinstallprompt` from `main.tsx` before render; `installState()` → `prompt | ios | none`; `promptInstall()`; a subscribe/notify pair.
+- [x] AppShell: **Install app** between Account and Sign out when state isn't `none`; `ios` opens `InstallDialog` (spec Copy).
+- [x] With a session, `refreshPushRegistration()` once per load. `register.ts` listens for `push-subscription-changed` and calls it again (the service worker already posts it).
+- [x] Every local sign-out (`AppShell`, both in `AccountPage`) passes `pushCleanup`; "Sign out others" passes nothing.
+- [x] Tests for each.
+- [x] Commit `Install app, re-register on load and on subscription change, unregister on sign out`.
 
 ### Task 13: Docs, rules, gates and end to end
 
-- [ ] README: local push needs the `LONGLINES_VAPID_*` lines in `supabase/functions/.env` (for `send-test`), the same three in the environment of `npm run sender`, and `LONGLINES_VAPID_PUBLIC_KEY` in `web/.env.local`. OPERATIONS: the Vercel `VAPID_PUBLIC_KEY` step. ARCHITECTURE: the browser side. CLAUDE.md: the web push rules from Global Constraints if missing. Spec: both amendments' Status → shipped.
-- [ ] Gates: `npm run coverage`, `npm run build` (`dist/sw.js` check), `npm run lint`, `npm run test:all` on a reset stack.
+- [x] README: local push needs the `LONGLINES_VAPID_*` lines in `supabase/functions/.env` (for `send-test`), the same three in the environment of `npm run sender`, and `LONGLINES_VAPID_PUBLIC_KEY` in `web/.env.local`. OPERATIONS: the Vercel `VAPID_PUBLIC_KEY` step. ARCHITECTURE: the browser side. CLAUDE.md: the web push rules from Global Constraints if missing. Spec: both amendments' Status → shipped.
+- [x] Gates: `npm run coverage`, `npm run build` (`dist/sw.js` check), `npm run lint`, `npm run test:all` on a reset stack.
 - [ ] End to end on the local stack, with a generated VAPID pair in `supabase/functions/.env`, the sender's environment and `web/.env.local`; `npm run dev:full` plus `LONGLINES_ALLOW_INSECURE_DESTINATIONS=1 npm run sender` in a second terminal:
   1. Desktop Chrome at `localhost:5173`: Add destination → Push notification → Continue → the editor. Add this device → Enable notifications → the device appears checked with "This device". Save. The card shows the device chip and "Never used".
   2. Edit → Send test notification with the sample spot: "N0CALL · 14.062 MHz · CW" / "POTA · US-0000 · Test Park · TEST"; clicking opens `/call/N0CALL`; Open on POTA opens the park page.
@@ -343,8 +345,12 @@ labels. The sender amendment adds, all *decided 2026-10-16*:
   7. Drop if offline 5 minutes, then stop the sender, match a spot, wait 6 minutes, start it: the row is `dropped` with `dropped_at` set and nothing arrives.
   8. Revoke the permission in Chrome, reload: Blocked chip and alert; deliver: the device is skipped.
   9. Sign out: the device row is gone.
+  *Run 2026-10-17 without a browser (details in PR #212): the RPC text behind steps 2 and 3, the
+  Duplicate half of step 6, Send test without a device, the PWA files from the dev server and the
+  sender starting with the pair. Steps 1, 4, 5, 7, 8 and 9 and the browser halves of 2, 3 and 6
+  need a browser with a push service and are still to do.*
 - [ ] On a Vercel preview with Brad's steps done: Chrome's Installable audit, Android, and an iPhone after Add to Home Screen (the not-installed screen first, then the real flow). Record in the PR text which steps ran.
-- [ ] `gh pr ready`; PR text per #157.
+- [x] `gh pr ready`; PR text per #157.
 
 ---
 

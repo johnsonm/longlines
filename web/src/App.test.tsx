@@ -6,6 +6,7 @@ import type { Session } from "@supabase/supabase-js";
 import App from "./App";
 import { useSession } from "./auth/useSession";
 import { loadDestinations, loadProfile, loadSubscriptions, signOut, type Destination } from "./lib/api";
+import { pushCleanup } from "./pwa/push";
 import { PROFILE, SESSION } from "./test/render";
 
 vi.mock("./auth/useSession", () => ({ useSession: vi.fn() }));
@@ -174,7 +175,7 @@ describe("App routing", () => {
     vi.mocked(loadProfile).mockRejectedValue(new Error("Couldn't load your profile."));
     renderAt("/account");
     await userEvent.click(await screen.findByRole("button", { name: "Sign out" }));
-    expect(signOut).toHaveBeenCalledWith();
+    expect(signOut).toHaveBeenCalledWith("local", pushCleanup);
   });
 
   it("says so when signing out from the profile error fails", async () => {
