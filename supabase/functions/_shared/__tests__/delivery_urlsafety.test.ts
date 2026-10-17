@@ -42,6 +42,67 @@ Deno.test("isPrivateIp covers loopback, private, link-local, CGNAT, unspecified 
   }
 });
 
+Deno.test("isPrivateIp judges IPv4 embedded in IPv6 and refuses special ranges (same as SQL)", () => {
+  for (
+    const ip of [
+      "64:ff9b::a9fe:a9fe", // NAT64 of 169.254.169.254
+      "64:ff9b::10.0.0.1",
+      "64:ff9b:1::1", // local-use NAT64
+      "64:ff9b:1:abcd::808:808",
+      "::7f00:1", // IPv4-compatible 127.0.0.1
+      "::10.0.0.1",
+      "2002:7f00:1::", // 6to4 of 127.0.0.1
+      "2002:a00:1::1",
+      "fec0::1", // site-local
+      "ff02::1", // multicast
+      "100::1", // discard
+      "192.0.0.8",
+      "198.18.0.1",
+      "198.19.255.255",
+      "224.0.0.1",
+      "239.255.255.250",
+      "240.0.0.1",
+      "255.255.255.255",
+    ]
+  ) {
+    assertEquals(isPrivateIp(ip), true, ip);
+  }
+  for (
+    const ip of [
+      "64:ff9b::808:808", // NAT64 of 8.8.8.8
+      "::8.8.8.8",
+      "2002:808:808::1",
+      "192.0.2.1",
+      "198.20.0.1",
+      "223.255.255.255",
+      "100:0:0:1::1",
+      "2001:db8::1",
+    ]
+  ) {
+    assertEquals(isPrivateIp(ip), false, ip);
+  }
+});
+
+Deno.test("assertSafeDestinationUrl refuses the forms SQL refuses", () => {
+  for (
+    const url of [
+      "https://2130706433/x",
+      "https://127.1/",
+      "https://0x7f000001/",
+      "https://017700000001/",
+      "https://user@10.0.0.1/",
+      "https://user@example.com/",
+      "https://user:pw@example.com/",
+      "https://[64:ff9b::a00:1]/",
+      "https://224.0.0.1/",
+      "https://[::ffff:7f00:1]/",
+    ]
+  ) {
+    assertThrows(() => assertSafeDestinationUrl("webhook", url), Error, "not allowed", url);
+  }
+  assertEquals(assertSafeDestinationUrl("webhook", "https://8.8.8.8/x").href, "https://8.8.8.8/x");
+});
+
 Deno.test("assertSafeDestinationUrl applies the same rules as the database", () => {
   assertSafeDestinationUrl("discord", "https://discord.com/api/webhooks/1/abc");
   assertSafeDestinationUrl("discord", "https://discordapp.com/api/webhooks/1/abc");

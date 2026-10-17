@@ -13,6 +13,7 @@ import {
   webhookPayloads,
   webhookSpot,
 } from "../delivery/format.ts";
+import { MAX_PUSH_PLAINTEXT_BYTES } from "../delivery/webpush.ts";
 import type { DeliverySpot, PendingDelivery, PushSettings } from "../delivery/types.ts";
 
 const spot: DeliverySpot = {
@@ -228,6 +229,21 @@ Deno.test("pushNotifications offers the source button only when the spot has a s
     SETTINGS,
   );
   assertEquals(wwff?.actions?.[1], { action: "source", title: "Open on WWFF" });
+});
+
+Deno.test("a push payload at SQL's text limits still fits one push record", () => {
+  // push_spot_fields clips the title to 160 characters and the body to 400
+  // (push_clip). The worst character for the payload is a control character,
+  // which JSON writes as six bytes (\u0001); a long call and source URL too.
+  const call = "VP2V/KK4PWJ/QRP";
+  const [n] = pushNotifications([pushed(call, Number.MAX_SAFE_INTEGER, {
+    push_title: "\u0001".repeat(159) + "…",
+    push_body: "\u0001".repeat(399) + "…",
+    push_url: "https://summits.sota.org.uk/summit/" + "W".repeat(40),
+    push_source_url: "https://summits.sota.org.uk/summit/" + "W".repeat(40),
+  })], { ...SETTINGS, replace_same_station: false });
+  const bytes = new TextEncoder().encode(pushPayload(n!)).length;
+  assertEquals(bytes <= MAX_PUSH_PLAINTEXT_BYTES, true, `${bytes} bytes`);
 });
 
 Deno.test("pushNotifications tags per station, or per spot when replacing is off", () => {

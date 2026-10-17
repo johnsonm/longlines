@@ -313,8 +313,11 @@ update destinations set health = 'paused' where id = '<id>';
 update destinations set health = 'ok', consecutive_failures = 0 where id = '<id>';
 ```
 
-The claim leaves paused destinations out; their messages wait in the queue and expire at the
-same limits as any other.
+The claim leaves paused destinations out and drops their queued messages as unwanted, like a
+disabled destination's: `dropped_at` stays null, so they are not counted as expired. To hold a
+destination and resume its queue later instead, throttle it until a time
+(`update destinations set throttled_until = now() + interval '2 hours' where id = '<id>';`); its
+messages then wait and expire at the same limits as any other.
 
 ### A destination is throttled
 

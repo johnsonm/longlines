@@ -21,6 +21,7 @@ function inIpv4Range(value: number, cidr: string): boolean {
   return ((value & mask) >>> 0) === ((baseValue & mask) >>> 0);
 }
 
+// The same list is in is_private_host() in SQL; change both together.
 const PRIVATE_IPV4 = [
   "0.0.0.0/8",
   "10.0.0.0/8",
@@ -28,8 +29,21 @@ const PRIVATE_IPV4 = [
   "127.0.0.0/8",
   "169.254.0.0/16",
   "172.16.0.0/12",
+  "192.0.0.0/24", // IETF protocol assignments
   "192.168.0.0/16",
+  "198.18.0.0/15", // benchmarking
+  "224.0.0.0/3", // multicast, reserved (240/4) and broadcast
 ];
+
+function isPrivateIpv4(value: number): boolean {
+  return PRIVATE_IPV4.some((cidr) => inIpv4Range(value, cidr));
+}
+
+/** The IPv4 address in four bytes of an IPv6 address, as a number. */
+function ipv4At(b: readonly number[], at: number): number {
+  return (b[at] ?? 0) * 16777216 + (b[at + 1] ?? 0) * 65536 + (b[at + 2] ?? 0) * 256 +
+    (b[at + 3] ?? 0);
+}
 
 /** The 16 bytes of an IPv6 address, or null when it does not parse. */
 function parseIpv6(ip: string): number[] | null {
@@ -61,24 +75,31 @@ export function isIpLiteral(host: string): boolean {
   return parseIpv4(host) !== null || parseIpv6(host) !== null;
 }
 
-/** True for loopback, private, link-local, CGNAT, unspecified and IPv4-mapped addresses. */
+/**
+ * True for loopback, private, link-local, CGNAT, unspecified, multicast and
+ * other special-purpose addresses, and for IPv6 forms that embed a private
+ * IPv4 (mapped, compatible, NAT64, 6to4). The same rules are is_private_host()
+ * in SQL; change both together.
+ */
 export function isPrivateIp(ip: string): boolean {
   const v4 = parseIpv4(ip);
-  if (v4 !== null) return PRIVATE_IPV4.some((cidr) => inIpv4Range(v4, cidr));
+  if (v4 !== null) return isPrivateIpv4(v4);
   const b = parseIpv6(ip);
   if (b === null) return true; // not an address we understand: refuse
-  const allZeroPrefix = b.slice(0, 10).every((x) => x === 0);
-  if (allZeroPrefix && b[10] === 0xff && b[11] === 0xff) {
-    // ::ffff:a.b.c.d — judge the embedded IPv4
-    const v4Value = ((b[12] ?? 0) * 16777216) + ((b[13] ?? 0) * 65536) + ((b[14] ?? 0) * 256) +
-      (b[15] ?? 0);
-    return PRIVATE_IPV4.some((cidr) => inIpv4Range(v4Value, cidr));
+  const zeros = (from: number, to: number) => b.slice(from, to).every((x) => x === 0);
+  // ::ffff:a.b.c.d (mapped), ::a.b.c.d (compatible, which also covers :: and
+  // ::1) and 64:ff9b::a.b.c.d (NAT64): judge the embedded IPv4.
+  if (zeros(0, 10) && b[10] === 0xff && b[11] === 0xff) return isPrivateIpv4(ipv4At(b, 12));
+  if (zeros(0, 12)) return isPrivateIpv4(ipv4At(b, 12)); // :: and ::1 are in 0.0.0.0/8
+  if (b[0] === 0x00 && b[1] === 0x64 && b[2] === 0xff && b[3] === 0x9b) {
+    if (zeros(4, 12)) return isPrivateIpv4(ipv4At(b, 12));
+    if (b[4] === 0x00 && b[5] === 0x01) return true; // 64:ff9b:1::/48, local-use NAT64
   }
-  if (b.slice(0, 15).every((x) => x === 0) && ((b[15] ?? 0) === 0 || (b[15] ?? 0) === 1)) {
-    return true; // :: and ::1
-  }
+  if (b[0] === 0x20 && b[1] === 0x02) return isPrivateIpv4(ipv4At(b, 2)); // 2002::/16, 6to4
+  if (b[0] === 0x01 && b[1] === 0x00 && zeros(2, 8)) return true; // 100::/64, discard
   if (((b[0] ?? 0) & 0xfe) === 0xfc) return true; // fc00::/7
-  if ((b[0] ?? 0) === 0xfe && (((b[1] ?? 0) & 0xc0) === 0x80)) return true; // fe80::/10
+  if ((b[0] ?? 0) === 0xfe && (((b[1] ?? 0) & 0x80) === 0x80)) return true; // fe80::/10, fec0::/10
+  if (b[0] === 0xff) return true; // ff00::/8, multicast
   return false;
 }
 
@@ -126,7 +147,10 @@ export function assertSafeDestinationUrl(type: "discord" | "webhook", url: strin
     }
     return parsed;
   }
-  if (isDeniedHostname(host) || (isIpLiteral(host) && isPrivateIp(host))) {
+  if (
+    parsed.username !== "" || parsed.password !== "" || isDeniedHostname(host) ||
+    (isIpLiteral(host) && isPrivateIp(host))
+  ) {
     throw new Error("That address is not allowed.");
   }
   return parsed;

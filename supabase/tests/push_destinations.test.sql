@@ -6,7 +6,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(122);
+select plan(123);
 select pgmq.purge_queue('spot_events');
 select pgmq.purge_queue('deliveries_queue');
 delete from deliveries;
@@ -195,6 +195,14 @@ select results_eq(format($$ select length(f ->> 'push_title'), right(f ->> 'push
                                     push_default_settings() || '{"title_fields": ["comment"], "body_fields": ["comment"]}'), %L) as f) t $$,
                   (select j || jsonb_build_object('comment', repeat('x', 500)) from spot)),
   $$ values (160, '…', 400, '…') $$, 'a long comment is clipped to 160 title and 400 body characters');
+-- Characters, not bytes: at four bytes each the text stays within 2,240 bytes, which
+-- with the URLs and tag leaves a push payload under webpush.ts's 3,993-byte cap.
+select results_eq(format($$ select length(f ->> 'push_title'), length(f ->> 'push_body'),
+                                   octet_length(f ->> 'push_title') + octet_length(f ->> 'push_body') <= 2240
+                            from (select push_spot_fields(jsonb_populate_record(null::push_destination_settings,
+                                    push_default_settings() || '{"title_fields": ["comment"], "body_fields": ["comment"]}'), %L) as f) t $$,
+                  (select j || jsonb_build_object('comment', repeat(U&'\+01F4FB', 1000)) from spot)),
+  $$ values (160, 400, true) $$, 'four-byte characters are clipped by count, keeping the text within 2,240 bytes');
 select is((push_spot_fields(jsonb_populate_record(null::push_destination_settings, push_default_settings() || '{"title_fields": ["place_name"]}'),
                             (select j - 'pota_park_name' from spot)) ->> 'push_title'), 'KK4PWJ/P',
   'a title with nothing to show falls back to the callsign');
@@ -381,13 +389,13 @@ with ins as (
   select pgmq.send_batch('deliveries_queue', (select array_agg(jsonb_build_object('delivery_id', ins.id)) from ins))
 )
 select count(*) from q;
-update destinations set health = 'paused'; -- nothing claimable: the sweep is the only thing the call does
+update destinations set throttled_until = now() + interval '1 hour'; -- nothing claimable: the sweep is the only thing the call does
 select count(*) from claim_deliveries(200, 60);
 select results_eq(format($$ select status, dropped_at is not null from deliveries where destination_id = %L and spot_id = (select id from s3) $$, (select id from pota)),
   $$ values ('dropped', true) $$, 'a 31-minute-old row for a 30-minute destination is expired');
 select results_eq(format($$ select status, dropped_at from deliveries where destination_id = %L and spot_id = (select id from s3) $$, (select id from desk)),
   $$ values ('pending', null::timestamptz) $$, 'and kept for a 4-hour one');
-update destinations set health = 'ok';
+update destinations set throttled_until = null;
 
 -- ---------------------------------------------------------------------------
 -- Duplicate, moved devices and cascades

@@ -4,6 +4,7 @@ import {
   base64UrlEncode,
   encryptPushPayload,
   generateVapidKeys,
+  MAX_PUSH_PLAINTEXT_BYTES,
   vapidAuthorization,
   vapidKeysFromEnv,
 } from "../delivery/webpush.ts";
@@ -78,6 +79,18 @@ Deno.test("encryptPushPayload uses a fresh key and salt by default", async () =>
   assertEquals(a[20], 65);
   assert(base64UrlEncode(a.slice(0, 16)) !== base64UrlEncode(b.slice(0, 16)), "salt repeats");
   assert(base64UrlEncode(a.slice(21, 86)) !== base64UrlEncode(b.slice(21, 86)), "key repeats");
+});
+
+Deno.test("encryptPushPayload keeps the whole body, header included, within 4096 bytes", async () => {
+  assertEquals(MAX_PUSH_PLAINTEXT_BYTES, 3993);
+  const keys = { p256dh: RFC.uaPublic, auth: RFC.authSecret };
+  const body = await encryptPushPayload(new Uint8Array(MAX_PUSH_PLAINTEXT_BYTES), keys);
+  assertEquals(body.length, 4096);
+  await assertRejects(
+    () => encryptPushPayload(new Uint8Array(MAX_PUSH_PLAINTEXT_BYTES + 1), keys),
+    Error,
+    "too large",
+  );
 });
 
 Deno.test("encryptPushPayload rejects subscription keys of the wrong size", async () => {
