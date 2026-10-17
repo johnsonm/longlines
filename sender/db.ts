@@ -10,7 +10,7 @@
 // image runs with --no-config.
 import postgres, { type JSONValue, type ParameterOrJSON } from "npm:postgres@3.4.9";
 import type { DeliveryRpc } from "../supabase/functions/_shared/delivery/run.ts";
-import type { SenderConfig } from "./config.ts";
+import { RETRY_MAX_MS, RETRY_MIN_MS, type SenderConfig } from "./config.ts";
 
 type SqlType = "int" | "bigint[]" | "text" | "text[]" | "uuid" | "jsonb";
 
@@ -102,6 +102,29 @@ export function senderDb(sql: SqlClient): SenderDb {
   };
 }
 
+/** What the client needs from the config; the CA settings default to an unverified TLS link. */
+export type DbConnectionConfig =
+  & Pick<SenderConfig, "databaseUrl" | "databaseSsl">
+  & Partial<Pick<SenderConfig, "databaseCa" | "databaseVerifyHost">>;
+
+/**
+ * The ssl option. postgres.js's "require" encrypts without checking the
+ * server's certificate (it sets rejectUnauthorized false); with
+ * SENDER_DATABASE_CA the certificate must chain to that CA and, unless the URL
+ * says sslmode=verify-ca, name the host. postgres.js ignores the URL's sslmode
+ * because the sender passes options, so config.ts reads it.
+ */
+export function sslOption(config: DbConnectionConfig, host: string) {
+  if (!config.databaseSsl) return false as const;
+  if (!config.databaseCa) return "require" as const;
+  return {
+    ca: config.databaseCa,
+    rejectUnauthorized: true as const,
+    servername: host,
+    ...(config.databaseVerifyHost === false ? { checkServerIdentity: () => undefined } : {}),
+  };
+}
+
 /**
  * postgres.js options with every value set, so the library never falls back
  * to a PG* environment variable: under the image's --allow-env list a read of
@@ -110,7 +133,7 @@ export function senderDb(sql: SqlClient): SenderDb {
  * int8 comes back as Number (msg_id and delivery_id are numbers in
  * PendingDelivery), timestamps as strings, as PostgREST returns them.
  */
-export function clientOptions(config: Pick<SenderConfig, "databaseUrl" | "databaseSsl">) {
+export function clientOptions(config: DbConnectionConfig) {
   const url = new URL(config.databaseUrl);
   return {
     host: url.hostname,
@@ -118,7 +141,7 @@ export function clientOptions(config: Pick<SenderConfig, "databaseUrl" | "databa
     user: decodeURIComponent(url.username),
     password: decodeURIComponent(url.password),
     database: decodeURIComponent(url.pathname.slice(1)) || "postgres",
-    ssl: config.databaseSsl ? ("require" as const) : false,
+    ssl: sslOption(config, url.hostname),
     // Two connections: the poll loop and the stats refresh may overlap; LISTEN takes one later.
     max: 2,
     prepare: true,
@@ -156,23 +179,78 @@ export function clientOptions(config: Pick<SenderConfig, "databaseUrl" | "databa
 }
 
 /** The postgres.js client, constructed but not yet connected (it connects on the first statement). */
-export function createClient(config: Pick<SenderConfig, "databaseUrl" | "databaseSsl">): SqlClient {
+export function createClient(config: DbConnectionConfig): SqlClient {
   return postgres(clientOptions(config));
 }
 
+/** How long the start-up probe may take before the attempt counts as failed. */
+export const PROBE_TIMEOUT_MS = 30_000;
+/** How long start-up keeps retrying an unreachable or failing database before exiting 1. */
+export const OPEN_DEADLINE_MS = 300_000;
+
+export interface OpenOptions {
+  log?: (message: string) => void;
+  /** The clock (ms) and the sleep, replaced by tests. */
+  now?: () => number;
+  sleep?: (ms: number) => Promise<void>;
+  /** Builds the client; tests pass a fake. */
+  connect?: (config: DbConnectionConfig) => SqlClient;
+  probeTimeoutMs?: number;
+  deadlineMs?: number;
+}
+
+/** Rejects with `message` after `ms` unless `promise` settles first. */
+export function withTimeout<T>(promise: PromiseLike<T>, ms: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expiry = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), ms);
+  });
+  return Promise.race([Promise.resolve(promise), expiry]).finally(() => clearTimeout(timer));
+}
+
 /**
- * Opens the pool and proves it works with one allowlisted call, so a wrong
- * URL, password or grant fails at start (exit 1) rather than as a wedged
- * loop.
+ * Opens the pool and proves it works with one allowlisted call. A failed or
+ * timed-out probe closes that pool and tries again after RETRY_MIN_MS,
+ * doubling to RETRY_MAX_MS, so a database or pooler incident at start does not
+ * become a tight restart loop; after OPEN_DEADLINE_MS it throws (exit 1), so a
+ * wrong URL, password or grant still fails the start rather than wedging.
  */
 export async function openSenderDb(
-  config: Pick<SenderConfig, "databaseUrl" | "databaseSsl">,
+  config: DbConnectionConfig,
+  options: OpenOptions = {},
 ): Promise<SenderDb> {
-  const db = senderDb(createClient(config));
-  const probe = await db.rpc("delivery_queue_stats", {});
-  if (probe.error !== null) {
-    await db.close();
-    throw new Error(`database probe failed: ${probe.error}`);
+  const log = options.log ?? ((message: string) => console.log(message));
+  const now = options.now ?? Date.now;
+  const sleep = options.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)));
+  const connect = options.connect ?? createClient;
+  const probeTimeoutMs = options.probeTimeoutMs ?? PROBE_TIMEOUT_MS;
+  const deadline = now() + (options.deadlineMs ?? OPEN_DEADLINE_MS);
+  if (config.databaseSsl && !config.databaseCa) {
+    log(
+      "warning: TLS to the database does not verify the server certificate; " +
+        "set SENDER_DATABASE_CA (docs/OPERATIONS.md)",
+    );
   }
-  return db;
+  let retryMs = RETRY_MIN_MS;
+  for (;;) {
+    const db = senderDb(connect(config));
+    let error: string;
+    try {
+      const probe = await withTimeout(
+        db.rpc("delivery_queue_stats", {}),
+        probeTimeoutMs,
+        `no answer within ${probeTimeoutMs} ms`,
+      );
+      if (probe.error === null) return db;
+      error = probe.error;
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
+    }
+    // end() waits at most its own timeout; a close that fails changes nothing here.
+    await db.close().catch(() => {});
+    if (now() + retryMs > deadline) throw new Error(`database probe failed: ${error}`);
+    log(`database probe failed: ${error}; retrying in ${retryMs} ms`);
+    await sleep(retryMs);
+    retryMs = Math.min(retryMs * 2, RETRY_MAX_MS);
+  }
 }

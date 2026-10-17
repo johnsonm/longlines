@@ -14,7 +14,9 @@
 # Secrets (fly secrets set -a longlines-sender ...): SENDER_DATABASE_URL (the
 # delivery_sender role through the Supavisor pooler, session mode, port 5432)
 # and the VAPID triple LONGLINES_VAPID_PUBLIC_KEY / LONGLINES_VAPID_PRIVATE_KEY /
-# LONGLINES_VAPID_SUBJECT. Never a Supabase API key. Knobs (SENDER_POLL_MS,
+# LONGLINES_VAPID_SUBJECT. Optional: SENDER_DATABASE_CA, the PEM certificate
+# the pooler's certificate must chain to (without it TLS is not verified;
+# docs/OPERATIONS.md). Never a Supabase API key. Knobs (SENDER_POLL_MS,
 # SENDER_CONCURRENCY, SENDER_STALE_MS, SENDER_STATS_MS, SENDER_HEALTH_PORT) are
 # optional; sender/config.ts has the defaults.
 
@@ -35,6 +37,14 @@ primary_region = "iad"
 # reappears after the 60 s visibility timeout and is sent once more.
 kill_signal = "SIGINT"
 kill_timeout = "30s"
+
+# Restart the process whenever it exits, however often. The default on-failure
+# policy gives up after a few restarts, which would leave the sender down after
+# a long database outage even once the database is back (start-up itself
+# retries for five minutes before exiting 1). A stop made through Fly
+# (deploy, fly machine stop) is not an exit this policy restarts.
+[[restart]]
+  policy = "always"
 
 [[vm]]
   size = "shared-cpu-1x"

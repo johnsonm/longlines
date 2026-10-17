@@ -93,6 +93,30 @@ Deno.test("openHttpZip reads ranges with the User-Agent and reports Last-Modifie
   }
 });
 
+Deno.test("openHttpZip's stream gives up on a server that never sends headers, but not on a slow body", async () => {
+  const zip = await buildZip(FILES);
+  const stalled = serveZip(zip, { stallHeaders: true });
+  const slow = serveZip(zip);
+  try {
+    const remote = await openHttpZip(stalled.url, new AbortController().signal, fetch, 100);
+    const entries = await readZipDirectory(remote);
+    await assertRejects(
+      () => openZipEntry(remote, entries[1]!),
+      Error,
+      "no response within 100 ms",
+    );
+    // Once headers arrive the timer is gone: reading after it would have fired still works.
+    const ok = await openHttpZip(slow.url, new AbortController().signal, fetch, 100);
+    const stream = await openZipEntry(ok, (await readZipDirectory(ok))[2]!);
+    await new Promise((r) => setTimeout(r, 200));
+    assertEquals(await readAll(stream), "AM|1|||K1ABC|E|\r\n");
+  } finally {
+    stalled.release();
+    await stalled.server.shutdown();
+    await slow.server.shutdown();
+  }
+});
+
 Deno.test("openHttpZip refuses plain http except from a local server", async () => {
   let fetched = 0;
   await assertRejects(

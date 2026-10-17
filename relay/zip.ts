@@ -122,6 +122,9 @@ export interface HttpZip extends RangeSource {
   version: string;
 }
 
+/** How long stream()'s Range request may wait for response headers; the body then has readWithin's idle timeout. */
+export const STREAM_HEADER_TIMEOUT_MS = 60_000;
+
 /**
  * A remote file read with Range requests. HEAD gives its size and version.
  * Every request carries the User-Agent and `signal`; a server that ignores
@@ -131,6 +134,7 @@ export async function openHttpZip(
   url: string,
   signal: AbortSignal,
   fetchFn: typeof fetch = fetch,
+  streamHeaderTimeoutMs = STREAM_HEADER_TIMEOUT_MS,
 ): Promise<HttpZip> {
   // The file is loaded into a public table: never over plain http, except
   // from a local server in tests and development.
@@ -177,7 +181,26 @@ export async function openHttpZip(
     },
     async stream(start, end) {
       // No overall timeout: the caller reads slowly, pausing while it pushes rows.
-      const res = await range(start, end);
+      // Only the wait for headers is bounded; the timer is cleared once they
+      // arrive, so it never aborts the body.
+      const headerTimeout = new AbortController();
+      const timer = setTimeout(
+        () =>
+          headerTimeout.abort(
+            new Error(
+              `GET ${url} bytes ${start}-${
+                end - 1
+              }: no response within ${streamHeaderTimeoutMs} ms`,
+            ),
+          ),
+        streamHeaderTimeoutMs,
+      );
+      let res: Response;
+      try {
+        res = await range(start, end, headerTimeout.signal);
+      } finally {
+        clearTimeout(timer);
+      }
       if (!res.body) throw new Error(`GET ${url}: empty body`);
       return res.body;
     },

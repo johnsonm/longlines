@@ -8,8 +8,11 @@ import {
   integerAtLeast,
   isLocalHost,
   loadConfig,
+  MAX_INTERVAL_MS,
   MIN_POLL_MS,
   portNumber,
+  RETRY_MAX_MS,
+  STALE_MARGIN_MS,
 } from "../config.ts";
 
 const env = (values: Record<string, string>) => (name: string) => values[name];
@@ -26,6 +29,8 @@ Deno.test("loadConfig applies the defaults and requires TLS to a hosted database
   assertEquals(loadConfig(env({ SENDER_DATABASE_URL: HOSTED })), {
     databaseUrl: HOSTED,
     databaseSsl: true,
+    databaseCa: undefined,
+    databaseVerifyHost: true,
     healthPort: DEFAULT_HEALTH_PORT,
     pollMs: DEFAULT_POLL_MS,
     concurrency: DEFAULT_CONCURRENCY,
@@ -44,14 +49,14 @@ Deno.test("loadConfig reads every knob and the VAPID triple", () => {
     SENDER_HEALTH_PORT: "9090",
     SENDER_POLL_MS: " 2000 ",
     SENDER_CONCURRENCY: "1",
-    SENDER_STALE_MS: "30000",
+    SENDER_STALE_MS: "90000",
     SENDER_STATS_MS: "10000",
     ...VAPID,
   }));
   assertEquals(config.healthPort, 9090);
   assertEquals(config.pollMs, 2000);
   assertEquals(config.concurrency, 1);
-  assertEquals(config.staleMs, 30000);
+  assertEquals(config.staleMs, 90000);
   assertEquals(config.statsMs, 10000);
   assertEquals(config.vapid, {
     publicKey: "pub",
@@ -148,4 +153,80 @@ Deno.test("portNumber, integerAtLeast and isLocalHost", () => {
   }
   assertEquals(isLocalHost("aws-0-us-east-1.pooler.supabase.com"), false);
   assertEquals(isLocalHost("10.0.0.1"), false);
+});
+
+const CA = "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----";
+
+Deno.test("loadConfig reads SENDER_DATABASE_CA and honours sslmode verify-full and verify-ca", () => {
+  const withCa = loadConfig(env({ SENDER_DATABASE_URL: HOSTED, SENDER_DATABASE_CA: `${CA}\n` }));
+  assertEquals([withCa.databaseCa, withCa.databaseVerifyHost], [CA, true]);
+  // Literal \n escapes, as a single-line paste would carry them.
+  const escaped = CA.replaceAll("\n", "\\n");
+  assertEquals(
+    loadConfig(env({ SENDER_DATABASE_URL: HOSTED, SENDER_DATABASE_CA: escaped })).databaseCa,
+    CA,
+  );
+  const full = loadConfig(
+    env({ SENDER_DATABASE_URL: `${HOSTED}?sslmode=verify-full`, SENDER_DATABASE_CA: CA }),
+  );
+  assertEquals([full.databaseCa, full.databaseVerifyHost], [CA, true]);
+  const chainOnly = loadConfig(
+    env({ SENDER_DATABASE_URL: `${HOSTED}?sslmode=verify-ca`, SENDER_DATABASE_CA: CA }),
+  );
+  assertEquals([chainOnly.databaseCa, chainOnly.databaseVerifyHost], [CA, false]);
+  // Asking for verification without a CA is refused rather than silently unverified.
+  for (const mode of ["verify-full", "verify-ca"]) {
+    assertThrows(
+      () => loadConfig(env({ SENDER_DATABASE_URL: `${HOSTED}?sslmode=${mode}` })),
+      Error,
+      `sslmode=${mode}, which needs SENDER_DATABASE_CA`,
+    );
+  }
+  assertThrows(
+    () => loadConfig(env({ SENDER_DATABASE_URL: HOSTED, SENDER_DATABASE_CA: "not a cert" })),
+    Error,
+    "SENDER_DATABASE_CA must be a PEM certificate",
+  );
+  // A blank value is unset; a local database has no TLS to verify.
+  assertEquals(
+    loadConfig(env({ SENDER_DATABASE_URL: HOSTED, SENDER_DATABASE_CA: " " })).databaseCa,
+    undefined,
+  );
+  assertEquals(
+    loadConfig(env({ SENDER_DATABASE_URL: `${LOCAL}?sslmode=verify-full` })).databaseCa,
+    undefined,
+  );
+  assertEquals(
+    loadConfig(env({ SENDER_DATABASE_URL: LOCAL, SENDER_DATABASE_CA: CA })).databaseCa,
+    undefined,
+  );
+});
+
+Deno.test("loadConfig caps the interval knobs and keeps the watchdog above the poll and the claim retry", () => {
+  const base = { SENDER_DATABASE_URL: HOSTED };
+  assertEquals([MAX_INTERVAL_MS, RETRY_MAX_MS, STALE_MARGIN_MS], [3_600_000, 60_000, 30_000]);
+  // The defaults pass with room: 120 s against 60 s + 30 s.
+  assertEquals(DEFAULT_STALE_MS >= Math.max(DEFAULT_POLL_MS, RETRY_MAX_MS) + STALE_MARGIN_MS, true);
+  for (const name of ["SENDER_POLL_MS", "SENDER_STALE_MS", "SENDER_STATS_MS"]) {
+    assertThrows(
+      () => loadConfig(env({ ...base, [name]: String(MAX_INTERVAL_MS + 1) })),
+      Error,
+      `${name} must be at most 3600000`,
+    );
+  }
+  assertThrows(
+    () => loadConfig(env({ ...base, SENDER_STALE_MS: "89999" })),
+    Error,
+    "SENDER_STALE_MS must be at least 90000",
+  );
+  assertEquals(loadConfig(env({ ...base, SENDER_STALE_MS: "90000" })).staleMs, 90000);
+  // A poll longer than the retry raises the floor.
+  assertThrows(
+    () => loadConfig(env({ ...base, SENDER_POLL_MS: "300000", SENDER_STALE_MS: "320000" })),
+    Error,
+    "SENDER_STALE_MS must be at least 330000",
+  );
+  // The longest poll that still fits under the cap.
+  const slow = loadConfig(env({ ...base, SENDER_POLL_MS: "3570000", SENDER_STALE_MS: "3600000" }));
+  assertEquals([slow.pollMs, slow.staleMs], [3_570_000, 3_600_000]);
 });

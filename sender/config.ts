@@ -16,12 +16,30 @@ export const DEFAULT_CONCURRENCY = 4;
 /** No progress (claim, send or mark) for this long means the connection is wedged: the watchdog exits 1. */
 export const DEFAULT_STALE_MS = 120_000;
 export const DEFAULT_STATS_MS = 60_000;
+/** A failed claim or bookkeeping call is retried after this, doubling to the maximum (sender.ts). */
+export const RETRY_MIN_MS = 5_000;
+export const RETRY_MAX_MS = 60_000;
+/**
+ * SENDER_STALE_MS must exceed the longest healthy wait between two progress
+ * reports (an idle poll, or the longest claim retry) by at least this much,
+ * or the watchdog would exit 1 on a healthy sender.
+ */
+export const STALE_MARGIN_MS = 30_000;
+/** Ceiling for every millisecond knob: far below setTimeout's 2^31-1, above which it fires at once. */
+export const MAX_INTERVAL_MS = 3_600_000;
 
 export interface SenderConfig {
   /** postgres:// URL for the delivery_sender role. Carries the password: never log it. */
   databaseUrl: string;
   /** TLS to the pooler; off only for a local database host. */
   databaseSsl: boolean;
+  /**
+   * SENDER_DATABASE_CA, the PEM certificate(s) the pooler's certificate must
+   * chain to. Unset means TLS without verifying the server (logged at start).
+   */
+  databaseCa: string | undefined;
+  /** Check the certificate's name against the host too (sslmode verify-full, the default with a CA). */
+  databaseVerifyHost: boolean;
   healthPort: number;
   /** Pause between claims that found less than a full batch. */
   pollMs: number;
@@ -56,12 +74,16 @@ export function portNumber(value: string, name: string): number {
   return port;
 }
 
-/** A whole number of milliseconds (or destinations) at least `min`; unset means `fallback`. */
+/**
+ * A whole number of milliseconds (or destinations) at least `min` and, when
+ * given, at most `max`; unset means `fallback`.
+ */
 export function integerAtLeast(
   value: string | undefined,
   name: string,
   fallback: number,
   min: number,
+  max?: number,
 ): number {
   const v = value?.trim();
   if (!v) return fallback;
@@ -69,14 +91,28 @@ export function integerAtLeast(
   if (!Number.isInteger(n) || n < min) {
     throw new Error(`${name} must be a whole number of at least ${min}`);
   }
+  if (max !== undefined && n > max) throw new Error(`${name} must be at most ${max}`);
   return n;
+}
+
+/**
+ * SENDER_DATABASE_CA as PEM text. A Fly secret keeps real newlines; a value
+ * pasted with literal "\n" escapes is accepted too.
+ */
+function databaseCa(value: string | undefined): string | undefined {
+  const v = value?.trim().replaceAll("\\n", "\n");
+  if (!v) return undefined;
+  if (!v.includes("-----BEGIN CERTIFICATE-----") || !v.includes("-----END CERTIFICATE-----")) {
+    throw new Error("SENDER_DATABASE_CA must be a PEM certificate (-----BEGIN CERTIFICATE-----)");
+  }
+  return v;
 }
 
 /**
  * SENDER_DATABASE_URL must be a postgres URL with a user, a password and a
  * host. The error messages never echo the value, which carries the password.
  */
-function databaseUrl(value: string): { url: string; local: boolean } {
+function databaseUrl(value: string): { url: string; local: boolean; sslmode: string | null } {
   let url: URL;
   try {
     url = new URL(value);
@@ -95,7 +131,7 @@ function databaseUrl(value: string): { url: string; local: boolean } {
   if (!local && (sslmode === "disable" || sslmode === "allow")) {
     throw new Error("SENDER_DATABASE_URL must use TLS outside local development");
   }
-  return { url: value, local };
+  return { url: value, local, sslmode };
 }
 
 export function loadConfig(env: (name: string) => string | undefined): SenderConfig {
@@ -106,31 +142,58 @@ export function loadConfig(env: (name: string) => string | undefined): SenderCon
       "LONGLINES_ALLOW_INSECURE_DESTINATIONS is for local development only (the database host is not local)",
     );
   }
+  const ca = databaseCa(env("SENDER_DATABASE_CA"));
+  const verify = db.sslmode === "verify-full" || db.sslmode === "verify-ca";
+  if (!db.local && verify && !ca) {
+    throw new Error(
+      `SENDER_DATABASE_URL asks for sslmode=${db.sslmode}, which needs SENDER_DATABASE_CA (the server's CA certificate)`,
+    );
+  }
+  const pollMs = integerAtLeast(
+    env("SENDER_POLL_MS"),
+    "SENDER_POLL_MS",
+    DEFAULT_POLL_MS,
+    MIN_POLL_MS,
+    MAX_INTERVAL_MS,
+  );
+  const staleMs = integerAtLeast(
+    env("SENDER_STALE_MS"),
+    "SENDER_STALE_MS",
+    DEFAULT_STALE_MS,
+    MIN_POLL_MS,
+    MAX_INTERVAL_MS,
+  );
+  const minStaleMs = Math.max(pollMs, RETRY_MAX_MS) + STALE_MARGIN_MS;
+  if (staleMs < minStaleMs) {
+    throw new Error(
+      `SENDER_STALE_MS must be at least ${minStaleMs} (the longer of SENDER_POLL_MS and the ` +
+        `${RETRY_MAX_MS} ms claim retry, plus ${STALE_MARGIN_MS}), or the watchdog stops a healthy sender`,
+    );
+  }
   return {
     databaseUrl: db.url,
     databaseSsl: !db.local,
+    // TLS is off for a local host, so there is nothing to verify.
+    databaseCa: db.local ? undefined : ca,
+    databaseVerifyHost: db.sslmode !== "verify-ca",
     healthPort: portNumber(
       env("SENDER_HEALTH_PORT") ?? String(DEFAULT_HEALTH_PORT),
       "SENDER_HEALTH_PORT",
     ),
-    pollMs: integerAtLeast(env("SENDER_POLL_MS"), "SENDER_POLL_MS", DEFAULT_POLL_MS, MIN_POLL_MS),
+    pollMs,
     concurrency: integerAtLeast(
       env("SENDER_CONCURRENCY"),
       "SENDER_CONCURRENCY",
       DEFAULT_CONCURRENCY,
       1,
     ),
-    staleMs: integerAtLeast(
-      env("SENDER_STALE_MS"),
-      "SENDER_STALE_MS",
-      DEFAULT_STALE_MS,
-      MIN_POLL_MS,
-    ),
+    staleMs,
     statsMs: integerAtLeast(
       env("SENDER_STATS_MS"),
       "SENDER_STATS_MS",
       DEFAULT_STATS_MS,
       MIN_POLL_MS,
+      MAX_INTERVAL_MS,
     ),
     vapid: vapidKeysFromEnv(env),
     allowInsecure,

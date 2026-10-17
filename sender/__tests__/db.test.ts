@@ -2,16 +2,21 @@
 // row and error mapping) always run; the last tests open a real pool and run
 // only with SENDER_TEST_DATABASE_URL set (CI's migrations job points it at the
 // fresh local stack; never a hosted database).
-import { assertEquals, assertThrows } from "@std/assert";
+import { assertEquals, assertRejects, assertThrows } from "@std/assert";
 import { isLocalHost } from "../config.ts";
+import { RETRY_MAX_MS, RETRY_MIN_MS } from "../config.ts";
 import {
   clientOptions,
+  OPEN_DEADLINE_MS,
   openSenderDb,
+  PROBE_TIMEOUT_MS,
   rpcStatement,
   SENDER_RPCS,
   senderDb,
   type SqlClient,
   type SqlParam,
+  sslOption,
+  withTimeout,
 } from "../db.ts";
 
 const DATABASE_URL = Deno.env.get("SENDER_TEST_DATABASE_URL")?.trim() || undefined;
@@ -200,6 +205,147 @@ Deno.test("clientOptions takes the connection from the URL and sets every option
   assertEquals(typeof options.backoff(1), "number");
 });
 
+const POOLER = "postgresql://u:pw@aws-0-us-east-1.pooler.supabase.com:5432/postgres";
+const PEM = "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----";
+
+Deno.test("clientOptions verifies the server certificate only with a CA", () => {
+  // No CA: encrypted, unverified ("require" sets rejectUnauthorized false in postgres.js).
+  assertEquals(clientOptions({ databaseUrl: POOLER, databaseSsl: true }).ssl, "require");
+  assertEquals(
+    clientOptions({ databaseUrl: POOLER, databaseSsl: true, databaseCa: undefined }).ssl,
+    "require",
+  );
+  // With a CA: the chain and the host name are checked.
+  assertEquals(
+    clientOptions({
+      databaseUrl: POOLER,
+      databaseSsl: true,
+      databaseCa: PEM,
+      databaseVerifyHost: true,
+    })
+      .ssl,
+    { ca: PEM, rejectUnauthorized: true, servername: "aws-0-us-east-1.pooler.supabase.com" },
+  );
+  // sslmode=verify-ca: the chain only.
+  const chainOnly = sslOption(
+    { databaseUrl: POOLER, databaseSsl: true, databaseCa: PEM, databaseVerifyHost: false },
+    "aws-0-us-east-1.pooler.supabase.com",
+  );
+  if (typeof chainOnly !== "object" || !chainOnly.checkServerIdentity) {
+    throw new Error("verify-ca must replace the host name check");
+  }
+  assertEquals([chainOnly.ca, chainOnly.rejectUnauthorized], [PEM, true]);
+  assertEquals(chainOnly.checkServerIdentity(), undefined);
+  // No TLS at all for a local database, CA or not.
+  assertEquals(
+    sslOption({ databaseUrl: POOLER, databaseSsl: false, databaseCa: PEM }, "127.0.0.1"),
+    false,
+  );
+});
+
+Deno.test("withTimeout passes a settled value through and rejects after the timeout", async () => {
+  assertEquals(await withTimeout(Promise.resolve(1), 1_000, "slow"), 1);
+  await assertRejects(() => withTimeout(new Promise(() => {}), 10, "slow"), Error, "slow");
+  await assertRejects(
+    () => withTimeout(Promise.reject(new Error("boom")), 1_000, "slow"),
+    Error,
+    "boom",
+  );
+});
+
+/** A clock and sleep for openSenderDb: sleeping moves the clock. */
+function fakeClock() {
+  let t = 0;
+  const slept: number[] = [];
+  return {
+    now: () => t,
+    sleep: (ms: number) => {
+      slept.push(ms);
+      t += ms;
+      return Promise.resolve();
+    },
+    slept,
+  };
+}
+
+Deno.test("openSenderDb retries a failed probe with doubling delays and returns once it answers", async () => {
+  const clock = fakeClock();
+  const logs: string[] = [];
+  const clients: ReturnType<typeof fakeSql>[] = [];
+  const db = await openSenderDb({ databaseUrl: POOLER, databaseSsl: true, databaseCa: PEM }, {
+    ...clock,
+    log: (m) => logs.push(m),
+    connect: () => {
+      const fake = clients.length < 4
+        ? fakeSql([], new Error("connection refused"))
+        : fakeSql([{ depth: 0 }]);
+      clients.push(fake);
+      return fake.sql;
+    },
+  });
+  assertEquals(clock.slept, [RETRY_MIN_MS, 2 * RETRY_MIN_MS, 4 * RETRY_MIN_MS, 8 * RETRY_MIN_MS]);
+  assertEquals(
+    logs[0],
+    `database probe failed: connection refused; retrying in ${RETRY_MIN_MS} ms`,
+  );
+  assertEquals(logs.length, 4); // a CA was given: no TLS warning
+  // Every failed pool is closed; the one that answered stays open.
+  assertEquals(clients.map((c) => c.ended.length), [1, 1, 1, 1, 0]);
+  assertEquals(clients[4]!.executed[0]!.text, "select * from public.delivery_queue_stats()");
+  await db.close();
+});
+
+Deno.test("openSenderDb caps the delay, gives up at the deadline and warns about unverified TLS", async () => {
+  const clock = fakeClock();
+  const logs: string[] = [];
+  let attempts = 0;
+  await assertRejects(
+    () =>
+      openSenderDb({ databaseUrl: POOLER, databaseSsl: true }, {
+        ...clock,
+        log: (m) => logs.push(m),
+        connect: () => {
+          attempts++;
+          return fakeSql([], new Error("password authentication failed")).sql;
+        },
+      }),
+    Error,
+    "database probe failed: password authentication failed",
+  );
+  assertEquals(OPEN_DEADLINE_MS, 300_000);
+  assertEquals(Math.max(...clock.slept), RETRY_MAX_MS);
+  // It never sleeps past the deadline.
+  assertEquals(clock.slept.reduce((a, b) => a + b, 0) <= OPEN_DEADLINE_MS, true);
+  assertEquals(attempts, clock.slept.length + 1);
+  assertEquals(logs[0]!.includes("does not verify the server certificate"), true);
+  assertEquals(logs[0]!.includes("SENDER_DATABASE_CA"), true);
+});
+
+Deno.test("openSenderDb counts a probe that never answers as a failure", async () => {
+  assertEquals(PROBE_TIMEOUT_MS, 30_000);
+  let ended = 0;
+  const hung: SqlClient = {
+    unsafe: () => new Promise(() => {}),
+    json: (value) => ({ json: value }) as unknown as SqlParam,
+    end() {
+      ended++;
+      return Promise.reject(new Error("already closed"));
+    },
+  };
+  await assertRejects(
+    () =>
+      openSenderDb({ databaseUrl: POOLER, databaseSsl: false }, {
+        connect: () => hung,
+        probeTimeoutMs: 10,
+        deadlineMs: 0,
+        log: () => {},
+      }),
+    Error,
+    "database probe failed: no answer within 10 ms",
+  );
+  assertEquals(ended, 1);
+});
+
 Deno.test({
   name: "openSenderDb calls the allowlisted RPCs on a real database with int8 as Number",
   ignore: DATABASE_URL === undefined,
@@ -266,7 +412,8 @@ Deno.test({
     url.password = "wrong-password";
     let message = "";
     try {
-      await openSenderDb({ databaseUrl: url.toString(), databaseSsl: false });
+      // No deadline: the first failure ends the start-up retries.
+      await openSenderDb({ databaseUrl: url.toString(), databaseSsl: false }, { deadlineMs: 0 });
     } catch (error) {
       message = (error as Error).message;
     }

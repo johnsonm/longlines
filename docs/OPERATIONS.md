@@ -258,14 +258,44 @@ In this order, from the repository root:
 | --- | --- | --- |
 | `SENDER_DATABASE_URL` | yes | `postgresql://delivery_sender.<ref>:<password>@<pooler host>:5432/postgres`: the session pooler (port 5432, IPv4), TLS required; URL-encode a password with reserved characters. The sender holds no Supabase API key. |
 | `LONGLINES_VAPID_PUBLIC_KEY`, `LONGLINES_VAPID_PRIVATE_KEY`, `LONGLINES_VAPID_SUBJECT` | for push | The same pair the Edge Functions hold ("Push notifications" below). Without all three, push deliveries fail with "Push isn't configured on the server." and Discord and webhooks carry on. |
-| `SENDER_POLL_MS` | no | Pause between claims that found less than a full batch; 5000, floor 1000. |
+| `SENDER_DATABASE_CA` | no, recommended | The PEM certificate the pooler's certificate must chain to (Supabase's `prod-ca-2021.crt`; "Verifying the database certificate" below). Without it the link is encrypted but the server is not verified, and the sender logs a warning at start. |
+| `SENDER_POLL_MS` | no | Pause between claims that found less than a full batch; 5000, floor 1000, at most 3600000. |
 | `SENDER_CONCURRENCY` | no | Destinations sent at once within a cycle; 4. |
-| `SENDER_STALE_MS` | no | The watchdog: exit 1 after this long without a successful claim; 120000. |
-| `SENDER_STATS_MS` | no | How often `/healthz` refreshes its queue figures; 60000. |
+| `SENDER_STALE_MS` | no | The watchdog: exit 1 after this long without a successful claim; 120000. At most 3600000, and at least 30000 more than the larger of `SENDER_POLL_MS` and the 60000 claim retry (90000 with the default poll), or the sender refuses to start. |
+| `SENDER_STATS_MS` | no | How often `/healthz` refreshes its queue figures; 60000, at most 3600000. |
 | `SENDER_HEALTH_PORT` | no | 8080, what `sender/fly.toml`'s check expects. |
 
 `LONGLINES_ALLOW_INSECURE_DESTINATIONS` is refused with a non-local database host; never set it on
 Fly.
+
+At start the sender probes the database and, if the probe fails or gets no answer within 30 s,
+retries after 5 s, doubling to 60 s, for up to five minutes before it exits 1. `sender/fly.toml`'s
+restart policy (`always`) then starts it again, so a long database outage does not leave it down.
+
+#### Verifying the database certificate
+
+`SENDER_DATABASE_CA` makes the TLS link to the pooler verify the server: its certificate must
+chain to the given CA and name the pooler host. Set it after the release that reads it is
+deployed (an older image ignores it):
+
+1. In the Supabase dashboard, Project Settings, Database, "SSL Configuration": download the
+   certificate (`prod-ca-2021.crt`).
+2. Set it; Fly restarts the machine with the new secret:
+
+   ```sh
+   fly secrets set -a longlines-sender SENDER_DATABASE_CA="$(cat prod-ca-2021.crt)"
+   ```
+
+3. Watch the start: `fly logs -a longlines-sender` must show the start-up line and no "TLS to the
+   database does not verify" warning. A certificate the CA does not sign shows as
+   `database probe failed: ...` retries.
+4. If the chain verifies but the certificate does not name the pooler host, add
+   `?sslmode=verify-ca` to `SENDER_DATABASE_URL` (chain only). To go back to the unverified link,
+   `fly secrets unset -a longlines-sender SENDER_DATABASE_CA`.
+
+`sslmode=verify-full` or `verify-ca` in `SENDER_DATABASE_URL` without `SENDER_DATABASE_CA` is
+refused at start, since postgres.js would otherwise ignore it. Multi-line PEM text is expected; a
+value with literal `\n` escapes works too.
 
 ### Is it running?
 
