@@ -1,10 +1,11 @@
--- pgTAP: rbn_spots retention (20261011000005, 20261012000010). A day older
--- than seven is dropped only when every 10-minute slice is archived with the
--- database's count and the callsign rollups have recorded it, or it is older
--- than 14 days.
+-- pgTAP: rbn_spots retention (20261011000005, 20261012000010,
+-- 20261017004020). A day older than seven is dropped only when every 10-minute
+-- slice is archived with the database's count and the callsign rollups have
+-- recorded it, or it is older than 14 days. A late row on a retired day is
+-- deleted, never archived again.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(17);
+select plan(24);
 
 create or replace function pg_temp.d(p_offset int) returns date language sql as $$
   select (now() at time zone 'utc')::date + p_offset;
@@ -39,7 +40,7 @@ delete from callsign_rollup_days;
 -- Day -12: rows only in the default partition, archived -> rows deleted
 -- Day -3: archived but recent.                     -> kept
 -- Day -13: archived, not rolled up.                -> kept
--- Day -14: not rolled up, one slice logged with the wrong count -> kept, that log row deleted
+-- Day -14: not rolled up, one slice logged with fewer rows than the database -> kept, that log row deleted
 -- Day -15: archived, not rolled up, past 14 days.  -> dropped
 -- Days -3 and -9 to -12 are marked as rolled up.
 select create_rbn_spots_partition(pg_temp.d(-15));
@@ -62,7 +63,7 @@ insert into callsign_rollup_days (day, rolled_at)
 select pg_temp.d(o), now() from unnest(array[-3, -9, -10, -11, -12]) as o;
 select pg_temp.archive_day(-13);
 select pg_temp.archive_day(-15);
-select log_archive('rbn', pg_temp.at(-14, '15:00'), pg_temp.at(-14, '15:10'), 2, 100, 'rbn/test');
+select log_archive('rbn', pg_temp.at(-14, '15:00'), pg_temp.at(-14, '15:10'), 0, null, null);
 select pg_temp.archive_day(-9);
 select pg_temp.archive_day(-10);
 select log_archive('rbn', pg_temp.at(-10, '11:00'), pg_temp.at(-10, '11:10'), 1, 100, 'rbn/test');
@@ -108,6 +109,41 @@ from archive_pending_slices('rbn', now() - interval '2 hours', 100000) p,
      lateral archive_columns('rbn', p.slice_start, p.slice_end) n;
 select maintain_rbn_spots();
 select ok(pg_temp.partition(-9) is null, 'a first day archived only through archive_pending_slices is retired');
+
+-- A slice the database has fewer rows of than its log keeps its log row: its
+-- rows can only have been retired, and archiving it again would replace the file.
+delete from rbn_spots;
+delete from archive_log;
+select create_rbn_spots_partition(pg_temp.d(-10));
+select ingest_rbn_spots(jsonb_build_array(pg_temp.spot(pg_temp.at(-10, '11:05'), 'K1')));
+select log_archive('rbn', pg_temp.at(-10, '11:00'), pg_temp.at(-10, '11:10'), 3, 100, 'rbn/test');
+select is(rbn_day_archived(pg_temp.d(-10)), false, 'a slice with rows missing is not archived');
+select is((select row_count from archive_log where source = 'rbn' and slice_start = pg_temp.at(-10, '11:00')), 3,
+  'and keeps its log row');
+
+-- Day -20: archived and retired, then two late lines arrive: one in the slice that
+-- held its rows, one in a slice logged empty. Both land in the default partition.
+delete from rbn_spots;
+delete from archive_log;
+select create_rbn_spots_partition(pg_temp.d(-20));
+select ingest_rbn_spots(jsonb_build_array(
+  pg_temp.spot(pg_temp.at(-20, '10:01'), 'L1'), pg_temp.spot(pg_temp.at(-20, '10:02'), 'L2')));
+select pg_temp.archive_day(-20);
+select maintain_rbn_spots();
+select ok(pg_temp.partition(-20) is null, 'day -20 is retired');
+select ingest_rbn_spots(jsonb_build_array(
+  pg_temp.spot(pg_temp.at(-20, '10:03'), 'L3'), pg_temp.spot(pg_temp.at(-20, '15:00'), 'L4')));
+select is((select count(*) from partitions.rbn_spots_default where callsign in ('L3', 'L4'))::int, 2,
+  'late lines for a retired day land in the default partition');
+select is(rbn_day_archived(pg_temp.d(-20)), true, 'a retired day with late rows reports archived');
+select maintain_rbn_spots();
+select is((select count(*) from rbn_spots where callsign like 'L%')::int, 0, 'the late rows are deleted');
+select results_eq(
+  format($$select count(*)::int, sum(row_count)::int, count(object_path)::int from archive_log
+           where source = 'rbn' and slice_start >= %L and slice_start < %L$$,
+         pg_temp.at(-20, '00:00'), pg_temp.at(-19, '00:00')),
+  'values (144, 2, 1)',
+  'the retired day keeps every log row and its one object');
 
 select * from finish();
 rollback;

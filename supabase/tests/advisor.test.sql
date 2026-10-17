@@ -4,7 +4,7 @@
 -- the dashboard.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(4);
+select plan(5);
 
 create temp view public_functions as
 select p.oid, p.proname, p.proconfig
@@ -34,6 +34,14 @@ select set_eq(
     where not exists (select 1 from unnest(coalesce(proconfig, '{}')) c where c like 'search_path=%')$$,
   array['mode_bucket', 'is_self_spot', 'source_matches', 'callsign_matches', 'int_array_sum'],
   'only the inlined SQL helpers and the aggregate run without a pinned search_path');
+
+-- Every public table has RLS on (20261017004000); service-role-only tables have
+-- no policies, so a stray client grant still reads nothing.
+select is_empty(
+  $$select c.relname::text from pg_class c join pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public' and c.relkind in ('r', 'p') and not c.relrowsecurity
+      and not exists (select 1 from pg_depend d where d.objid = c.oid and d.deptype = 'e')$$,
+  'every table in public has row level security on');
 
 -- Revoking a new function from public is enough to close it to clients.
 create function public.advisor_probe() returns int language sql as 'select 1';

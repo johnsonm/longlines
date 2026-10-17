@@ -1,5 +1,6 @@
 import { assertEquals, assertRejects } from "@std/assert";
 import { runIngest } from "../ingest.ts";
+import { wwff } from "../wwff.ts";
 import type {
   IngestDb,
   InsertedSpot,
@@ -236,4 +237,50 @@ Deno.test("runIngest strips U+0000 from pulled items before normalize, insert an
     { id: 3, comment: String.raw`typed \u0000 text` },
   ]);
   assertEquals(calls.failures[0]?.[0]?.raw_payload, { id: 2, throws: true, comment: "bad" });
+});
+
+Deno.test("runIngest dead-letters a far-future or oversized spot and stores the rest of the batch", async () => {
+  // A WWFF spot_time in milliseconds would be year 58763 and fail the whole ingest_spots call.
+  const now = new Date("2026-10-15T18:28:00Z");
+  const good = {
+    id: 1,
+    spot_time: now.getTime() / 1000 - 60,
+    activator: "DL1ABC",
+    reference: "DLFF-0001",
+    frequency_khz: 7144,
+    mode: "SSB",
+    remarks: "",
+  };
+  const feed = [
+    good,
+    { ...good, id: 2, spot_time: now.getTime() },
+    { ...good, id: 3, activator: "D".repeat(3000) },
+  ];
+  const adapter: SourceAdapter = { ...wwff, fetchSpots: () => Promise.resolve(feed) };
+  const { db, calls } = fakeDb();
+  const summary = await runIngest(adapter, db, now);
+  assertEquals([summary.inserted, summary.failed], [1, 2]);
+  assertEquals(calls.ingested[0]?.map((s) => s.source_spot_id), ["1"]);
+  assertEquals(calls.failures.flat().map((f) => [f.raw_payload["id"], f.error.split(":")[0]]), [
+    [2, "spot time out of range"],
+    [3, "callsign is 3000 characters; the limit is 64"],
+  ]);
+});
+
+Deno.test("runIngest makes lone surrogates storable before normalize and the dead letter see them", async () => {
+  const seen: JsonObject[] = [];
+  const adapter = fakeAdapter([{ id: 1, comment: "hi \ud83d" }, {
+    id: 2,
+    throws: true,
+    c: "\udc00",
+  }]);
+  const normalize = adapter.normalize;
+  adapter.normalize = (raw, now) => {
+    seen.push(raw);
+    return normalize(raw, now);
+  };
+  const { db, calls } = fakeDb();
+  await runIngest(adapter, db, NOW);
+  assertEquals(seen[0], { id: 1, comment: "hi \ufffd" });
+  assertEquals(calls.failures[0]?.[0]?.raw_payload, { id: 2, throws: true, c: "\ufffd" });
 });

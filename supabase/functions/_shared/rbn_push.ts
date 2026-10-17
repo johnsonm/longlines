@@ -38,7 +38,7 @@ export async function runRbnPush(
     items = parseRelayBody(body);
     for (const raw of items) {
       try {
-        rows.push(rbnSpotRow(raw));
+        rows.push(rbnSpotRow(raw, now));
         kept.push(raw);
       } catch (error) {
         failures.push({ source: "rbn", error: errorMessage(error), raw_payload: withoutNul(raw) });

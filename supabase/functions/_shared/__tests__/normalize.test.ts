@@ -1,5 +1,8 @@
 import { assertEquals, assertThrows } from "@std/assert";
 import {
+  assertMaxLength,
+  assertPlausibleTime,
+  assertStorableSpot,
   cleanCallsign,
   cleanPotaComment,
   cleanPotaSpotter,
@@ -7,9 +10,12 @@ import {
   cleanSotaSpotter,
   isTestComment,
   isTooOld,
+  MAX_CALLSIGN_LENGTH,
+  MAX_SPOT_ID_LENGTH,
   parseKhz,
   parseUtc,
 } from "../normalize.ts";
+import type { NormalizedSpot } from "../types.ts";
 
 Deno.test("cleanCallsign uppercases and removes all whitespace", () => {
   assertEquals(cleanCallsign(" dl/hb9jnh \t"), "DL/HB9JNH");
@@ -116,4 +122,70 @@ Deno.test("isTooOld compares spot time to now with a max age", () => {
   assertEquals(isTooOld(new Date("2026-10-05T13:44:59Z"), now, fiveMin), true);
   assertEquals(isTooOld(new Date("2026-10-05T13:45:01Z"), now, fiveMin), false);
   assertEquals(isTooOld(new Date("2026-10-05T13:55:00Z"), now, fiveMin), false);
+});
+
+Deno.test("assertMaxLength allows the limit and throws past it", () => {
+  assertMaxLength("x".repeat(4), 4, "callsign");
+  assertThrows(() => assertMaxLength("x".repeat(5), 4, "callsign"), Error, "callsign is 5");
+});
+
+Deno.test("assertPlausibleTime allows up to a day ahead and refuses later, earlier than 2000 or invalid", () => {
+  const now = new Date("2026-10-15T18:28:00Z");
+  assertPlausibleTime(new Date("2026-10-16T18:28:00Z"), now, "spot time");
+  assertPlausibleTime(new Date("2000-01-01T00:00:00Z"), now, "spot time");
+  // A milliseconds value read as seconds: year 58763.
+  assertThrows(
+    () => assertPlausibleTime(new Date(1792238400000 * 1000), now, "spot time"),
+    Error,
+    "spot time out of range: +058763",
+  );
+  assertThrows(
+    () => assertPlausibleTime(new Date("2026-10-16T18:28:01Z"), now, "x"),
+    Error,
+    "x out of range",
+  );
+  assertThrows(
+    () => assertPlausibleTime(new Date("1999-12-31T23:59:59Z"), now, "x"),
+    Error,
+    "out of range",
+  );
+  assertThrows(() => assertPlausibleTime(new Date(Number.NaN), now, "x"), Error, "invalid");
+});
+
+Deno.test("assertStorableSpot bounds the time, id, calls and references", () => {
+  const now = new Date("2026-10-05T13:41:00Z");
+  const spot: NormalizedSpot = {
+    source: "pota",
+    source_spot_id: "1",
+    content_hash: "h".repeat(64),
+    spot_time: now.toISOString(),
+    callsign: "W1AW",
+    spotter: null,
+    frequency_khz: 14074,
+    band: "20m",
+    mode: "ft8",
+    mode_family: "digital",
+    comment: "x".repeat(5000),
+    pota_reference: "US-0001",
+    pota_park_name: null,
+    pota_location: null,
+    sota_summit_ref: null,
+    wwff_reference: null,
+    wwff_reference_name: null,
+    raw_payload: {},
+  };
+  assertStorableSpot(spot, now);
+  const long = "W".repeat(MAX_CALLSIGN_LENGTH + 1);
+  const cases: [Partial<NormalizedSpot>, string][] = [
+    [{ spot_time: "2026-10-07T00:00:00.000Z" }, "spot time out of range"],
+    [{ source_spot_id: "1".repeat(MAX_SPOT_ID_LENGTH + 1) }, "source_spot_id is"],
+    [{ callsign: long }, "callsign is"],
+    [{ spotter: long }, "spotter is"],
+    [{ pota_reference: long }, "pota_reference is"],
+    [{ sota_summit_ref: long }, "sota_summit_ref is"],
+    [{ wwff_reference: long }, "wwff_reference is"],
+  ];
+  for (const [change, message] of cases) {
+    assertThrows(() => assertStorableSpot({ ...spot, ...change }, now), Error, message);
+  }
 });

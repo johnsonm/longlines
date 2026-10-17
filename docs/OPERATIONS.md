@@ -80,7 +80,9 @@ Work down the chain.
 
 ## Dead letter queue
 
-Individual spots that could not be normalized:
+Individual spots that could not be normalized, or that would fail their batch in Postgres (a spot
+time more than a day ahead or before 2000, a callsign, spotter or reference over 64 characters, a
+spot id over 256). The daily housekeeping job deletes rows older than 30 days.
 
 ```sql
 select id, source, occurred_at, error, raw_payload
@@ -440,7 +442,8 @@ destination without a settings row. A stale notification is worse than none.
 ### Housekeeping
 
 A daily job (`housekeeping`, 03:00 UTC) deletes deliveries (sent or dropped) and archived queue
-messages older than 7 days and sign-in attempts older than a day.
+messages older than 7 days, sign-in attempts older than a day, `ingest_failures` older than 30 days
+and `subscription_quiet` rows sent more than an hour ago (the longest quiet window).
 
 ### Stats snapshot
 
@@ -587,6 +590,9 @@ About 1.5 million rows and 350 MB a day; seven days (2.5-3 GB) stay in the datab
 retired once the callsign rollups have recorded it (`callsign_rollup_days`, normally at 02:25 UTC the next day)
 or once it is 14 days old. `select pg_size_pretty(pg_total_relation_size('rbn_spots'));` shows the total;
 `select tableoid::regclass, count(*) from rbn_spots group by 1 order by 1;` shows rows per day.
+A line more than seven days late lands in the default partition. If its day was already retired,
+retention deletes it the next night (warning `rbn retention: <day> was retired; deleting its late
+rows`) and keeps the day's archive as it is; APRS-IS does the same.
 
 ## Rotating the relay secret
 

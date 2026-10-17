@@ -19,7 +19,15 @@
 
 import { bandForFrequency } from "./bands.ts";
 import { contentHash } from "./hash.ts";
-import { cleanCallsign, isTooOld, parseKhz, parseUtc } from "./normalize.ts";
+import {
+  assertMaxLength,
+  assertPlausibleTime,
+  cleanCallsign,
+  isTooOld,
+  MAX_CALLSIGN_LENGTH,
+  parseKhz,
+  parseUtc,
+} from "./normalize.ts";
 import { modeFamily, resolveMode } from "./modes.ts";
 import { relayAdapter, requireString, spotTimeFromHhmm } from "./relay_lines.ts";
 import type { JsonObject, NormalizeResult, RbnSpotRow, SourceAdapter } from "./types.ts";
@@ -73,15 +81,21 @@ function rbnComment(parsed: RbnLine): string {
 
 /**
  * The rbn_spots row for one relay item. No age cutoff: storage keeps late lines.
- * Throws when the line is not a spot or received_at is unusable.
+ * Throws when the line is not a spot, received_at is unusable or implausible
+ * against now, or a value would fail the whole batch in Postgres.
  */
-export function rbnSpotRow(raw: JsonObject): RbnSpotRow {
+export function rbnSpotRow(raw: JsonObject, now: Date): RbnSpotRow {
   const line = requireString(raw, "line");
-  // jsonb rejects U+0000, so a NUL would fail the whole batch in Postgres.
+  // jsonb rejects U+0000 and lone surrogates, so either would fail the whole batch in Postgres.
   if (line.includes("\u0000")) throw new Error("line contains a NUL character");
+  if (!line.isWellFormed()) throw new Error("line contains a lone surrogate");
   const receivedAt = parseUtc(requireString(raw, "received_at"));
+  assertPlausibleTime(receivedAt, now, "received_at");
   const parsed = parseRbnLine(line);
   if (!parsed) throw new Error("not an RBN spot line");
+  // Both are in the rbn_spots unique key and the station in its indexes.
+  assertMaxLength(parsed.callsign, MAX_CALLSIGN_LENGTH, "callsign");
+  assertMaxLength(parsed.spotter, MAX_CALLSIGN_LENGTH, "spotter");
   const snr = Number(parsed.snr);
   const speed = Number(parsed.speed);
   if (Math.abs(snr) > SMALLINT_MAX) throw new Error(`snr out of range: ${parsed.snr}`);
