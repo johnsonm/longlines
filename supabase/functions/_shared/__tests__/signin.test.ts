@@ -2,11 +2,11 @@ import { assertEquals, assertThrows } from "@std/assert";
 import {
   GENERIC_SIGN_IN_ERROR,
   isEmailIdentifier,
-  MAX_ATTEMPTS_PER_WINDOW,
+  MAX_IDENTIFIER_LENGTH,
+  MAX_PASSWORD_LENGTH,
   normalizeIdentifier,
   parseSignInBody,
-  RATE_LIMIT_SUFFIX,
-  signInErrorMessage,
+  TOO_MANY_ATTEMPTS,
 } from "../signin.ts";
 
 Deno.test("normalizeIdentifier uppercases callsigns and lowercases emails", () => {
@@ -30,15 +30,19 @@ Deno.test("parseSignInBody requires non-empty identifier and password strings", 
   assertThrows(() => parseSignInBody({ identifier: 5, password: "x" }));
 });
 
-Deno.test("signInErrorMessage is identical for unknown users and wrong passwords", () => {
-  assertEquals(signInErrorMessage(1), GENERIC_SIGN_IN_ERROR);
-  assertEquals(signInErrorMessage(MAX_ATTEMPTS_PER_WINDOW), GENERIC_SIGN_IN_ERROR);
+Deno.test("parseSignInBody caps the identifier and password lengths", () => {
+  const email = `${"a".repeat(MAX_IDENTIFIER_LENGTH - 6)}@b.com`;
+  assertEquals(
+    parseSignInBody({ identifier: ` ${email} `, password: "x" }).identifier,
+    ` ${email} `,
+  );
+  assertThrows(() => parseSignInBody({ identifier: `a${email}`, password: "x" }));
+  const longest = "p".repeat(MAX_PASSWORD_LENGTH);
+  assertEquals(parseSignInBody({ identifier: "kk4pwj", password: longest }).password, longest);
+  assertThrows(() => parseSignInBody({ identifier: "kk4pwj", password: `${longest}p` }));
 });
 
-Deno.test("signInErrorMessage adds the rate-limit suffix past the limit", () => {
-  assertEquals(
-    signInErrorMessage(MAX_ATTEMPTS_PER_WINDOW + 1),
-    `${GENERIC_SIGN_IN_ERROR} ${RATE_LIMIT_SUFFIX}`,
-  );
-  assertEquals(MAX_ATTEMPTS_PER_WINDOW, 10);
+Deno.test("the rate-limit message does not say the credentials are wrong", () => {
+  assertEquals(TOO_MANY_ATTEMPTS.includes(GENERIC_SIGN_IN_ERROR), false);
+  assertEquals(/match/.test(TOO_MANY_ATTEMPTS), false);
 });
