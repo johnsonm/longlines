@@ -263,12 +263,12 @@ labels. The sender amendment adds, all *decided 2026-10-16*:
 
 **Files:** `web/src/destinations/DestinationsPage.tsx` (+ test), `web/src/destinations/DestinationCard.tsx` (new), `web/src/destinations/HealthChip.tsx`.
 
-- [ ] Replace the `List` with a `Grid` of `Card variant="outlined"` (two columns from `md`, one below), page 1 for Discord and webhook cards, page 5 for push cards: name (`h6`) and chip; type line; the masked URL in a monospace `Paper variant="outlined"` for Discord/webhook, device chips for push (`Chip size="small" variant="outlined"`, blocked ones `color="error"` with " (blocked)"); the meta line "used by {N} subscription(s) · Last delivery {age} ago" / "Never used" / "Last delivery failed {age} ago" from `last_success_at`/`last_error_at`; `Divider`; `CardActions` with Send test, [push: Edit, Duplicate], Delete (disabled with tooltip "Used by {N} subscriptions. Remove it from them first.").
-- [ ] Push chip: `HealthChip` as today, except `Chip color="warning" label="{N} device(s) blocked"` when any member is blocked. Devices per card come from one `listPushDevices()` call on the page (`destination_ids`), never per card.
-- [ ] Alerts above the grid: the failing alert per page 1 (with a Send test action, replacing today's one-sentence alert) and the blocked alert per page 5 (Manage devices → the editor).
-- [ ] Duplicate: `duplicateDestination(id)` then navigate to `/destinations/{newId}`; toast "Duplicated {name}".
-- [ ] Tests: both layouts; each card type; chips; meta variants; Delete tooltip; Duplicate navigation; both alerts.
-- [ ] Commit `Destinations: card grid with push cards`.
+- [x] Replace the `List` with a `Grid` of `Card variant="outlined"` (two columns from `md`, one below), page 1 for Discord and webhook cards, page 5 for push cards: name (`h6`) and chip; type line; the masked URL in a monospace `Paper variant="outlined"` for Discord/webhook, device chips for push (`Chip size="small" variant="outlined"`, blocked ones `color="error"` with " (blocked)"); the meta line "used by {N} subscription(s) · Last delivery {age} ago" / "Never used" / "Last delivery failed {age} ago" from `last_success_at`/`last_error_at`; `Divider`; `CardActions` with Send test, [push: Edit, Duplicate], Delete (disabled with tooltip "Used by {N} subscriptions. Remove it from them first.").
+- [x] Push chip: `HealthChip` as today, except `Chip color="warning" label="{N} device(s) blocked"` when any member is blocked. Devices per card come from one `listPushDevices()` call on the page (`destination_ids`), never per card.
+- [x] Alerts above the grid: the failing alert per page 1 (with a Send test action, replacing today's one-sentence alert) and the blocked alert per page 5 (Manage devices → the editor).
+- [x] Duplicate: `duplicateDestination(id)` then navigate to `/destinations/{newId}`; toast "Duplicated {name}".
+- [x] Tests: both layouts; each card type; chips; meta variants; Delete tooltip; Duplicate navigation; both alerts.
+- [x] Commit `Destinations: card grid with push cards`.
 
 ### Task 8: Add destination as a type picker
 

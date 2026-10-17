@@ -46,7 +46,8 @@ export function DestinationDialog({ open, onClose, onCreated }: { open: boolean;
         <FormControl sx={{ mb: 2 }}>
           <FormLabel>Where should spots go?</FormLabel>
           <RadioGroup value={type} onChange={(e) => setType(e.target.value as DestinationType)}>
-            {DEST_TYPES.map((d) => <FormControlLabel key={d.id} value={d.id} control={<Radio />} label={d.label} />)}
+            {/* Push has no URL; its dialog step arrives with the type picker. */}
+            {DEST_TYPES.filter((d) => d.id !== "push").map((d) => <FormControlLabel key={d.id} value={d.id} control={<Radio />} label={d.label} />)}
           </RadioGroup>
         </FormControl>
         <Alert severity="info" sx={{ mb: 2 }}>{t.help}</Alert>
