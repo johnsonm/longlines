@@ -26,6 +26,7 @@ import { LookupPage } from "./profile/LookupPage";
 import { CallsignPage } from "./profile/CallsignPage";
 import { loadDestinations, loadSubscriptions, signOut, type Destination, type SubscriptionWithLinks } from "./lib/api";
 import type { TimePrefs } from "./lib/time";
+import { pushCleanup } from "./pwa/push";
 
 // Both schemes, so useColorScheme() can pick light, dark or system; MUI keeps the choice in localStorage.
 const theme = createTheme({ colorSchemes: { light: true, dark: true } });
@@ -134,7 +135,7 @@ function ProfileError({ message }: { message: string }) {
         action={
           <>
             <Button color="inherit" size="small" onClick={() => void refreshProfile()}>Retry</Button>
-            <Button color="inherit" size="small" onClick={() => void signOut().catch(() => notify("Couldn't sign out. Try again."))}>
+            <Button color="inherit" size="small" onClick={() => void signOut("local", pushCleanup).catch(() => notify("Couldn't sign out. Try again."))}>
               Sign out
             </Button>
           </>

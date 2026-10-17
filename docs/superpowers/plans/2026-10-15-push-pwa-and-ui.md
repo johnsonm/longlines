@@ -322,12 +322,12 @@ labels. The sender amendment adds, all *decided 2026-10-16*:
 
 **Files:** `web/src/pwa/install.ts` (+ test), `web/src/layout/InstallDialog.tsx`, `web/src/layout/AppShell.tsx` (+ test), `web/src/account/AccountPage.tsx`, `web/src/app/AppContext.tsx`, `web/src/pwa/register.ts`, `web/src/main.tsx`.
 
-- [ ] `install.ts`: capture `beforeinstallprompt` from `main.tsx` before render; `installState()` → `prompt | ios | none`; `promptInstall()`; a subscribe/notify pair.
-- [ ] AppShell: **Install app** between Account and Sign out when state isn't `none`; `ios` opens `InstallDialog` (spec Copy).
-- [ ] With a session, `refreshPushRegistration()` once per load. `register.ts` listens for `push-subscription-changed` and calls it again (the service worker already posts it).
-- [ ] Every local sign-out (`AppShell`, both in `AccountPage`) passes `pushCleanup`; "Sign out others" passes nothing.
-- [ ] Tests for each.
-- [ ] Commit `Install app, re-register on load and on subscription change, unregister on sign out`.
+- [x] `install.ts`: capture `beforeinstallprompt` from `main.tsx` before render; `installState()` → `prompt | ios | none`; `promptInstall()`; a subscribe/notify pair.
+- [x] AppShell: **Install app** between Account and Sign out when state isn't `none`; `ios` opens `InstallDialog` (spec Copy).
+- [x] With a session, `refreshPushRegistration()` once per load. `register.ts` listens for `push-subscription-changed` and calls it again (the service worker already posts it).
+- [x] Every local sign-out (`AppShell`, both in `AccountPage`) passes `pushCleanup`; "Sign out others" passes nothing.
+- [x] Tests for each.
+- [x] Commit `Install app, re-register on load and on subscription change, unregister on sign out`.
 
 ### Task 13: Docs, rules, gates and end to end
 

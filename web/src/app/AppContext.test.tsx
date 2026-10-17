@@ -3,12 +3,14 @@ import { act, render, renderHook, waitFor } from "@testing-library/react";
 import type { Session } from "@supabase/supabase-js";
 import { useSession } from "../auth/useSession";
 import { loadProfile } from "../lib/api";
+import { refreshPushRegistration } from "../pwa/push";
 import { PROFILE, SESSION } from "../test/render";
 import { AppProvider } from "./AppContext";
 import { errorText, useApp, useNotify } from "./hooks";
 
 vi.mock("../auth/useSession", () => ({ useSession: vi.fn() }));
 vi.mock("../lib/api", () => ({ loadProfile: vi.fn() }));
+vi.mock("../pwa/push", () => ({ refreshPushRegistration: vi.fn() }));
 
 function session(value: Session | null, loading = false) {
   vi.mocked(useSession).mockReturnValue({ session: value, loading });
@@ -16,6 +18,7 @@ function session(value: Session | null, loading = false) {
 
 beforeEach(() => {
   vi.mocked(loadProfile).mockReset().mockResolvedValue(PROFILE);
+  vi.mocked(refreshPushRegistration).mockReset().mockResolvedValue(undefined);
   session(SESSION);
 });
 
@@ -36,6 +39,25 @@ describe("AppProvider", () => {
     expect(result.current.app.profile).toBeNull();
     expect(result.current.app.sessionLoading).toBe(true);
     expect(loadProfile).not.toHaveBeenCalled();
+    expect(refreshPushRegistration).not.toHaveBeenCalled();
+  });
+
+  it("refreshes this browser's push registration once per load, with a session", async () => {
+    const { result, rerender } = hook();
+    await waitFor(() => expect(result.current.app.profile).toEqual(PROFILE));
+    expect(refreshPushRegistration).toHaveBeenCalledTimes(1);
+    rerender();
+    await act(() => result.current.app.refreshProfile());
+    expect(refreshPushRegistration).toHaveBeenCalledTimes(1);
+  });
+
+  it("refreshes the push registration when a session arrives after load", async () => {
+    session(null, true);
+    const { rerender } = hook();
+    expect(refreshPushRegistration).not.toHaveBeenCalled();
+    session(SESSION);
+    rerender();
+    await waitFor(() => expect(refreshPushRegistration).toHaveBeenCalledTimes(1));
   });
 
   it("reports a failed profile load, and clears it on a successful retry", async () => {

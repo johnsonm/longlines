@@ -2,7 +2,11 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router";
 import App from "./App";
+import { captureInstallPrompt } from "./pwa/install";
 import { registerServiceWorker } from "./pwa/register";
+
+// Before render: Chrome fires beforeinstallprompt once, early, and never again.
+captureInstallPrompt();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

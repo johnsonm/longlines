@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
 import {
-  Alert, AlertTitle, Avatar, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, Divider, IconButton, List, ListItem,
-  ListItemAvatar, ListItemText, Stack, TextField, Typography,
+  Alert, AlertTitle, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, Divider, IconButton, Stack, TextField, Typography,
 } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 import LaptopIcon from "@mui/icons-material/Laptop";
 import SmartphoneIcon from "@mui/icons-material/Smartphone";
 import { errorText, useApp } from "../app/hooks";
+import { Steps, type Step } from "../layout/Steps";
 import { DENIED_TEXT, deviceAgent, enablePush, isIos, pushSupport, UNSUPPORTED_TEXT, type PushSupport } from "../pwa/push";
 
 interface Props {
@@ -17,31 +17,11 @@ interface Props {
   onAdded: (id: string) => void;
 }
 
-interface Step {
-  title: string;
-  text: string;
-}
-
 const IOS_STEPS: Step[] = [
   { title: "Tap Share", text: "The square with an arrow, in the Safari toolbar." },
   { title: "Choose Add to Home Screen", text: "Then tap Add." },
   { title: "Open Long Lines from the Home Screen", text: "Sign in, go to Destinations, and choose Add this device." },
 ];
-
-function Steps({ steps }: { steps: Step[] }) {
-  return (
-    <List disablePadding>
-      {steps.map((s, i) => (
-        <ListItem key={s.title} disableGutters sx={{ alignItems: "flex-start" }}>
-          <ListItemAvatar>
-            <Avatar>{i + 1}</Avatar>
-          </ListItemAvatar>
-          <ListItemText primary={s.title} secondary={s.text} />
-        </ListItem>
-      ))}
-    </List>
-  );
-}
 
 /**
  * Page 5's Add a device dialog. "This device" turns notifications on here
