@@ -77,7 +77,8 @@ export function webhookPayloads(deliveries: readonly PendingDelivery[]): Webhook
   return chunk(deliveries, WEBHOOK_SPOTS_PER_REQUEST).map((batch) => ({
     deliveries: batch.map((d) => ({
       delivery_id: d.delivery_id,
-      subscription_id: d.subscription_id,
+      // Webhook receivers know a subscription as a connection.
+      connection_id: d.subscription_id,
       spot: d.spot,
     })),
   }));

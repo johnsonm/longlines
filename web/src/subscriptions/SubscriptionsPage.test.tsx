@@ -61,7 +61,7 @@ beforeEach(() => {
 
 function render(subs: SubscriptionWithLinks[], { dests = DESTS, loading = false, mobile = false } = {}) {
   const reload = vi.fn(() => Promise.resolve());
-  const r = renderPage(<SubscriptionsPage subs={subs} dests={dests} loading={loading} reload={reload} mobile={mobile} />, { route: "/subscriptions" });
+  const r = renderPage(<SubscriptionsPage subs={subs} dests={dests} loading={loading} reload={reload} mobile={mobile} />, { route: "/connections" });
   return { ...r, reload };
 }
 
@@ -141,22 +141,22 @@ describe("SubscriptionsPage", () => {
     vi.mocked(deleteSubscription).mockRejectedValue(new Error(""));
     const { user, app } = render([sub()]);
     await user.click(screen.getByRole("switch"));
-    await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Couldn't update the subscription."));
+    await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Couldn't update the connection."));
     await user.click(screen.getByRole("button", { name: "Delete" }));
-    await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Couldn't delete the subscription."));
+    await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Couldn't delete the connection."));
   });
 
   it("links Edit to the subscription's page", async () => {
     const { user } = render([sub()]);
     await user.click(screen.getByRole("link", { name: "Edit" }));
-    expect(screen.getByTestId("location")).toHaveTextContent("/subscriptions/s1");
+    expect(screen.getByTestId("location")).toHaveTextContent("/connections/s1");
   });
 });
 
 describe("Pick your source", () => {
   it("lists live sources with rates, then opens the editor", async () => {
     const { user } = render([]);
-    await user.click(screen.getByRole("button", { name: "New subscription" }));
+    await user.click(screen.getByRole("button", { name: "New connection" }));
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByText("Pick your source")).toBeInTheDocument();
     expect(within(dialog).getByText("36 / hour")).toBeInTheDocument();
@@ -170,14 +170,14 @@ describe("Pick your source", () => {
     await user.click(within(dialog).getByRole("radio", { name: /Reverse Beacon Network/ }));
     await user.click(within(dialog).getByRole("button", { name: "Continue" }));
     const where = screen.getByTestId("location");
-    expect(where).toHaveTextContent("/subscriptions/new");
+    expect(where).toHaveTextContent("/connections/new");
     expect(where).toHaveAttribute("data-search", "?source=rbn");
   });
 
   it("shows no rates before the stats load, and Cancel closes the picker", async () => {
     vi.mocked(useStats).mockReturnValue({ stats: null, loading: true, error: null });
     const { user } = render([]);
-    await user.click(screen.getByRole("button", { name: "New subscription" }));
+    await user.click(screen.getByRole("button", { name: "New connection" }));
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).queryByText(/\/ hour/)).not.toBeInTheDocument();
     await user.click(within(dialog).getByRole("button", { name: "Cancel" }));

@@ -185,14 +185,18 @@ describe("App routing", () => {
     expect(await screen.findByText("Couldn't sign out. Try again.")).toBeInTheDocument();
   });
 
-  it("loads destinations and subscriptions for the signed-in pages", async () => {
+  it("loads destinations and connections for the signed-in pages", async () => {
     renderAt("/destinations");
     expect(await screen.findByText("destinations page Shack")).toBeInTheDocument();
   });
 
   it.each([
+    ["/connections", "subscriptions page 0"],
+    ["/connections/new?source=pota", "subscription editor new pota any"],
+    ["/connections/new?source=rbn&callsign=KK4PWJ", "subscription editor new rbn KK4PWJ"],
+    ["/connections/s1", "subscription editor s1 none any"],
+    // Old bookmarks redirect, keeping the id and query string.
     ["/subscriptions", "subscriptions page 0"],
-    ["/subscriptions/new?source=pota", "subscription editor new pota any"],
     ["/subscriptions/new?source=rbn&callsign=KK4PWJ", "subscription editor new rbn KK4PWJ"],
     ["/subscriptions/s1", "subscription editor s1 none any"],
     ["/groups", "groups page"],
@@ -205,7 +209,7 @@ describe("App routing", () => {
   it("toasts when shared data fails to load", async () => {
     vi.mocked(loadDestinations).mockRejectedValue(new Error("x"));
     renderAt("/destinations");
-    expect(await screen.findByText("Couldn't load your destinations and subscriptions.")).toBeInTheDocument();
+    expect(await screen.findByText("Couldn't load your destinations and connections.")).toBeInTheDocument();
   });
 
   it("marks Destinations in the nav when one is failing", async () => {

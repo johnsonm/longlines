@@ -64,7 +64,7 @@ Deno.test("handleApi answers unknown paths and wrong methods before checking the
   const unknown = await run(request("GET", "/api/v1/nope", undefined, null));
   assertEquals([unknown.res.status, unknown.body], [404, { error: NOT_FOUND }]);
   assertEquals((await run(request("GET", "/elsewhere"))).res.status, 404);
-  const wrong = await run(request("DELETE", "/api/v1/subscriptions", undefined, null));
+  const wrong = await run(request("DELETE", "/api/v1/connections", undefined, null));
   assertEquals(wrong.res.status, 405);
   assertEquals(wrong.res.headers.get("Allow"), "GET, POST");
   assertEquals(wrong.calls.rpc, []);
@@ -72,7 +72,7 @@ Deno.test("handleApi answers unknown paths and wrong methods before checking the
 
 Deno.test("handleApi answers a CORS preflight for every method without a token", async () => {
   const { client, calls } = fakeSupabase({});
-  const res = await handleApi(request("OPTIONS", `/api/v1/subscriptions/${ID}`, undefined, null), {
+  const res = await handleApi(request("OPTIONS", `/api/v1/connections/${ID}`, undefined, null), {
     db: () => client,
     send: () => Promise.resolve({ ok: true, sent: 1 }),
   }, NOW);
@@ -118,7 +118,7 @@ Deno.test("handleApi lets a read token read but not write", async () => {
     authenticate_api_request: { data: [{ ...WRITE, scope: "read" }] },
     api_call: { data: [] },
   };
-  const read = await run(request("GET", "/api/v1/subscriptions"), { rpc });
+  const read = await run(request("GET", "/api/v1/connections"), { rpc });
   assertEquals([read.res.status, read.body], [200, []]);
   const write = await run(request("POST", "/api/v1/groups", { name: "Club" }), { rpc });
   assertEquals([write.res.status, write.body], [403, { error: READ_ONLY }]);
@@ -157,9 +157,9 @@ Deno.test("handleApi passes SQL messages through with a matching status", async 
     run(request("DELETE", `/api/v1/destinations/${ID}`), {
       rpc: { api_call: { error: { message, code } } },
     });
-  const inUse = await fail("Remove it from its subscriptions first.");
+  const inUse = await fail("Remove it from its connections first.");
   assertEquals([inUse.res.status, inUse.body], [409, {
-    error: "Remove it from its subscriptions first.",
+    error: "Remove it from its connections first.",
   }]);
   assertEquals((await fail("Destination not found.")).res.status, 404);
   const broken = await fail("deadlock detected", "40P01");

@@ -41,7 +41,7 @@ select throws_ok(format($f$ select save_subscription('{"name":"x","destinations"
   'P0001', 'Destination not found.', 'cannot link another user''s destination');
 select ok((select save_subscription('{"name":"No destinations yet","destinations":[]}')) is not null, 'saves with no destinations');
 select throws_ok(format($f$ select save_subscription('{"name":" ","destinations":["%s"]}') $f$, (select id from db)),
-  'P0001', 'Give the subscription a name.', 'needs a name');
+  'P0001', 'Give the connection a name.', 'needs a name');
 select throws_ok(format($f$ select save_subscription('{"name":"x","quiet_minutes":7,"destinations":["%s"]}') $f$, (select id from db)),
   'P0001', 'quiet_minutes must be 0, 5, 10, 30 or 60.', 'quiet_minutes must be one of the allowed values');
 
@@ -52,7 +52,7 @@ select lives_ok(format('delete from destinations where id = %L', (select id from
 -- Other user sees nothing and cannot delete.
 select pg_temp.as_user('22222222-2222-2222-2222-222222222222');
 select is((select count(*) from subscriptions), 0::bigint, 'other user sees no subscriptions');
-select throws_ok(format('select delete_subscription(%L)', (select id from s1)), 'P0001', 'Subscription not found.', 'other user cannot delete');
+select throws_ok(format('select delete_subscription(%L)', (select id from s1)), 'P0001', 'Connection not found.', 'other user cannot delete');
 
 select * from finish();
 rollback;

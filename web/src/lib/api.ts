@@ -211,7 +211,7 @@ export async function rotateSigningSecret(destinationId: string): Promise<string
 export async function deleteDestination(destinationId: string): Promise<void> {
   const { error } = await supabase.from("destinations").delete().eq("id", destinationId);
   if (error) {
-    if (error.code === "23503") throw new ApiError("Remove it from its subscriptions first.", error.code);
+    if (error.code === "23503") throw new ApiError("Remove it from its connections first.", error.code);
     fail(error, "Couldn't delete the destination.");
   }
 }
@@ -260,8 +260,8 @@ export async function loadSubscriptions(): Promise<SubscriptionWithLinks[]> {
     supabase.from("subscriptions").select("*").order("created_at"),
     supabase.from("subscription_destinations").select("*"),
   ]);
-  if (subs.error) fail(subs.error, "Couldn't load subscriptions.");
-  if (links.error) fail(links.error, "Couldn't load subscriptions.");
+  if (subs.error) fail(subs.error, "Couldn't load connections.");
+  if (links.error) fail(links.error, "Couldn't load connections.");
   return subs.data.map((s) => ({
     ...s,
     destinations: links.data.filter((l: SubscriptionLink) => l.subscription_id === s.id).map((l: SubscriptionLink) => l.destination_id),
@@ -284,18 +284,18 @@ export interface SubscriptionInput extends SubscriptionFilter {
 export async function saveSubscription(input: SubscriptionInput): Promise<string> {
   const payload: Json = { ...input };
   const { data, error } = await supabase.rpc("save_subscription", { payload });
-  if (error) fail(error, "Couldn't save the subscription.");
+  if (error) fail(error, "Couldn't save the connection.");
   return data;
 }
 
 export async function deleteSubscription(id: string): Promise<void> {
   const { error } = await supabase.rpc("delete_subscription", { p_id: id });
-  if (error) fail(error, "Couldn't delete the subscription.");
+  if (error) fail(error, "Couldn't delete the connection.");
 }
 
 export async function setSubscriptionEnabled(id: string, enabled: boolean): Promise<void> {
   const { error } = await supabase.from("subscriptions").update({ enabled }).eq("id", id);
-  if (error) fail(error, "Couldn't update the subscription.");
+  if (error) fail(error, "Couldn't update the connection.");
 }
 
 export interface Preview {

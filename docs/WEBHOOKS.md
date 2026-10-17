@@ -20,7 +20,7 @@ X-LongLines-Signature: sha256=3f1c…
   "deliveries": [
     {
       "delivery_id": 1234,
-      "subscription_id": "7d7221c8-f4d9-4955-a976-ece92b4735b8",
+      "connection_id": "7d7221c8-f4d9-4955-a976-ece92b4735b8",
       "spot": {
         "id": 58161241,
         "source": "pota",
@@ -50,7 +50,7 @@ without prefixes or suffixes that Long Lines profiles are keyed on. New fields m
 `source` is `pota`, `sotawatch`, `wwff`, `dxcluster` or `rbn`. A WWFF spot (`"source": "wwff"`)
 carries its reference in `wwff_reference` (`KFF-5268`) and the reference's name in
 `wwff_reference_name`; both are null for other sources. WWFF and DX Cluster spots reach only
-subscriptions whose sources name them.
+connections whose sources name them.
 `delivery_id` is unique per spot and destination, so you can use it to
 deduplicate retries. Deliveries go out newest first and nothing guarantees
 their order: the spots in one request, and consecutive requests, can arrive
@@ -67,7 +67,7 @@ spots are 24 hours old, after which they are dropped. Five consecutive failures
 mark the destination "Failing" in the app; the next success clears it.
 
 A "Send test" from the app delivers one sample spot whose callsign is `N0CALL`
-and whose comment says it is a test; `delivery_id` and `subscription_id` are
+and whose comment says it is a test; `delivery_id` and `connection_id` are
 zero-valued.
 
 ## Verifying the signature

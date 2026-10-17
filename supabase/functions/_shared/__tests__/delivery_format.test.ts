@@ -109,13 +109,13 @@ Deno.test("discordMessages batches at most 10 embeds per message", () => {
   assertEquals(msgs[0]?.embeds[0]?.title, "KK4PWJ");
 });
 
-Deno.test("webhookPayloads carry delivery and subscription ids with the normalized spot, 50 per request", () => {
+Deno.test("webhookPayloads carry delivery and connection ids with the normalized spot, 50 per request", () => {
   const ds = Array.from({ length: 51 }, (_, i) => delivery(i + 1));
   const payloads = webhookPayloads(ds);
   assertEquals(payloads.map((p) => p.deliveries.length), [50, 1]);
   const first = payloads[0]?.deliveries[0];
   assertEquals(first?.delivery_id, 1);
-  assertEquals(first?.subscription_id, "11111111-1111-1111-1111-111111111111");
+  assertEquals(first?.connection_id, "11111111-1111-1111-1111-111111111111");
   assertEquals(first?.spot.callsign, "KK4PWJ");
   assertEquals("raw_payload" in (first?.spot ?? {}), false);
 });

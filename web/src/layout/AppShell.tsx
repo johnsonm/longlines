@@ -24,7 +24,7 @@ import { lookupPath } from "../profile/format";
 
 const NAV = [
   { id: "sources", label: "Sources", icon: <SensorsIcon /> },
-  { id: "subscriptions", label: "Subscriptions", icon: <FilterListIcon /> },
+  { id: "connections", label: "Connections", icon: <FilterListIcon /> },
   { id: "destinations", label: "Destinations", icon: <SendIcon /> },
   { id: "groups", label: "Groups", icon: <GroupsIcon /> },
   { id: "band-map", label: "Band map", icon: <GraphicEqIcon /> },

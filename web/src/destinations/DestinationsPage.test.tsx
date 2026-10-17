@@ -55,8 +55,8 @@ describe("DestinationsPage", () => {
     expect(screen.getByText("Failing")).toBeInTheDocument();
     expect(screen.getByText("Paused")).toBeInTheDocument();
     expect(screen.getByText("Healthy")).toBeInTheDocument();
-    expect(screen.getByText("Used by 2 subscriptions")).toBeInTheDocument();
-    expect(screen.getByText("Used by 1 subscription")).toBeInTheDocument();
+    expect(screen.getByText("Used by 2 connections")).toBeInTheDocument();
+    expect(screen.getByText("Used by 1 connection")).toBeInTheDocument();
     expect(screen.getByText(/Dest a has returned errors for the last 4 deliveries/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Delete Dest a" })).toBeDisabled();
     expect(screen.getAllByRole("button", { name: "Rotate secret" })).toHaveLength(2);

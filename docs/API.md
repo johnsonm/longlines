@@ -1,6 +1,6 @@
 # Long Lines API
 
-Manage your subscriptions, destinations and callsign groups from your own scripts, bots and club
+Manage your connections, destinations and callsign groups from your own scripts, bots and club
 tools. Everything the web app can change about these, the API can change too, and the same rules
 and error messages apply.
 
@@ -22,11 +22,11 @@ like `ll_live_7hq2…` followed by more letters and digits.
 Send the token in the `Authorization` header on every request:
 
 ```sh
-curl https://api.longlines.io/v1/subscriptions \
+curl https://api.longlines.io/v1/connections \
   -H "Authorization: Bearer ll_live_…"
 ```
 
-A token acts as you. Anyone who has it can change your subscriptions and destinations, so keep it
+A token acts as you. Anyone who has it can change your connections and destinations, so keep it
 out of source control. If one leaks, rotate or revoke it.
 
 ## Limits
@@ -46,12 +46,12 @@ Errors return `{"error": "<message>"}` with one of these statuses:
 
 | Status | Meaning |
 |---|---|
-| 400 | The request was invalid. The message says why, for example "Give the subscription a name." |
+| 400 | The request was invalid. The message says why, for example "Give the connection a name." |
 | 401 | The token is missing, malformed, unknown, revoked or expired. |
 | 403 | A read-only token tried to change something. |
-| 404 | No such route, or the subscription, destination or group isn't yours. |
+| 404 | No such route, or the connection, destination or group isn't yours. |
 | 405 | The route exists but not with that method. The `Allow` header lists the methods it takes. |
-| 409 | A destination or group is still used by a subscription. |
+| 409 | A destination or group is still used by a connection. |
 | 413 | The request body is too large. |
 | 429 | Too many requests. See Limits. |
 | 500 | Something went wrong on our side. Try again. |
@@ -75,7 +75,7 @@ manage devices.
 | POST | `/destinations` | `{"type": "discord" or "webhook", "name", "url"}`, or `{"type": "push", "name"}` | The destination. A webhook also gets `signing_secret`, shown only here. A second push destination is a `400`: "You already have push notifications." |
 | GET | `/destinations/{id}` | | The destination. |
 | PATCH | `/destinations/{id}` | `{"name"?, "url"?}` | The destination. The type can't change, and a push destination takes no `url`. A new `url` clears `failing` health and the failure count. |
-| DELETE | `/destinations/{id}` | | `{"deleted": true}`, or `409` while a subscription uses it. |
+| DELETE | `/destinations/{id}` | | `{"deleted": true}`, or `409` while a connection uses it. |
 | POST | `/destinations/{id}/rotate-secret` | | `{"signing_secret"}`, for webhooks. The old secret stops working. |
 | POST | `/destinations/{id}/test` | | `{"ok": true}` once a sample spot is delivered (for push, to at least one device), or `502` with the destination's error. |
 
@@ -91,27 +91,27 @@ A destination looks like this:
 }
 ```
 
-## Subscriptions
+## Connections
 
-A subscription says which spots you want and where to send them.
+A connection says which spots you want and where to send them.
 
 | Field | Type | Notes |
 |---|---|---|
 | `name` | string | Required. |
 | `enabled` | boolean | Defaults to `true`. |
-| `sources` | strings | `pota`, `sotawatch`, `wwff`, `rbn`, `dxcluster`. Empty means any. A DX Cluster spot only matches a subscription that lists `dxcluster`, and a WWFF spot one that lists `wwff`. |
+| `sources` | strings | `pota`, `sotawatch`, `wwff`, `rbn`, `dxcluster`. Empty means any. A DX Cluster spot only matches a connection that lists `dxcluster`, and a WWFF spot one that lists `wwff`. |
 | `rules` | list of lists | The filter. See Rules. Defaults to `[]`, which passes every spot. |
 | `quiet_minutes` | integer | 0, 5, 10, 30 or 60. Defaults to 10. |
-| `destinations` | UUIDs | Zero or more. With none, the subscription stays off whatever `enabled` says, and starts once it has one. |
+| `destinations` | UUIDs | Zero or more. With none, the connection stays off whatever `enabled` says, and starts once it has one. |
 
 | Method | Path | Body | Returns |
 |---|---|---|---|
-| GET | `/subscriptions` | | All your subscriptions. |
-| POST | `/subscriptions` | All the fields above | The subscription. |
-| GET | `/subscriptions/{id}` | | The subscription. |
-| PUT | `/subscriptions/{id}` | All the fields above | The subscription. `sources` and `destinations` left out become empty; `rules`, `enabled` and `quiet_minutes` left out keep their values (send `"rules": []` to clear the filter). |
-| PATCH | `/subscriptions/{id}` | Any of the fields above | The subscription. Fields left out keep their values, and so do `name`, `enabled` and `quiet_minutes` sent as `null`. A list can't be `null`: send `[]` to empty it. |
-| DELETE | `/subscriptions/{id}` | | `{"deleted": true}` |
+| GET | `/connections` | | All your connections. |
+| POST | `/connections` | All the fields above | The connection. |
+| GET | `/connections/{id}` | | The connection. |
+| PUT | `/connections/{id}` | All the fields above | The connection. `sources` and `destinations` left out become empty; `rules`, `enabled` and `quiet_minutes` left out keep their values (send `"rules": []` to clear the filter). |
+| PATCH | `/connections/{id}` | Any of the fields above | The connection. Fields left out keep their values, and so do `name`, `enabled` and `quiet_minutes` sent as `null`. A list can't be `null`: send `[]` to empty it. |
+| DELETE | `/connections/{id}` | | `{"deleted": true}` |
 
 ### Rules
 
@@ -137,17 +137,17 @@ tighter, so "band is 20m and mode is CW or callsign is W1AW" is:
 | `frequency` | `is`, `is_not`, `gt`, `lt` | One number, in kHz. `gt` is greater than and `lt` less than. |
 
 `is` passes a spot that has any of the values and `is_not` one that has none of them, so a spot
-with no band passes `band is_not 20m`. A subscription can have at most 50 rules, and each group
+with no band passes `band is_not 20m`. A connection can have at most 50 rules, and each group
 needs at least one.
 
-RBN spots only pass a group that has a `callsign` or `group` rule with `is`, so a subscription
+RBN spots only pass a group that has a `callsign` or `group` rule with `is`, so a connection
 whose only source is `rbn` needs one in every group.
 
 ## Callsign groups
 
-A group is a named list of up to 1,000 callsigns, such as a club roster. Point subscriptions at a
-group with a `group` rule. Adding a member to the group changes what every subscription using it
-matches, and you don't need to save the subscriptions again.
+A group is a named list of up to 1,000 callsigns, such as a club roster. Point connections at a
+group with a `group` rule. Adding a member to the group changes what every connection using it
+matches, and you don't need to save the connections again.
 
 Members are stored as base calls: adding `KN4XYZ/P` stores `KN4XYZ`, which matches `KN4XYZ` and
 any portable or prefixed form of it. Removing works the same way. A call that isn't a valid
@@ -159,7 +159,7 @@ callsign refuses the whole request with `400` and "Not a callsign: …", and not
 | POST | `/groups` | `{"name", "callsigns"?: [...]}` | The group. Names are unique per account, ignoring case. |
 | GET | `/groups/{id}` | | The group. |
 | PATCH | `/groups/{id}` | `{"name"?, "callsigns"?: [...]}` | The group. A `callsigns` list replaces the whole member list. A `name` left out, or sent as `null`, stays. |
-| DELETE | `/groups/{id}` | | `{"deleted": true}`, or `409` while a subscription uses it. |
+| DELETE | `/groups/{id}` | | `{"deleted": true}`, or `409` while a connection uses it. |
 | POST | `/groups/{id}/members` | `{"callsigns": [...]}` | The group, after adding. Calls already in the group are skipped. |
 | POST | `/groups/{id}/members/remove` | `{"callsigns": [...]}` | The group, after removing. Calls not in the group are ignored. |
 
@@ -172,7 +172,7 @@ newest of those spots; its `reference` is the POTA, SOTA or WWFF reference, whic
 ```json
 {
   "id": "9c1d…", "name": "Club members", "callsigns": ["KK4PWJ", "N4DXX"],
-  "member_count": 2, "subscription_count": 1, "updated_at": "2026-10-13T18:40:00Z",
+  "member_count": 2, "connection_count": 1, "updated_at": "2026-10-13T18:40:00Z",
   "on_air": {"count": 1, "latest": {"callsign": "KK4PWJ/P", "frequency_khz": 14062, "band": "20m",
              "mode": "CW", "source": "pota", "reference": "US-1234", "spot_time": "2026-10-13T18:31:07Z"}}
 }
@@ -194,8 +194,8 @@ curl -X POST "$API/destinations" -H "Authorization: Bearer $TOKEN" -H "Content-T
 curl -X POST "$API/groups" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"name": "Club members"}'
 
-# A subscription for POTA and SOTA spots of any member.
-curl -X POST "$API/subscriptions" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+# A connection for POTA and SOTA spots of any member.
+curl -X POST "$API/connections" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"name": "Members on the air", "sources": ["pota", "sotawatch"],
        "rules": [[{"field": "group", "op": "is", "values": ["<group id>"]}]],
        "destinations": ["<destination id>"]}'

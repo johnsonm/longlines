@@ -37,7 +37,7 @@ export function RecentSpotsCard({ source, prefs, health }: { source: SourceInfo;
 
   const age = health?.find((h) => h.source === source.id)?.seconds_since_last_success;
   return (
-    <ChartCard title="Recent spots" subheader="Everything ingested, before any subscription filters.">
+    <ChartCard title="Recent spots" subheader="Everything ingested, before any connection filters.">
       <Stack spacing={1}>
         {error && <Alert severity="error">{error}</Alert>}
         {spots === null ? (!error && <LinearProgress />) : <SpotsTable spots={spots} dense prefs={prefs} />}

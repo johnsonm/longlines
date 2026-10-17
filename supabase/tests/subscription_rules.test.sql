@@ -231,7 +231,7 @@ select throws_ok($$ select pg_temp.norm('[["band"]]') $$,
 select throws_ok(format('select pg_temp.norm(%L)', (
     select jsonb_build_array(jsonb_agg('{"field":"band","op":"is","values":["20m"]}'::jsonb), '[{"field":"band","op":"is","values":["20m"]}]'::jsonb)
     from generate_series(1, 50))),
-  'P0001', 'A subscription can have at most 50 rules.', '51 rules across groups are refused');
+  'P0001', 'A connection can have at most 50 rules.', '51 rules across groups are refused');
 select lives_ok(format('select pg_temp.norm(%L)', (
     select jsonb_build_array(jsonb_agg('{"field":"band","op":"is","values":["20m"]}'::jsonb))
     from generate_series(1, 50))),
@@ -321,7 +321,7 @@ select save_subscription(jsonb_build_object('id', (select id from s1), 'name', '
     jsonb_build_object('field', 'group', 'op', 'is_not', 'values', array[(select rivals from grp)])))));
 select is((select group_ids from subscriptions where id = (select id from s1)), array[(select rivals from grp)],
   'group_ids follows the rules on update');
-select throws_ok(format('select delete_callsign_group(%L)', (select rivals from grp)), 'P0001', 'Remove it from its subscriptions first.',
+select throws_ok(format('select delete_callsign_group(%L)', (select rivals from grp)), 'P0001', 'Remove it from its connections first.',
   'a group used only in an is_not rule cannot be deleted');
 select lives_ok(format('select delete_callsign_group(%L)', (select club from grp)),
   'a group the rules no longer name can be deleted');

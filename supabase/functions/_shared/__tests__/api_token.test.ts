@@ -30,9 +30,9 @@ Deno.test("errorStatus maps SQL messages and classes", () => {
   const raised = (message: string) => errorStatus({ code: "P0001", message });
   assertEquals(raised("Token not found."), 401);
   assertEquals(raised("This token is read only."), 403);
-  assertEquals(raised("Subscription not found."), 404);
+  assertEquals(raised("Connection not found."), 404);
   assertEquals(raised("Group not found."), 404);
-  assertEquals(raised("Remove it from its subscriptions first."), 409);
+  assertEquals(raised("Remove it from its connections first."), 409);
   assertEquals(raised("Pick at least one destination."), 400);
   assertEquals(errorStatus({ code: "22P02", message: "invalid input syntax for type uuid" }), 400);
   assertEquals(errorStatus({ code: "23514", message: "violates check constraint" }), 400);

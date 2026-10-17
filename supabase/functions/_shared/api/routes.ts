@@ -1,7 +1,8 @@
 // The management API's routes (docs/API.md): method and path to an api_call
 // operation, the scope it needs and the arguments it receives. Pure; the SQL
 // side (api_call) repeats the scope check and owns all validation beyond the
-// shape checks here.
+// shape checks here. API clients call subscriptions connections, so their
+// routes are /v1/connections; the operations keep their names.
 
 export type Scope = "read" | "write";
 
@@ -70,12 +71,12 @@ export const ROUTES: ReadonlyArray<readonly [string, string, Route]> = [
   ["POST",   "/v1/destinations/:id/rotate-secret", write("rotate_signing_secret")],
   ["POST",   "/v1/destinations/:id/test",          write("send_test")],
 
-  ["GET",    "/v1/subscriptions",                  read("list_subscriptions")],
-  ["POST",   "/v1/subscriptions",                  write("create_subscription", "body", { ...SUB, ...CREATED })],
-  ["GET",    "/v1/subscriptions/:id",              read("get_subscription")],
-  ["PUT",    "/v1/subscriptions/:id",              write("replace_subscription", "body", SUB)],
-  ["PATCH",  "/v1/subscriptions/:id",              write("patch_subscription", "body", SUB)],
-  ["DELETE", "/v1/subscriptions/:id",              write("delete_subscription")],
+  ["GET",    "/v1/connections",                    read("list_subscriptions")],
+  ["POST",   "/v1/connections",                    write("create_subscription", "body", { ...SUB, ...CREATED })],
+  ["GET",    "/v1/connections/:id",                read("get_subscription")],
+  ["PUT",    "/v1/connections/:id",                write("replace_subscription", "body", SUB)],
+  ["PATCH",  "/v1/connections/:id",                write("patch_subscription", "body", SUB)],
+  ["DELETE", "/v1/connections/:id",                write("delete_subscription")],
 
   ["GET",    "/v1/groups",                         read("list_groups")],
   ["POST",   "/v1/groups",                         write("create_group", "fields", { ...GROUP, ...CREATED })],

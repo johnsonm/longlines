@@ -92,10 +92,10 @@ describe("SourceDetailPage", () => {
     open("/sources/pota", [
       { id: "s1", name: "NC parks", sources: ["pota"] }, { id: "s2", name: "Summits", sources: ["sotawatch"] },
     ] as SubscriptionWithLinks[]);
-    expect(screen.getByRole("link", { name: "NC parks" })).toHaveAttribute("href", "/subscriptions/s1");
+    expect(screen.getByRole("link", { name: "NC parks" })).toHaveAttribute("href", "/connections/s1");
     expect(screen.queryByRole("link", { name: "Summits" })).not.toBeInTheDocument();
-    await user.click(screen.getByRole("link", { name: "Create subscription" }));
-    expect(screen.getByTestId("location")).toHaveTextContent("/subscriptions/new");
+    await user.click(screen.getByRole("link", { name: "Create connection" }));
+    expect(screen.getByTestId("location")).toHaveTextContent("/connections/new");
     expect(screen.getByTestId("location")).toHaveAttribute("data-search", "?source=pota");
   });
 
@@ -104,8 +104,8 @@ describe("SourceDetailPage", () => {
     expect(screen.getByText("None yet.")).toBeInTheDocument();
     unmount();
     open("/sources/aprs");
-    expect(screen.queryByText("Your subscriptions")).not.toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "Create subscription" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Your connections")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Create connection" })).not.toBeInTheDocument();
   });
 
   it("shows a delayed source", async () => {
@@ -144,7 +144,7 @@ describe("SourceDetailPage", () => {
     vi.mocked(useStats).mockReturnValue({ stats: null, loading: false, error: null });
     open("/sources/rbn");
     expect(screen.queryByText(/spots a day/)).not.toBeInTheDocument();
-    expect(screen.getByText(/^A subscription only gets its spots if it names callsigns/)).toBeInTheDocument();
+    expect(screen.getByText(/^A connection only gets its spots if it names callsigns/)).toBeInTheDocument();
   });
 
   it("drops the per-day sentence from the APRS-IS alert without rates", () => {

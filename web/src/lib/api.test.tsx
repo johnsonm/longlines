@@ -237,7 +237,7 @@ describe("sources and destinations", () => {
     fake.tables.set("destinations", {});
     await expect(api.deleteDestination("d1")).resolves.toBeUndefined();
     fake.tables.set("destinations", { error: { message: "fk", code: "23503" } });
-    await expect(api.deleteDestination("d1")).rejects.toThrow("Remove it from its subscriptions first.");
+    await expect(api.deleteDestination("d1")).rejects.toThrow("Remove it from its connections first.");
     fake.tables.set("destinations", { error: boom });
     await expect(api.deleteDestination("d1")).rejects.toThrow("boom");
   });
@@ -376,8 +376,8 @@ describe("callsign groups", () => {
   it("deleteGroup goes through its RPC", async () => {
     await api.deleteGroup("g1");
     expect(fake.client.rpc).toHaveBeenCalledWith("delete_callsign_group", { p_id: "g1" });
-    fake.rpcs.set("delete_callsign_group", { error: { message: "Remove it from its subscriptions first." } });
-    await expect(api.deleteGroup("g1")).rejects.toThrow("Remove it from its subscriptions first.");
+    fake.rpcs.set("delete_callsign_group", { error: { message: "Remove it from its connections first." } });
+    await expect(api.deleteGroup("g1")).rejects.toThrow("Remove it from its connections first.");
   });
 
   it("normalizeCallsigns returns the server's base calls and rejections", async () => {

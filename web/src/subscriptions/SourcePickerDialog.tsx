@@ -55,11 +55,11 @@ export function SourcePickerDialog({ open, fullScreen, onClose, onContinue }: Pr
 
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm" fullScreen={fullScreen}>
-      <DialogTitle>New subscription</DialogTitle>
+      <DialogTitle>New connection</DialogTitle>
       <DialogContent>
         <Typography variant="subtitle1">Pick your source</Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          A subscription uses one source. You can add destinations and a filter next.
+          A connection uses one source. You can add destinations and a filter next.
         </Typography>
         <RadioGroup aria-label="Source" value={picked} onChange={(e) => setPicked(e.target.value)}>
           <Stack spacing={1}>

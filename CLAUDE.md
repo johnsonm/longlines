@@ -205,8 +205,8 @@ deploys automatically.
 
 - `/sources` is a catalog and `/sources/:id` a detail page per live source. Their copy lives in
   `web/src/sources/sources.ts` and follows Page 2 of Brad's design canvas, as amended by
-  `docs/superpowers/specs/2026-10-14-source-catalog-design.md`; it says "subscription", never
-  "connection", until Connections ship.
+  `docs/superpowers/specs/2026-10-14-source-catalog-design.md`, with "connection" for
+  "subscription" (see "Subscription rules").
 - Rates come only from the stats snapshot's `hourly` series through `useStats()` (`rates.ts`);
   never poll the snapshot or add a rates RPC. A new source with rates needs a key in
   `refresh_stats_snapshot_at`'s `daily`/`hourly`, the `StatsPayload` type and its pgTAP test.
@@ -398,6 +398,12 @@ deploys automatically.
 
 ## Subscription rules
 
+- Users and API clients call a subscription a **connection**: web copy, web routes (`/connections`;
+  `/subscriptions/*` redirects), management API paths (`/v1/connections`), API JSON
+  (`connection_count` on groups, through `api_group_json`), the webhook body's `connection_id`, and
+  SQL error messages a client can see ("Connection not found."). Tables, columns, RPCs, api_call
+  operation names, TypeScript identifiers and file names stay "subscription". Never show the word
+  "subscription" to a user; the browser's push subscription is a different thing and keeps its name.
 - A subscription's filter is `subscriptions.rules`: AND groups, ORed (`[[A, B], [C]]` is "A and B or
   C"; And binds tighter). Each rule is `{field, op, values}`; the fields and ops are listed at the top
   of `20261014000500_subscription_rules.sql` and in `docs/API.md`. `[]` passes every spot. The

@@ -93,7 +93,7 @@ export function ApiTokensPage() {
         <PageTitle>API tokens</PageTitle>
         <Stack direction={{ xs: "column", md: "row" }} spacing={2} sx={{ alignItems: { md: "center" } }}>
           <Typography color="text.secondary" sx={{ flexGrow: 1 }}>
-            Use the Long Lines API to manage subscriptions, groups, and destinations from your own scripts, bots, and club tools.
+            Use the Long Lines API to manage connections, groups, and destinations from your own scripts, bots, and club tools.
             Each token acts as you, limited to the permissions you give it.
           </Typography>
           <Stack direction="row" spacing={1} sx={{ flexShrink: 0 }}>

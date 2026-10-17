@@ -57,13 +57,13 @@ export function GroupsPage({ reload }: Props) {
   };
 
   // Mirrors Get alerts on a callsign profile (CallsignPage), with the group in place of the call.
-  const getAlerts = (g: CallsignGroup) => run(g.id, "Couldn't save the subscription.", async () => {
+  const getAlerts = (g: CallsignGroup) => run(g.id, "Couldn't save the connection.", async () => {
     // Read fresh rather than from the app's copy, which may not have loaded yet.
     const [dests, subs] = await Promise.all([loadDestinations(), loadSubscriptions()]);
     const existing = subs.find((s) => hasPositiveRule(toInput(s).rules, "group", g.id));
     if (existing) {
       notify(`You already have ${existing.name}.`);
-      void navigate(`/subscriptions/${existing.id}`);
+      void navigate(`/connections/${existing.id}`);
       return;
     }
     // The group is the only rule; the user finishes the rest in the editor. A paused or failing
@@ -76,7 +76,7 @@ export function GroupsPage({ reload }: Props) {
     });
     await reload();
     notify(`Created ${name}`);
-    void navigate(`/subscriptions/${id}`);
+    void navigate(`/connections/${id}`);
   });
 
   const remove = (g: CallsignGroup) => run(g.id, "Couldn't delete the group.", async () => {
@@ -100,7 +100,7 @@ export function GroupsPage({ reload }: Props) {
         <Box>
           <PageTitle>Groups</PageTitle>
           <Typography color="text.secondary">
-            A group is a named list of callsigns, like your club roster. Use groups in subscriptions to get alerts when any member is spotted.
+            A group is a named list of callsigns, like your club roster. Use groups in connections to get alerts when any member is spotted.
           </Typography>
         </Box>
         <Button variant="contained" startIcon={<AddIcon />} onClick={startNew} sx={{ flexShrink: 0 }}>New group</Button>
@@ -172,7 +172,7 @@ function GroupCard({ group: g, now, busy, onAlerts, onEdit, onDelete }: CardProp
       <CardActions>
         <Button size="small" startIcon={<NotificationsActiveIcon />} disabled={busy} onClick={onAlerts}>Get alerts</Button>
         <Button size="small" startIcon={<EditIcon />} disabled={busy} onClick={onEdit}>Edit</Button>
-        <Tooltip title={used ? "Remove it from its subscriptions first" : ""}>
+        <Tooltip title={used ? "Remove it from its connections first" : ""}>
           <Box component="span">
             <Button size="small" color="error" startIcon={<DeleteIcon />} disabled={used || busy} onClick={onDelete} aria-label={`Delete ${g.name}`}>
               Delete

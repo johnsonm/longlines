@@ -16,9 +16,9 @@ const shell = (failing = false) => <AppShell destinationsFailing={failing}><p>pa
 
 describe("AppShell", () => {
   it("renders the page with navigation, highlighting the current page", () => {
-    renderPage(shell(), { route: "/subscriptions" });
+    renderPage(shell(), { route: "/connections" });
     expect(screen.getByText("page body")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Subscriptions" })).toHaveClass("Mui-selected");
+    expect(screen.getByRole("button", { name: "Connections" })).toHaveClass("Mui-selected");
     expect(screen.queryByRole("button", { name: "Open navigation" })).not.toBeInTheDocument();
   });
 
@@ -81,7 +81,7 @@ describe("AppShell", () => {
   it("lists the sections in order and keeps Callsign lookup highlighted on profiles", () => {
     renderPage(shell(), { route: "/call/KK4PWJ" });
     const labels = screen.getAllByRole("button").map((b) => b.textContent);
-    const order = ["Sources", "Subscriptions", "Destinations", "Groups", "Band map", "Callsign lookup", "Stats", "API tokens"];
+    const order = ["Sources", "Connections", "Destinations", "Groups", "Band map", "Callsign lookup", "Stats", "API tokens"];
     expect(labels.filter((l) => order.includes(l ?? ""))).toEqual(order);
     expect(screen.getByRole("button", { name: "Callsign lookup" })).toHaveClass("Mui-selected");
   });

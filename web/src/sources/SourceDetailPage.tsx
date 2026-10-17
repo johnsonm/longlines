@@ -30,13 +30,13 @@ function volumeAlert(source: SourceInfo, rates: Rates | null): { title: string; 
   if (source.id === "rbn") {
     return {
       title: "High volume source: a callsign filter is required",
-      body: `${perDay ? `Reverse Beacon Network sends about ${perDay} spots a day. ` : ""}A subscription only gets its spots if it names callsigns, typed or through a group. One that lists only RBN can't be saved without them.`,
+      body: `${perDay ? `Reverse Beacon Network sends about ${perDay} spots a day. ` : ""}A connection only gets its spots if it names callsigns, typed or through a group. One that lists only RBN can't be saved without them.`,
     };
   }
   if (source.id === "aprs") {
     return {
       title: "High volume source: stored only",
-      body: `${perDay ? `APRS-IS sends about ${perDay} packets a day. ` : ""}Long Lines stores and archives them but does not match them, so they can't be used in subscriptions.`,
+      body: `${perDay ? `APRS-IS sends about ${perDay} packets a day. ` : ""}Long Lines stores and archives them but does not match them, so they can't be used in connections.`,
     };
   }
   return null;
@@ -111,8 +111,8 @@ export function SourceDetailPage({ prefs, subs }: { prefs: TimePrefs; subs: Subs
             </Button>
           )}
           {source.alerts && (
-            <Button variant="contained" startIcon={<AddIcon />} component={RouterLink} to={`/subscriptions/new?source=${source.id}`}>
-              Create subscription
+            <Button variant="contained" startIcon={<AddIcon />} component={RouterLink} to={`/connections/new?source=${source.id}`}>
+              Create connection
             </Button>
           )}
         </Stack>
@@ -204,11 +204,11 @@ export function SourceDetailPage({ prefs, subs }: { prefs: TimePrefs; subs: Subs
               </ChartCard>
             )}
             {source.alerts && (
-              <ChartCard title="Your subscriptions" subheader="Using this source">
+              <ChartCard title="Your connections" subheader="Using this source">
                 {using.length ? (
                   <Stack spacing={1}>
                     {using.map((s) => (
-                      <Link key={s.id} component={RouterLink} to={`/subscriptions/${s.id}`} variant="body2">{s.name}</Link>
+                      <Link key={s.id} component={RouterLink} to={`/connections/${s.id}`} variant="body2">{s.name}</Link>
                     ))}
                   </Stack>
                 ) : (

@@ -106,7 +106,7 @@ export function SubscriptionsPage({ subs, dests, loading, reload, mobile }: Prop
     setPicking(false);
   };
 
-  const pick = (source: string) => void navigate(`/subscriptions/new?source=${encodeURIComponent(source)}`);
+  const pick = (source: string) => void navigate(`/connections/new?source=${encodeURIComponent(source)}`);
 
   const remove = async (s: SubscriptionWithLinks) => {
     try {
@@ -114,7 +114,7 @@ export function SubscriptionsPage({ subs, dests, loading, reload, mobile }: Prop
       await reload();
       notify(`Deleted ${s.name}`);
     } catch (err) {
-      notify(errorText(err, "Couldn't delete the subscription."));
+      notify(errorText(err, "Couldn't delete the connection."));
     }
   };
 
@@ -123,7 +123,7 @@ export function SubscriptionsPage({ subs, dests, loading, reload, mobile }: Prop
       await setSubscriptionEnabled(s.id, enabled);
       await reload();
     } catch (err) {
-      notify(errorText(err, "Couldn't update the subscription."));
+      notify(errorText(err, "Couldn't update the connection."));
     }
   };
 
@@ -131,15 +131,15 @@ export function SubscriptionsPage({ subs, dests, loading, reload, mobile }: Prop
     <Stack spacing={3}>
       <Stack direction={{ xs: "column", sm: "row" }} spacing={2} sx={{ justifyContent: "space-between", alignItems: { sm: "flex-end" } }}>
         <Box>
-          <PageTitle>Subscriptions</PageTitle>
+          <PageTitle>Connections</PageTitle>
           <Typography color="text.secondary">
             {mobile
               ? "One source, a filter, and zero or more destinations."
-              : "A subscription takes spots from one source, filters them, and sends the ones that pass to zero or more destinations."}
+              : "A connection takes spots from one source, filters them, and sends the ones that pass to zero or more destinations."}
           </Typography>
         </Box>
         <Button variant="contained" startIcon={<AddIcon />} onClick={startNew} fullWidth={mobile} sx={{ flexShrink: 0 }}>
-          New subscription
+          New connection
         </Button>
       </Stack>
       {loading && <LinearProgress />}
@@ -179,7 +179,7 @@ export function SubscriptionsPage({ subs, dests, loading, reload, mobile }: Prop
                 </CardContent>
                 <Divider />
                 <CardActions>
-                  <Button size="small" startIcon={<EditIcon />} component={RouterLink} to={`/subscriptions/${s.id}`}>Edit</Button>
+                  <Button size="small" startIcon={<EditIcon />} component={RouterLink} to={`/connections/${s.id}`}>Edit</Button>
                   <Button size="small" color="error" startIcon={<DeleteIcon />} onClick={() => void remove(s)}>Delete</Button>
                 </CardActions>
               </Card>

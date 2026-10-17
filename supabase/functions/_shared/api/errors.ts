@@ -16,7 +16,7 @@ export function errorStatus(error: DbError): number {
     if (error.message === "Token not found.") return 401;
     if (error.message === "This token is read only.") return 403;
     if (error.message.endsWith(" not found.")) return 404;
-    if (error.message === "Remove it from its subscriptions first.") return 409;
+    if (error.message === "Remove it from its connections first.") return 409;
     return 400;
   }
   if (BAD_INPUT_CLASSES.includes(error.code?.slice(0, 2) ?? "")) return 400;
