@@ -155,15 +155,16 @@ Deno.test("retryAfterSeconds rounds up, caps at a day and refuses what is not a 
   }
 });
 
-Deno.test("sendDiscord caps a huge retry_after and falls back to the header, then 5 s", async () => {
-  const cases: Array<[Response, number]> = [
+Deno.test("sendDiscord caps a huge retry_after and falls back to the header, then null", async () => {
+  // Null without either, so throttle_destination picks the level's backoff.
+  const cases: Array<[Response, number | null]> = [
     [Response.json({ retry_after: 3e9 }, { status: 429 }), MAX_RETRY_AFTER_SECONDS],
     [
       Response.json({ retry_after: -1 }, { status: 429, headers: { "Retry-After": "9" } }),
       9,
     ],
     [new Response(null, { status: 429, headers: { "Retry-After": "3000000000" } }), 86_400],
-    [new Response("not json", { status: 429 }), 5],
+    [new Response("not json", { status: 429 }), null],
   ];
   for (const [response, expected] of cases) {
     await withServer(
@@ -172,6 +173,7 @@ Deno.test("sendDiscord caps a huge retry_after and falls back to the header, the
         const d = dest(`${base}/api/webhooks/1/abc`, "discord");
         const result = await sendDiscord(d, [delivery(1, d)], { allowInsecure: true });
         assertEquals(result.retryAfterSeconds, expected);
+        assertEquals("retryAfterSeconds" in result, true);
       },
     );
   }
@@ -799,11 +801,13 @@ Deno.test("sendWebhook caps a huge Retry-After at a day so the throttle still fi
   );
 });
 
-Deno.test("sendPush caps a huge Retry-After at a day and waits 60 s without a usable one", async () => {
-  const cases: Array<[Record<string, string>, number]> = [
+Deno.test("sendPush caps a huge Retry-After at a day and passes null without a usable one", async () => {
+  // Null, so throttle_destination picks the level's backoff.
+  const cases: Array<[Record<string, string>, number | null]> = [
     [{ "Retry-After": "3000000000" }, MAX_RETRY_AFTER_SECONDS],
-    [{ "Retry-After": "0" }, 60],
-    [{ "Retry-After": "soon" }, 60],
+    [{ "Retry-After": "0" }, null],
+    [{ "Retry-After": "soon" }, null],
+    [{}, null],
   ];
   for (const [headers, expected] of cases) {
     await withServer(
@@ -815,9 +819,29 @@ Deno.test("sendPush caps a huge Retry-After at a day and waits 60 s without a us
           vapid: await vapid(),
         });
         assertEquals(result.retryAfterSeconds, expected);
+        assertEquals(result.error, "Push HTTP 429 (rate limited)");
       },
     );
   }
+});
+
+Deno.test("sendPush takes the longest Retry-After any rate-limited device gave", async () => {
+  await withServer(
+    (req) => {
+      const path = new URL(req.url).pathname;
+      const headers: Record<string, string> = path === "/a" ? { "Retry-After": "42" } : {};
+      return new Response(null, { status: 429, headers });
+    },
+    async (base) => {
+      const d = pushDest([device(base, "/b"), device(base, "/a")]);
+      const result = await sendPush(d, [delivery(1, d)], {
+        allowInsecure: true,
+        vapid: await vapid(),
+      });
+      assertEquals(result.ok, false);
+      assertEquals(result.retryAfterSeconds, 42);
+    },
+  );
 });
 
 Deno.test("sendPush treats a 429 as a rate limit, not a failure", async () => {

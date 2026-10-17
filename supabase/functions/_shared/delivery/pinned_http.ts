@@ -93,6 +93,26 @@ function headEnd(buf: Uint8Array): number {
   return -1;
 }
 
+/**
+ * Head bytes as a string, one character per byte (ISO-8859-1 proper, which is
+ * what a ByteString is). Not TextDecoder("latin1"): that is windows-1252 and
+ * maps 0x80-0x9f elsewhere.
+ */
+function latin1(bytes: Uint8Array): string {
+  let text = "";
+  for (let i = 0; i < bytes.length; i += 4096) {
+    text += String.fromCharCode(...bytes.subarray(i, i + 4096));
+  }
+  return text;
+}
+
+/**
+ * The status line must parse; a header line that does not (no colon, a bad
+ * name, a value Headers refuses) is skipped rather than thrown on. Only
+ * retry-after, content-length and transfer-encoding are ever read, and a
+ * receiver whose framework adds an odd header has still taken the delivery:
+ * failing its 2xx would send the batch again.
+ */
 function parseHead(text: string): PinnedResponse {
   const lines = text.split(/\r?\n/);
   const status = /^HTTP\/1\.[01] ([1-9]\d\d)(?: .*)?$/.exec(lines[0] ?? "");
@@ -103,11 +123,11 @@ function parseHead(text: string): PinnedResponse {
     if (/^[ \t]/.test(line)) throw new Error("folded HTTP response header");
     const colon = line.indexOf(":");
     const name = colon > 0 ? line.slice(0, colon) : "";
-    if (!TOKEN.test(name)) throw new Error("malformed HTTP response header");
+    if (!TOKEN.test(name)) continue;
     try {
       headers.append(name, line.slice(colon + 1).trim());
     } catch {
-      throw new Error("malformed HTTP response header");
+      // a value Headers refuses (NUL, say): not one this client reads
     }
   }
   return { status: Number(status[1]), headers };
@@ -129,7 +149,7 @@ async function readResponseHead(reader: Reader): Promise<PinnedResponse> {
     if (headBytes > MAX_RESPONSE_HEAD_BYTES) {
       throw new Error(`response headers exceed ${MAX_RESPONSE_HEAD_BYTES} bytes`);
     }
-    const response = parseHead(decoder.decode(reader.consume(end)));
+    const response = parseHead(latin1(reader.consume(end)));
     if (response.status >= 200) return response;
     if (response.status === 101) throw new Error("unexpected HTTP 101 response");
   }

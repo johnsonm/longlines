@@ -28,6 +28,14 @@ export interface EncryptOptions {
 /** Push services must accept records this size; one record holds the whole payload. */
 export const RECORD_SIZE = 4096;
 const TAG_LENGTH = 16;
+/** Salt (16), record size (4), key id length (1) and the server's P-256 key (65). */
+const HEADER_LENGTH = 16 + 4 + 1 + 65;
+/**
+ * RFC 8291 section 4 guarantees push services take a body of 4096 bytes, the
+ * header included, so the plaintext (plus its delimiter and tag) gets what is
+ * left: 3993 bytes.
+ */
+export const MAX_PUSH_PLAINTEXT_BYTES = 4096 - HEADER_LENGTH - 1 - TAG_LENGTH;
 const VAPID_LIFETIME_SECONDS = 12 * 60 * 60; // RFC 8292 allows at most 24 hours
 
 const encoder = new TextEncoder();
@@ -114,7 +122,7 @@ export async function encryptPushPayload(
   if (uaPublic.length !== 65 || uaPublic[0] !== 0x04) {
     throw new Error("Subscription p256dh must be an uncompressed P-256 key");
   }
-  if (plaintext.length + 1 + TAG_LENGTH > RECORD_SIZE) {
+  if (plaintext.length > MAX_PUSH_PLAINTEXT_BYTES) {
     throw new Error("Push payload is too large for one record");
   }
 

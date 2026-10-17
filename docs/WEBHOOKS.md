@@ -121,7 +121,10 @@ of rejected requests.
 
 ## Address rules
 
-Webhook URLs must use `https`, and the hostname may not be `localhost` or an
-IP address in a private, loopback, link-local, CGNAT or unspecified range. The
-delivery worker also resolves the hostname before each request and refuses
-hosts that resolve to such addresses.
+Webhook URLs must use `https`, may not carry a user name or password, and the
+hostname may not be `localhost` or an IP address in a private, loopback,
+link-local, CGNAT, unspecified, multicast or other special-purpose range
+(including IPv6 forms that embed such an IPv4 address, such as NAT64 and 6to4).
+An IPv4 address must be written as a plain dotted quad (`203.0.113.5`, not
+`3405803781` or `0xcb007105`). The delivery worker also resolves the hostname
+before each request and refuses hosts that resolve to such addresses.
