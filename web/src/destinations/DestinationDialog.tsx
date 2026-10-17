@@ -1,21 +1,37 @@
 import { useState } from "react";
 import {
-  Alert, Button, Dialog, DialogActions, DialogContent, DialogTitle, FormControl, FormControlLabel, FormLabel,
-  Radio, RadioGroup, Stack, TextField,
+  Alert, Box, Button, Card, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, Radio, RadioGroup, Stack, TextField,
+  Typography,
 } from "@mui/material";
+import { styled } from "@mui/material/styles";
+import { useNavigate } from "react-router";
 import { createDestination, type CreatedDestination, type DestinationType } from "../lib/api";
 import { errorText } from "../app/hooks";
 import { DEST_TYPES, typeLabel } from "./types";
 
+/** An outlined card that takes the primary border while its radio is selected. */
+const TypeCard = styled(Card, { shouldForwardProp: (prop) => prop !== "selected" })<{ selected: boolean }>(({ theme, selected }) => ({
+  borderColor: selected ? theme.palette.primary.main : undefined,
+  boxShadow: selected ? `inset 0 0 0 1px ${theme.palette.primary.main}` : undefined,
+}));
+
+/**
+ * Add destination, in two steps: pick a type (page 5), then its details.
+ * Discord and webhook take a name and URL here; push goes to the editor at
+ * /destinations/new?type=push, since a push destination has devices and
+ * settings instead of a URL.
+ */
 export function DestinationDialog({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: (d: CreatedDestination) => void }) {
+  const navigate = useNavigate();
+  const [step, setStep] = useState<"type" | "details">("type");
   const [type, setType] = useState<DestinationType>("discord");
   const [name, setName] = useState("");
   const [target, setTarget] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const t = DEST_TYPES.find((d) => d.id === type)!;
 
   const reset = () => {
+    setStep("type");
     setType("discord");
     setName("");
     setTarget("");
@@ -24,6 +40,14 @@ export function DestinationDialog({ open, onClose, onCreated }: { open: boolean;
   const close = () => {
     reset();
     onClose();
+  };
+  const next = () => {
+    if (type === "push") {
+      close();
+      void navigate("/destinations/new?type=push");
+      return;
+    }
+    setStep("details");
   };
   const save = async () => {
     setBusy(true);
@@ -42,36 +66,72 @@ export function DestinationDialog({ open, onClose, onCreated }: { open: boolean;
   return (
     <Dialog open={open} onClose={close} fullWidth maxWidth="sm">
       <DialogTitle>Add destination</DialogTitle>
-      <DialogContent dividers>
-        <FormControl sx={{ mb: 2 }}>
-          <FormLabel>Where should spots go?</FormLabel>
-          <RadioGroup value={type} onChange={(e) => setType(e.target.value as DestinationType)}>
-            {/* Push has no URL; its dialog step arrives with the type picker. */}
-            {DEST_TYPES.filter((d) => d.id !== "push").map((d) => <FormControlLabel key={d.id} value={d.id} control={<Radio />} label={d.label} />)}
-          </RadioGroup>
-        </FormControl>
-        <Alert severity="info" sx={{ mb: 2 }}>{t.help}</Alert>
-        {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-        <Stack spacing={2}>
-          <TextField label="Name" placeholder="e.g. Club Discord" value={name} onChange={(e) => setName(e.target.value)} fullWidth />
-          {type === "discord" && (
-            <TextField
-              label="Discord webhook URL" placeholder="https://discord.com/api/webhooks/…" value={target} onChange={(e) => setTarget(e.target.value)}
-              fullWidth helperText="Channel settings → Integrations → Webhooks → Copy URL"
-            />
-          )}
-          {type === "webhook" && (
-            <TextField
-              label="Endpoint URL" placeholder="https://example.com/spots" value={target} onChange={(e) => setTarget(e.target.value)}
-              fullWidth helperText="We'll show the signing secret once the destination is added."
-            />
-          )}
-        </Stack>
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={close} disabled={busy}>Cancel</Button>
-        <Button variant="contained" onClick={() => void save()} disabled={!target || busy}>Add destination</Button>
-      </DialogActions>
+      {step === "type" ? (
+        <>
+          <DialogContent dividers>
+            <Typography color="text.secondary" sx={{ mb: 2 }}>
+              Pick where matching spots should go. You can add as many of each type as you like, for example one push destination per source or
+              per device.
+            </Typography>
+            <RadioGroup aria-label="Destination type" value={type} onChange={(e) => setType(e.target.value as DestinationType)}>
+              <Stack spacing={1.5}>
+                {DEST_TYPES.map((t) => {
+                  const selected = type === t.id;
+                  const Icon = t.icon;
+                  return (
+                    <TypeCard key={t.id} variant="outlined" selected={selected}>
+                      <FormControlLabel
+                        value={t.id} control={<Radio />}
+                        sx={{ m: 0, px: 1, py: 1.5, width: "100%", alignItems: "center" }}
+                        slotProps={{ typography: { component: "div", sx: { flexGrow: 1, minWidth: 0 } } }}
+                        label={
+                          <Stack direction="row" spacing={1.5} sx={{ alignItems: "center" }}>
+                            <Icon color={selected ? "primary" : "action"} />
+                            <Box>
+                              <Typography>{t.label}</Typography>
+                              <Typography variant="body2" color="text.secondary">{t.help}</Typography>
+                            </Box>
+                          </Stack>
+                        }
+                      />
+                    </TypeCard>
+                  );
+                })}
+              </Stack>
+            </RadioGroup>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={close}>Cancel</Button>
+            <Button variant="contained" onClick={next}>Continue</Button>
+          </DialogActions>
+        </>
+      ) : (
+        <>
+          <DialogContent dividers>
+            <Typography color="text.secondary" sx={{ mb: 2 }}>{typeLabel(type)}</Typography>
+            {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+            <Stack spacing={2}>
+              <TextField label="Name" placeholder="e.g. Club Discord" value={name} onChange={(e) => setName(e.target.value)} fullWidth />
+              {type === "discord" && (
+                <TextField
+                  label="Discord webhook URL" placeholder="https://discord.com/api/webhooks/…" value={target} onChange={(e) => setTarget(e.target.value)}
+                  fullWidth helperText="Channel settings → Integrations → Webhooks → Copy URL"
+                />
+              )}
+              {type === "webhook" && (
+                <TextField
+                  label="Endpoint URL" placeholder="https://example.com/spots" value={target} onChange={(e) => setTarget(e.target.value)}
+                  fullWidth helperText="We'll show the signing secret once the destination is added."
+                />
+              )}
+            </Stack>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={close} disabled={busy}>Cancel</Button>
+            <Button variant="contained" onClick={() => void save()} disabled={!target || busy}>Add destination</Button>
+          </DialogActions>
+        </>
+      )}
     </Dialog>
   );
 }

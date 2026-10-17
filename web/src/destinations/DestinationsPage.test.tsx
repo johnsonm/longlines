@@ -242,9 +242,10 @@ describe("DestinationsPage", () => {
     const { user, app, reload } = render([]);
     await user.click(screen.getByRole("button", { name: "Add destination" }));
     const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("radio", { name: /^Webhook/ }));
+    await user.click(within(dialog).getByRole("button", { name: "Continue" }));
     const add = within(dialog).getByRole("button", { name: "Add destination" });
     expect(add).toBeDisabled();
-    await user.click(within(dialog).getByLabelText("Webhook"));
     await user.type(within(dialog).getByLabelText("Name"), "Hook");
     await user.type(within(dialog).getByLabelText("Endpoint URL"), " https://example.com/spots ");
     await user.click(add);
@@ -259,6 +260,7 @@ describe("DestinationsPage", () => {
     const { user, app } = render([]);
     await user.click(screen.getByRole("button", { name: "Add destination" }));
     const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Continue" }));
     await user.type(within(dialog).getByLabelText("Discord webhook URL"), "https://discord.com/api/webhooks/1/x");
     await user.click(within(dialog).getByRole("button", { name: "Add destination" }));
     expect(createDestination).toHaveBeenCalledWith("discord", "Discord channel", "https://discord.com/api/webhooks/1/x");
@@ -271,6 +273,7 @@ describe("DestinationsPage", () => {
     const { user } = render([]);
     await user.click(screen.getByRole("button", { name: "Add destination" }));
     const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Continue" }));
     await user.type(within(dialog).getByLabelText("Discord webhook URL"), "https://nope");
     await user.click(within(dialog).getByRole("button", { name: "Add destination" }));
     expect(await within(dialog).findByText("That URL isn't a Discord webhook.")).toBeInTheDocument();

@@ -42,7 +42,7 @@ Functions (`send-test`, `api`), React 19, MUI 9, react-router 8, Vitest + Testin
 | PR 1 (#157): `push_devices`, device RPCs, `webpush.ts`, `sendPush`, `prune_push_devices`, `record_push_results` | Merged; the sender calls the last two through its allowlist |
 | Outbound sender, Phase 1 | Merged (#188 to #204), hosted; `deliver` deleted. The sender holds `SENDER_DATABASE_URL` only: **no VAPID pair exists yet** |
 | Part 2, schema and delivery for page 5 | PR 3 (`push-schema-3`): migration `20261016000400`, delivery on the sender, send-test, API, docs. The `push-schema-2` draft was quarried, not merged |
-| Parts 3 to 5, the web | Not started. `DEST_TYPES` has Discord and webhook; the Destinations page is a `List` |
+| Parts 3 to 5, the web | Part 3 (Tasks 6 to 8) on `push-ui`, PR 4 draft (#212): api wrappers, `pwa/push.ts`, the card grid and the type picker. Parts 4 and 5 not started |
 | `VAPID_PUBLIC_KEY` on Vercel | Not set |
 
 ## What the sender changes for this plan
@@ -274,10 +274,10 @@ labels. The sender amendment adds, all *decided 2026-10-16*:
 
 **Files:** `web/src/destinations/DestinationDialog.tsx` (+ test), `web/src/destinations/types.ts`.
 
-- [ ] `DEST_TYPES` gains push and the page 5 help strings for all three, each with an icon (`ForumOutlined`, `Http`, `NotificationsOutlined`); the list is data so the sender spec's future `email` type is one more entry.
-- [ ] Step 1 (page 5 `PushType`): intro sentence, three selectable cards (a `RadioGroup` whose labels are `Card variant="outlined"` rows; the selected card takes the `primary` border through a prop, not `sx`), Cancel and **Continue**. Step 2 for Discord and webhook: today's Name and URL fields with **Add destination**. Continue with push navigates to `/destinations/new?type=push`.
-- [ ] Tests: the picker; Continue → step 2 keeps today's assertions; Continue with push navigates (`LocationProbe`).
-- [ ] Commit `Destinations: pick a type, then its details`.
+- [x] `DEST_TYPES` gains push and the page 5 help strings for all three, each with an icon (`ForumOutlined`, `Http`, `NotificationsOutlined`); the list is data so the sender spec's future `email` type is one more entry.
+- [x] Step 1 (page 5 `PushType`): intro sentence, three selectable cards (a `RadioGroup` whose labels are `Card variant="outlined"` rows; the selected card takes the `primary` border through a prop, not `sx`), Cancel and **Continue**. Step 2 for Discord and webhook: today's Name and URL fields with **Add destination**. Continue with push navigates to `/destinations/new?type=push`.
+- [x] Tests: the picker; Continue → step 2 keeps today's assertions; Continue with push navigates (`LocationProbe`).
+- [x] Commit `Destinations: pick a type, then its details`.
 
 ---
 
