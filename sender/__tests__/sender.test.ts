@@ -15,6 +15,8 @@ function config(overrides: Partial<SenderConfig> = {}): SenderConfig {
   return {
     databaseUrl: "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
     databaseSsl: false,
+    databaseCa: undefined,
+    databaseVerifyHost: true,
     healthPort: 0,
     pollMs: 5_000,
     concurrency: 4,
