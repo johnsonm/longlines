@@ -22,7 +22,7 @@ interface Props {
 export function DestinationCard({ dest, usedBy, devices, busy, mobile, onSendTest, onRotateSecret, onEdit, onDuplicate, onDelete }: Props) {
   const push = dest.type === "push";
   const blocked = devices.filter((d) => d.blocked_at !== null).length;
-  const deleteTip = usedBy > 0 ? `Used by ${usedBy} subscriptions. Remove it from them first.` : "Delete";
+  const deleteTip = usedBy > 0 ? `Used by ${usedBy} connections. Remove it from them first.` : "Delete";
 
   return (
     <Card variant="outlined" sx={{ height: "100%", display: "flex", flexDirection: "column" }}>

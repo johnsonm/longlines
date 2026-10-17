@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { screen, waitFor } from "@testing-library/react";
-import { renderPage } from "../test/render";
+import { renderPage, wrap } from "../test/render";
 import { deviceAgent, enablePush, isIos, pushSupport, type PushSupport } from "../pwa/push";
 import { AddDeviceDialog } from "./AddDeviceDialog";
 
@@ -51,6 +51,18 @@ describe("AddDeviceDialog", () => {
     expect(enablePush).toHaveBeenCalledWith("Shack PC");
     expect(app.notify).toHaveBeenCalledWith("Notifications turned on");
     expect(screen.queryByRole("button", { name: "Close" })).not.toBeInTheDocument();
+  });
+
+  it("is usable again when reopened after a successful enable", async () => {
+    const { user, app, onAdded, rerender, onClose } = render();
+    await waitFor(() => expect(enable()).toBeEnabled());
+    await user.click(enable());
+    await waitFor(() => expect(onAdded).toHaveBeenCalledWith("dev9"));
+    expect(enable()).toBeDisabled();
+    rerender(wrap(<AddDeviceDialog open={false} fullScreen={false} onClose={onClose} onAdded={onAdded} />, app));
+    rerender(wrap(<AddDeviceDialog open fullScreen={false} onClose={onClose} onAdded={onAdded} />, app));
+    await waitFor(() => expect(enable()).toBeEnabled());
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeEnabled();
   });
 
   it("shows why enabling failed and stays open", async () => {

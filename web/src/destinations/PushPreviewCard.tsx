@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Alert, Button, Card, CardContent, MenuItem, Stack, TextField, Typography } from "@mui/material";
 import { loadRecentSpots, previewPushNotification, sendTest, type PushPreview, type PushSettings, type RecentSpot } from "../lib/api";
 import { errorText, useNotify } from "../app/hooks";
@@ -54,20 +54,11 @@ export function PushPreviewCard({ settings, destinationId, name, savedDeviceCoun
     };
   }, []);
 
-  const previewKey = useMemo(
-    () => JSON.stringify({
-      title: settings.title_fields, body: settings.body_fields, labels: settings.show_field_names, separator: settings.body_separator, spotId,
-    }),
-    [settings.title_fields, settings.body_fields, settings.show_field_names, settings.body_separator, spotId],
-  );
-
+  const { title_fields: titleFields, body_fields: bodyFields, show_field_names: showFieldNames, body_separator: bodySeparator } = settings;
   useEffect(() => {
     let active = true;
-    const key = JSON.parse(previewKey) as {
-      title: PushSettings["title_fields"]; body: PushSettings["body_fields"]; labels: boolean; separator: PushSettings["body_separator"]; spotId: number | null;
-    };
     const timer = setTimeout(() => {
-      previewPushNotification(key.title, key.body, key.labels, key.separator, key.spotId)
+      previewPushNotification(titleFields, bodyFields, showFieldNames, bodySeparator, spotId)
         .then((p) => {
           if (!active) return;
           setPreview(p);
@@ -81,7 +72,7 @@ export function PushPreviewCard({ settings, destinationId, name, savedDeviceCoun
       active = false;
       clearTimeout(timer);
     };
-  }, [previewKey]);
+  }, [titleFields, bodyFields, showFieldNames, bodySeparator, spotId]);
 
   const chosen = spots.find((s) => s.id === spotId) ?? null;
   const source = sourceName(chosen?.source ?? SAMPLE_SOURCE);

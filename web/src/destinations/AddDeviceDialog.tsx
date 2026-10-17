@@ -44,6 +44,7 @@ export function AddDeviceDialog({ open, fullScreen, onClose, onAdded }: Props) {
     setSupport(null);
     setName(deviceAgent());
     setError(null);
+    setBusy(false);
     pushSupport()
       .then((s) => {
         if (active) setSupport(s);

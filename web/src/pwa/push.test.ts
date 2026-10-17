@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { registerPushDevice, reportPushDeviceBlocked, unregisterPushDevice } from "../lib/api";
+import { listPushDevices, registerPushDevice, reportPushDeviceBlocked, unregisterPushDevice, type PushDevice } from "../lib/api";
 import {
   base64UrlToBytes, browserEnv, currentEndpoint, DENIED_TEXT, deviceAgent, disablePush, enablePush, ENDPOINT_KEY, isIos, isStandalone,
   pushCleanup, pushSupport, refreshPushRegistration, UNSUPPORTED_TEXT, type PushEnv, type PushSubscriptionLike,
 } from "./push";
 
 vi.mock("../lib/api", () => ({
+  listPushDevices: vi.fn(),
   registerPushDevice: vi.fn(),
   reportPushDeviceBlocked: vi.fn(),
   unregisterPushDevice: vi.fn(),
@@ -75,8 +76,17 @@ function fakeEnv(overrides: Partial<PushEnv> = {}, sub: PushSubscriptionLike | n
   return { env, order, pushManager };
 }
 
+/** list_push_devices as the account sees it; only is_current matters here. */
+function listed(current: boolean): PushDevice[] {
+  return [{
+    id: "dev1", label: "Edge on Windows", agent: "Edge on Windows", standalone: false, created_at: "2026-10-01T00:00:00Z", last_success_at: null,
+    last_error: null, last_error_at: null, blocked_at: null, is_current: current, destination_ids: [],
+  }];
+}
+
 beforeEach(() => {
-  for (const fn of [registerPushDevice, reportPushDeviceBlocked, unregisterPushDevice]) vi.mocked(fn).mockReset();
+  for (const fn of [listPushDevices, registerPushDevice, reportPushDeviceBlocked, unregisterPushDevice]) vi.mocked(fn).mockReset();
+  vi.mocked(listPushDevices).mockResolvedValue(listed(true));
   vi.mocked(registerPushDevice).mockResolvedValue("dev1");
   vi.mocked(unregisterPushDevice).mockResolvedValue(undefined);
   vi.mocked(reportPushDeviceBlocked).mockResolvedValue(undefined);
@@ -139,6 +149,11 @@ describe("pushSupport", () => {
     expect(await pushSupport(fakeEnv({ userAgent: SAFARI_IPHONE, standalone: true }, subscription()).env)).toBe("on");
   });
 
+  it("counts the browser as unsubscribed when no service worker becomes active in time", async () => {
+    const { env } = fakeEnv({ serviceWorker: { ready: new Promise(() => {}) }, readyTimeoutMs: 5 }, subscription());
+    await expect(pushSupport(env)).resolves.toBe("off");
+  });
+
   it("is denied, off or on from the permission and the subscription", async () => {
     const denied = fakeEnv({ notification: { permission: "denied", requestPermission: vi.fn() } });
     expect(await pushSupport(denied.env)).toBe("denied");
@@ -187,6 +202,12 @@ describe("enablePush", () => {
     expect(registerPushDevice).not.toHaveBeenCalled();
   });
 
+  it("fails rather than hang when no service worker becomes active", async () => {
+    const { env } = fakeEnv({ serviceWorker: { ready: new Promise(() => {}) }, readyTimeoutMs: 5 });
+    await expect(enablePush("Shack", env)).rejects.toThrow("Couldn't turn on notifications.");
+    expect(registerPushDevice).not.toHaveBeenCalled();
+  });
+
   it("fails when the browser's subscription has no keys", async () => {
     const bad: PushSubscriptionLike = { endpoint: "https://fcm.googleapis.com/x", toJSON: () => ({}), unsubscribe: () => Promise.resolve(true) };
     await expect(enablePush("x", fakeEnv({}, bad).env)).rejects.toThrow("Couldn't turn on notifications.");
@@ -222,10 +243,28 @@ describe("disablePush and pushCleanup", () => {
     expect(unregisterPushDevice).not.toHaveBeenCalled();
   });
 
+  it("unsubscribes and forgets the endpoint even when the RPC fails, then reports the failure", async () => {
+    vi.mocked(unregisterPushDevice).mockRejectedValue(new Error("offline"));
+    const sub = subscription();
+    const { env } = fakeEnv({ storage: memoryStorage({ [ENDPOINT_KEY]: sub.endpoint }) }, sub);
+    await expect(disablePush(env)).rejects.toThrow("offline");
+    expect(sub.unsubscribe).toHaveBeenCalled();
+    expect(currentEndpoint(env)).toBeNull();
+    vi.mocked(unregisterPushDevice).mockRejectedValue("gone");
+    await expect(disablePush(fakeEnv({}, subscription()).env)).rejects.toThrow("gone");
+  });
+
+  it("falls back to the remembered endpoint when no service worker becomes active", async () => {
+    const { env } = fakeEnv({
+      serviceWorker: { ready: new Promise(() => {}) }, readyTimeoutMs: 5, storage: memoryStorage({ [ENDPOINT_KEY]: "https://fcm.googleapis.com/fcm/send/kept" }),
+    });
+    await disablePush(env);
+    expect(unregisterPushDevice).toHaveBeenCalledWith("https://fcm.googleapis.com/fcm/send/kept");
+  });
+
   it("pushCleanup swallows failures", async () => {
     vi.mocked(unregisterPushDevice).mockRejectedValue(new Error("offline"));
     const { env } = fakeEnv({}, subscription());
-    await expect(disablePush(env)).rejects.toThrow("offline");
     await expect(pushCleanup(env)).resolves.toBeUndefined();
     await expect(pushCleanup(fakeEnv({ notification: null }).env)).resolves.toBeUndefined();
   });
@@ -242,8 +281,34 @@ describe("refreshPushRegistration", () => {
     const sub = subscription();
     const { env } = fakeEnv({}, sub);
     await refreshPushRegistration(env);
+    expect(listPushDevices).toHaveBeenCalledWith(sub.endpoint);
     expect(registerPushDevice).toHaveBeenCalledWith({ endpoint: sub.endpoint, p256dh: "p256", auth: "auth16" }, null, null, null);
     expect(currentEndpoint(env)).toBe(sub.endpoint);
+  });
+
+  it("registers a subscription the account does not list yet, such as a rotated endpoint", async () => {
+    vi.mocked(listPushDevices).mockResolvedValue(listed(false));
+    const sub = subscription("https://fcm.googleapis.com/fcm/send/rotated");
+    const { env } = fakeEnv({ storage: memoryStorage({ [ENDPOINT_KEY]: "https://fcm.googleapis.com/fcm/send/old" }) }, sub);
+    await refreshPushRegistration(env);
+    expect(registerPushDevice).toHaveBeenCalled();
+    expect(sub.unsubscribe).not.toHaveBeenCalled();
+    expect(currentEndpoint(env)).toBe(sub.endpoint);
+    // Never remembered (storage blocked): the same.
+    vi.mocked(registerPushDevice).mockClear();
+    await refreshPushRegistration(fakeEnv({ storage: null }, subscription()).env);
+    expect(registerPushDevice).toHaveBeenCalled();
+  });
+
+  it("follows a removal made from another device: unsubscribes instead of registering again", async () => {
+    vi.mocked(listPushDevices).mockResolvedValue([]);
+    const sub = subscription();
+    const { env } = fakeEnv({ storage: memoryStorage({ [ENDPOINT_KEY]: sub.endpoint }) }, sub);
+    await refreshPushRegistration(env);
+    expect(registerPushDevice).not.toHaveBeenCalled();
+    expect(unregisterPushDevice).not.toHaveBeenCalled();
+    expect(sub.unsubscribe).toHaveBeenCalled();
+    expect(currentEndpoint(env)).toBeNull();
   });
 
   it("reports the remembered endpoint blocked when denied", async () => {

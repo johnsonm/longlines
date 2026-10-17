@@ -128,7 +128,9 @@ function Editor({ initial, reload, mobile }: EditorProps) {
 
   const save = async () => {
     setBusy(true);
-    const input = toInput(form);
+    // A member removed elsewhere since the load has no checkbox to clear; save_push_destination would refuse its id.
+    const known = devices ? form.deviceIds.filter((id) => devices.some((d) => d.id === id)) : form.deviceIds;
+    const input = toInput({ ...form, deviceIds: known });
     try {
       await savePushDestination(input);
       await reload();
@@ -182,7 +184,7 @@ function Editor({ initial, reload, mobile }: EditorProps) {
       <Stack direction="row" spacing={2} useFlexGap sx={{ alignItems: "center", flexWrap: "wrap" }}>
         <Chip label={typeLabel("push")} icon={TypeIcon ? <TypeIcon /> : undefined} />
         <Typography variant="body2" color="text.secondary">
-          Filtering and repeat limits are set on each subscription. This page controls where and how notifications arrive.
+          Filtering and repeat limits are set on each connection. This page controls where and how notifications arrive.
         </Typography>
       </Stack>
 
@@ -235,7 +237,7 @@ function DeliveryCard({ settings, timezone, onChange }: DeliveryProps) {
           <TextField
             select label="Urgency" value={settings.urgency} fullWidth
             onChange={(e) => onChange({ urgency: e.target.value as PushSettings["urgency"] })}
-            helperText="High can wake a sleeping phone. Normal fits most subscriptions."
+            helperText="High can wake a sleeping phone. Normal fits most connections."
           >
             {URGENCIES.map((o) => <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>)}
           </TextField>

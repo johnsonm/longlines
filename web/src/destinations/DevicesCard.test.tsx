@@ -70,6 +70,15 @@ describe("DevicesCard", () => {
     expect(screen.queryByText("No devices yet")).not.toBeInTheDocument();
   });
 
+  it("lets a blocked member be dropped from the destination, but not added", async () => {
+    const blocked = device("c", { label: "Old tablet", blocked_at: "2026-10-16T00:00:00Z" });
+    const { user, onToggle } = render([blocked], ["c"]);
+    const box = screen.getByRole("checkbox", { name: "Send to Old tablet" });
+    expect(box).toBeEnabled();
+    await user.click(box);
+    expect(onToggle).toHaveBeenCalledWith("c", false);
+  });
+
   it("reports toggles, rename, remove and add", async () => {
     const devices = [device("a", { label: "Laptop" }), device("b", { label: "Phone" })];
     const { user, onToggle, onRename, onRemove, onAdd } = render(devices, ["a"]);

@@ -53,13 +53,13 @@ describe("cardMeta", () => {
   const now = new Date("2026-10-17T12:00:00Z");
 
   it("joins usage and the last delivery", () => {
-    expect(cardMeta(dest("a"), 0, now)).toBe("not used by any subscription · Never used");
-    expect(cardMeta(dest("a", { last_success_at: "2026-10-17T11:57:00Z" }), 1, now)).toBe("used by 1 subscription · Last delivery 3 minutes ago");
+    expect(cardMeta(dest("a"), 0, now)).toBe("not used by any connection · Never used");
+    expect(cardMeta(dest("a", { last_success_at: "2026-10-17T11:57:00Z" }), 1, now)).toBe("used by 1 connection · Last delivery 3 minutes ago");
     expect(cardMeta(dest("a", { last_success_at: "2026-10-17T09:00:00Z", last_error_at: "2026-10-17T11:00:00Z" }), 2, now))
-      .toBe("used by 2 subscriptions · Last delivery failed 1 hour ago");
+      .toBe("used by 2 connections · Last delivery failed 1 hour ago");
     expect(cardMeta(dest("a", { last_success_at: "2026-10-17T11:00:00Z", last_error_at: "2026-10-16T11:00:00Z" }), 2, now))
-      .toBe("used by 2 subscriptions · Last delivery 1 hour ago");
-    expect(cardMeta(dest("a", { last_error_at: "2026-10-15T12:00:00Z" }), 0, now)).toBe("not used by any subscription · Last delivery failed 2 days ago");
+      .toBe("used by 2 connections · Last delivery 1 hour ago");
+    expect(cardMeta(dest("a", { last_error_at: "2026-10-15T12:00:00Z" }), 0, now)).toBe("not used by any connection · Last delivery failed 2 days ago");
   });
 });
 
@@ -94,9 +94,9 @@ describe("DestinationsPage", () => {
     expect(screen.getByText("Discord channel")).toBeInTheDocument();
     expect(screen.getAllByText("Webhook")).toHaveLength(2);
     expect(screen.getByText("discord.com/api/webhooks/1234…")).toBeInTheDocument();
-    expect(screen.getByText("used by 2 subscriptions · Last delivery failed 2 hours ago")).toBeInTheDocument();
-    expect(screen.getByText("not used by any subscription · Last delivery 3 minutes ago")).toBeInTheDocument();
-    expect(screen.getByText("used by 1 subscription · Never used")).toBeInTheDocument();
+    expect(screen.getByText("used by 2 connections · Last delivery failed 2 hours ago")).toBeInTheDocument();
+    expect(screen.getByText("not used by any connection · Last delivery 3 minutes ago")).toBeInTheDocument();
+    expect(screen.getByText("used by 1 connection · Never used")).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "Rotate secret" })).toHaveLength(2);
     expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Duplicate" })).not.toBeInTheDocument();
@@ -111,7 +111,7 @@ describe("DestinationsPage", () => {
     const alert = screen.getByRole("alert");
     expect(within(alert).getByText("Dest a is failing")).toBeInTheDocument();
     expect(alert).toHaveTextContent(
-      "The last 4 deliveries returned HTTP 500. Spots for 2 subscriptions are not being sent. Check the URL, then send a test.",
+      "The last 4 deliveries returned HTTP 500. Spots for 2 connections are not being sent. Check the URL, then send a test.",
     );
     await user.click(within(alert).getByRole("button", { name: "Send test" }));
     expect(sendTest).toHaveBeenCalledWith("a");
@@ -123,7 +123,7 @@ describe("DestinationsPage", () => {
     const button = screen.getByRole("button", { name: "Delete Dest a" });
     expect(button).toBeDisabled();
     await user.hover(button.parentElement!);
-    expect(await screen.findByRole("tooltip")).toHaveTextContent("Used by 2 subscriptions. Remove it from them first.");
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Used by 2 connections. Remove it from them first.");
   });
 
   it("renders push cards with their devices from one device list", async () => {
@@ -157,6 +157,15 @@ describe("DestinationsPage", () => {
     );
     await user.click(within(alert).getByRole("button", { name: "Manage devices" }));
     expect(screen.getByTestId("location")).toHaveTextContent("/destinations/p");
+  });
+
+  it("keeps Failing and Paused ahead of a blocked count", async () => {
+    vi.mocked(listPushDevices).mockResolvedValue([device("d2", { label: "Laptop", blocked_at: "2026-10-16T00:00:00Z", destination_ids: ["p", "q"] })]);
+    render([dest("p", { type: "push", name: "A", health: "failing", consecutive_failures: 2, last_error: "no devices" }), dest("q", { type: "push", name: "B", health: "paused" })]);
+    await screen.findAllByRole("alert");
+    expect(screen.getByText("Failing")).toBeInTheDocument();
+    expect(screen.getByText("Paused")).toBeInTheDocument();
+    expect(screen.queryByText("1 device blocked")).not.toBeInTheDocument();
   });
 
   it("names every destination a blocked device belongs to", async () => {

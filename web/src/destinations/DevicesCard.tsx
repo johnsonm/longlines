@@ -83,7 +83,7 @@ export function DevicesCard({ devices, checked, busy, onToggle, onAdd, onRename,
                   >
                     <ListItemIcon>
                       <Checkbox
-                        edge="start" checked={checked.includes(d.id)} disabled={blocked || busy}
+                        edge="start" checked={checked.includes(d.id)} disabled={busy || (blocked && !checked.includes(d.id))}
                         onChange={(e) => onToggle(d.id, e.target.checked)} slotProps={{ input: { "aria-label": `Send to ${d.label}` } }}
                       />
                     </ListItemIcon>

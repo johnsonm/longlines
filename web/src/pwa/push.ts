@@ -5,7 +5,7 @@
 // denied can no longer read its subscription, and the web never reads an
 // endpoint back from the database.
 
-import { registerPushDevice, reportPushDeviceBlocked, unregisterPushDevice, type PushKeys } from "../lib/api";
+import { listPushDevices, registerPushDevice, reportPushDeviceBlocked, unregisterPushDevice, type PushKeys } from "../lib/api";
 
 export type PushSupport = "unsupported" | "ios-needs-install" | "denied" | "off" | "on";
 
@@ -39,9 +39,13 @@ export interface PushEnv {
   standalone: boolean;
   /** window.localStorage, or null where reading it throws. */
   storage: Pick<Storage, "getItem" | "setItem" | "removeItem"> | null;
+  /** How long to wait for an active service worker; READY_TIMEOUT_MS unless a test shortens it. */
+  readyTimeoutMs?: number;
 }
 
 export const ENDPOINT_KEY = "longlines.pushEndpoint";
+/** serviceWorker.ready never settles when /sw.js failed to register; after this long the browser counts as unsubscribed. */
+export const READY_TIMEOUT_MS = 5000;
 
 export const UNSUPPORTED_TEXT = "This browser can't receive push notifications.";
 export const DENIED_TEXT = "Notifications are blocked for Long Lines. Allow them in your browser's site settings, then reload this page.";
@@ -165,9 +169,24 @@ function apisPresent(env: PushEnv): env is PushEnv & { notification: NonNullable
   return env.notification !== null && env.serviceWorker !== null && env.pushManager;
 }
 
-async function subscription(env: PushEnv & { serviceWorker: NonNullable<PushEnv["serviceWorker"]> }): Promise<PushSubscriptionLike | null> {
-  const registration = await env.serviceWorker.ready;
-  return registration.pushManager.getSubscription();
+type WithWorker = PushEnv & { serviceWorker: NonNullable<PushEnv["serviceWorker"]> };
+
+/** The active registration, or null when none becomes active in time (a failed registration leaves `ready` pending forever). */
+async function registration(env: WithWorker): Promise<{ pushManager: PushManagerLike } | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), env.readyTimeoutMs ?? READY_TIMEOUT_MS);
+  });
+  try {
+    return await Promise.race([env.serviceWorker.ready, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function subscription(env: WithWorker): Promise<PushSubscriptionLike | null> {
+  const active = await registration(env);
+  return active ? active.pushManager.getSubscription() : null;
 }
 
 /**
@@ -209,21 +228,35 @@ export async function enablePush(label: string, env: PushEnv = browserEnv()): Pr
   const asked = env.notification?.requestPermission();
   if (!asked || !apisPresent(env) || !env.publicKey) throw new Error(UNSUPPORTED_TEXT);
   if ((await asked) !== "granted") throw new Error(DENIED_TEXT);
-  const registration = await env.serviceWorker.ready;
-  const sub = (await registration.pushManager.getSubscription()) ??
-    (await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: base64UrlToBytes(env.publicKey) }));
+  const active = await registration(env);
+  if (!active) throw new Error(FAILED_TEXT);
+  const sub = (await active.pushManager.getSubscription()) ??
+    (await active.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: base64UrlToBytes(env.publicKey) }));
   const id = await registerPushDevice(keysOf(sub), label, deviceAgent(env), isStandalone(env));
   remember(env, sub.endpoint);
   return id;
 }
 
-/** Turns notifications off for this browser: unregisters the device, then unsubscribes. */
+/**
+ * Turns notifications off for this browser: unregisters the device, then
+ * unsubscribes. The browser side goes even when the RPC fails (offline, or
+ * the account is already gone): a subscription left behind would be
+ * registered again on the next load, perhaps for another account on a shared
+ * browser, while a row left behind is pruned on its first 410. The failure is
+ * still reported.
+ */
 export async function disablePush(env: PushEnv = browserEnv()): Promise<void> {
   const sub = apisPresent(env) ? await subscription(env) : null;
   const endpoint = sub?.endpoint ?? currentEndpoint(env);
-  if (endpoint) await unregisterPushDevice(endpoint);
+  let failure: Error | null = null;
+  if (endpoint) {
+    await unregisterPushDevice(endpoint).catch((err: unknown) => {
+      failure = err instanceof Error ? err : new Error(String(err));
+    });
+  }
   if (sub) await sub.unsubscribe();
   remember(env, null);
+  if (failure) throw failure;
 }
 
 /** disablePush for sign-out: resolves whatever the browser supports or the network does. */
@@ -239,7 +272,10 @@ export async function pushCleanup(env: PushEnv = browserEnv()): Promise<void> {
  * Once per app load, with a session: a granted and subscribed browser
  * re-registers its keys (the push service may have rotated the endpoint; a
  * null label, agent and standalone keep the device's own), and a denied one
- * reports the endpoint it remembers as blocked. Never throws.
+ * reports the endpoint it remembers as blocked. A device this browser
+ * registered that the account no longer lists was removed from another
+ * device, so the browser follows the removal and unsubscribes instead of
+ * creating the device again. Never throws.
  */
 export async function refreshPushRegistration(env: PushEnv = browserEnv()): Promise<void> {
   try {
@@ -252,6 +288,12 @@ export async function refreshPushRegistration(env: PushEnv = browserEnv()): Prom
     if (env.notification.permission !== "granted") return;
     const sub = await subscription(env);
     if (!sub) return;
+    const devices = await listPushDevices(sub.endpoint);
+    if (!devices.some((d) => d.is_current) && currentEndpoint(env) === sub.endpoint) {
+      await sub.unsubscribe();
+      remember(env, null);
+      return;
+    }
     await registerPushDevice(keysOf(sub), null, null, null);
     remember(env, sub.endpoint);
   } catch (err) {

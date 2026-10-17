@@ -112,7 +112,7 @@ export function DestinationsPage({ dests, subs, loading, reload }: Props) {
         >
           <AlertTitle>{d.name} is failing</AlertTitle>
           The last {d.consecutive_failures} deliveries returned {d.last_error ?? "an error"}. Spots for {usedBy(d.id)}{" "}
-          subscription{usedBy(d.id) === 1 ? "" : "s"} are not being sent. Check the URL, then send a test.
+          connection{usedBy(d.id) === 1 ? "" : "s"} are not being sent. Check the URL, then send a test.
         </Alert>
       ))}
       {blockedAlerts.map(({ dev, members }) => (

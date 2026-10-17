@@ -126,7 +126,7 @@ describe("new destination", () => {
     const { user, app, reload } = render({ type: "push" });
     expect(screen.getByRole("heading", { name: "New destination" })).toBeInTheDocument();
     expect(screen.getByText("Push notification")).toBeInTheDocument();
-    expect(screen.getByText("Filtering and repeat limits are set on each subscription. This page controls where and how notifications arrive.")).toBeInTheDocument();
+    expect(screen.getByText("Filtering and repeat limits are set on each connection. This page controls where and how notifications arrive.")).toBeInTheDocument();
     expect(screen.getByText("Names are unique. A name can be reused after the destination that has it is deleted.")).toBeInTheDocument();
     expect(screen.getByRole("switch", { name: "Enabled" })).toBeChecked();
     const add = screen.getByRole("button", { name: "Add destination" });
@@ -188,6 +188,16 @@ describe("editing", () => {
       id: "p1", name: "Phone", enabled: true, settings: { ...DEFAULT_SETTINGS, urgency: "high" }, device_ids: ["dev1"],
     });
     expect(app.notify).toHaveBeenCalledWith("Saved changes");
+  });
+
+  it("leaves out a member the account no longer has when saving", async () => {
+    vi.mocked(getPushDestination).mockResolvedValue({ ...LOADED, device_ids: ["dev1", "gone"] });
+    const { user } = render({ id: "p1" });
+    await screen.findByRole("heading", { name: "Edit destination" });
+    await user.click(screen.getByRole("switch", { name: "Enabled" }));
+    await user.click(screen.getByRole("button", { name: "Save destination" }));
+    await waitFor(() => expect(savePushDestination).toHaveBeenCalled());
+    expect(vi.mocked(savePushDestination).mock.calls[0]![0].device_ids).toEqual(["dev1"]);
   });
 
   it("says Save on phones", async () => {
@@ -337,7 +347,7 @@ describe("delivery settings", () => {
   it("round-trips every control into the saved input", async () => {
     const { user } = render({ type: "push", timezone: "America/New_York" });
     expect(screen.getByText("How notifications behave on the device")).toBeInTheDocument();
-    expect(screen.getByText("High can wake a sleeping phone. Normal fits most subscriptions.")).toBeInTheDocument();
+    expect(screen.getByText("High can wake a sleeping phone. Normal fits most connections.")).toBeInTheDocument();
     expect(screen.getByText("Old spots are rarely useful. Late notifications are dropped, not queued.")).toBeInTheDocument();
     expect(screen.getByText("Uses your account time zone, America/New_York.")).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "Drop if the device is offline for" })).toHaveTextContent("30 minutes");

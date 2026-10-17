@@ -3,7 +3,7 @@ import type { PushEnv } from "./push";
 import { captureInstallPrompt, installState, promptInstall, resetInstallPrompt, subscribeInstall, type InstallPromptEvent } from "./install";
 
 // push.ts (for isIos and isStandalone) imports the api module, which needs a configured client.
-vi.mock("../lib/api", () => ({ registerPushDevice: vi.fn(), reportPushDeviceBlocked: vi.fn(), unregisterPushDevice: vi.fn() }));
+vi.mock("../lib/api", () => ({ listPushDevices: vi.fn(), registerPushDevice: vi.fn(), reportPushDeviceBlocked: vi.fn(), unregisterPushDevice: vi.fn() }));
 
 const CHROME_ANDROID =
   "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36";
