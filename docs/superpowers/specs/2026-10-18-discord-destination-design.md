@@ -280,6 +280,7 @@ listed comes from the push spec's Copy.
 - Discord channel card: Discord channel · Where messages are posted
   - Edit: the masked URL · button Replace URL · Treat the URL like a password. Anyone who has it can post to the channel. It is hidden after saving.
   - New or replacing: field Webhook URL · error helper: That is a channel link, not a webhook URL. A webhook URL starts with https://discord.com/api/webhooks/
+  - Replacing: text button Keep current URL beside the field, which closes it and keeps the stored URL (added in PR 3)
   - Box: Get a webhook URL from Discord · 1. Open the channel settings and choose Integrations. · 2. Choose Webhooks, then New Webhook. · 3. Copy the webhook URL and paste it here.
   - Sentence: Treat the URL like a password. Anyone who has it can post to the channel.
 - Message card: Message · Choose the style, then which fields appear and in what order.

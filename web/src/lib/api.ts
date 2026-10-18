@@ -392,7 +392,7 @@ export async function getPushDestination(id: string): Promise<PushDestination> {
   return data as unknown as PushDestination;
 }
 
-/** Copies a push destination (settings and devices) as "Copy of {name}", disabled. Returns the new id. */
+/** Copies a push or Discord destination (settings, and devices or the URL) as "Copy of {name}", disabled. Returns the new id. */
 export async function duplicateDestination(id: string): Promise<string> {
   const { data, error } = await supabase.rpc("duplicate_destination", { p_id: id });
   if (error) fail(error, "Couldn't duplicate the destination.");
@@ -415,6 +415,126 @@ export async function previewPushNotification(
   const row = data[0];
   if (!row) throw new ApiError("Couldn't load the preview.");
   return row;
+}
+
+// ---- Discord ---------------------------------------------------------------
+//
+// A Discord destination's message settings live in discord_destination_settings,
+// which clients cannot read; these RPCs are the only way in. The URL goes in
+// through saveDiscordDestination and never comes back (only url_display).
+
+/** The fields a Discord message can show: push_fields() minus comment (discord_fields()). */
+export type DiscordField =
+  | "callsign" | "frequency" | "band" | "mode" | "source" | "reference" | "place_name" | "state" | "spotter" | "time";
+
+/** A Discord destination's settings row, as SQL stores it (discord_destination_settings). */
+export interface DiscordSettings {
+  style: "card" | "plain";
+  /** Card style: 1 to 4. */
+  title_fields: DiscordField[];
+  /** Card style: 0 to 8. */
+  detail_fields: DiscordField[];
+  /** Card style: 0 to 6. */
+  grid_fields: DiscordField[];
+  title_link: "profile" | "source" | "none";
+  card_color: "source" | "blue" | "green" | "purple" | "orange" | "red" | "grey";
+  footer: boolean;
+  /** Plain style: 1 to 8. */
+  line_fields: DiscordField[];
+  bold_first: boolean;
+  link_preview: "hidden" | "shown";
+  show_field_names: boolean;
+  separator: "dot" | "comma" | "newline";
+  /** 0 (one message per spot), 10, 30 or 60. */
+  batch_seconds: number;
+}
+
+/** What the editor saves: without `id` it creates the destination; a null `url` keeps the stored one. */
+export interface DiscordDestinationInput {
+  id?: string;
+  name: string;
+  enabled: boolean;
+  url: string | null;
+  settings: DiscordSettings;
+}
+
+/** What the editor loads (get_discord_destination): never the URL. */
+export interface DiscordDestination {
+  id: string;
+  name: string;
+  enabled: boolean;
+  url_display: string;
+  settings: DiscordSettings;
+}
+
+/** The message SQL would post for some settings (preview_discord_message, discord_spot_fields). */
+export interface DiscordPreview {
+  discord_style: "card" | "plain";
+  discord_title: string;
+  /** May be empty. */
+  discord_description: string;
+  discord_grid: { name: string; value: string }[];
+  /** Null when the footer is off. */
+  discord_footer: string | null;
+  discord_color: number;
+  /** The title link, or null when it links to nothing. */
+  discord_url: string | null;
+  /** The plain line: markdown with **bold** and [text](url) only. */
+  discord_line: string;
+  discord_suppress_embeds: boolean;
+}
+
+/** One row of list_discord_destination_settings, for the list cards' type line. */
+export interface DiscordSettingsSummary {
+  destination_id: string;
+  style: DiscordSettings["style"];
+  /** Card: title + details + grid; plain: the line. */
+  field_count: number;
+}
+
+type RpcResult = { data: unknown; error: { message: string; code?: string } | null };
+/**
+ * The Discord RPCs (20261018000100) are not in database.types.ts until it is
+ * regenerated against that migration; until then they go through this
+ * untyped call, and each wrapper states the shape its RPC returns.
+ */
+function untypedRpc(fn: string, args: Record<string, unknown>): PromiseLike<RpcResult> {
+  return (supabase.rpc as unknown as (fn: string, args: Record<string, unknown>) => PromiseLike<RpcResult>).call(supabase, fn, args);
+}
+
+/** Creates (no id) or updates a Discord destination's name, enabled, URL (null keeps it) and settings. Returns the id. */
+export async function saveDiscordDestination(input: DiscordDestinationInput): Promise<string> {
+  const { data, error } = await untypedRpc("save_discord_destination", {
+    p_id: input.id ?? null, p_name: input.name, p_enabled: input.enabled, p_url: input.url, p_settings: { ...input.settings },
+  });
+  if (error) fail(error, "Couldn't save the destination.");
+  return data as string;
+}
+
+export async function getDiscordDestination(id: string): Promise<DiscordDestination> {
+  const { data, error } = await untypedRpc("get_discord_destination", { p_id: id });
+  if (error) fail(error, "Couldn't load the destination.");
+  // jsonb; its shape is fixed by get_discord_destination().
+  return data as DiscordDestination;
+}
+
+/** The style and field count of each of the caller's Discord destinations. */
+export async function listDiscordDestinationSettings(): Promise<DiscordSettingsSummary[]> {
+  const { data, error } = await untypedRpc("list_discord_destination_settings", {});
+  if (error) fail(error, "Couldn't load destinations.");
+  // jsonb array; its shape is fixed by list_discord_destination_settings().
+  return (data ?? []) as DiscordSettingsSummary[];
+}
+
+/** The message SQL would post with `settings`, for the sample spot or raw_spots row `spotId`. */
+export async function previewDiscordMessage(settings: DiscordSettings, spotId: number | null): Promise<DiscordPreview> {
+  const { data, error } = await untypedRpc("preview_discord_message", {
+    p_settings: { ...settings }, ...(spotId === null ? {} : { p_spot_id: spotId }),
+  });
+  if (error) fail(error, "Couldn't load the preview.");
+  if (!data) throw new ApiError("Couldn't load the preview.");
+  // jsonb; its nine keys are fixed by discord_spot_fields().
+  return data as DiscordPreview;
 }
 
 // ---- API tokens ------------------------------------------------------------

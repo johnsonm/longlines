@@ -1,90 +1,9 @@
-import {
-  Avatar, Button, Card, CardContent, CardHeader, FormHelperText, Grid, IconButton, List, ListItem, ListItemAvatar, ListItemText, MenuItem, Paper,
-  Stack, TextField, Typography,
-} from "@mui/material";
-import ArrowDownwardIcon from "@mui/icons-material/ArrowDownward";
-import ArrowUpwardIcon from "@mui/icons-material/ArrowUpward";
-import CloseIcon from "@mui/icons-material/Close";
+import { Button, Card, CardContent, CardHeader, Grid, MenuItem, Stack, TextField } from "@mui/material";
 import RestartAltIcon from "@mui/icons-material/RestartAlt";
-import type { PushField, PushSettings } from "../lib/api";
+import type { PushSettings } from "../lib/api";
+import { FieldPicker } from "./FieldPicker";
 import { SettingSwitch } from "./SettingSwitch";
-import {
-  addField, BODY_MAX, DEFAULT_SETTINGS, fieldLabel, moveField, removeField, SEPARATORS, TAP_TARGETS, TITLE_MAX, TITLE_MIN, unpickedFields,
-} from "./pushModel";
-
-interface PickerProps {
-  heading: "Title" | "Body";
-  fields: PushField[];
-  min: number;
-  max: number;
-  helper: string;
-  onChange: (fields: PushField[]) => void;
-}
-
-/**
- * An ordered pick of fields (decision 4): a numbered list with move and
- * remove buttons and a select of the fields not yet picked. There is no
- * text input; SQL renders every field and checks the lists again on save.
- */
-function FieldPicker({ heading, fields, min, max, helper, onChange }: PickerProps) {
-  const unpicked = unpickedFields(fields);
-  const full = fields.length >= max;
-  const selectId = `add-${heading.toLowerCase()}-field`;
-  return (
-    <Stack spacing={1.5}>
-      <Typography variant="subtitle2" component="h3">{heading}</Typography>
-      <Paper variant="outlined">
-        <List dense disablePadding>
-          {fields.map((f, i) => (
-            <ListItem
-              key={f} divider={i < fields.length - 1}
-              secondaryAction={
-                <Stack direction="row" spacing={0}>
-                  <IconButton size="small" aria-label={`Move ${fieldLabel(f)} up`} disabled={i === 0} onClick={() => onChange(moveField(fields, i, -1))}>
-                    <ArrowUpwardIcon fontSize="small" />
-                  </IconButton>
-                  <IconButton
-                    size="small" aria-label={`Move ${fieldLabel(f)} down`} disabled={i === fields.length - 1}
-                    onClick={() => onChange(moveField(fields, i, 1))}
-                  >
-                    <ArrowDownwardIcon fontSize="small" />
-                  </IconButton>
-                  <IconButton
-                    size="small" edge="end" aria-label={`Remove ${fieldLabel(f)}`} disabled={fields.length <= min}
-                    onClick={() => onChange(removeField(fields, i, min))}
-                  >
-                    <CloseIcon fontSize="small" />
-                  </IconButton>
-                </Stack>
-              }
-            >
-              <ListItemAvatar>
-                <Avatar>{i + 1}</Avatar>
-              </ListItemAvatar>
-              <ListItemText primary={fieldLabel(f)} sx={{ pr: 12 }} />
-            </ListItem>
-          ))}
-          {fields.length === 0 && (
-            <ListItem>
-              <ListItemText secondary="No fields" />
-            </ListItem>
-          )}
-        </List>
-      </Paper>
-      <TextField
-        select id={selectId} label="Add a field" value="" fullWidth size="small" disabled={full || unpicked.length === 0}
-        onChange={(e) => onChange(addField(fields, e.target.value as PushField, max))}
-        slotProps={{
-          inputLabel: { shrink: true },
-          select: { displayEmpty: true, renderValue: () => <Typography component="span" color="text.secondary">Choose a field</Typography> },
-        }}
-      >
-        {unpicked.map((f) => <MenuItem key={f.id} value={f.id}>{f.label}</MenuItem>)}
-      </TextField>
-      <FormHelperText>{helper}</FormHelperText>
-    </Stack>
-  );
-}
+import { BODY_MAX, DEFAULT_SETTINGS, PUSH_FIELDS, SEPARATORS, TAP_TARGETS, TITLE_MAX, TITLE_MIN } from "./pushModel";
 
 interface Props {
   settings: PushSettings;
@@ -104,13 +23,13 @@ export function NotificationContentCard({ settings, onChange }: Props) {
           <Grid container spacing={3}>
             <Grid size={{ xs: 12, sm: 6 }}>
               <FieldPicker
-                heading="Title" fields={settings.title_fields} min={TITLE_MIN} max={TITLE_MAX}
+                heading="Title" fields={settings.title_fields} all={PUSH_FIELDS} min={TITLE_MIN} max={TITLE_MAX}
                 helper="Shown in bold. Phones cut off long titles." onChange={(title_fields) => onChange({ title_fields })}
               />
             </Grid>
             <Grid size={{ xs: 12, sm: 6 }}>
               <FieldPicker
-                heading="Body" fields={settings.body_fields} min={0} max={BODY_MAX}
+                heading="Body" fields={settings.body_fields} all={PUSH_FIELDS} min={0} max={BODY_MAX}
                 helper="Place name is the park or summit." onChange={(body_fields) => onChange({ body_fields })}
               />
             </Grid>

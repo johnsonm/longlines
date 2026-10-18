@@ -1,17 +1,13 @@
 import { useEffect, useState } from "react";
 import { Alert, Button, Card, CardContent, MenuItem, Stack, TextField, Typography } from "@mui/material";
-import { loadRecentSpots, previewPushNotification, sendTest, type PushPreview, type PushSettings, type RecentSpot } from "../lib/api";
+import { previewPushNotification, sendTest, type PushPreview, type PushSettings } from "../lib/api";
 import { errorText, useNotify } from "../app/hooks";
 import { sourceName } from "../sources/sources";
 import { NotificationMockup } from "./NotificationMockup";
-import { sendTestBlocker, spotLabel, type MockupVariant } from "./pushModel";
+import { SAMPLE_SOURCE, spotLabel, useRecentSpotPicker } from "./previewSpots";
+import { sendTestBlocker, type MockupVariant } from "./pushModel";
 
 const DEBOUNCE_MS = 300;
-const PICKER_SIZE = 10;
-/** Sources whose spots are raw_spots rows, which preview_push_notification reads by id. RBN's recent list is its own table. */
-const PICKER_SOURCES = ["pota", "sotawatch", "dxcluster", "wwff"];
-/** push_sample_spot() is a POTA spot. */
-const SAMPLE_SOURCE = "pota";
 const VARIANTS: MockupVariant[] = ["android", "iphone", "desktop"];
 
 interface Props {
@@ -33,26 +29,10 @@ interface Props {
  */
 export function PushPreviewCard({ settings, destinationId, name, savedDeviceCount, dirty }: Props) {
   const notify = useNotify();
-  const [spots, setSpots] = useState<RecentSpot[]>([]);
-  const [spotId, setSpotId] = useState<number | null>(null);
+  const { spots, spotId, setSpotId, chosen } = useRecentSpotPicker();
   const [preview, setPreview] = useState<PushPreview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
-
-  // The last few spots across the sources the preview can read, newest first.
-  useEffect(() => {
-    let active = true;
-    Promise.all(PICKER_SOURCES.map((s) => loadRecentSpots(s, PICKER_SIZE).catch(() => [] as RecentSpot[])))
-      .then((lists) => {
-        if (!active) return;
-        const all = lists.flat().filter((s) => s.id !== null && s.spot_time !== null);
-        all.sort((a, b) => (b.spot_time ?? "").localeCompare(a.spot_time ?? ""));
-        setSpots(all.slice(0, PICKER_SIZE));
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
 
   const { title_fields: titleFields, body_fields: bodyFields, show_field_names: showFieldNames, body_separator: bodySeparator } = settings;
   useEffect(() => {
@@ -74,7 +54,6 @@ export function PushPreviewCard({ settings, destinationId, name, savedDeviceCoun
     };
   }, [titleFields, bodyFields, showFieldNames, bodySeparator, spotId]);
 
-  const chosen = spots.find((s) => s.id === spotId) ?? null;
   const source = sourceName(chosen?.source ?? SAMPLE_SOURCE);
   const actions = settings.action_buttons && preview
     ? ["Open profile", ...(preview.source_url ? [`Open on ${source}`] : [])]

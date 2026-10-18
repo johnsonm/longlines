@@ -36,6 +36,12 @@ vi.mock("./destinations/DestinationsPage", () => ({
     <p>destinations page {loading ? "loading" : dests.map((d) => d.name).join(",")}</p>
   ),
 }));
+vi.mock("./destinations/PushDestinationPage", () => ({
+  PushDestinationPage: ({ id, type }: { id?: string; type?: string | null }) => <p>push editor {id ?? "new"} {type ?? "none"}</p>,
+}));
+vi.mock("./destinations/DiscordDestinationPage", () => ({
+  DiscordDestinationPage: ({ id, type }: { id?: string; type?: string | null }) => <p>discord editor {id ?? "new"} {type ?? "none"}</p>,
+}));
 vi.mock("./subscriptions/SubscriptionsPage", () => ({
   SubscriptionsPage: ({ subs }: { subs: unknown[] }) => <p>subscriptions page {subs.length}</p>,
 }));
@@ -217,6 +223,37 @@ describe("App routing", () => {
   ])("renders %s", async (path, text) => {
     renderAt(path);
     expect(await screen.findByText(text)).toBeInTheDocument();
+  });
+
+  it.each([
+    ["/destinations/new?type=discord", "discord editor new discord"],
+    ["/destinations/new?type=push", "push editor new push"],
+    ["/destinations/dc", "discord editor dc none"],
+    ["/destinations/dp", "push editor dp none"],
+  ])("routes %s to the editor for its type", async (path, text) => {
+    vi.mocked(loadDestinations).mockResolvedValue([
+      DEST, { ...DEST, id: "dc", type: "discord" }, { ...DEST, id: "dp", type: "push" }, { ...DEST, id: "dw", type: "webhook" },
+    ]);
+    renderAt(path);
+    expect(await screen.findByText(text)).toBeInTheDocument();
+  });
+
+  it.each(["/destinations/new", "/destinations/new?type=webhook", "/destinations/dw", "/destinations/missing"])(
+    "sends %s back to the list",
+    async (path) => {
+      vi.mocked(loadDestinations).mockResolvedValue([{ ...DEST, id: "dw", type: "webhook" }]);
+      renderAt(path);
+      expect(await screen.findByText("destinations page Shack")).toBeInTheDocument();
+    },
+  );
+
+  it("waits for the destinations before routing an id", async () => {
+    vi.mocked(loadDestinations).mockReturnValue(new Promise(() => {}));
+    renderAt("/destinations/dc");
+    // The shell is up (the profile loaded), and the route shows progress instead of guessing a type.
+    expect((await screen.findAllByText("Destinations")).length).toBeGreaterThan(0);
+    expect(screen.getByRole("progressbar")).toBeInTheDocument();
+    expect(screen.queryByText(/editor/)).not.toBeInTheDocument();
   });
 
   it("toasts when shared data fails to load", async () => {
