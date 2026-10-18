@@ -1,5 +1,6 @@
 import { Container, LinearProgress, Paper, Typography } from "@mui/material";
 import type { ReactNode } from "react";
+import { Footer } from "../layout/Footer";
 
 /** The centered card every signed-out screen sits in. */
 export function AuthFrame({ busy, children, tabs }: { busy?: boolean; children: ReactNode; tabs?: ReactNode }) {
@@ -14,6 +15,7 @@ export function AuthFrame({ busy, children, tabs }: { busy?: boolean; children: 
         {busy && <LinearProgress />}
         {children}
       </Paper>
+      <Footer />
     </Container>
   );
 }
