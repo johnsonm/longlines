@@ -277,14 +277,29 @@ the Phase 2 plan, is `docs/superpowers/specs/2026-10-15-outbound-sender-design.m
   (`push_destination_settings.ttl_seconds`), stamping `deliveries.dropped_at` and archiving their
   messages, so the oldest rows retire without ever being claimed. Then, per destination, it refills a token bucket kept on the
   `destinations` row (`claim_tokens`, `claim_tokens_at`; `destination_budget(type)` is the rate
-  in spots per minute: Discord 300, push 3, webhooks 1000, burst equal to the rate), ranks the
+  in spots per minute: Discord 300, push 3, webhooks 1000, burst equal to the rate except
+  Discord's 100, of which one claim takes at most 50, `destination_claim_max`), ranks the
   destination's visible messages newest first, takes the ranks its tokens cover, and interleaves
   destinations by rank so every destination's newest spot goes before any destination's second.
-  Paused and throttled destinations are left out. The claim itself is one `update` of the queue
+  Paused and throttled destinations are left out, and so is a Discord destination holding for its
+  batch window (`discord_destination_settings.batch_seconds` 10, 30 or 60): while its oldest
+  visible row is younger than the window and fewer than ten are waiting, none of its rows are
+  claimed, debited, delayed or dropped, so a trickle waits at most the window and ten go at once
+  (see "Discord destinations" below). A Discord destination is also paced by
+  `destination_claim_interval('discord')` (10 seconds) on a schedule: each claim moves
+  `claim_due_at` on by 10 seconds from where it was (from now when that is past), and the claim
+  leaves the destination out until half an interval before it is due. The sender claims only when
+  it polls, so a plain 10 s gap would take every other poll and lose a sixth or more of the rate;
+  the schedule averages six claims a minute whatever the poll, never two within 5 s (poll timing
+  can put a seventh in some 60 s window, and a 429 then throttles). Each claim takes at most
+  `destination_claim_max('discord')` (50) spots, and the bucket banks up to 100, so a claim
+  `p_limit` cut short keeps its tokens: 300 spots a minute sustained.
+  The claim itself is one `update` of the queue
   table guarded by `vt <= clock_timestamp()`, which Postgres re-checks on the row it locks, so an
   overlapping claimer cannot take the same message; the debit lands in the same transaction.
-  Under that budget the loop's own Discord cap (`DISCORD_MESSAGES_PER_RUN`, 30 messages of ten
-  embeds) is a safety net it never reaches.
+  The sender sends a Discord destination at most `DISCORD_MESSAGES_PER_CLAIM` (5) messages a
+  claim, within Discord's 5 requests per 2 seconds, so six claims are its 30 messages a minute;
+  the loop's own cap (`DISCORD_MESSAGES_PER_RUN`, 30 messages) is a safety net it never reaches.
 - **One serial consumer.** With one machine, each cycle's marks land before its next claim, so
   the 60 s visibility timeout cannot re-send anything a healthy cycle sent. A deploy cuts a cycle
   off at most once: `kill_signal = SIGINT` and `kill_timeout = 30s` let the sender stop claiming
@@ -294,7 +309,10 @@ the Phase 2 plan, is `docs/superpowers/specs/2026-10-15-outbound-sender-design.m
   any second machine.
 - **Within a cycle,** destinations are sent concurrently up to `SENDER_CONCURRENCY` (4) and
   sequentially within a destination (Discord message order, webhook request order). Discord goes
-  as embeds, ten per message; webhooks as signed JSON, fifty spots per request, 10 s timeout;
+  as the card embed or plain line SQL rendered, one spot per message without a batch window and
+  ten with one (more, up to ten, only when a claim would otherwise need more than five messages),
+  always with
+  `allowed_mentions: {parse: []}`; webhooks as signed JSON, fifty spots per request, 10 s timeout;
   push as one encrypted notification per spot per member device, at most three spots a minute
   per destination from the budget, with the destination's urgency and TTL (see "Push
   destinations" below). Successes are acked in one `mark_deliveries_sent` per cycle, so write load
@@ -343,8 +361,10 @@ the Phase 2 plan, is `docs/superpowers/specs/2026-10-15-outbound-sender-design.m
   a test fails when it reads one the image does not allow, as for the relay.
   `LONGLINES_ALLOW_INSECURE_DESTINATIONS` is honoured only with a local database host.
 
-`send-test` reuses the same formatting and sending code for one labeled sample spot, from an Edge
-Function, which is why the VAPID pair also lives in function env.
+`send-test` reuses the same formatting and sending code for one labeled test spot, from an Edge
+Function, which is why the VAPID pair also lives in function env. A webhook gets the TypeScript
+sample spot; push and Discord get the spot SQL rendered with the destination's settings
+(`push_test_delivery`, `discord_test_delivery`).
 
 ## Push destinations
 
@@ -387,6 +407,50 @@ destination in quiet hours makes no request and reports the batch sent. The clai
 uses the destination's TTL, and its unwanted sweep drops a disabled destination's queued rows as
 it does a disabled subscription's; the matcher creates none for it in the first place. Webhook
 payloads strip the `push_*` keys, so `docs/WEBHOOKS.md` is unchanged.
+
+## Discord destinations
+
+A Discord destination posts to a channel webhook and has its own row in
+`discord_destination_settings` (canvas page 8; `docs/superpowers/specs/2026-10-18-discord-destination-design.md`):
+a style, `card` or `plain`; for the card, ordered field lists for the title, the details and a
+small grid, what the title links to (the callsign profile, the source site or nothing), a named
+card color (by source, or one color for every spot) and a footer with source and time; for the
+plain line, its field list, bold first field and link preview; shared by both, field labels and
+the separator; and the batch window. Fields are `discord_fields()`, push's list without `comment`
+(text typed by the spotter), each with push's fixed rendering. A trigger gives every new Discord
+destination the defaults (`discord_default_settings()`).
+
+As for push, SQL renders and the sender only shapes. For a Discord row `claim_deliveries` puts
+the settings row (`discord`) in the destination jsonb and nine keys from `discord_spot_fields` in
+the spot jsonb: `discord_style`, `discord_title` (at most 256 characters), `discord_description`
+(4096), `discord_grid` (`[{name, value}]`, values at most 1024), `discord_footer` ("POTA · 17:42
+UTC", or null when off), `discord_color` (an integer), `discord_url` (absolute, through
+`app_site_url()`, or null), `discord_line` (the plain line, the callsign a masked link to its
+profile, at most 190 characters so ten fit Discord's 2000, clipped only inside a value so no cut
+opens its bold or link) and `discord_suppress_embeds`. Every value is escaped for Discord markdown
+first (`discord_escape`, in `discord_field_values`), since a feed's callsign, spotter or park name
+is whatever the upstream sent, and a profile link is made only for a call of letters, digits, `/`
+and `-` (`discord_profile_url`). The
+editor's preview (`preview_discord_message`), Send test (`discord_test_delivery`, which marks the
+footer and the line "Test message from Long Lines") and real deliveries call the same renderer.
+
+`format.ts` (`discordBatches`) builds each message from those keys and never joins or formats a
+field. A card spot is one embed (title, description, URL, color, inline grid fields, footer;
+no `timestamp`, which Discord would show in the footer row even with the footer off); plain spots are lines of `content`, joined by a newline (a blank line when the
+separator is a new line), with `flags: 4` (SUPPRESS_EMBEDS) when SQL says so, so the profile link
+does not expand; the card style never sets it, since it would hide the card. Every message
+carries `allowed_mentions: {parse: []}`, so nothing pings even if a value looks like a mention.
+With `batch_seconds` 0 each spot is its own message; with a window, ten per message. Grouping
+past that happens only when a claim's spots would otherwise need more than
+`DISCORD_MESSAGES_PER_CLAIM` (5) messages: the group size is `min(10, ceil(spots / 5))`, and the
+claim's cap (50) and interval (10 seconds on average) keep a destination within Discord's 30
+messages a minute. Cards are packed in order, a new message starting at the group size or where
+the next embed would pass Discord's 6,000 characters a message, so only cards of about 600
+characters or more make a claim need a sixth message. `sendDiscord` counts `sent` by the spots each message
+carried. The batch window itself is the claim's hold above, so the sender never waits or delays
+anything. A row claimed without `discord` (before migration `20261018000100` is hosted) gets the
+old fixed embed, ten per message, so the sender and the migration ship in either order. Webhook
+payloads strip the `discord_*` keys.
 
 # Phase 3: stats snapshot
 

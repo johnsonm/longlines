@@ -364,8 +364,10 @@ A 429 from Discord, a webhook or a push service is not a failure. The sender cal
 60 s doubling to 15 minutes per level) and moves the messages' visibility to match; the claim
 skips the destination until then, and each successful cycle after it steps `throttle_level` down
 by one. `consecutive_failures` is untouched. The claim also meters each destination per minute
-(`destination_budget`: Discord 300 spots, push 3, webhooks 1000, burst equal to the rate), so a
-burst is spread over minutes rather than refused.
+(`destination_budget`: Discord 300 spots, push 3, webhooks 1000, burst equal to the rate except
+Discord's 100; a Discord claim takes at most 50, `destination_claim_max`, on average every 10
+seconds and never within 5, `destination_claim_interval` scheduling `claim_due_at`),
+so a burst is spread over minutes rather than refused.
 
 ```sql
 select name, type, throttle_level, throttled_until, claim_tokens
