@@ -25,6 +25,7 @@ describe("AppShell", () => {
   it("renders the page with navigation, highlighting the current page", () => {
     renderPage(shell(), { route: "/connections" });
     expect(screen.getByText("page body")).toBeInTheDocument();
+    expect(screen.getByRole("contentinfo")).toHaveTextContent("Brad Bazemore");
     expect(screen.getByRole("button", { name: "Connections" })).toHaveClass("Mui-selected");
     expect(screen.queryByRole("button", { name: "Open navigation" })).not.toBeInTheDocument();
   });
@@ -163,6 +164,7 @@ describe("PublicShell", () => {
   it("offers sign in and remembers the page", async () => {
     const { user } = renderPage(<PublicShell><p>public body</p></PublicShell>, { route: "/stats" });
     expect(screen.getByText("public body")).toBeInTheDocument();
+    expect(screen.getByRole("contentinfo")).toHaveTextContent("Brad Bazemore");
     await user.click(screen.getByRole("button", { name: "Sign in" }));
     const where = screen.getByTestId("location");
     expect(where).toHaveTextContent("/signin");

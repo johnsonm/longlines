@@ -23,6 +23,7 @@ import { signOut } from "../lib/api";
 import { INVALID_CALLSIGN, lookupPath } from "../profile/format";
 import { installState, promptInstall, subscribeInstall } from "../pwa/install";
 import { pushCleanup } from "../pwa/push";
+import { Footer } from "./Footer";
 import { InstallDialog } from "./InstallDialog";
 
 const NAV = [
@@ -152,11 +153,12 @@ export function AppShell({ children, destinationsFailing }: { children: ReactNod
       >
         {nav}
       </Drawer>
-      <Box component="main" sx={{ flexGrow: 1, minWidth: 0 }}>
+      <Box component="main" sx={{ flexGrow: 1, minWidth: 0, display: "flex", flexDirection: "column", minHeight: "100dvh" }}>
         <Toolbar />
-        <Container maxWidth="lg" sx={{ py: { xs: 2, sm: 4 }, px: { xs: 1.5, sm: 3 } }}>
+        <Container maxWidth="lg" sx={{ flexGrow: 1, py: { xs: 2, sm: 4 }, px: { xs: 1.5, sm: 3 } }}>
           {children}
         </Container>
+        <Footer />
       </Box>
     </Box>
   );

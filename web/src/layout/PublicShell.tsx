@@ -5,6 +5,7 @@ import InsightsIcon from "@mui/icons-material/Insights";
 import LoginIcon from "@mui/icons-material/Login";
 import PersonSearchIcon from "@mui/icons-material/PersonSearch";
 import { useLocation, useNavigate } from "react-router";
+import { Footer } from "./Footer";
 
 /** The signed-out frame for pages anyone can view: AppShell's bar and content area without the drawer or account menu. */
 export function PublicShell({ children }: { children: ReactNode }) {
@@ -31,11 +32,12 @@ export function PublicShell({ children }: { children: ReactNode }) {
           )}
         </Toolbar>
       </AppBar>
-      <Box component="main">
+      <Box component="main" sx={{ display: "flex", flexDirection: "column", minHeight: "100dvh" }}>
         <Toolbar />
-        <Container maxWidth="lg" sx={{ py: { xs: 2, sm: 4 }, px: { xs: 1.5, sm: 3 } }}>
+        <Container maxWidth="lg" sx={{ flexGrow: 1, py: { xs: 2, sm: 4 }, px: { xs: 1.5, sm: 3 } }}>
           {children}
         </Container>
+        <Footer />
       </Box>
     </Box>
   );
