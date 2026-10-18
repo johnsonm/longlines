@@ -6,7 +6,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(151);
+select plan(153);
 select pgmq.purge_queue('spot_events');
 select pgmq.purge_queue('deliveries_queue');
 delete from deliveries;
@@ -282,6 +282,13 @@ select is(discord_profile_url((select j from spot)), 'https://app.longlines.io/c
 select is(pg_temp.line(pg_temp.settings(), (select j from hostile)),
   '**\[FREE-QSL\]\(HTTPS://EVIL.EXAMPLE\)** · 14.062 MHz · CW · DX Cluster · US-2763 · Pisgah National Forest',
   'a hostile callsign in the plain line is escaped text with no link');
+-- Discord's masked-link text ignores escapes, so a '\[' with no ']' would
+-- break the link and show '[..](..)' as literal text (20261018000200).
+select is(pg_temp.line(pg_temp.settings(), (select j from spot) || '{"source": "dxcluster", "callsign": "K1ABC/[", "base_callsign": "K1ABC"}'),
+  '**K1ABC/\[** · 14.062 MHz · CW · DX Cluster · US-2763 · Pisgah National Forest',
+  'a callsign with a bracket is bold text with no link, though its base call has a profile');
+select is(pg_temp.line(pg_temp.settings('{"line_fields": ["mode", "callsign"]}'), (select j from spot) || '{"callsign": "K1ABC/]", "base_callsign": "K1ABC"}'),
+  '**CW** · K1ABC/\]', 'a closing bracket drops the link too');
 select results_eq($$ select f ->> 'discord_title', f ->> 'discord_description', f #>> '{discord_grid,1,value}', f ->> 'discord_url'
                      from (select discord_spot_fields(pg_temp.settings('{"detail_fields": ["callsign", "spotter"]}'),
                                                       (select j from hostile)) as f) t $$,
