@@ -81,7 +81,7 @@ Names are unique per account across every type, ignoring case. A name already in
 | PATCH | `/destinations/{id}` | `{"name"?, "url"?, "enabled"?}` | The destination. The type can't change, and a push destination takes no `url`. A new `url` clears `failing` health and the failure count. `"enabled": false` stops new spots going to it and drops the ones already queued; connections that use it keep their other destinations. |
 | DELETE | `/destinations/{id}` | | `{"deleted": true}`, or `409` while a connection uses it. |
 | POST | `/destinations/{id}/rotate-secret` | | `{"signing_secret"}`, for webhooks. The old secret stops working. |
-| POST | `/destinations/{id}/test` | | `{"ok": true}` once a sample spot is delivered (for push, to at least one of its devices, with the notification text its saved fields build), or `502` with the destination's error. |
+| POST | `/destinations/{id}/test` | | `{"ok": true}` once a sample spot is delivered (for push, to at least one of its devices, with the notification text its saved fields build; for Discord, as the message its saved settings build, marked as a test), or `502` with the destination's error. |
 
 A destination looks like this:
 
@@ -109,6 +109,28 @@ text), and `device_count`:
   "replace_same_station": true, "sound": true,
   "quiet_enabled": false, "quiet_from": "22:00:00", "quiet_until": "07:00:00", "quiet_mode": "silent",
   "device_count": 2
+}
+```
+
+The API does not change these settings; the web app's editor does.
+
+A Discord destination also has `discord`: its message settings as the web app's editor sets them.
+`style` is `card` or `plain`; the card's title, details and small grid and the plain line are
+ordered lists of field names from `callsign`, `frequency`, `band`, `mode`, `source`, `reference`,
+`place_name`, `state`, `spotter` and `time` (not `comment`; there is no custom text, and mentions
+such as @everyone are always off). `batch_seconds` is 0 for one message per spot, or 10, 30 or 60
+to group the spots of that window into one message:
+
+```json
+"discord": {
+  "style": "card",
+  "title_fields": ["callsign", "frequency", "mode"],
+  "detail_fields": ["source", "reference", "place_name", "state"],
+  "grid_fields": ["band", "spotter"],
+  "title_link": "profile", "card_color": "source", "footer": true,
+  "line_fields": ["callsign", "frequency", "mode", "source", "reference", "place_name"],
+  "bold_first": true, "link_preview": "hidden",
+  "show_field_names": false, "separator": "dot", "batch_seconds": 0
 }
 ```
 

@@ -164,9 +164,12 @@ deploys automatically.
   `throttled_until`).
 - Policy lives in SQL. `claim_deliveries` is rate-aware per destination and newest first, skips
   paused and throttled destinations, and expires old rows (`dropped_at`) before claiming; its knobs
-  are `destination_budget`, `destination_throttle_seconds` and `destination_max_age`. Never cap,
-  order, age-check or expire deliveries in TypeScript; `DISCORD_MESSAGES_PER_RUN` is a safety net
-  the budget keeps unreachable. The claim's signature and result columns stay as they are: new
+  are `destination_budget`, `destination_claim_interval` (a schedule in `claim_due_at`, claimable
+  half an interval early, so poll-aligned claims average one per interval),
+  `destination_claim_max`, `destination_throttle_seconds` and
+  `destination_max_age`, plus the Discord batch hold (`discord_destination_settings.batch_seconds`).
+  Never cap, order, age-check or expire deliveries in TypeScript; `DISCORD_MESSAGES_PER_RUN` is a
+  safety net the budget and the claim interval keep unreachable. The claim's signature and result columns stay as they are: new
   policy is a column or a knob function, never an argument.
 - Formatting, signing and URL safety are pure modules under `_shared/delivery/` with tests;
   `send.ts` is the only place that sends to destinations: `fetch` for Discord and push, and
@@ -184,6 +187,32 @@ deploys automatically.
 - Nothing in the app sets `destinations.health = 'paused'`; it is an operator tool, and the claim
   drops a paused destination's queued rows as unwanted, like `enabled = false`. To hold a queue
   and resume it, set `throttled_until`.
+
+## Discord rules
+
+The design is `docs/superpowers/specs/2026-10-18-discord-destination-design.md` (canvas page 8);
+its Copy section is the copy source for the Discord editor.
+
+- A Discord message is an ordered pick of fields, never a template or free text. Settings live in
+  `discord_destination_settings` (RLS on, no policies, no client grants) and are written only by
+  `save_discord_destination`, validated by `validate_discord_settings`. Fields are push's minus
+  Comment (`discord_fields()`).
+- SQL renders everything in `discord_spot_fields`: `claim_deliveries` adds its nine `discord_*`
+  keys to the spot jsonb and the settings as `discord` to the destination jsonb;
+  `preview_discord_message` and `discord_test_delivery` call the same function. `format.ts` only
+  shapes those keys into embeds or `content`; never join, format or escape field values in TypeScript.
+- Feed values are untrusted markup: callsigns and spotters from DX Cluster are any run of
+  non-space characters. Every value is escaped for Discord markdown once, in
+  `discord_field_values` (`discord_escape`, which also escapes indented list markers); a callsign
+  that is not URL-safe gets no profile link. Push's
+  `render_push_field` stays unescaped (notifications are plain text).
+- Every Discord message carries `allowed_mentions: {parse: []}`, legacy and test paths included.
+  `flags: 4` (SUPPRESS_EMBEDS) is only for plain style; on a card it would hide the card.
+- Pacing is SQL's: the batch hold and the claim interval decide when spots go, the budget and
+  `destination_claim_max` (50) how many. `discordBatches` groups spots only to stay within
+  `DISCORD_MESSAGES_PER_CLAIM` and packs cards in order within Discord's 6,000-character message
+  limit (only cards over about 600 characters make a sixth message); it never drops or delays one.
+- Profile links are absolute through `app_site_url()`; never hard-code the host elsewhere.
 
 ## Web app rules
 

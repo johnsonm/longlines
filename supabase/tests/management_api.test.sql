@@ -2,7 +2,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(63);
+select plan(65);
 
 -- ---------------------------------------------------------------------------
 -- Tokens
@@ -185,6 +185,18 @@ select is((select d -> 'push' from jsonb_array_elements(pg_temp.call('list_desti
   'a push destination shows its settings and device count, never devices');
 select is((select count(*) from jsonb_array_elements(pg_temp.call('list_destinations')) d where d ? 'push'), 2::bigint,
   'only push destinations carry push');
+-- Discord destinations (20261018000100) show their message settings, read only.
+select pg_temp.call('create_destination', '{"type": "discord", "name": "Chat", "url": "https://discord.com/api/webhooks/1/a"}');
+select is((select d -> 'discord' from jsonb_array_elements(pg_temp.call('list_destinations')) d where d ->> 'name' = 'Chat'),
+  '{"style": "card", "footer": true, "separator": "dot", "bold_first": true, "card_color": "source", "title_link": "profile",
+    "grid_fields": ["band", "spotter"], "line_fields": ["callsign", "frequency", "mode", "source", "reference", "place_name"],
+    "link_preview": "hidden", "title_fields": ["callsign", "frequency", "mode"], "batch_seconds": 0,
+    "detail_fields": ["source", "reference", "place_name", "state"], "show_field_names": false}'::jsonb,
+  'a Discord destination shows its settings');
+select results_eq($$ select d ->> 'type', d ? 'discord', d ? 'push' from jsonb_array_elements(pg_temp.call('list_destinations')) d
+                     order by d ->> 'name' $$,
+  $$ values ('discord'::text, true, false), ('push', false, true), ('webhook', false, false), ('push', false, true) $$,
+  'only Discord destinations carry discord');
 select is(pg_temp.call('update_destination', jsonb_build_object('id', (select j ->> 'id' from pushed), 'enabled', false)) -> 'enabled',
   'false'::jsonb, 'PATCH turns a destination off');
 select is(pg_temp.call('update_destination', jsonb_build_object('id', (select j ->> 'id' from pushed), 'name', 'Phone')) -> 'enabled',

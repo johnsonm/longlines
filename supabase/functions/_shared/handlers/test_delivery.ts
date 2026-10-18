@@ -1,9 +1,10 @@
-// "Send test": deliver one clearly labeled sample spot to a destination the
+// "Send test": deliver one clearly labeled test spot to a destination the
 // caller owns, using the same code path as real deliveries. A push
 // destination's test goes to its member devices with the notification text
-// built from its saved fields, for the sample spot or the spot the editor
-// previews (spot_id). SQL builds all of that (push_test_delivery); this only
-// sends it.
+// built from its saved fields, and a Discord destination's message is rendered
+// from its saved settings, for the sample spot or the spot the editor previews
+// (spot_id). SQL builds all of that (push_test_delivery, discord_test_delivery);
+// this only sends it. Webhooks get the TypeScript sample spot.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isUuid } from "../api/routes.ts";
@@ -14,6 +15,7 @@ import { pushBookkeeping, type SendResult } from "../delivery/send.ts";
 import type {
   DeliveryDestination,
   DeliverySpot,
+  DiscordSettings,
   PendingDelivery,
   PushDevice,
   PushSettings,
@@ -64,10 +66,23 @@ interface PushTest {
   spot: DeliverySpot;
 }
 
+/** What discord_test_delivery returns: the destination's settings and the rendered, test-marked spot. */
+interface DiscordTest {
+  discord: DiscordSettings;
+  spot: DeliverySpot;
+}
+
+/** Null from a test RPC: the spot is unknown, or (with no spot asked for) the destination. */
+function notFound(spotId: number | null): Response {
+  // A missing settings row (which the triggers rule out) also reads as null; the
+  // message then points at the destination, not a spot.
+  return json({ error: spotId === null ? "Destination not found." : "Spot not found." }, 404);
+}
+
 /**
- * Sends the sample spot (or, for push, raw_spots row `spotId`) to one of the
+ * Sends the sample spot (or, for push and Discord, raw_spots row `spotId`) to one of the
  * user's destinations. Shared with the management API's
- * POST /v1/destinations/{id}/test, which always sends the sample.
+ * POST /v1/destinations/{id}/test, which never passes a spot (the sample).
  */
 export async function sendTestTo(
   admin: SupabaseClient,
@@ -104,14 +119,24 @@ export async function sendTestTo(
       return json({ error: "Couldn't load that destination." }, 500);
     }
     const found = test.data as PushTest | null;
-    // Null means the spot is unknown, or the destination has no settings row (which the
-    // trigger rules out; the message then points at the destination, not a spot).
-    if (!found) {
-      return json({ error: spotId === null ? "Destination not found." : "Spot not found." }, 404);
-    }
+    if (!found) return notFound(spotId);
     destination.devices = found.devices;
     destination.push = found.push;
     destination.quiet_now = found.quiet_now;
+    spot = found.spot;
+  } else if (destination.type === "discord") {
+    // Its settings and the spot rendered by SQL with the test marker, as claim_deliveries would.
+    const test = await admin.rpc("discord_test_delivery", {
+      p_destination_id: destination.id,
+      p_spot_id: spotId,
+    });
+    if (test.error) {
+      console.error(`send-test: discord_test_delivery failed: ${test.error.message}`);
+      return json({ error: "Couldn't load that destination." }, 500);
+    }
+    const found = test.data as DiscordTest | null;
+    if (!found) return notFound(spotId);
+    destination.discord = found.discord;
     spot = found.spot;
   }
   const delivery: PendingDelivery = {

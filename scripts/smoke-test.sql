@@ -117,6 +117,14 @@ begin
   assert (select continent from public.cty_lookup('SM1HEV-#')) = 'EU',
     'cty_lookup should place SM1HEV in Europe';
 
+  -- Discord destinations: a trigger gives each its settings, and SQL renders the message.
+  assert exists (select 1 from pg_trigger where tgname = 'destinations_discord_settings'),
+    'destinations_discord_settings should be installed';
+  assert (public.discord_spot_fields(
+            jsonb_populate_record(null::discord_destination_settings, public.discord_default_settings()),
+            public.push_sample_spot()) ->> 'discord_title') = 'N0CALL · 14.062 MHz · CW',
+    'discord_spot_fields should render the default card title';
+
   -- Callsign rollups: the stream reads every source and a backfill marks the smoke spots' days
   -- (a seeded database may have rolled them up already).
   assert exists (select 1 from spot_stream where source = 'rbn' and callsign = 'SM0KE')

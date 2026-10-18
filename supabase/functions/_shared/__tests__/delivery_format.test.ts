@@ -1,7 +1,13 @@
 import { assertEquals } from "@std/assert";
 import {
   backoffSeconds,
+  cardEmbed,
+  DISCORD_EMBED_CHARS_PER_MESSAGE,
+  DISCORD_MESSAGES_PER_CLAIM,
+  DISCORD_MESSAGES_PER_RUN,
+  discordBatches,
   discordMessages,
+  embedChars,
   embedForSpot,
   LEGACY_PUSH_SETTINGS,
   pushNotifications,
@@ -14,7 +20,12 @@ import {
   webhookSpot,
 } from "../delivery/format.ts";
 import { MAX_PUSH_PLAINTEXT_BYTES } from "../delivery/webpush.ts";
-import type { DeliverySpot, PendingDelivery, PushSettings } from "../delivery/types.ts";
+import type {
+  DeliverySpot,
+  DiscordSettings,
+  PendingDelivery,
+  PushSettings,
+} from "../delivery/types.ts";
 
 const spot: DeliverySpot = {
   id: 42,
@@ -106,11 +117,232 @@ Deno.test("embedForSpot shows the WWFF reference and its name for WWFF spots", (
   ]);
 });
 
-Deno.test("discordMessages batches at most 10 embeds per message", () => {
+Deno.test("discordMessages without settings batches at most 10 legacy embeds per message", () => {
   const spots = Array.from({ length: 25 }, (_, i) => ({ ...spot, id: i }));
-  const msgs = discordMessages(spots);
-  assertEquals(msgs.map((m) => m.embeds.length), [10, 10, 5]);
-  assertEquals(msgs[0]?.embeds[0]?.title, "KK4PWJ");
+  const msgs = discordMessages(spots, {});
+  assertEquals(msgs.map((m) => m.embeds?.length), [10, 10, 5]);
+  assertEquals(msgs[0]?.embeds?.[0], embedForSpot(spot));
+  assertEquals(msgs.map((m) => m.allowed_mentions), [{ parse: [] }, { parse: [] }, { parse: [] }]);
+  assertEquals(discordMessages(spots), msgs);
+  assertEquals(discordBatches(spots, {}).map((b) => b.spots), [10, 10, 5]);
+});
+
+const DISCORD_SETTINGS: DiscordSettings = {
+  style: "card",
+  title_fields: ["callsign", "frequency", "mode"],
+  detail_fields: ["source", "reference", "place_name", "state"],
+  grid_fields: ["band", "spotter"],
+  title_link: "profile",
+  card_color: "source",
+  footer: true,
+  line_fields: ["callsign", "frequency", "mode", "source", "reference", "place_name"],
+  bold_first: true,
+  link_preview: "hidden",
+  show_field_names: false,
+  separator: "dot",
+  batch_seconds: 0,
+};
+
+// A spot as claim_deliveries hands it to a Discord destination: rendered in SQL.
+const rendered = (id: number, more: Partial<DeliverySpot> = {}): DeliverySpot => ({
+  ...spot,
+  id,
+  discord_style: "card",
+  discord_title: "KK4PWJ · 14.062 MHz · CW",
+  discord_description: "POTA · US-2763 · Eno River State Park · NC",
+  discord_grid: [{ name: "Band", value: "20m" }, { name: "Spotter", value: "W4ABC" }],
+  discord_footer: "POTA · 14:32 UTC",
+  discord_color: 3066993,
+  discord_url: "https://app.longlines.io/call/KK4PWJ",
+  discord_line:
+    "**[KK4PWJ](https://app.longlines.io/call/KK4PWJ)** · 14.062 MHz · CW · POTA · US-2763",
+  discord_suppress_embeds: false,
+  ...more,
+});
+
+Deno.test("cardEmbed shapes SQL's keys into the embed and adds nothing of its own", () => {
+  assertEquals(cardEmbed(rendered(1)), {
+    title: "KK4PWJ · 14.062 MHz · CW",
+    description: "POTA · US-2763 · Eno River State Park · NC",
+    url: "https://app.longlines.io/call/KK4PWJ",
+    color: 3066993,
+    fields: [
+      { name: "Band", value: "20m", inline: true },
+      { name: "Spotter", value: "W4ABC", inline: true },
+    ],
+    footer: { text: "POTA · 14:32 UTC" },
+  });
+});
+
+Deno.test("cardEmbed leaves out an empty description, a missing link and a footer that is off", () => {
+  const e = cardEmbed(
+    rendered(1, {
+      discord_description: "",
+      discord_url: null,
+      discord_footer: null,
+      discord_grid: [],
+    }),
+  );
+  assertEquals(e, {
+    title: "KK4PWJ · 14.062 MHz · CW",
+    color: 3066993,
+    fields: [],
+  });
+  // No timestamp either: Discord would show it in the footer row the preview leaves empty.
+  assertEquals("timestamp" in e, false);
+});
+
+Deno.test("cardEmbed falls back to the legacy embed for a spot SQL did not render", () => {
+  assertEquals(cardEmbed(spot), embedForSpot(spot));
+});
+
+Deno.test("discordBatches with settings sends one card per message when batch_seconds is 0", () => {
+  const spots = Array.from({ length: 5 }, (_, i) => rendered(i));
+  const batches = discordBatches(spots, { discord: DISCORD_SETTINGS });
+  assertEquals(batches.map((b) => b.spots), [1, 1, 1, 1, 1]);
+  assertEquals(batches[0]?.message, {
+    embeds: [cardEmbed(spots[0]!)],
+    allowed_mentions: { parse: [] },
+  });
+});
+
+Deno.test("discordBatches groups ten spots a message with a batch window", () => {
+  const spots = Array.from({ length: 25 }, (_, i) => rendered(i));
+  const batches = discordBatches(spots, { discord: { ...DISCORD_SETTINGS, batch_seconds: 30 } });
+  assertEquals(batches.map((b) => b.spots), [10, 10, 5]);
+  assertEquals(batches.map((b) => b.message.embeds?.length), [10, 10, 5]);
+});
+
+Deno.test("discordBatches groups a busy claim into at most five messages, never past ten spots each", () => {
+  // Twelve spots with no window: three a message, four messages, not twelve.
+  const twelve = Array.from({ length: 12 }, (_, i) => rendered(i));
+  assertEquals(discordBatches(twelve, { discord: DISCORD_SETTINGS }).map((b) => b.spots), [
+    3,
+    3,
+    3,
+    3,
+  ]);
+  const forty = Array.from({ length: 40 }, (_, i) => rendered(i));
+  assertEquals(discordBatches(forty, { discord: DISCORD_SETTINGS }).map((b) => b.spots), [
+    8,
+    8,
+    8,
+    8,
+    8,
+  ]);
+  // One claim's cap, 50 (destination_claim_max): five full messages.
+  const fifty = Array.from({ length: 50 }, (_, i) => rendered(i));
+  const full = discordBatches(fifty, { discord: DISCORD_SETTINGS });
+  assertEquals(full.length, DISCORD_MESSAGES_PER_CLAIM);
+  assertEquals(full.every((b) => b.message.embeds?.length === 10), true);
+  // Beyond the cap a message still never takes more than ten, and the per-run cap is the safety net.
+  const many = Array.from({ length: 300 }, (_, i) => rendered(i));
+  const grouped = discordBatches(many, { discord: { ...DISCORD_SETTINGS, batch_seconds: 60 } });
+  assertEquals(grouped.length, DISCORD_MESSAGES_PER_RUN);
+  assertEquals(grouped.every((b) => b.spots === 10), true);
+});
+
+Deno.test("discordBatches packs a split's room into the next message, keeping a claim within five", () => {
+  // 650 characters a card: nine fit in 6,000. A 45-spot claim whose first ten
+  // cards are that big goes as 9, 10, 10, 10, 6: still five messages, where
+  // splitting fixed groups of ten would have sent six.
+  const rest = embedChars(cardEmbed(rendered(0, { discord_description: "" })));
+  const sized = (i: number, chars: number) =>
+    rendered(i, { discord_description: "x".repeat(chars - rest) });
+  const spots = Array.from({ length: 45 }, (_, i) => sized(i, i < 10 ? 650 : 300));
+  const settings = { discord: { ...DISCORD_SETTINGS, batch_seconds: 30 } };
+  const batches = discordBatches(spots, settings);
+  assertEquals(batches.map((b) => b.spots), [9, 10, 10, 10, 6]);
+  assertEquals(batches.length, DISCORD_MESSAGES_PER_CLAIM);
+  assertEquals(batches.reduce((n, b) => n + b.spots, 0), 45);
+  // A full claim of 50 such cards cannot fit in five (nine a message): six,
+  // never the ten that splitting each group of ten would send.
+  const big = Array.from({ length: 50 }, (_, i) => sized(i, 650));
+  assertEquals(discordBatches(big, settings).map((b) => b.spots), [9, 9, 9, 9, 9, 5]);
+});
+
+Deno.test("discordBatches splits cards whose embeds would pass Discord's 6,000 characters", () => {
+  // 800 characters a card: seven fit in 6,000, so ten go as seven and three.
+  const rest = embedChars(cardEmbed(rendered(0, { discord_description: "" })));
+  const big = (i: number) => rendered(i, { discord_description: "x".repeat(800 - rest) });
+  const spots = Array.from({ length: 10 }, (_, i) => big(i));
+  assertEquals(embedChars(cardEmbed(spots[0]!)), 800);
+  const batches = discordBatches(spots, { discord: { ...DISCORD_SETTINGS, batch_seconds: 30 } });
+  assertEquals(batches.map((b) => b.spots), [7, 3]);
+  assertEquals(
+    batches.every((b) =>
+      (b.message.embeds ?? []).reduce((n, e) => n + embedChars(e), 0) <=
+        DISCORD_EMBED_CHARS_PER_MESSAGE
+    ),
+    true,
+  );
+  // A single card over the total still goes, alone.
+  const huge = rendered(1, {
+    discord_description: "y".repeat(4096),
+    discord_grid: [{ name: "Place name", value: "z".repeat(1024) }, {
+      name: "Spotter",
+      value: "z".repeat(1024),
+    }],
+  });
+  assertEquals(
+    discordBatches([huge, rendered(2)], { discord: { ...DISCORD_SETTINGS, batch_seconds: 30 } })
+      .map((b) => b.spots),
+    [1, 1],
+  );
+});
+
+Deno.test("embedChars counts the title, description, field names and values and the footer", () => {
+  assertEquals(
+    embedChars({
+      title: "ab",
+      description: "cde",
+      fields: [{ name: "f", value: "gh", inline: true }],
+      footer: { text: "ij" },
+    }),
+    10,
+  );
+  assertEquals(embedChars({ title: "ab", fields: [] }), 2);
+});
+
+Deno.test("discordBatches puts plain lines in content, one per line, with flags when SQL suppresses embeds", () => {
+  const plain = { ...DISCORD_SETTINGS, style: "plain" as const, batch_seconds: 10 };
+  const spots = [
+    rendered(1, { discord_style: "plain", discord_line: "a", discord_suppress_embeds: true }),
+    rendered(2, { discord_style: "plain", discord_line: "b", discord_suppress_embeds: true }),
+  ];
+  assertEquals(discordBatches(spots, { discord: plain }), [{
+    message: { content: "a\nb", flags: 4, allowed_mentions: { parse: [] } },
+    spots: 2,
+  }]);
+  // A blank line between spots when fields are separated by a new line; no flag when shown.
+  const shown = spots.map((s) => ({ ...s, discord_suppress_embeds: false }));
+  assertEquals(discordMessages(shown, { discord: { ...plain, separator: "newline" } }), [{
+    content: "a\n\nb",
+    allowed_mentions: { parse: [] },
+  }]);
+  // One line per message with no window.
+  assertEquals(
+    discordMessages(shown, { discord: { ...plain, batch_seconds: 0 } }).map((m) => m.content),
+    ["a", "b"],
+  );
+});
+
+Deno.test("discordBatches falls back to the callsign for a plain spot without a line", () => {
+  const plain = { ...DISCORD_SETTINGS, style: "plain" as const };
+  assertEquals(discordMessages([spot], { discord: plain }), [{
+    content: "KK4PWJ",
+    allowed_mentions: { parse: [] },
+  }]);
+});
+
+Deno.test("every Discord message carries allowed_mentions with nothing to parse", () => {
+  const spots = Array.from({ length: 5 }, (_, i) => rendered(i));
+  const all = [
+    ...discordMessages(spots, {}),
+    ...discordMessages(spots, { discord: DISCORD_SETTINGS }),
+    ...discordMessages(spots, { discord: { ...DISCORD_SETTINGS, style: "plain" } }),
+  ];
+  assertEquals(all.every((m) => JSON.stringify(m.allowed_mentions) === '{"parse":[]}'), true);
 });
 
 Deno.test("webhookPayloads carry delivery and connection ids with the normalized spot, 50 per request", () => {
@@ -155,6 +387,10 @@ Deno.test("webhookPayloads leaves out the push-only fields SQL adds", () => {
   const [payload] = webhookPayloads([delivery(1, pushedSpot)]);
   assertEquals(payload?.deliveries[0]?.spot, spot);
   assertEquals(webhookSpot(spot), spot);
+});
+
+Deno.test("webhookSpot leaves out the Discord fields SQL adds", () => {
+  assertEquals(webhookSpot(rendered(42)), spot);
 });
 
 // A spot as claim_deliveries hands it to a push destination: text and URLs built in SQL.
