@@ -1,6 +1,7 @@
 import { Box, Button, Card, CardActions, CardContent, Chip, Divider, Paper, Stack, Tooltip, Typography } from "@mui/material";
-import type { Destination, PushDevice } from "../lib/api";
+import type { Destination, DiscordSettingsSummary, PushDevice } from "../lib/api";
 import { cardMeta } from "./cardMeta";
+import { discordCardLine } from "./discordModel";
 import { HealthChip } from "./HealthChip";
 import { typeLabel } from "./types";
 
@@ -10,6 +11,8 @@ interface Props {
   usedBy: number;
   /** For a push destination: its member devices, from the page's one listPushDevices call. */
   devices: PushDevice[];
+  /** For a Discord destination: its style and field count, from the page's one listDiscordDestinationSettings call; null until loaded. */
+  discord: DiscordSettingsSummary | null;
   busy: boolean;
   mobile: boolean;
   onSendTest: () => void;
@@ -19,8 +22,10 @@ interface Props {
   onDelete: () => void;
 }
 
-export function DestinationCard({ dest, usedBy, devices, busy, mobile, onSendTest, onRotateSecret, onEdit, onDuplicate, onDelete }: Props) {
+export function DestinationCard({ dest, usedBy, devices, discord, busy, mobile, onSendTest, onRotateSecret, onEdit, onDuplicate, onDelete }: Props) {
   const push = dest.type === "push";
+  const editable = push || dest.type === "discord";
+  const typeLine = dest.type === "discord" && discord ? discordCardLine(discord.style, discord.field_count) : typeLabel(dest.type);
   const blocked = devices.filter((d) => d.blocked_at !== null).length;
   const deleteTip = usedBy > 0 ? `Used by ${usedBy} connections. Remove it from them first.` : "Delete";
 
@@ -31,7 +36,7 @@ export function DestinationCard({ dest, usedBy, devices, busy, mobile, onSendTes
           <Typography variant="h6" component="h2" sx={{ minWidth: 0, overflowWrap: "anywhere" }}>{dest.name}</Typography>
           <HealthChip health={dest.health} blocked={push ? blocked : 0} />
         </Stack>
-        <Typography color="text.secondary" gutterBottom>{typeLabel(dest.type)}</Typography>
+        <Typography color="text.secondary" gutterBottom>{typeLine}</Typography>
         {push ? (
           devices.length > 0 ? (
             <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap", my: 1.5 }}>
@@ -57,8 +62,8 @@ export function DestinationCard({ dest, usedBy, devices, busy, mobile, onSendTes
       <CardActions sx={{ flexWrap: "wrap", gap: 1, px: 2, py: 1.5, flexDirection: mobile ? "column" : "row", alignItems: mobile ? "stretch" : "center" }}>
         <Button size="small" variant="outlined" disabled={busy} onClick={onSendTest}>Send test</Button>
         {dest.type === "webhook" && <Button size="small" disabled={busy} onClick={onRotateSecret}>Rotate secret</Button>}
-        {push && <Button size="small" disabled={busy} onClick={onEdit}>Edit</Button>}
-        {push && <Button size="small" disabled={busy} onClick={onDuplicate}>Duplicate</Button>}
+        {editable && <Button size="small" aria-label={`Edit ${dest.name}`} disabled={busy} onClick={onEdit}>Edit</Button>}
+        {editable && <Button size="small" aria-label={`Duplicate ${dest.name}`} disabled={busy} onClick={onDuplicate}>Duplicate</Button>}
         <Tooltip title={deleteTip}>
           <Box component="span" sx={{ ml: mobile ? 0 : "auto", display: mobile ? "flex" : "inline-flex", flexDirection: "column" }}>
             <Button size="small" color="error" aria-label={`Delete ${dest.name}`} disabled={usedBy > 0 || busy} onClick={onDelete} fullWidth={mobile}>

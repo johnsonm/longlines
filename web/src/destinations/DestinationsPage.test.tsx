@@ -3,7 +3,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import { renderPage } from "../test/render";
 import { setMobile } from "../test/media";
 import {
-  createDestination, deleteDestination, duplicateDestination, listPushDevices, rotateSigningSecret, sendTest,
+  createDestination, deleteDestination, duplicateDestination, listDiscordDestinationSettings, listPushDevices, rotateSigningSecret, sendTest,
   type Destination, type PushDevice, type SubscriptionWithLinks,
 } from "../lib/api";
 import { cardMeta } from "./cardMeta";
@@ -13,6 +13,7 @@ vi.mock("../lib/api", () => ({
   createDestination: vi.fn(),
   deleteDestination: vi.fn(),
   duplicateDestination: vi.fn(),
+  listDiscordDestinationSettings: vi.fn(),
   listPushDevices: vi.fn(),
   rotateSigningSecret: vi.fn(),
   sendTest: vi.fn(),
@@ -37,8 +38,11 @@ const sub = (id: string, destinations: string[]) => ({ id, destinations }) as Su
 const ago = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
 
 beforeEach(() => {
-  for (const fn of [createDestination, deleteDestination, duplicateDestination, listPushDevices, rotateSigningSecret, sendTest]) vi.mocked(fn).mockReset();
+  for (const fn of [createDestination, deleteDestination, duplicateDestination, listDiscordDestinationSettings, listPushDevices, rotateSigningSecret, sendTest]) {
+    vi.mocked(fn).mockReset();
+  }
   vi.mocked(listPushDevices).mockResolvedValue([]);
+  vi.mocked(listDiscordDestinationSettings).mockResolvedValue([]);
 });
 
 function render(dests: Destination[], subs: SubscriptionWithLinks[] = [], loading = false) {
@@ -69,6 +73,7 @@ describe("DestinationsPage", () => {
     expect(screen.getByText("Where matching spots are sent.")).toBeInTheDocument();
     expect(screen.getByText("No destinations yet.")).toBeInTheDocument();
     expect(listPushDevices).not.toHaveBeenCalled();
+    expect(listDiscordDestinationSettings).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: "Add your first destination" }));
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
   });
@@ -98,8 +103,47 @@ describe("DestinationsPage", () => {
     expect(screen.getByText("not used by any connection · Last delivery 3 minutes ago")).toBeInTheDocument();
     expect(screen.getByText("used by 1 connection · Never used")).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "Rotate secret" })).toHaveLength(2);
-    expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Duplicate" })).not.toBeInTheDocument();
+    // Only the Discord card has an editor among these; webhooks have none yet.
+    expect(screen.getAllByRole("button", { name: /^Edit / })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: /^Duplicate / })).toHaveLength(1);
+  });
+
+  it("shows each Discord card's style and field count from one settings list", async () => {
+    vi.mocked(listDiscordDestinationSettings).mockResolvedValue([
+      { destination_id: "d1", style: "card", field_count: 9 },
+      { destination_id: "d2", style: "plain", field_count: 1 },
+    ]);
+    const { user } = render([
+      dest("d1", { type: "discord", name: "Club" }), dest("d2", { type: "discord", name: "Quiet" }), dest("d3", { type: "discord", name: "New" }),
+      dest("w"),
+    ]);
+    expect(await screen.findByText("Discord channel · Card · 9 fields")).toBeInTheDocument();
+    expect(screen.getByText("Discord channel · Plain line · 1 field")).toBeInTheDocument();
+    // A card the list doesn't cover keeps the type name.
+    expect(screen.getByText("Discord channel")).toBeInTheDocument();
+    expect(listDiscordDestinationSettings).toHaveBeenCalledTimes(1);
+    expect(listPushDevices).not.toHaveBeenCalled();
+    expect(screen.getAllByRole("button", { name: /^Edit / })).toHaveLength(3);
+    expect(screen.getAllByRole("button", { name: /^Duplicate / })).toHaveLength(3);
+    expect(screen.getAllByRole("button", { name: "Rotate secret" })).toHaveLength(1);
+    await user.click(screen.getByRole("button", { name: "Edit Club" }));
+    expect(screen.getByTestId("location")).toHaveTextContent("/destinations/d1");
+  });
+
+  it("keeps the type name when the Discord settings fail to load", async () => {
+    vi.mocked(listDiscordDestinationSettings).mockRejectedValue(new Error("Sign in again."));
+    const { app } = render([dest("d1", { type: "discord" })]);
+    await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Sign in again."));
+    expect(screen.getByText("Discord channel")).toBeInTheDocument();
+  });
+
+  it("duplicates a Discord destination into its editor", async () => {
+    vi.mocked(duplicateDestination).mockResolvedValue("d9");
+    const { user, app } = render([dest("d1", { type: "discord", name: "Club" })]);
+    await user.click(screen.getByRole("button", { name: "Duplicate Club" }));
+    expect(duplicateDestination).toHaveBeenCalledWith("d1");
+    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/destinations/d9"));
+    expect(app.notify).toHaveBeenCalledWith("Duplicated Club");
   });
 
   it("shows the failing alert with a Send test action", async () => {
@@ -146,8 +190,8 @@ describe("DestinationsPage", () => {
     expect(screen.getByText("1 device blocked")).toBeInTheDocument();
     expect(screen.getAllByText("Healthy")).toHaveLength(2);
     expect(screen.getByText("No devices yet")).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: "Edit" })).toHaveLength(3);
-    expect(screen.getAllByRole("button", { name: "Duplicate" })).toHaveLength(3);
+    expect(screen.getAllByRole("button", { name: /^Edit / })).toHaveLength(3);
+    expect(screen.getAllByRole("button", { name: /^Duplicate / })).toHaveLength(3);
     expect(screen.queryByRole("button", { name: "Rotate secret" })).not.toBeInTheDocument();
 
     const alert = screen.getByRole("alert");
@@ -183,14 +227,17 @@ describe("DestinationsPage", () => {
 
   it("opens the editor from Edit", async () => {
     const { user } = render([dest("p", { type: "push", name: "POTA phone" })]);
-    await user.click(screen.getByRole("button", { name: "Edit" }));
+    // The names say which destination each button acts on.
+    expect(screen.getByRole("button", { name: "Edit POTA phone" })).toHaveTextContent("Edit");
+    await user.click(screen.getByRole("button", { name: "Edit POTA phone" }));
     expect(screen.getByTestId("location")).toHaveTextContent("/destinations/p");
   });
 
   it("duplicates into a new editor", async () => {
     vi.mocked(duplicateDestination).mockResolvedValue("p2");
     const { user, app, reload } = render([dest("p", { type: "push", name: "POTA phone" })]);
-    await user.click(screen.getByRole("button", { name: "Duplicate" }));
+    expect(screen.getByRole("button", { name: "Duplicate POTA phone" })).toHaveTextContent("Duplicate");
+    await user.click(screen.getByRole("button", { name: "Duplicate POTA phone" }));
     expect(duplicateDestination).toHaveBeenCalledWith("p");
     await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/destinations/p2"));
     expect(app.notify).toHaveBeenCalledWith("Duplicated POTA phone");
@@ -264,28 +311,40 @@ describe("DestinationsPage", () => {
     await waitFor(() => expect(reload).toHaveBeenCalled());
   });
 
-  it("names a Discord destination after its type when left blank", async () => {
-    vi.mocked(createDestination).mockResolvedValue({ id: "n", type: "discord", name: "Discord channel", url_display: "x", signing_secret: null });
+  it("names a webhook destination after its type when left blank", async () => {
+    vi.mocked(createDestination).mockResolvedValue({ id: "n", type: "webhook", name: "Webhook", url_display: "x", signing_secret: null });
     const { user, app } = render([]);
     await user.click(screen.getByRole("button", { name: "Add destination" }));
     const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("radio", { name: /^Webhook/ }));
     await user.click(within(dialog).getByRole("button", { name: "Continue" }));
-    await user.type(within(dialog).getByLabelText("Discord webhook URL"), "https://discord.com/api/webhooks/1/x");
+    await user.type(within(dialog).getByLabelText("Endpoint URL"), "https://example.com/spots");
     await user.click(within(dialog).getByRole("button", { name: "Add destination" }));
-    expect(createDestination).toHaveBeenCalledWith("discord", "Discord channel", "https://discord.com/api/webhooks/1/x");
-    await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Added Discord channel"));
+    expect(createDestination).toHaveBeenCalledWith("webhook", "Webhook", "https://example.com/spots");
+    await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Added Webhook"));
     expect(screen.queryByText(/Signing secret for/)).not.toBeInTheDocument();
   });
 
-  it("shows create errors in the dialog and can be cancelled", async () => {
-    vi.mocked(createDestination).mockRejectedValue(new Error("That URL isn't a Discord webhook."));
+  it("opens the Discord editor from the add dialog", async () => {
     const { user } = render([]);
     await user.click(screen.getByRole("button", { name: "Add destination" }));
     const dialog = await screen.findByRole("dialog");
     await user.click(within(dialog).getByRole("button", { name: "Continue" }));
-    await user.type(within(dialog).getByLabelText("Discord webhook URL"), "https://nope");
+    expect(createDestination).not.toHaveBeenCalled();
+    expect(screen.getByTestId("location")).toHaveAttribute("data-search", "?type=discord");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  it("shows create errors in the dialog and can be cancelled", async () => {
+    vi.mocked(createDestination).mockRejectedValue(new Error("Use an https URL."));
+    const { user } = render([]);
+    await user.click(screen.getByRole("button", { name: "Add destination" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("radio", { name: /^Webhook/ }));
+    await user.click(within(dialog).getByRole("button", { name: "Continue" }));
+    await user.type(within(dialog).getByLabelText("Endpoint URL"), "http://nope");
     await user.click(within(dialog).getByRole("button", { name: "Add destination" }));
-    expect(await within(dialog).findByText("That URL isn't a Discord webhook.")).toBeInTheDocument();
+    expect(await within(dialog).findByText("Use an https URL.")).toBeInTheDocument();
     await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { PushSettings } from "./api";
+import type { DiscordSettings, PushSettings } from "./api";
 
 type Result = { data?: unknown; error?: { message: string; code?: string } | null };
 
@@ -374,6 +374,69 @@ describe("push", () => {
     await expect(api.previewPushNotification(["callsign"], [], false, "dot", null)).rejects.toThrow("Couldn't load the preview.");
     fake.rpcs.set("preview_push_notification", { error: { message: "Pick 1 to 4 fields for the title." } });
     await expect(api.previewPushNotification([], [], false, "dot", null)).rejects.toThrow("Pick 1 to 4 fields for the title.");
+  });
+});
+
+describe("discord", () => {
+  const settings: DiscordSettings = {
+    style: "card", title_fields: ["callsign", "frequency", "mode"], detail_fields: ["source", "reference", "place_name", "state"],
+    grid_fields: ["band", "spotter"], title_link: "profile", card_color: "source", footer: true,
+    line_fields: ["callsign", "frequency", "mode", "source", "reference", "place_name"], bold_first: true, link_preview: "hidden",
+    show_field_names: false, separator: "dot", batch_seconds: 0,
+  };
+
+  it("saveDiscordDestination creates without an id and updates with one, a null URL keeping the stored one", async () => {
+    fake.rpcs.set("save_discord_destination", { data: "d1" });
+    const url = "https://discord.com/api/webhooks/1/abc";
+    expect(await api.saveDiscordDestination({ name: "Spots", enabled: true, url, settings })).toBe("d1");
+    expect(fake.client.rpc).toHaveBeenLastCalledWith("save_discord_destination", {
+      p_id: null, p_name: "Spots", p_enabled: true, p_url: url, p_settings: settings,
+    });
+    await api.saveDiscordDestination({ id: "d1", name: "Spots", enabled: false, url: null, settings });
+    expect(fake.client.rpc).toHaveBeenLastCalledWith("save_discord_destination", {
+      p_id: "d1", p_name: "Spots", p_enabled: false, p_url: null, p_settings: settings,
+    });
+    fake.rpcs.set("save_discord_destination", { error: { message: "Use a Discord webhook URL." } });
+    await expect(api.saveDiscordDestination({ name: "Spots", enabled: true, url: "x", settings })).rejects.toThrow("Use a Discord webhook URL.");
+    fake.rpcs.set("save_discord_destination", { error: { message: "" } });
+    await expect(api.saveDiscordDestination({ name: "Spots", enabled: true, url: "x", settings })).rejects.toThrow("Couldn't save the destination.");
+  });
+
+  it("getDiscordDestination returns the RPC's json", async () => {
+    const dest = { id: "d1", name: "Spots", enabled: true, url_display: "discord.com/api/webhooks/1/••••", settings };
+    fake.rpcs.set("get_discord_destination", { data: dest });
+    expect(await api.getDiscordDestination("d1")).toEqual(dest);
+    expect(fake.client.rpc).toHaveBeenLastCalledWith("get_discord_destination", { p_id: "d1" });
+    fake.rpcs.set("get_discord_destination", { error: { message: "Destination not found." } });
+    await expect(api.getDiscordDestination("d1")).rejects.toThrow("Destination not found.");
+  });
+
+  it("listDiscordDestinationSettings returns the rows, or none", async () => {
+    const rows = [{ destination_id: "d1", style: "card", field_count: 9 }, { destination_id: "d2", style: "plain", field_count: 6 }];
+    fake.rpcs.set("list_discord_destination_settings", { data: rows });
+    expect(await api.listDiscordDestinationSettings()).toEqual(rows);
+    expect(fake.client.rpc).toHaveBeenLastCalledWith("list_discord_destination_settings");
+    fake.rpcs.set("list_discord_destination_settings", { data: null });
+    expect(await api.listDiscordDestinationSettings()).toEqual([]);
+    fake.rpcs.set("list_discord_destination_settings", { error: boom });
+    await expect(api.listDiscordDestinationSettings()).rejects.toThrow("boom");
+  });
+
+  it("previewDiscordMessage sends the settings and the spot, and returns SQL's keys", async () => {
+    const preview = {
+      discord_style: "card", discord_title: "KK4PWJ · 14.062 MHz · CW", discord_description: "POTA · US-2763", discord_grid: [{ name: "Band", value: "20m" }],
+      discord_footer: "POTA · 17:42 UTC", discord_color: 5763719, discord_url: "https://app.longlines.io/call/KK4PWJ",
+      discord_line: "**KK4PWJ** · 14.062 MHz", discord_suppress_embeds: false,
+    };
+    fake.rpcs.set("preview_discord_message", { data: preview });
+    expect(await api.previewDiscordMessage(settings, 42)).toEqual(preview);
+    expect(fake.client.rpc).toHaveBeenLastCalledWith("preview_discord_message", { p_settings: settings, p_spot_id: 42 });
+    await api.previewDiscordMessage(settings, null);
+    expect(fake.client.rpc).toHaveBeenLastCalledWith("preview_discord_message", { p_settings: settings });
+    fake.rpcs.set("preview_discord_message", { data: null });
+    await expect(api.previewDiscordMessage(settings, null)).rejects.toThrow("Couldn't load the preview.");
+    fake.rpcs.set("preview_discord_message", { error: { message: "Pick 1 to 8 fields for the message." } });
+    await expect(api.previewDiscordMessage(settings, null)).rejects.toThrow("Pick 1 to 8 fields for the message.");
   });
 });
 

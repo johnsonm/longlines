@@ -205,7 +205,7 @@ listed here comes from Copy at the end of this file.
 - Discord channel: Post each spot to a channel through a webhook.
 - Webhook: Send each spot as JSON to your own URL.
 - Push notification: Notify your phone or computer. Works in the browser, no app to install.
-- Buttons: Cancel · Continue (step 2 for Discord and webhook: Add destination, as today)
+- Buttons: Cancel · Continue (step 2 for webhooks only: Add destination, as today; Discord opens its editor instead, see `2026-10-18-discord-destination-design.md`)
 
 **Push destination editor**
 - Breadcrumb: Destinations › New destination | {name}

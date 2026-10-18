@@ -17,9 +17,9 @@ const TypeCard = styled(Card, { shouldForwardProp: (prop) => prop !== "selected"
 
 /**
  * Add destination, in two steps: pick a type (page 5), then its details.
- * Discord and webhook take a name and URL here; push goes to the editor at
- * /destinations/new?type=push, since a push destination has devices and
- * settings instead of a URL.
+ * Only a webhook takes its name and URL here; Discord and push go to their
+ * editors at /destinations/new?type=discord and ?type=push, since both have
+ * settings beyond a URL.
  */
 export function DestinationDialog({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: (d: CreatedDestination) => void }) {
   const navigate = useNavigate();
@@ -42,9 +42,9 @@ export function DestinationDialog({ open, onClose, onCreated }: { open: boolean;
     onClose();
   };
   const next = () => {
-    if (type === "push") {
+    if (type === "push" || type === "discord") {
       close();
-      void navigate("/destinations/new?type=push");
+      void navigate(`/destinations/new?type=${type}`);
       return;
     }
     setStep("details");
@@ -112,18 +112,10 @@ export function DestinationDialog({ open, onClose, onCreated }: { open: boolean;
             {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
             <Stack spacing={2}>
               <TextField label="Name" placeholder="e.g. Club Discord" value={name} onChange={(e) => setName(e.target.value)} fullWidth />
-              {type === "discord" && (
-                <TextField
-                  label="Discord webhook URL" placeholder="https://discord.com/api/webhooks/…" value={target} onChange={(e) => setTarget(e.target.value)}
-                  fullWidth helperText="Channel settings → Integrations → Webhooks → Copy URL"
-                />
-              )}
-              {type === "webhook" && (
-                <TextField
-                  label="Endpoint URL" placeholder="https://example.com/spots" value={target} onChange={(e) => setTarget(e.target.value)}
-                  fullWidth helperText="We'll show the signing secret once the destination is added."
-                />
-              )}
+              <TextField
+                label="Endpoint URL" placeholder="https://example.com/spots" value={target} onChange={(e) => setTarget(e.target.value)}
+                fullWidth helperText="We'll show the signing secret once the destination is added."
+              />
             </Stack>
           </DialogContent>
           <DialogActions>

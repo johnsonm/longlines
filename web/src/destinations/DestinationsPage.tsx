@@ -4,8 +4,8 @@ import AddIcon from "@mui/icons-material/Add";
 import { useNavigate } from "react-router";
 import { PageTitle } from "../layout/PageTitle";
 import {
-  deleteDestination, duplicateDestination, listPushDevices, rotateSigningSecret, sendTest,
-  type CreatedDestination, type Destination, type PushDevice, type SubscriptionWithLinks,
+  deleteDestination, duplicateDestination, listDiscordDestinationSettings, listPushDevices, rotateSigningSecret, sendTest,
+  type CreatedDestination, type Destination, type DiscordSettingsSummary, type PushDevice, type SubscriptionWithLinks,
 } from "../lib/api";
 import { currentEndpoint } from "../pwa/push";
 import { errorText, useNotify } from "../app/hooks";
@@ -55,7 +55,29 @@ export function DestinationsPage({ dests, subs, loading, reload }: Props) {
     };
   }, [pushIds, notify]);
 
+  // Likewise one settings summary list for every Discord card's type line.
+  const [discord, setDiscord] = useState<DiscordSettingsSummary[]>([]);
+  const discordIds = useMemo(() => dests.filter((d) => d.type === "discord").map((d) => d.id).join(","), [dests]);
+  useEffect(() => {
+    if (!discordIds) {
+      setDiscord([]);
+      return;
+    }
+    let active = true;
+    listDiscordDestinationSettings()
+      .then((list) => {
+        if (active) setDiscord(list);
+      })
+      .catch((err: unknown) => {
+        if (active) notify(errorText(err, "Couldn't load your Discord settings."));
+      });
+    return () => {
+      active = false;
+    };
+  }, [discordIds, notify]);
+
   const membersOf = (id: string) => devices.filter((d) => d.destination_ids.includes(id));
+  const summaryOf = (id: string) => discord.find((s) => s.destination_id === id) ?? null;
 
   const openDialog = () => {
     setOpen(true);
@@ -135,7 +157,7 @@ export function DestinationsPage({ dests, subs, loading, reload }: Props) {
           {dests.map((d) => (
             <Grid key={d.id} size={{ xs: 12, md: 6 }}>
               <DestinationCard
-                dest={d} usedBy={usedBy(d.id)} devices={membersOf(d.id)} busy={busyId === d.id} mobile={mobile}
+                dest={d} usedBy={usedBy(d.id)} devices={membersOf(d.id)} discord={summaryOf(d.id)} busy={busyId === d.id} mobile={mobile}
                 onSendTest={() => test(d)}
                 onRotateSecret={() => void run(d.id, async () => {
                   const value = await rotateSigningSecret(d.id);

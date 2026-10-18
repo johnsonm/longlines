@@ -6,11 +6,11 @@
 import type { PushDestination, PushDestinationInput, PushField, PushSettings, RecentSpot } from "../lib/api";
 import { sourceName } from "../sources/sources";
 import { spotReference } from "../sources/spots";
+import { labelOf, unpickedFields as unpickedOf, type FieldInfo as GenericFieldInfo, type Option } from "./fieldList";
 
-export interface FieldInfo {
-  id: PushField;
-  label: string;
-}
+export { addField, moveField, removeField, type Option } from "./fieldList";
+
+export type FieldInfo = GenericFieldInfo<PushField>;
 
 /** push_fields() in SQL's order, with push_field_label()'s display names. */
 export const PUSH_FIELDS: FieldInfo[] = [
@@ -28,7 +28,7 @@ export const PUSH_FIELDS: FieldInfo[] = [
 ];
 
 export function fieldLabel(id: PushField): string {
-  return PUSH_FIELDS.find((f) => f.id === id)?.label ?? id;
+  return labelOf(PUSH_FIELDS, id);
 }
 
 /** Decision 4's limits, checked again in SQL (validate_push_fields). */
@@ -53,11 +53,6 @@ export const DEFAULT_SETTINGS: PushSettings = {
   quiet_until: "07:00",
   quiet_mode: "silent",
 };
-
-export interface Option<T> {
-  value: T;
-  label: string;
-}
 
 export const URGENCIES: Option<PushSettings["urgency"]>[] = [
   { value: "low", label: "Low" },
@@ -90,31 +85,9 @@ export const TAP_TARGETS: Option<PushSettings["tap_target"]>[] = [
   { value: "source", label: "Source site" },
 ];
 
-/** Appends a field; the list is returned as is when it is full or already has the field. */
-export function addField(list: PushField[], field: PushField, max: number): PushField[] {
-  if (list.length >= max || list.includes(field)) return list;
-  return [...list, field];
-}
-
-/** Removes the field at `index`; the list is returned as is when that would take it below `min`. */
-export function removeField(list: PushField[], index: number, min = 0): PushField[] {
-  if (index < 0 || index >= list.length || list.length <= min) return list;
-  return list.filter((_, i) => i !== index);
-}
-
-/** Moves the field at `index` by `delta` places; the list is returned as is when that leaves it. */
-export function moveField(list: PushField[], index: number, delta: number): PushField[] {
-  const to = index + delta;
-  if (index < 0 || index >= list.length || to < 0 || to >= list.length || delta === 0) return list;
-  const next = [...list];
-  const [field] = next.splice(index, 1);
-  next.splice(to, 0, field!);
-  return next;
-}
-
 /** The fields a list can still take, in push_fields() order. */
 export function unpickedFields(list: PushField[]): FieldInfo[] {
-  return PUSH_FIELDS.filter((f) => !list.includes(f.id));
+  return unpickedOf(list, PUSH_FIELDS);
 }
 
 /** What the editor holds: the RPC's shape, with the device ids the Devices card checks. */

@@ -31,17 +31,29 @@ describe("DestinationDialog", () => {
     expect(within(dialog).queryByLabelText("Name")).not.toBeInTheDocument();
   });
 
-  it("goes on to the Discord details and adds the destination", async () => {
-    vi.mocked(createDestination).mockResolvedValue({ id: "n", type: "discord", name: "Club", url_display: "x", signing_secret: null });
-    const { user, dialog, onCreated } = render();
+  it("continues with Discord into its editor and closes", async () => {
+    const { user, dialog, onClose } = render();
     await user.click(within(dialog).getByRole("button", { name: "Continue" }));
-    expect(within(dialog).getByText("Discord channel")).toBeInTheDocument();
+    expect(onClose).toHaveBeenCalled();
+    expect(createDestination).not.toHaveBeenCalled();
+    const location = screen.getByTestId("location");
+    expect(location).toHaveTextContent("/destinations/new");
+    expect(location).toHaveAttribute("data-search", "?type=discord");
+  });
+
+  it("goes on to the webhook details and adds the destination", async () => {
+    vi.mocked(createDestination).mockResolvedValue({ id: "n", type: "webhook", name: "Hook", url_display: "x", signing_secret: "whsec_1" });
+    const { user, dialog, onCreated } = render();
+    await user.click(within(dialog).getByRole("radio", { name: /^Webhook/ }));
+    await user.click(within(dialog).getByRole("button", { name: "Continue" }));
+    expect(within(dialog).getByText("Webhook")).toBeInTheDocument();
+    expect(within(dialog).queryByLabelText("Discord webhook URL")).not.toBeInTheDocument();
     const add = within(dialog).getByRole("button", { name: "Add destination" });
     expect(add).toBeDisabled();
-    await user.type(within(dialog).getByLabelText("Name"), "Club");
-    await user.type(within(dialog).getByLabelText("Discord webhook URL"), "https://discord.com/api/webhooks/1/x");
+    await user.type(within(dialog).getByLabelText("Name"), "Hook");
+    await user.type(within(dialog).getByLabelText("Endpoint URL"), "https://example.com/spots");
     await user.click(add);
-    expect(createDestination).toHaveBeenCalledWith("discord", "Club", "https://discord.com/api/webhooks/1/x");
+    expect(createDestination).toHaveBeenCalledWith("webhook", "Hook", "https://example.com/spots");
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith(expect.objectContaining({ id: "n" })));
   });
 

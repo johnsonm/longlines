@@ -1,12 +1,11 @@
 # Discord destination editor: design
 
 Date: 2026-10-18. Status: **Decisions 1 to 15 accepted: the spec PR (#215) merged 2026-10-18
-without changes. PR 2 (schema and sender) is in progress.** Its review changed the design in three
-places, recorded below: values are escaped for Discord markdown (Rendering), a Discord destination
+without changes. PR 2 (schema and sender, #216) merged 2026-10-18; PR 3 is the web editor.**
+PR 2's review changed the design in three places, recorded below: values are escaped for Discord markdown (Rendering), a Discord destination
 is claimed on average every 10 seconds, at most 50 spots a claim (decision 8), and the sender sends
 at most five messages a claim (unless ten cards pass 6,000 characters) and no embed timestamp
-(Sender). If the design changes during a PR, update
-this file in that PR.
+(Sender). If the design changes during a PR, update this file in that PR.
 
 Source: page 8 of Brad's design canvas, "Discord destination (draft)", artboards
 `DiscordList-Desktop`, `DiscordEdit-Desktop` (card style), `DiscordEditPlain-Desktop` (plain line),
@@ -180,7 +179,10 @@ a nested list, and `discord_field_values` escapes every value once, so the title
 use escaped text. `discord_clip` is `push_clip` that never leaves a lone backslash before the
 ellipsis. `discord_profile_url(spot)` is the profile as a full URL, or null when the call it would
 name is not letters, digits, `/` and `-` (`spot_source_url`'s rule); the title link and the plain
-line's masked link both use it, and without it the callsign is plain text. Push keeps
+line's masked link both use it, and without it the callsign is plain text. The plain line also
+leaves out the link when the escaped call holds `[` or `]` (such as DX Cluster's `K1ABC/[`):
+Discord's masked-link text ignores backslash escapes, so an unbalanced `\[` would break the link
+and show the markup literally (`20261018000200`). Push keeps
 `render_push_field` unescaped, since a notification is plain text. A bare URL in a value is still
 shown as a link by Discord, but its text is its address.
 
@@ -280,6 +282,7 @@ listed comes from the push spec's Copy.
 - Discord channel card: Discord channel · Where messages are posted
   - Edit: the masked URL · button Replace URL · Treat the URL like a password. Anyone who has it can post to the channel. It is hidden after saving.
   - New or replacing: field Webhook URL · error helper: That is a channel link, not a webhook URL. A webhook URL starts with https://discord.com/api/webhooks/
+  - Replacing: text button Keep current URL beside the field, which closes it and keeps the stored URL (added in PR 3)
   - Box: Get a webhook URL from Discord · 1. Open the channel settings and choose Integrations. · 2. Choose Webhooks, then New Webhook. · 3. Copy the webhook URL and paste it here.
   - Sentence: Treat the URL like a password. Anyone who has it can post to the channel.
 - Message card: Message · Choose the style, then which fields appear and in what order.
