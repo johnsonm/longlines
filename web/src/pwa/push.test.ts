@@ -213,6 +213,30 @@ describe("enablePush", () => {
     await expect(enablePush("x", fakeEnv({}, bad).env)).rejects.toThrow("Couldn't turn on notifications.");
   });
 
+  it("unsubscribes a subscription it made when the registration fails", async () => {
+    vi.mocked(registerPushDevice).mockRejectedValue(new Error("You can turn on notifications on up to 20 devices. Remove one first."));
+    const { env, pushManager } = fakeEnv();
+    await expect(enablePush("x", env)).rejects.toThrow("up to 20 devices");
+    const made = (await pushManager.subscribe.mock.results[0]!.value) as ReturnType<typeof subscription>;
+    expect(made.unsubscribe).toHaveBeenCalled();
+    expect(currentEndpoint(env)).toBeNull();
+    // An unsubscribe that fails too still reports the registration's error.
+    const failing = fakeEnv();
+    failing.pushManager.subscribe.mockImplementation(() => {
+      const sub = subscription();
+      sub.unsubscribe.mockRejectedValue(new Error("gone"));
+      return Promise.resolve(sub);
+    });
+    await expect(enablePush("x", failing.env)).rejects.toThrow("up to 20 devices");
+  });
+
+  it("keeps a subscription it reused when the registration fails", async () => {
+    vi.mocked(registerPushDevice).mockRejectedValue(new Error("offline"));
+    const sub = subscription();
+    await expect(enablePush("x", fakeEnv({}, sub).env)).rejects.toThrow("offline");
+    expect(sub.unsubscribe).not.toHaveBeenCalled();
+  });
+
   it("still registers when localStorage throws", async () => {
     const storage = { getItem: () => null, setItem: () => { throw new Error("quota"); }, removeItem: () => undefined };
     const { env } = fakeEnv({ storage });
@@ -282,8 +306,16 @@ describe("refreshPushRegistration", () => {
     const { env } = fakeEnv({}, sub);
     await refreshPushRegistration(env);
     expect(listPushDevices).toHaveBeenCalledWith(sub.endpoint);
-    expect(registerPushDevice).toHaveBeenCalledWith({ endpoint: sub.endpoint, p256dh: "p256", auth: "auth16" }, null, null, null);
+    expect(registerPushDevice).toHaveBeenCalledWith({ endpoint: sub.endpoint, p256dh: "p256", auth: "auth16" }, null, null, null, null);
     expect(currentEndpoint(env)).toBe(sub.endpoint);
+  });
+
+  it("re-registers an unchanged endpoint without a previous one", async () => {
+    vi.mocked(listPushDevices).mockResolvedValue(listed(true));
+    const sub = subscription();
+    const { env } = fakeEnv({ storage: memoryStorage({ [ENDPOINT_KEY]: sub.endpoint }) }, sub);
+    await refreshPushRegistration(env);
+    expect(registerPushDevice).toHaveBeenCalledWith(expect.objectContaining({ endpoint: sub.endpoint }), null, null, null, null);
   });
 
   it("registers a subscription the account does not list yet, such as a rotated endpoint", async () => {
@@ -291,13 +323,16 @@ describe("refreshPushRegistration", () => {
     const sub = subscription("https://fcm.googleapis.com/fcm/send/rotated");
     const { env } = fakeEnv({ storage: memoryStorage({ [ENDPOINT_KEY]: "https://fcm.googleapis.com/fcm/send/old" }) }, sub);
     await refreshPushRegistration(env);
-    expect(registerPushDevice).toHaveBeenCalled();
+    // The remembered endpoint goes along, so the device it names moves to the new one with its destinations.
+    expect(registerPushDevice).toHaveBeenCalledWith(
+      { endpoint: sub.endpoint, p256dh: "p256", auth: "auth16" }, null, null, null, "https://fcm.googleapis.com/fcm/send/old",
+    );
     expect(sub.unsubscribe).not.toHaveBeenCalled();
     expect(currentEndpoint(env)).toBe(sub.endpoint);
-    // Never remembered (storage blocked): the same.
+    // Never remembered (storage blocked): registered with no previous endpoint.
     vi.mocked(registerPushDevice).mockClear();
     await refreshPushRegistration(fakeEnv({ storage: null }, subscription()).env);
-    expect(registerPushDevice).toHaveBeenCalled();
+    expect(registerPushDevice).toHaveBeenCalledWith(expect.anything(), null, null, null, null);
   });
 
   it("follows a removal made from another device: unsubscribes instead of registering again", async () => {

@@ -119,7 +119,7 @@ function RequireAuth({ page }: { page: Page }) {
   const { session, sessionLoading, profile, profileError } = useApp();
   const location = useLocation();
   if (sessionLoading) return <LinearProgress />;
-  if (!session) return <Navigate to="/signin" replace state={{ from: location.pathname }} />;
+  if (!session) return <Navigate to="/signin" replace state={{ from: location.pathname + location.search + location.hash }} />;
   if (profileError) return <ProfileError message={profileError} />;
   if (!profile) return <LinearProgress />;
   return <SignedIn page={page} />;
@@ -148,10 +148,14 @@ function ProfileError({ message }: { message: string }) {
 }
 
 /** The editor takes its id or source as props, so its tests need no router params. */
-function SubscriptionRoute(props: Omit<ComponentProps<typeof SubscriptionEditorPage>, "id" | "source" | "callsign">) {
+function SubscriptionRoute(props: Omit<ComponentProps<typeof SubscriptionEditorPage>, "id" | "source" | "callsign" | "group">) {
   const { id } = useParams();
   const [search] = useSearchParams();
-  return <SubscriptionEditorPage {...props} id={id} source={search.get("source")} callsign={search.get("callsign")} />;
+  return (
+    <SubscriptionEditorPage
+      {...props} id={id} source={search.get("source")} callsign={search.get("callsign")} group={search.get("group")}
+    />
+  );
 }
 
 /** The push editor likewise: its id or type comes in as props. */
@@ -198,7 +202,7 @@ function SignedIn({ page }: { page: Page }) {
       {(page === "subscription-new" || page === "subscription") && (
         <SubscriptionRoute subs={subs} dests={dests} loading={loading} reload={reload} prefs={prefs} mobile={mobile} />
       )}
-      {page === "groups" && <GroupsPage reload={reload} />}
+      {page === "groups" && <GroupsPage />}
       {page === "destinations" && <DestinationsPage dests={dests} subs={subs} loading={loading} reload={reload} />}
       {(page === "destination-new" || page === "destination") && (
         <DestinationRoute dests={dests} loading={loading} reload={reload} mobile={mobile} />

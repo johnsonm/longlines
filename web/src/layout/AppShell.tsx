@@ -1,7 +1,7 @@
 import { useState, useSyncExternalStore, type FormEvent, type ReactNode } from "react";
 import {
   AppBar, Avatar, Badge, Box, Button, Container, Divider, Drawer, IconButton, InputBase, List,
-  ListItemButton, ListItemIcon, ListItemText, Menu, MenuItem, Paper, ToggleButton, ToggleButtonGroup, Toolbar, Typography,
+  ListItemButton, ListItemIcon, ListItemText, Menu, MenuItem, Paper, ToggleButton, ToggleButtonGroup, Toolbar, Tooltip, Typography,
   useColorScheme, useMediaQuery, useTheme,
 } from "@mui/material";
 import MenuIcon from "@mui/icons-material/Menu";
@@ -20,7 +20,7 @@ import SettingsBrightnessIcon from "@mui/icons-material/SettingsBrightness";
 import { useLocation, useNavigate } from "react-router";
 import { useApp } from "../app/hooks";
 import { signOut } from "../lib/api";
-import { lookupPath } from "../profile/format";
+import { INVALID_CALLSIGN, lookupPath } from "../profile/format";
 import { installState, promptInstall, subscribeInstall } from "../pwa/install";
 import { pushCleanup } from "../pwa/push";
 import { InstallDialog } from "./InstallDialog";
@@ -195,25 +195,36 @@ function ThemeSwitch() {
 function BarSearch() {
   const navigate = useNavigate();
   const [value, setValue] = useState("");
+  const [invalid, setInvalid] = useState(false);
   const submit = (e: FormEvent) => {
     e.preventDefault();
     const path = lookupPath(value);
-    if (!path) return;
+    // Blank input does nothing; anything else lookupPath refuses (a "." or ".." segment) isn't a callsign.
+    if (!path) {
+      setInvalid(value.trim() !== "");
+      return;
+    }
     setValue("");
     void navigate(path);
   };
   return (
-    <Paper component="form" role="search" onSubmit={submit} elevation={0} sx={{ display: "flex", alignItems: "center", width: 260, mr: 2, pl: 1.5 }}>
-      <InputBase
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        placeholder="Callsign, like KK4PWJ"
-        sx={{ flex: 1 }}
-        slotProps={{ input: { "aria-label": "Look up a callsign", autoCapitalize: "characters", autoCorrect: "off", spellCheck: false } }}
-      />
-      <IconButton type="submit" size="small" aria-label="Look up">
-        <SearchIcon />
-      </IconButton>
-    </Paper>
+    <Tooltip open={invalid} title={INVALID_CALLSIGN} disableHoverListener disableFocusListener disableTouchListener>
+      <Paper component="form" role="search" onSubmit={submit} elevation={0} sx={{ display: "flex", alignItems: "center", width: 260, mr: 2, pl: 1.5 }}>
+        <InputBase
+          value={value}
+          onChange={(e) => {
+            setValue(e.target.value);
+            setInvalid(false);
+          }}
+          error={invalid}
+          placeholder="Callsign, like KK4PWJ"
+          sx={{ flex: 1 }}
+          slotProps={{ input: { "aria-label": "Look up a callsign", autoCapitalize: "characters", autoCorrect: "off", spellCheck: false } }}
+        />
+        <IconButton type="submit" size="small" aria-label="Look up">
+          <SearchIcon />
+        </IconButton>
+      </Paper>
+    </Tooltip>
   );
 }

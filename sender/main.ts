@@ -13,7 +13,8 @@ import { startSender } from "./sender.ts";
 /** Run the sender until SIGINT/SIGTERM, or until the watchdog gives up. */
 export async function main(): Promise<void> {
   const config = loadConfig((name) => Deno.env.get(name));
-  // A pool that cannot open is exit 1, like invalid config.
+  // openSenderDb retries with backoff for a few minutes; a pool that still
+  // cannot open is exit 1, like invalid config.
   const db = await openSenderDb(config);
   const sender = startSender(config, {
     db,

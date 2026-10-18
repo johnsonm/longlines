@@ -205,10 +205,12 @@ export function needsCallsign(sources: string[], rules: Rules): boolean {
   return sources.length === 1 && sources[0] === "rbn" && !namesStations(rules);
 }
 
-/** A new subscription; `callsign` (from a profile's Get alerts) starts it filtered to that station. */
-export const blankSub = (source: string, callsign?: string | null): SubscriptionInput => ({
+/** A new subscription on one source, filtered to a callsign (a profile's Get alerts) or else a group id (a group's). */
+export const blankSub = (source: string, callsign?: string | null, group?: string | null): SubscriptionInput => ({
   name: callsign ? `${callsign} on the air` : "", enabled: true, sources: [source],
-  rules: callsign ? [[{ field: "callsign", op: "is", values: [callsign] }]] : [], quiet_minutes: 10, destinations: [],
+  rules: callsign ? [[{ field: "callsign", op: "is", values: [callsign] }]]
+    : group ? [[{ field: "group", op: "is", values: [group] }]] : [],
+  quiet_minutes: 10, destinations: [],
 });
 
 export function toInput(s: SubscriptionWithLinks): SubscriptionInput {

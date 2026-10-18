@@ -202,8 +202,12 @@ select pg_temp.reset_queue();
 select pg_temp.queue((select id from dd), 'thr-', 2, now());
 update destinations set health = 'paused' where id = (select id from dd);
 select is((select count(*) from claim_deliveries(200, 60)), 0::bigint, 'a paused destination is not claimed');
-select is((select count(*) from pgmq.q_deliveries_queue where vt <= clock_timestamp()), 2::bigint, 'its messages stay visible');
-update destinations set health = 'ok', throttled_until = now() + interval '1 minute' where id = (select id from dd);
+-- Nothing sets 'paused' but an operator; its rows go as unwanted (20261017001010).
+select results_eq($$ select status, dropped_at, count(*) from deliveries group by 1, 2 $$,
+  $$ values ('dropped', null::timestamptz, 2::bigint) $$, 'its rows are dropped as unwanted, not as a loss');
+select pg_temp.reset_queue();
+select pg_temp.queue((select id from dd), 'thr2-', 2, now());
+update destinations set throttled_until = now() + interval '1 minute' where id = (select id from dd);
 select is((select count(*) from claim_deliveries(200, 60)), 0::bigint, 'a throttled destination is not claimed');
 update destinations set throttled_until = now() - interval '1 second' where id = (select id from dd);
 create temp table thr as select * from claim_deliveries(200, 60);
@@ -252,8 +256,8 @@ update deliveries set created_at = now() - interval '23 hours' where id = (selec
 update deliveries set created_at = now() - interval '31 minutes' where id = (select id from expp where n = 1);
 update deliveries set created_at = now() - interval '29 minutes' where id = (select id from expp where n = 2);
 -- Nothing is claimable, so the sweep is the only thing the call does.
-update destinations set health = 'paused';
-select is((select count(*) from claim_deliveries(200, 60)), 0::bigint, 'nothing claimed while every destination is paused');
+update destinations set throttled_until = now() + interval '1 hour';
+select is((select count(*) from claim_deliveries(200, 60)), 0::bigint, 'nothing claimed while every destination is throttled');
 select results_eq(
   $$ select d.status, d.dropped_at is not null from deliveries d
      where d.id in ((select id from expw where n = 1), (select id from expp where n = 1)) $$,

@@ -15,6 +15,11 @@ if (!lcovPath || !minArg) {
   Deno.exit(2);
 }
 const min = Number(minArg);
+// A mistyped minimum ("80%") is NaN, and `pct < NaN` is never true, so every root would pass.
+if (!Number.isFinite(min) || min <= 0 || min > 100) {
+  console.error(`check-coverage.ts: the minimum must be a number in (0, 100], got "${minArg}"`);
+  Deno.exit(2);
+}
 
 const ROOTS = [
   {

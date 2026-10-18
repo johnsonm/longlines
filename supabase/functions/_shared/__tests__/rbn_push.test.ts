@@ -129,3 +129,19 @@ Deno.test("runRbnPush stores a failure for a NUL line without the NUL", async ()
   assertEquals(failed.length, 1);
   assertEquals(String(failed[0]!.raw_payload["line"]).includes("\u0000"), false);
 });
+
+Deno.test("runRbnPush dead-letters an oversized or far-future line and stores the rest", async () => {
+  const { db, calls } = fakeDb();
+  const long = otherLine.replace("N2GM", "N".repeat(3000));
+  await runRbnPush(
+    { lines: [item(long), item(otherLine, "2027-01-01T00:00:00Z"), item(otherLine)] },
+    db,
+    NOW,
+  );
+  assertEquals(calls.stored[0]!.map((r) => r.callsign), ["N2GM"]);
+  assertEquals(calls.failures.flat().map((f) => f.error.split(":")[0]), [
+    "callsign is 3000 characters; the limit is 64",
+    "received_at out of range",
+  ]);
+  assertEquals(calls.failure, []);
+});

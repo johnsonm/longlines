@@ -757,14 +757,14 @@ isOneToOne: true
                   ]
                 },"sign_in_attempts": {
                   Row: {
-                    "attempted_at": string,"id": number,"identifier": string
+                    "attempted_at": string,"client": string,"id": number,"identifier": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "attempted_at"?: string,"id"?: number,"identifier": string
+                    "attempted_at"?: string,"client": string,"id"?: number,"identifier": string
                   }
                   Update: {
-                    "attempted_at"?: string,"id"?: number,"identifier"?: string
+                    "attempted_at"?: string,"client"?: string,"id"?: number,"identifier"?: string
                   }
                   Relationships: [
                     
@@ -948,6 +948,9 @@ isOneToOne: false
 "base64url_bytes":
 { Args: { "p_text": string }; Returns: string
                            },
+"begin_sign_in_attempt":
+{ Args: { "p_client": string,"p_identifier": string }; Returns: number
+                           },
 "cached_band_map":
 { Args: Record<PropertyKey, never>; Returns: Json
                            },
@@ -1052,6 +1055,9 @@ isOneToOne: false
                            },
 "fcc_license_staged_counts":
 { Args: Record<PropertyKey, never>; Returns: Json
+                           },
+"forget_sign_in_attempt":
+{ Args: { "p_attempt_id": number }; Returns: undefined
                            },
 "get_push_destination":
 { Args: { "p_id": string }; Returns: Json
@@ -1158,6 +1164,9 @@ isOneToOne: false
 "normalize_subscription_rules":
 { Args: { "p_rules": Json,"p_strict": boolean,"p_user": string }; Returns: Json
                            },
+"normalize_subscription_sources":
+{ Args: { "p_sources": Json }; Returns: (string)[]
+                           },
 "parse_https_url":
 { Args: { "p_url": string }; Returns: (string)[]
                            },
@@ -1245,9 +1254,6 @@ isOneToOne: false
 "record_push_results":
 { Args: { "p_errors": Json,"p_ok": (string)[] }; Returns: undefined
                            },
-"record_sign_in_attempt":
-{ Args: { "p_identifier": string }; Returns: number
-                           },
 "refresh_stats_snapshot":
 { Args: Record<PropertyKey, never>; Returns: undefined
                            },
@@ -1255,7 +1261,7 @@ isOneToOne: false
 { Args: { "p_now": string }; Returns: undefined
                            },
 "register_push_device":
-{ Args: { "p_agent"?: string,"p_auth": string,"p_endpoint": string,"p_label": string,"p_p256dh": string,"p_standalone"?: boolean }; Returns: string
+{ Args: { "p_agent"?: string,"p_auth": string,"p_endpoint": string,"p_label": string,"p_p256dh": string,"p_previous_endpoint"?: string,"p_standalone"?: boolean }; Returns: string
                            },
 "rename_duplicate_destination_names":
 { Args: Record<PropertyKey, never>; Returns: number

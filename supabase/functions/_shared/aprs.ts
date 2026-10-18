@@ -17,7 +17,12 @@
 // Only the header and the packet type are parsed; positions, weather and
 // telemetry stay in the stored line for later decoding.
 
-import { parseUtc } from "./normalize.ts";
+import {
+  assertMaxLength,
+  assertPlausibleTime,
+  MAX_CALLSIGN_LENGTH,
+  parseUtc,
+} from "./normalize.ts";
 import { parseRelayBody, requireString, withoutNul } from "./relay_lines.ts";
 import type {
   AprsDb,
@@ -125,14 +130,22 @@ export function aprsPacketType(info: string): AprsPacketType {
   }
 }
 
-/** The aprs_packets row for one relay item. Throws when the line is not a packet or received_at is unusable. */
-export function aprsPacketRow(raw: JsonObject): AprsPacketRow {
+/**
+ * The aprs_packets row for one relay item. Throws when the line is not a
+ * packet, received_at is unusable or implausible against now, or a value would
+ * fail the whole batch in Postgres.
+ */
+export function aprsPacketRow(raw: JsonObject, now: Date): AprsPacketRow {
   const line = requireString(raw, "line");
-  // jsonb rejects U+0000, so a NUL would fail the whole batch in Postgres.
+  // jsonb rejects U+0000 and lone surrogates, so either would fail the whole batch in Postgres.
   if (line.includes("\u0000")) throw new Error("line contains a NUL character");
+  if (!line.isWellFormed()) throw new Error("line contains a lone surrogate");
   const receivedAt = parseUtc(requireString(raw, "received_at"));
+  assertPlausibleTime(receivedAt, now, "received_at");
   const parsed = parseAprsLine(line);
   if (!parsed) throw new Error("not an APRS packet line");
+  // aprs_packets indexes source_call.
+  assertMaxLength(parsed.sourceCall, MAX_CALLSIGN_LENGTH, "source call");
   return {
     received_at: receivedAt.toISOString(),
     source_call: parsed.sourceCall,
@@ -158,7 +171,11 @@ function errorMessage(error: unknown): string {
  * ingest_failures, and ingest_state updated. An empty batch is the relay's
  * heartbeat and still records success.
  */
-export async function runAprsPush(body: unknown, db: AprsPushDb): Promise<IngestSummary> {
+export async function runAprsPush(
+  body: unknown,
+  db: AprsPushDb,
+  now: Date = new Date(),
+): Promise<IngestSummary> {
   const started = performance.now();
   const rows: AprsPacketRow[] = [];
   const failures: SpotFailure[] = [];
@@ -169,7 +186,7 @@ export async function runAprsPush(body: unknown, db: AprsPushDb): Promise<Ingest
     fetched = items.length;
     for (const raw of items) {
       try {
-        rows.push(aprsPacketRow(raw));
+        rows.push(aprsPacketRow(raw, now));
       } catch (error) {
         failures.push({ source: "aprs", error: errorMessage(error), raw_payload: withoutNul(raw) });
       }

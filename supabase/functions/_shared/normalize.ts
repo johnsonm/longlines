@@ -1,5 +1,7 @@
 // Pure normalization helpers shared by the source adapters. No I/O.
 
+import type { NormalizedSpot } from "./types.ts";
+
 const TEST_COMMENT = /\btest(ing)?\b/i;
 const RBNHOLE_SPOTTER = /\[RBNHole\]\s+at\s+(\S+)/i;
 const HAS_UTC_OFFSET = /(Z|[+-]\d{2}:?\d{2})$/i;
@@ -95,4 +97,53 @@ export function parseUtc(value: unknown): Date {
 
 export function isTooOld(spotTime: Date, now: Date, maxAgeMs: number): boolean {
   return now.getTime() - spotTime.getTime() > maxAgeMs;
+}
+
+// Bounds on what one spot may carry, so a bad item becomes one ingest_failures
+// row instead of failing its whole batch. A btree index entry over about 2.7 KB
+// fails the insert (raw_spots indexes callsign and source_spot_id, rbn_spots
+// and aprs_packets index the station, the rollups key on spotter and
+// reference), and Postgres refuses years past 294276 or before 4713 BC. Real
+// callsigns are under 20 characters; the RBN and DX Cluster ids join an ISO
+// time, two calls and a frequency.
+export const MAX_CALLSIGN_LENGTH = 64;
+export const MAX_SPOT_ID_LENGTH = 256;
+const MAX_FUTURE_MS = 24 * 60 * 60 * 1000;
+const MIN_TIME_MS = Date.UTC(2000, 0, 1);
+
+/** Throws when the text is longer than max characters. */
+export function assertMaxLength(value: string, max: number, field: string): void {
+  if (value.length > max) {
+    throw new Error(`${field} is ${value.length} characters; the limit is ${max}`);
+  }
+}
+
+/**
+ * Throws for a time more than a day after now or before 2000 (a milliseconds
+ * value read as seconds, a bad clock): such a time would fail the batch in
+ * Postgres or, being in the future, never age out of the feed.
+ */
+export function assertPlausibleTime(time: Date, now: Date, field: string): void {
+  const ms = time.getTime();
+  if (!(ms >= MIN_TIME_MS && ms - now.getTime() <= MAX_FUTURE_MS)) {
+    throw new Error(
+      `${field} out of range: ${Number.isNaN(ms) ? "invalid" : time.toISOString()}`,
+    );
+  }
+}
+
+/** Throws when a normalized spot would fail its ingest_spots batch. The orchestrator runs it on every spot. */
+export function assertStorableSpot(spot: NormalizedSpot, now: Date): void {
+  assertPlausibleTime(new Date(spot.spot_time), now, "spot time");
+  assertMaxLength(spot.source_spot_id, MAX_SPOT_ID_LENGTH, "source_spot_id");
+  assertMaxLength(spot.callsign, MAX_CALLSIGN_LENGTH, "callsign");
+  const bounded: [string, string | null][] = [
+    ["spotter", spot.spotter],
+    ["pota_reference", spot.pota_reference],
+    ["sota_summit_ref", spot.sota_summit_ref],
+    ["wwff_reference", spot.wwff_reference],
+  ];
+  for (const [field, value] of bounded) {
+    if (value !== null) assertMaxLength(value, MAX_CALLSIGN_LENGTH, field);
+  }
 }

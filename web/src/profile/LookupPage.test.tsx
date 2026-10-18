@@ -44,6 +44,18 @@ describe("LookupPage", () => {
     expect(screen.getByTestId("location")).toHaveTextContent("/call/KK4PWJ/P");
   });
 
+  it("says a dot segment isn't a callsign rather than leaving the page", async () => {
+    const { user } = renderPage(<LookupPage />, { route: "/lookup" });
+    const box = screen.getByRole("textbox", { name: "Callsign" });
+    await user.type(box, "../stats");
+    await user.click(screen.getByRole("button", { name: "Look up" }));
+    expect(screen.getByTestId("location")).toHaveTextContent("/lookup");
+    expect(screen.getByText("Enter a callsign, like KK4PWJ.")).toBeInTheDocument();
+    expect(box).toHaveAttribute("aria-invalid", "true");
+    await user.type(box, "x");
+    expect(screen.queryByText("Enter a callsign, like KK4PWJ.")).not.toBeInTheDocument();
+  });
+
   it("links the Stats snapshot's top activators as Busy this week", async () => {
     const { user } = renderPage(<LookupPage />, { route: "/lookup" });
     expect(screen.getByText("Busy this week")).toBeInTheDocument();

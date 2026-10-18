@@ -1,5 +1,7 @@
 import { assertEquals } from "@std/assert";
+import { contentHash } from "../hash.ts";
 import { withoutNul } from "../strip_nul.ts";
+import type { JsonObject } from "../types.ts";
 
 Deno.test("withoutNul removes a real U+0000 from string values", () => {
   assertEquals(withoutNul({ comment: "a\u0000b", n: 1, ok: true, none: null }), {
@@ -38,4 +40,27 @@ Deno.test("withoutNul does not modify its argument", () => {
   const raw = { comment: "a\u0000b", nested: { c: "\u0000" } };
   withoutNul(raw);
   assertEquals(raw, { comment: "a\u0000b", nested: { c: "\u0000" } });
+});
+
+Deno.test("withoutNul replaces lone surrogates in values and keys, which Postgres refuses", () => {
+  assertEquals(
+    withoutNul({ "k\ud800": "hi \ud83d", list: ["\udc00x", { y: "a\u0000\ud83d" }] }),
+    { "k�": "hi �", list: ["�x", { y: "a�" }] },
+  );
+});
+
+Deno.test("withoutNul keeps surrogate pairs, including one a NUL split", () => {
+  assertEquals(withoutNul({ c: "73 😀" }), { c: "73 😀" });
+  assertEquals(withoutNul({ c: "\ud83d\u0000\ude00" }), { c: "😀" });
+});
+
+Deno.test("withoutNul returns a storable item unchanged, so its content hash is unchanged", async () => {
+  const fixture = JSON.parse(
+    Deno.readTextFileSync(new URL("./fixtures/pota-activator.json", import.meta.url)),
+  ) as JsonObject[];
+  const fields = (raw: JsonObject) => [raw["spotId"], raw["activator"], raw["comments"]];
+  for (const raw of [...fixture, { comments: "Café 73 ° ✓ 😀" }]) {
+    assertEquals(withoutNul(raw), raw);
+    assertEquals(await contentHash(fields(withoutNul(raw))), await contentHash(fields(raw)));
+  }
 });

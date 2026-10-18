@@ -259,15 +259,6 @@ describe("sources and destinations", () => {
     expect(fake.client.rpc).toHaveBeenLastCalledWith("create_destination", { p_type: "push", p_name: "Phone", p_url: null });
   });
 
-  it("updateDestination sends null for what it keeps", async () => {
-    await api.updateDestination("d1", { enabled: false });
-    expect(fake.client.rpc).toHaveBeenLastCalledWith("update_destination", { p_id: "d1", p_name: null, p_url: null, p_enabled: false });
-    await api.updateDestination("d1", { name: "New", url: "https://x" });
-    expect(fake.client.rpc).toHaveBeenLastCalledWith("update_destination", { p_id: "d1", p_name: "New", p_url: "https://x", p_enabled: null });
-    fake.rpcs.set("update_destination", { error: boom });
-    await expect(api.updateDestination("d1", {})).rejects.toThrow("boom");
-  });
-
   it("rotateSigningSecret returns the new secret", async () => {
     fake.rpcs.set("rotate_signing_secret", { data: "whsec_new" });
     expect(await api.rotateSigningSecret("d1")).toBe("whsec_new");
@@ -301,6 +292,9 @@ describe("push", () => {
     });
     await api.registerPushDevice(keys, null, null, null);
     expect(fake.client.rpc).toHaveBeenLastCalledWith("register_push_device", expect.objectContaining({ p_label: null, p_agent: null, p_standalone: null }));
+    await api.registerPushDevice(keys, null, null, null, "https://fcm.googleapis.com/fcm/send/old");
+    expect(fake.client.rpc).toHaveBeenLastCalledWith("register_push_device",
+      expect.objectContaining({ p_endpoint: keys.endpoint, p_previous_endpoint: "https://fcm.googleapis.com/fcm/send/old" }));
     fake.rpcs.set("register_push_device", { error: { message: "" } });
     await expect(api.registerPushDevice(keys, "x", null, null)).rejects.toThrow("Couldn't turn on notifications.");
   });

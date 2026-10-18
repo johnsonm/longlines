@@ -62,6 +62,30 @@ describe("AccountPage profile", () => {
     expect(updateEmail).toHaveBeenCalledWith("new@example.com");
   });
 
+  it("refreshes the saved profile and says so when only the email change fails", async () => {
+    vi.mocked(updateEmail).mockRejectedValue(new Error("Email rate limit exceeded"));
+    const { user, app } = render();
+    await user.type(screen.getByLabelText("Name"), " Jr");
+    const email = screen.getByLabelText("Email");
+    await user.clear(email);
+    await user.type(email, "new@example.com");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Saved your profile, but your email didn't change. Email rate limit exceeded"));
+    expect(updateProfile).toHaveBeenCalled();
+    expect(app.refreshProfile).toHaveBeenCalled();
+  });
+
+  it("says the email didn't change when the failure has no message", async () => {
+    vi.mocked(updateEmail).mockRejectedValue(new Error(""));
+    const { user, app } = render();
+    const email = screen.getByLabelText("Email");
+    await user.clear(email);
+    await user.type(email, "new@example.com");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Saved your profile, but your email didn't change."));
+    expect(app.refreshProfile).toHaveBeenCalled();
+  });
+
   it("reports save errors", async () => {
     vi.mocked(updateProfile).mockRejectedValue(new Error("That callsign is already taken."));
     const { user, app } = render();

@@ -211,12 +211,14 @@ own machine is rejected by default. `npm run sender` allows them on this machine
 ```sh
 npm run test:all             # every CI check, then a pass/fail summary
 npm run test:all:fresh       # the same after `supabase db reset`
-npm run test:deno            # one group: fmt, lint, check and unit tests for the Edge Functions and relay
-npm run test:db              # one group: db lint, pgTAP and scripts/smoke-test.sql (stack must be running)
+npm run test:deno            # one group: fmt, lint, check and the coverage-gated tests for the Edge Functions, relay and sender
+npm run test:db              # one group: db lint, pgTAP, scripts/smoke-test.sql and the sender db tests (stack must be running)
 ```
 
-`test:all` runs what CI runs on every pull request and push to `main`: Deno fmt/lint/check/test,
-`supabase db lint`, the pgTAP suites, the smoke test, and the web app's lint, tests and build. It
+`test:all` runs what CI runs on every pull request and push to `main`: Deno fmt/lint/check and
+the tests with their 80% coverage gate, `supabase db lint`, the pgTAP suites, the smoke test, the
+sender's database adapter tests, and the web app's lint, tests with their 80% coverage gate, and
+build. It
 keeps going after a failure so the summary shows everything at once.
 
 The local stack is shared by every checkout and worktree of this repo. If another branch's

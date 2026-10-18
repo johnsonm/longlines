@@ -90,6 +90,11 @@ export const ROUTES: ReadonlyArray<readonly [string, string, Route]> = [
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/** Whether a string is a UUID in its usual hyphenated form, any case. */
+export function isUuid(value: string): boolean {
+  return UUID.test(value);
+}
+
 /**
  * The API path from a request URL's pathname, from "/v1" on, or null when the
  * pathname is not under the function. Hosted requests arrive as "/api/v1/…";
@@ -113,7 +118,7 @@ export function matchRoute(method: string, path: string): RouteMatch {
       const segment = segments[i] ?? "";
       if (part !== ":id") return part === segment;
       id = segment;
-      return UUID.test(segment);
+      return isUuid(segment);
     });
     if (!fits) continue;
     if (routeMethod === method) return { kind: "route", route, id: id?.toLowerCase() };

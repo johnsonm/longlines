@@ -274,11 +274,57 @@ Deno.test("pinnedPost rejects oversized response headers", async () => {
   );
 });
 
+Deno.test("pinnedPost keeps a 2xx whose headers are non-ASCII or have no colon", async () => {
+  const latin1 = (text: string) => Uint8Array.from(text, (c) => c.charCodeAt(0));
+  const heads: [string, Uint8Array][] = [
+    // UTF-8 "café → ok": bytes above 0x7f, one character above U+00FF once decoded as UTF-8.
+    ["a UTF-8 value", encoder.encode("HTTP/1.1 200 OK\r\nX-Note: café → ok\r\nRetry-After: 3\r\n")],
+    ["a raw 0xE9 byte", latin1("HTTP/1.1 200 OK\r\nX-Note: caf\xe9\r\nRetry-After: 3\r\n")],
+    [
+      "a line without a colon",
+      encoder.encode("HTTP/1.1 200 OK\r\nNo colon here\r\nRetry-After: 3\r\n"),
+    ],
+    ["a bad header name", encoder.encode("HTTP/1.1 200 OK\r\nBad Name: x\r\nRetry-After: 3\r\n")],
+  ];
+  for (const [label, head] of heads) {
+    await withServer(
+      null,
+      async (conn) => {
+        await conn.write(head);
+        await conn.write(encoder.encode("Content-Length: 2\r\n\r\nok"));
+        await untilClosed(conn);
+      },
+      async (port) => {
+        const response = await pinnedPost(new URL(`http://localhost:${port}/`), "127.0.0.1", {
+          ...init,
+          allowInsecure: true,
+        });
+        assertEquals(response.status, 200, label);
+        assertEquals(response.headers.get("retry-after"), "3", label);
+      },
+    );
+  }
+  // The raw byte reaches the header as U+00E9, byte for byte.
+  await withServer(
+    null,
+    async (conn) => {
+      await conn.write(latin1("HTTP/1.1 204 No Content\r\nX-Note: caf\xe9 \x80\r\n\r\n"));
+      await untilClosed(conn);
+    },
+    async (port) => {
+      const response = await pinnedPost(new URL(`http://localhost:${port}/`), "127.0.0.1", {
+        ...init,
+        allowInsecure: true,
+      });
+      assertEquals(response.headers.get("x-note"), "caf\u00e9 \u0080");
+    },
+  );
+});
+
 Deno.test("pinnedPost rejects malformed responses", async () => {
   for (
     const [text, message] of [
       ["SMTP ready\r\n\r\n", "malformed HTTP status line"],
-      ["HTTP/1.1 200 OK\r\nNo colon here\r\n\r\n", "malformed HTTP response header"],
       ["HTTP/1.1 200 OK\r\nX-A: 1\r\n folded\r\n\r\n", "folded HTTP response header"],
       ["HTTP/1.1 101 Switching Protocols\r\n\r\n", "unexpected HTTP 101"],
       ["HTTP/1.1 200 OK\r\n", "connection closed before the response"],

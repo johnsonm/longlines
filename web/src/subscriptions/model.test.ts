@@ -22,6 +22,12 @@ describe("blankSub and toInput", () => {
     expect(sub.rules).toEqual([[{ field: "callsign", op: "is", values: ["KK4PWJ"] }]]);
   });
 
+  it("starts a group's Get alerts filtered to that group, unnamed until the editor knows the group's name", () => {
+    const sub = blankSub("pota", null, "g1");
+    expect(sub.name).toBe("");
+    expect(sub.rules).toEqual([[{ field: "group", op: "is", values: ["g1"] }]]);
+  });
+
   it("carries a subscription's rules into the editor", () => {
     const rules = [[{ field: "group", op: "is", values: ["g2"] }]];
     const row = { id: "s1", name: "Club", rules, group_ids: ["g2"] } as unknown as SubscriptionWithLinks;

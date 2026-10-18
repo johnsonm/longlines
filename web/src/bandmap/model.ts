@@ -25,10 +25,6 @@ export function sourceInfo(source: BandMapSource): SourceInfo {
   return SOURCES.find((s) => s.id === source) ?? SOURCES[0]!;
 }
 
-export function laneFor(source: BandMapSource): number {
-  return sourceInfo(source).lane;
-}
-
 /**
  * The stations a band's strip shows: its spots inside the plan's range, from
  * the sources switched on, one per base call (the latest, should the payload

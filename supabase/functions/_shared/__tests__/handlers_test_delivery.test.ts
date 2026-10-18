@@ -7,7 +7,7 @@ import { fakeSupabase, type FakeSupabaseOptions } from "./fake_supabase.ts";
 const NOW = new Date("2026-10-05T14:00:00Z");
 const USER = { data: { user: { id: "u1" } } };
 const DEST: DeliveryDestination = {
-  id: "d1",
+  id: "00000000-0000-4000-8000-0000000000d1",
   type: "discord",
   name: "Shack",
   url: "https://discord.com/api/webhooks/1/x",
@@ -52,9 +52,11 @@ Deno.test("handleSendTest answers preflight and rejects other methods", async ()
 });
 
 Deno.test("handleSendTest requires a signed-in user", async () => {
-  const none = await run(post({ destination_id: "d1" }, null));
+  const none = await run(post({ destination_id: "00000000-0000-4000-8000-0000000000d1" }, null));
   assertEquals(none.res.status, 401);
-  const bad = await run(post({ destination_id: "d1" }), { getUser: { error: { message: "jwt" } } });
+  const bad = await run(post({ destination_id: "00000000-0000-4000-8000-0000000000d1" }), {
+    getUser: { error: { message: "jwt" } },
+  });
   assertEquals(bad.res.status, 401);
   assertEquals(bad.calls.getUser, ["jwt"]);
 });
@@ -65,11 +67,16 @@ Deno.test("handleSendTest requires a destination id", async () => {
 });
 
 Deno.test("handleSendTest only loads destinations the caller owns", async () => {
-  const { res, body, calls, sent } = await run(post({ destination_id: "d1" }));
+  const { res, body, calls, sent } = await run(
+    post({ destination_id: "00000000-0000-4000-8000-0000000000d1" }),
+  );
   assertEquals(res.status, 200);
   assertEquals(body, { ok: true });
   const ops = calls.from[0]!.ops;
-  assertEquals(ops.filter(([op]) => op === "eq").map(([, a]) => a), [["id", "d1"], [
+  assertEquals(ops.filter(([op]) => op === "eq").map(([, a]) => a), [[
+    "id",
+    "00000000-0000-4000-8000-0000000000d1",
+  ], [
     "user_id",
     "u1",
   ]]);
@@ -79,31 +86,42 @@ Deno.test("handleSendTest only loads destinations the caller owns", async () => 
 });
 
 Deno.test("handleSendTest reports lookup errors and missing destinations", async () => {
-  const err = await run(post({ destination_id: "d1" }), {
+  const err = await run(post({ destination_id: "00000000-0000-4000-8000-0000000000d1" }), {
     from: { destinations: { error: { message: "x" } } },
   });
   assertEquals(err.res.status, 500);
-  const missing = await run(post({ destination_id: "d1" }), {
+  const missing = await run(post({ destination_id: "00000000-0000-4000-8000-0000000000d1" }), {
     from: { destinations: { data: null } },
   });
   assertEquals(missing.res.status, 404);
   assertEquals(missing.sent, []);
 });
 
+Deno.test("handleSendTest answers 404 for a destination_id that is not a uuid", async () => {
+  const { res, body, calls, sent } = await run(post({ destination_id: "abc" }));
+  assertEquals(res.status, 404);
+  assertEquals(body, { error: "Destination not found." });
+  assertEquals(calls.from, []);
+  assertEquals(sent, []);
+});
+
 Deno.test("handleSendTest returns 502 with the delivery error", async () => {
-  const failed = await run(post({ destination_id: "d1" }), {}, {
+  const failed = await run(post({ destination_id: "00000000-0000-4000-8000-0000000000d1" }), {}, {
     ok: false,
     sent: 0,
     error: "HTTP 404",
   });
   assertEquals(failed.res.status, 502);
   assertEquals(failed.body, { error: "HTTP 404" });
-  const silent = await run(post({ destination_id: "d1" }), {}, { ok: false, sent: 0 });
+  const silent = await run(post({ destination_id: "00000000-0000-4000-8000-0000000000d1" }), {}, {
+    ok: false,
+    sent: 0,
+  });
   assertEquals(silent.body, { error: "Delivery failed." });
 });
 
 const PUSH: DeliveryDestination = {
-  id: "p1",
+  id: "00000000-0000-4000-8000-0000000000f1",
   type: "push",
   name: "Push notifications",
   url: null,
@@ -144,14 +162,17 @@ const PUSH_TEST = {
 };
 
 Deno.test("handleSendTest sends a push destination's members the text SQL built from its fields", async () => {
-  const { res, sent, calls } = await run(post({ destination_id: "p1" }), {
-    from: { destinations: { data: PUSH } },
-    rpc: { push_test_delivery: { data: PUSH_TEST } },
-  });
+  const { res, sent, calls } = await run(
+    post({ destination_id: "00000000-0000-4000-8000-0000000000f1" }),
+    {
+      from: { destinations: { data: PUSH } },
+      rpc: { push_test_delivery: { data: PUSH_TEST } },
+    },
+  );
   assertEquals(res.status, 200);
   assertEquals(calls.rpc[0], {
     fn: "push_test_delivery",
-    args: { p_destination_id: "p1", p_spot_id: null },
+    args: { p_destination_id: "00000000-0000-4000-8000-0000000000f1", p_spot_id: null },
   });
   assertEquals(sent[0]!.destination.devices, DEVICES);
   assertEquals(sent[0]!.destination.push, PUSH_TEST.push);
@@ -162,36 +183,47 @@ Deno.test("handleSendTest sends a push destination's members the text SQL built 
 });
 
 Deno.test("handleSendTest renders the spot the preview shows", async () => {
-  const { calls } = await run(post({ destination_id: "p1", spot_id: 42 }), {
-    from: { destinations: { data: PUSH } },
-    rpc: { push_test_delivery: { data: PUSH_TEST } },
+  const { calls } = await run(
+    post({ destination_id: "00000000-0000-4000-8000-0000000000f1", spot_id: 42 }),
+    {
+      from: { destinations: { data: PUSH } },
+      rpc: { push_test_delivery: { data: PUSH_TEST } },
+    },
+  );
+  assertEquals(calls.rpc[0]?.args, {
+    p_destination_id: "00000000-0000-4000-8000-0000000000f1",
+    p_spot_id: 42,
   });
-  assertEquals(calls.rpc[0]?.args, { p_destination_id: "p1", p_spot_id: 42 });
 });
 
 Deno.test("handleSendTest refuses a spot id that is not an integer", async () => {
   for (const spotId of ["42", 1.5, {}]) {
-    const { body, sent } = await run(post({ destination_id: "p1", spot_id: spotId }));
+    const { body, sent } = await run(
+      post({ destination_id: "00000000-0000-4000-8000-0000000000f1", spot_id: spotId }),
+    );
     assertEquals(body, { error: "Pick a spot." });
     assertEquals(sent, []);
   }
 });
 
 Deno.test("handleSendTest reports a push lookup error and an unknown spot", async () => {
-  const failed = await run(post({ destination_id: "p1" }), {
+  const failed = await run(post({ destination_id: "00000000-0000-4000-8000-0000000000f1" }), {
     from: { destinations: { data: PUSH } },
     rpc: { push_test_delivery: { error: { message: "x" } } },
   });
   assertEquals(failed.res.status, 500);
   assertEquals(failed.sent, []);
-  const missing = await run(post({ destination_id: "p1", spot_id: 7 }), {
-    from: { destinations: { data: PUSH } },
-    rpc: { push_test_delivery: { data: null } },
-  });
+  const missing = await run(
+    post({ destination_id: "00000000-0000-4000-8000-0000000000f1", spot_id: 7 }),
+    {
+      from: { destinations: { data: PUSH } },
+      rpc: { push_test_delivery: { data: null } },
+    },
+  );
   assertEquals(missing.res.status, 404);
   assertEquals(missing.body, { error: "Spot not found." });
   // Without a spot, null can only mean the destination has no settings row.
-  const noSettings = await run(post({ destination_id: "p1" }), {
+  const noSettings = await run(post({ destination_id: "00000000-0000-4000-8000-0000000000f1" }), {
     from: { destinations: { data: PUSH } },
     rpc: { push_test_delivery: { data: null } },
   });
@@ -201,7 +233,7 @@ Deno.test("handleSendTest reports a push lookup error and an unknown spot", asyn
 
 Deno.test("handleSendTest prunes and records devices after a push test", async () => {
   const { body, calls } = await run(
-    post({ destination_id: "p1" }),
+    post({ destination_id: "00000000-0000-4000-8000-0000000000f1" }),
     {
       from: { destinations: { data: PUSH } },
       rpc: { push_test_delivery: { data: { ...PUSH_TEST, devices: [] } } },
@@ -222,7 +254,7 @@ Deno.test("handleSendTest prunes and records devices after a push test", async (
 });
 
 Deno.test("handleSendTest leaves other destinations' devices alone", async () => {
-  const { calls } = await run(post({ destination_id: "d1" }));
+  const { calls } = await run(post({ destination_id: "00000000-0000-4000-8000-0000000000d1" }));
   assertEquals(calls.from.map((f) => f.table), ["destinations"]);
   assertEquals(calls.rpc, []);
 });

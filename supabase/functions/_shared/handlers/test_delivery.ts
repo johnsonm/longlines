@@ -6,6 +6,7 @@
 // sends it.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { isUuid } from "../api/routes.ts";
 import { userFromRequest } from "../auth.ts";
 import { json, preflightResponse } from "../cors.ts";
 import { sampleSpot } from "../delivery/format.ts";
@@ -76,13 +77,18 @@ export async function sendTestTo(
   now: Date,
   spotId: number | null = null,
 ): Promise<Response> {
+  // Not a uuid cannot be a destination; PostgREST would answer 22P02.
+  if (!isUuid(destinationId)) return json({ error: "Destination not found." }, 404);
   const { data, error } = await admin
     .from("destinations")
     .select("id, type, name, url, signing_secret, health, consecutive_failures")
     .eq("id", destinationId)
     .eq("user_id", userId)
     .maybeSingle();
-  if (error) return json({ error: "Couldn't load that destination." }, 500);
+  if (error) {
+    console.error(`send-test: loading destination ${destinationId} failed: ${error.message}`);
+    return json({ error: "Couldn't load that destination." }, 500);
+  }
   if (!data) return json({ error: "Destination not found." }, 404);
 
   const destination = data as DeliveryDestination;
@@ -93,7 +99,10 @@ export async function sendTestTo(
       p_destination_id: destination.id,
       p_spot_id: spotId,
     });
-    if (test.error) return json({ error: "Couldn't load that destination." }, 500);
+    if (test.error) {
+      console.error(`send-test: push_test_delivery failed: ${test.error.message}`);
+      return json({ error: "Couldn't load that destination." }, 500);
+    }
     const found = test.data as PushTest | null;
     // Null means the spot is unknown, or the destination has no settings row (which the
     // trigger rules out; the message then points at the destination, not a spot).

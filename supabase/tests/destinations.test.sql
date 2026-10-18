@@ -2,7 +2,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(38);
+select plan(68);
 
 select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
 
@@ -45,13 +45,44 @@ select throws_ok($$ select create_destination('webhook', 'x', 'https://API.Inter
 select throws_ok($$ select create_destination('webhook', 'x', 'https://api.internal./spots') $$, 'P0001', 'That address is not allowed.', 'a trailing dot does not evade the suffix check');
 select throws_ok($$ select create_destination('webhook', 'x', 'https://[fdaa:0:1::3]/spots') $$, 'P0001', 'That address is not allowed.', 'rejects fdaa::/16 (Fly 6PN)');
 select lives_ok($$ select create_destination('webhook', 'Public host', 'https://internal.example.com/spots') $$, 'a denied word inside a public name is fine');
+-- Numeric hosts, userinfo and the special ranges (20261017001000); the same rules are in urlsafety.ts.
+select throws_ok($$ select create_destination('webhook', 'x', 'https://2130706433/x') $$, 'P0001', 'That address is not allowed.', 'rejects a decimal IPv4');
+select throws_ok($$ select create_destination('webhook', 'x', 'https://127.1/') $$, 'P0001', 'That address is not allowed.', 'rejects a short-form IPv4');
+select throws_ok($$ select create_destination('webhook', 'x', 'https://0x7f000001/') $$, 'P0001', 'That address is not allowed.', 'rejects a hex IPv4');
+select throws_ok($$ select create_destination('webhook', 'x', 'https://017700000001/') $$, 'P0001', 'That address is not allowed.', 'rejects an octal IPv4');
+select throws_ok($$ select create_destination('webhook', 'x', 'https://010.0.0.1/') $$, 'P0001', 'That address is not allowed.', 'rejects a zero-led octet');
+select throws_ok($$ select create_destination('webhook', 'x', 'https://example.0x7f/') $$, 'P0001', 'That address is not allowed.', 'rejects a host ending in a hex label');
+select throws_ok($$ select create_destination('webhook', 'x', 'https://user@10.0.0.1/') $$, 'P0001', 'That address is not allowed.', 'rejects userinfo');
+select throws_ok($$ select create_destination('webhook', 'x', 'https://user@example.com/') $$, 'P0001', 'That address is not allowed.', 'rejects userinfo on a public name');
+select throws_ok($$ select create_destination('webhook', 'x', 'https://evil.example\@10.0.0.1/') $$, 'P0001', 'That address is not allowed.', 'rejects a backslash in the host');
+select throws_ok($$ select create_destination('webhook', 'x', 'https://%31%32%37.0.0.1/') $$, 'P0001', 'That address is not allowed.', 'rejects a percent-encoded host');
+select throws_ok($$ select create_destination('webhook', 'x', 'https://[64:ff9b::a00:1]/') $$, 'P0001', 'That address is not allowed.', 'rejects NAT64 of 10.0.0.1');
+select throws_ok($$ select create_destination('webhook', 'x', 'https://[64:ff9b::a9fe:a9fe]/') $$, 'P0001', 'That address is not allowed.', 'rejects NAT64 of the metadata address');
+select throws_ok($$ select create_destination('webhook', 'x', 'https://[64:ff9b:1::808:808]/') $$, 'P0001', 'That address is not allowed.', 'rejects local-use NAT64');
+select throws_ok($$ select create_destination('webhook', 'x', 'https://[::7f00:1]/') $$, 'P0001', 'That address is not allowed.', 'rejects IPv4-compatible loopback');
+select throws_ok($$ select create_destination('webhook', 'x', 'https://[::ffff:a00:1]/') $$, 'P0001', 'That address is not allowed.', 'rejects IPv4-mapped 10.0.0.1 in hex');
+select throws_ok($$ select create_destination('webhook', 'x', 'https://[2002:7f00:1::]/') $$, 'P0001', 'That address is not allowed.', 'rejects 6to4 of loopback');
+select throws_ok($$ select create_destination('webhook', 'x', 'https://[fec0::1]/') $$, 'P0001', 'That address is not allowed.', 'rejects IPv6 site-local');
+select throws_ok($$ select create_destination('webhook', 'x', 'https://[ff02::1]/') $$, 'P0001', 'That address is not allowed.', 'rejects IPv6 multicast');
+select throws_ok($$ select create_destination('webhook', 'x', 'https://[100::1]/') $$, 'P0001', 'That address is not allowed.', 'rejects IPv6 discard');
+select throws_ok($$ select create_destination('webhook', 'x', 'https://224.0.0.1/') $$, 'P0001', 'That address is not allowed.', 'rejects multicast');
+select throws_ok($$ select create_destination('webhook', 'x', 'https://240.0.0.1/') $$, 'P0001', 'That address is not allowed.', 'rejects 240/4');
+select throws_ok($$ select create_destination('webhook', 'x', 'https://255.255.255.255/') $$, 'P0001', 'That address is not allowed.', 'rejects broadcast');
+select throws_ok($$ select create_destination('webhook', 'x', 'https://192.0.0.8/') $$, 'P0001', 'That address is not allowed.', 'rejects 192.0.0.0/24');
+select throws_ok($$ select create_destination('webhook', 'x', 'https://198.18.0.1/') $$, 'P0001', 'That address is not allowed.', 'rejects benchmarking');
+select lives_ok($$ select create_destination('webhook', 'Public 0', 'https://8.8.8.8/spots') $$, 'accepts a public dotted quad');
+select lives_ok($$ select create_destination('webhook', 'Public 1', 'https://[64:ff9b::808:808]/spots') $$, 'accepts NAT64 of a public address');
+select lives_ok($$ select create_destination('webhook', 'Public 2', 'https://[2002:808:808::1]/spots') $$, 'accepts 6to4 of a public address');
+select lives_ok($$ select create_destination('webhook', 'Public 3', 'https://[2606:4700::1111]/spots') $$, 'accepts a public IPv6 address');
+select lives_ok($$ select create_destination('webhook', 'Public 4', 'https://hooks.example.com/a@b') $$, 'accepts an @ in the path');
+select lives_ok($$ select create_destination('webhook', 'Public 5', 'https://1e100.example.net/spots') $$, 'accepts a name with digits');
 select throws_ok($$ select create_destination('webhook', 'x', 'not a url') $$, 'P0001', 'Use an https URL.', 'rejects garbage');
 select throws_ok($$ select create_destination('email', 'x', 'https://example.com') $$, 'P0001', 'Unknown destination type.', 'rejects unknown type');
 
 -- Secrets are not readable through the table, even by the owner.
 select throws_ok($$ select url from destinations $$, '42501', null, 'url column is not selectable');
 select throws_ok($$ select signing_secret from destinations $$, '42501', null, 'signing_secret column is not selectable');
-select is((select count(*) from destinations), 4::bigint, 'owner sees their destinations through allowed columns');
+select is((select count(*) from destinations), 10::bigint, 'owner sees their destinations through allowed columns');
 select throws_ok($$ insert into destinations (user_id, type, name, url, url_display) values (auth.uid(), 'webhook', 'x', 'https://e.com', 'e') $$,
   '42501', null, 'direct insert is not allowed');
 

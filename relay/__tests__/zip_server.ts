@@ -78,6 +78,8 @@ export interface ZipServerOptions {
   ignoreRange?: boolean;
   /** Stop sending an entry's data after this many bytes and hold the connection open. */
   stallAfter?: number;
+  /** Never answer a Range request for entry data (no headers) until the client gives up. */
+  stallHeaders?: boolean;
 }
 
 export function serveZip(bytes: Uint8Array, options: ZipServerOptions = {}) {
@@ -87,6 +89,7 @@ export function serveZip(bytes: Uint8Array, options: ZipServerOptions = {}) {
     ifRange: string | null;
     userAgent: string | null;
   }[] = [];
+  const stalled: ((res: Response) => void)[] = [];
   let lastModified = options.lastModified === undefined
     ? "Sun, 11 Oct 2026 13:18:48 GMT"
     : options.lastModified;
@@ -108,6 +111,9 @@ export function serveZip(bytes: Uint8Array, options: ZipServerOptions = {}) {
     const slice = bytes.slice(Number(m[1]), Number(m[2]) + 1);
     // Entry data: not the directory tail (from 0 in a small file) or a 30-byte local header.
     const entryData = Number(m[1]) > 0 && slice.length > 30;
+    if (options.stallHeaders && entryData) {
+      return new Promise<Response>((resolve) => stalled.push(resolve));
+    }
     if (options.stallAfter !== undefined && entryData && slice.length > options.stallAfter) {
       const head = slice.slice(0, options.stallAfter);
       const body = new ReadableStream<Uint8Array>({
@@ -124,6 +130,10 @@ export function serveZip(bytes: Uint8Array, options: ZipServerOptions = {}) {
     url: `http://127.0.0.1:${server.addr.port}/l_amat`,
     requests,
     server,
+    /** Answer the requests stallHeaders held (call before server.shutdown(), which waits for them). */
+    release() {
+      for (const resolve of stalled.splice(0)) resolve(new Response(null, { status: 503 }));
+    },
     /** The FCC publishes a new file. */
     republish(date: string) {
       lastModified = date;

@@ -5,7 +5,6 @@
 import { signWebhookBody } from "./hmac.ts";
 import {
   discordMessages,
-  LEGACY_PUSH_SETTINGS,
   pushNotifications,
   pushPayload,
   pushSettingsOf,
@@ -30,12 +29,6 @@ const DISCORD_TIMEOUT_MS = 10_000;
 const PUSH_TIMEOUT_MS = 10_000;
 /** Longest Retry-After honoured: throttle_destination takes an int, and a day is plenty. */
 export const MAX_RETRY_AFTER_SECONDS = 86_400;
-/**
- * The TTL header for a push destination claimed without settings: a push
- * service drops a spot it couldn't deliver within 15 minutes. A destination's
- * own "drop if the device is offline for" (push.ttl_seconds) replaces it.
- */
-export const PUSH_TTL_SECONDS = LEGACY_PUSH_SETTINGS.ttl_seconds;
 const NO_DEVICES = "Turn on notifications on a device first.";
 const NO_URL = "Destination has no URL";
 
@@ -182,8 +175,11 @@ export function retryAfterSeconds(value: unknown): number | null {
   return Math.min(Math.ceil(seconds), MAX_RETRY_AFTER_SECONDS);
 }
 
-/** Discord reports retry_after in seconds (fractional) in the body, or a Retry-After header. */
-async function retryAfterSecondsOf(response: Response): Promise<number> {
+/**
+ * Discord reports retry_after in seconds (fractional) in the body, or a
+ * Retry-After header; null when it gave neither, so SQL picks the delay.
+ */
+async function retryAfterSecondsOf(response: Response): Promise<number | null> {
   const header = response.headers.get("retry-after");
   let body: unknown = null;
   try {
@@ -194,7 +190,7 @@ async function retryAfterSecondsOf(response: Response): Promise<number> {
   const fromBody = typeof body === "object" && body !== null
     ? (body as { retry_after?: unknown }).retry_after
     : undefined;
-  return retryAfterSeconds(fromBody) ?? retryAfterSeconds(header) ?? 5;
+  return retryAfterSeconds(fromBody) ?? retryAfterSeconds(header);
 }
 
 /** Checked addresses a webhook send tries, in order, when connecting is refused. */
@@ -325,7 +321,7 @@ type DeviceOutcome =
   & (
     | { kind: "accepted" }
     | { kind: "gone" }
-    | { kind: "rate_limited"; retryAfterSeconds: number }
+    | { kind: "rate_limited"; retryAfterSeconds: number | null }
     | { kind: "error"; error: string }
   );
 
@@ -334,10 +330,6 @@ const RATE_LIMITED = "Push HTTP 429 (rate limited)";
 /** Push's Topic header allows at most 32 characters of the URL-safe base64 alphabet. */
 export function pushTopic(tag: string): string {
   return tag.replace(/:/g, "").replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 32);
-}
-
-function pushRetryAfterSeconds(response: Response): number {
-  return retryAfterSeconds(response.headers.get("retry-after")) ?? 60;
 }
 
 /** Sends every notification to one device, in order, stopping at its first refusal. */
@@ -389,7 +381,8 @@ async function pushToDevice(
         return {
           kind: "rate_limited",
           accepted,
-          retryAfterSeconds: pushRetryAfterSeconds(response),
+          // Null without a Retry-After, so SQL picks the level's backoff.
+          retryAfterSeconds: retryAfterSeconds(response.headers.get("retry-after")),
         };
       }
       if (response.status !== 201 && response.status !== 202) {
@@ -472,7 +465,10 @@ export async function sendPush(
   const expiredEndpoints: string[] = [];
   const deviceResults: PushDeviceResults = { ok: [], errors: {} };
   let reached = false;
-  let retryAfterSeconds: number | undefined;
+  // Rate limited by any device: the longest Retry-After any of them gave, or
+  // null when none gave one.
+  let rateLimited = false;
+  let retryAfter: number | null = null;
   let firstError: string | undefined;
   for (const [index, outcome] of outcomes.entries()) {
     const endpoint = devices[index]!.endpoint;
@@ -481,7 +477,10 @@ export async function sendPush(
     else if (outcome.kind === "gone") expiredEndpoints.push(endpoint);
     else if (outcome.kind === "rate_limited") {
       deviceResults.errors[endpoint] = RATE_LIMITED;
-      retryAfterSeconds = Math.max(retryAfterSeconds ?? 0, outcome.retryAfterSeconds);
+      rateLimited = true;
+      if (outcome.retryAfterSeconds !== null) {
+        retryAfter = Math.max(retryAfter ?? 0, outcome.retryAfterSeconds);
+      }
     } else {
       deviceResults.errors[endpoint] = outcome.error;
       firstError ??= outcome.error;
@@ -490,8 +489,8 @@ export async function sendPush(
 
   const reported = { expiredEndpoints, deviceResults };
   if (reached) return { ok: true, sent: deliveries.length, ...reported };
-  if (retryAfterSeconds !== undefined) {
-    return { ok: false, sent: 0, error: RATE_LIMITED, retryAfterSeconds, ...reported };
+  if (rateLimited) {
+    return { ok: false, sent: 0, error: RATE_LIMITED, retryAfterSeconds: retryAfter, ...reported };
   }
   return { ok: false, sent: 0, error: firstError ?? NO_DEVICES, ...reported };
 }

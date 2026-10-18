@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import {
-  Box, Button, Card, CardActions, CardContent, Chip, Grid, LinearProgress, Paper, Stack, Tooltip, Typography,
+  Box, Button, Card, CardActions, CardContent, Chip, Grid, LinearProgress, Paper, Stack, Tooltip, Typography, useMediaQuery, type Theme,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteIcon from "@mui/icons-material/Delete";
@@ -8,21 +8,19 @@ import EditIcon from "@mui/icons-material/Edit";
 import NotificationsActiveIcon from "@mui/icons-material/NotificationsActive";
 import { useNavigate } from "react-router";
 import { PageTitle } from "../layout/PageTitle";
-import { deleteGroup, listGroups, loadDestinations, loadSubscriptions, saveSubscription } from "../lib/api";
+import { deleteGroup, listGroups, loadSubscriptions } from "../lib/api";
 import { hasPositiveRule, toInput } from "../subscriptions/model";
+import { SourcePickerDialog } from "../subscriptions/SourcePickerDialog";
 import { errorText, useNotify } from "../app/hooks";
 import { GroupDialog } from "./GroupDialog";
 import { CARD_CHIPS, groupMeta, spotLines } from "./model";
 import type { CallsignGroup, GroupInput } from "./types";
 
-interface Props {
-  /** Reloads the app's subscriptions after Get alerts creates one. */
-  reload: () => Promise<void>;
-}
-
-export function GroupsPage({ reload }: Props) {
+export function GroupsPage() {
   const notify = useNotify();
   const navigate = useNavigate();
+  const mobile = useMediaQuery((t: Theme) => t.breakpoints.down("sm"));
+  const [picking, setPicking] = useState<CallsignGroup | null>(null);
   const [groups, setGroups] = useState<CallsignGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<GroupInput | null>(null);
@@ -56,28 +54,23 @@ export function GroupsPage({ reload }: Props) {
     }
   };
 
-  // Mirrors Get alerts on a callsign profile (CallsignPage), with the group in place of the call.
-  const getAlerts = (g: CallsignGroup) => run(g.id, "Couldn't save the connection.", async () => {
+  // Mirrors Get alerts on a callsign profile (CallsignPage), with the group in place of the call: pick a
+  // source, then the editor opens with the group as its filter. Nothing is saved until the user saves there.
+  const getAlerts = (g: CallsignGroup) => run(g.id, "Couldn't load your connections.", async () => {
     // Read fresh rather than from the app's copy, which may not have loaded yet.
-    const [dests, subs] = await Promise.all([loadDestinations(), loadSubscriptions()]);
-    const existing = subs.find((s) => hasPositiveRule(toInput(s).rules, "group", g.id));
+    const existing = (await loadSubscriptions()).find((s) => hasPositiveRule(toInput(s).rules, "group", g.id));
     if (existing) {
       notify(`You already have ${existing.name}.`);
       void navigate(`/connections/${existing.id}`);
       return;
     }
-    // The group is the only rule; the user finishes the rest in the editor. A paused or failing
-    // destination would deliver nothing, and with none the subscription waits for one.
-    const dest = dests.find((d) => d.health === "ok");
-    const name = `${g.name} on the air`;
-    const id = await saveSubscription({
-      name, enabled: true, quiet_minutes: 30, destinations: dest ? [dest.id] : [],
-      sources: [], rules: [[{ field: "group", op: "is", values: [g.id] }]],
-    });
-    await reload();
-    notify(`Created ${name}`);
-    void navigate(`/connections/${id}`);
+    setPicking(g);
   });
+
+  const pick = (source: string) => {
+    if (!picking) return;
+    void navigate(`/connections/new?source=${encodeURIComponent(source)}&group=${encodeURIComponent(picking.id)}`);
+  };
 
   const remove = (g: CallsignGroup) => run(g.id, "Couldn't delete the group.", async () => {
     await deleteGroup(g.id);
@@ -127,6 +120,7 @@ export function GroupsPage({ reload }: Props) {
             ))}
           </Grid>
         )}
+      {picking && <SourcePickerDialog open fullScreen={mobile} onClose={() => setPicking(null)} onContinue={pick} />}
       {editing && <GroupDialog initial={editing} onClose={() => setEditing(null)} onSaved={(name) => void onSaved(name)} />}
     </Stack>
   );

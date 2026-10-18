@@ -14,13 +14,13 @@ import {
   type DeliverySender,
   runDeliveryBatch,
 } from "../supabase/functions/_shared/delivery/run.ts";
-import type { SenderConfig } from "./config.ts";
+import { RETRY_MAX_MS, RETRY_MIN_MS, type SenderConfig } from "./config.ts";
 import type { SenderDb } from "./db.ts";
 import { healthHandler, type QueueStats, type SenderStatus, type SenderTotals } from "./health.ts";
 
-/** A failed claim or bookkeeping call is retried after this, doubling to the maximum. */
-export const RETRY_MIN_MS = 5_000;
-export const RETRY_MAX_MS = 60_000;
+// A failed claim or bookkeeping call is retried after RETRY_MIN_MS, doubling to
+// RETRY_MAX_MS; they live in config.ts, which checks SENDER_STALE_MS against them.
+export { RETRY_MAX_MS, RETRY_MIN_MS };
 /** How often the watchdog compares the last progress with staleMs. */
 export const WATCHDOG_TICK_MS = 1_000;
 

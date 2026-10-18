@@ -22,6 +22,14 @@ describe("profile format", () => {
     expect(lookupPath("   ")).toBeNull();
   });
 
+  it("refuses dot segments, which would resolve to another page", () => {
+    expect(lookupPath("../stats")).toBeNull();
+    expect(lookupPath("..")).toBeNull();
+    expect(lookupPath("./kk4pwj")).toBeNull();
+    expect(lookupPath("kk4pwj/.")).toBeNull();
+    expect(lookupPath("kk4pwj/...")).toBe("/call/KK4PWJ/...");
+  });
+
   it("builds the canonical URL", () => {
     expect(profileUrl("https://longlines.app", "KK4PWJ")).toBe("https://longlines.app/call/KK4PWJ");
   });
