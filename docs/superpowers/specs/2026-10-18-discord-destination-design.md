@@ -1,12 +1,11 @@
 # Discord destination editor: design
 
 Date: 2026-10-18. Status: **Decisions 1 to 15 accepted: the spec PR (#215) merged 2026-10-18
-without changes. PR 2 (schema and sender) is in progress.** Its review changed the design in three
-places, recorded below: values are escaped for Discord markdown (Rendering), a Discord destination
+without changes. PR 2 (schema and sender, #216) merged 2026-10-18; PR 3 is the web editor.**
+PR 2's review changed the design in three places, recorded below: values are escaped for Discord markdown (Rendering), a Discord destination
 is claimed on average every 10 seconds, at most 50 spots a claim (decision 8), and the sender sends
 at most five messages a claim (unless ten cards pass 6,000 characters) and no embed timestamp
-(Sender). If the design changes during a PR, update
-this file in that PR.
+(Sender). If the design changes during a PR, update this file in that PR.
 
 Source: page 8 of Brad's design canvas, "Discord destination (draft)", artboards
 `DiscordList-Desktop`, `DiscordEdit-Desktop` (card style), `DiscordEditPlain-Desktop` (plain line),
@@ -180,7 +179,10 @@ a nested list, and `discord_field_values` escapes every value once, so the title
 use escaped text. `discord_clip` is `push_clip` that never leaves a lone backslash before the
 ellipsis. `discord_profile_url(spot)` is the profile as a full URL, or null when the call it would
 name is not letters, digits, `/` and `-` (`spot_source_url`'s rule); the title link and the plain
-line's masked link both use it, and without it the callsign is plain text. Push keeps
+line's masked link both use it, and without it the callsign is plain text. The plain line also
+leaves out the link when the escaped call holds `[` or `]` (such as DX Cluster's `K1ABC/[`):
+Discord's masked-link text ignores backslash escapes, so an unbalanced `\[` would break the link
+and show the markup literally (`20261018000200`). Push keeps
 `render_push_field` unescaped, since a notification is plain text. A bare URL in a value is still
 shown as a link by Discord, but its text is its address.
 

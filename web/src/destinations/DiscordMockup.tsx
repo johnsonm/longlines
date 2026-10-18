@@ -88,6 +88,13 @@ const Bold = styled("strong")({ fontWeight: 700 });
 
 const MARKDOWN: MarkdownComponents = { Bold, Link };
 
+/** Discord draws no masked links in a card title (the title itself may be one), so a link there is only its text. */
+function TitleText({ children }: { children?: ReactNode }) {
+  return <>{children}</>;
+}
+
+const TITLE_MARKDOWN: MarkdownComponents = { Bold, Link: TitleText };
+
 function newTab(href: string, children: ReactNode) {
   return <Link href={href} target="_blank" rel="noopener noreferrer">{children}</Link>;
 }
@@ -101,8 +108,12 @@ interface Props {
 
 /**
  * A rough picture of the message in Discord's dark theme: the author row,
- * then the card or the plain line. Every word is what SQL rendered; the
- * plain line's **bold** and [text](url) are drawn by discordMarkdown.ts.
+ * then the card or the plain line. Every word is what SQL rendered, never
+ * joined here. The values SQL escaped (the title, description, grid values
+ * and plain line) go through discordMarkdown.ts, which drops the escaping
+ * backslashes and draws **bold** and [text](url) as Discord does; the grid
+ * names and the footer are SQL's fixed labels, which Discord shows as they
+ * are.
  */
 export function DiscordMockup({ preview, now }: Props) {
   const [opened] = useState(() => new Date());
@@ -126,15 +137,17 @@ export function DiscordMockup({ preview, now }: Props) {
             <Embed barColor={colorHex(preview.discord_color)} data-testid="discord-embed" sx={{ mt: 0.5 }}>
               <Stack spacing={1}>
                 <EmbedTitle>
-                  {preview.discord_url ? newTab(preview.discord_url, preview.discord_title) : preview.discord_title}
+                  {preview.discord_url
+                    ? newTab(preview.discord_url, renderDiscordMarkdown(preview.discord_title, TITLE_MARKDOWN))
+                    : renderDiscordMarkdown(preview.discord_title, TITLE_MARKDOWN)}
                 </EmbedTitle>
-                {preview.discord_description !== "" && <Description>{preview.discord_description}</Description>}
+                {preview.discord_description !== "" && <Description>{renderDiscordMarkdown(preview.discord_description, MARKDOWN)}</Description>}
                 {preview.discord_grid.length > 0 && (
                   <Grid>
                     {preview.discord_grid.map((f, i) => (
                       <div key={i}>
                         <FieldName>{f.name}</FieldName>
-                        <div>{f.value}</div>
+                        <div>{renderDiscordMarkdown(f.value, MARKDOWN)}</div>
                       </div>
                     ))}
                   </Grid>

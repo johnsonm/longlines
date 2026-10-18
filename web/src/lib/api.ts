@@ -492,49 +492,41 @@ export interface DiscordSettingsSummary {
   field_count: number;
 }
 
-type RpcResult = { data: unknown; error: { message: string; code?: string } | null };
-/**
- * The Discord RPCs (20261018000100) are not in database.types.ts until it is
- * regenerated against that migration; until then they go through this
- * untyped call, and each wrapper states the shape its RPC returns.
- */
-function untypedRpc(fn: string, args: Record<string, unknown>): PromiseLike<RpcResult> {
-  return (supabase.rpc as unknown as (fn: string, args: Record<string, unknown>) => PromiseLike<RpcResult>).call(supabase, fn, args);
-}
-
 /** Creates (no id) or updates a Discord destination's name, enabled, URL (null keeps it) and settings. Returns the id. */
 export async function saveDiscordDestination(input: DiscordDestinationInput): Promise<string> {
-  const { data, error } = await untypedRpc("save_discord_destination", {
-    p_id: input.id ?? null, p_name: input.name, p_enabled: input.enabled, p_url: input.url, p_settings: { ...input.settings },
-  });
+  const settings: Json = { ...input.settings };
+  const { data, error } = await supabase.rpc("save_discord_destination", withNulls<"save_discord_destination">({
+    p_id: input.id ?? null, p_name: input.name, p_enabled: input.enabled, p_url: input.url, p_settings: settings,
+  }));
   if (error) fail(error, "Couldn't save the destination.");
-  return data as string;
+  return data;
 }
 
 export async function getDiscordDestination(id: string): Promise<DiscordDestination> {
-  const { data, error } = await untypedRpc("get_discord_destination", { p_id: id });
+  const { data, error } = await supabase.rpc("get_discord_destination", { p_id: id });
   if (error) fail(error, "Couldn't load the destination.");
-  // jsonb; its shape is fixed by get_discord_destination().
-  return data as DiscordDestination;
+  // jsonb in the generated types; its shape is fixed by get_discord_destination().
+  return data as unknown as DiscordDestination;
 }
 
 /** The style and field count of each of the caller's Discord destinations. */
 export async function listDiscordDestinationSettings(): Promise<DiscordSettingsSummary[]> {
-  const { data, error } = await untypedRpc("list_discord_destination_settings", {});
+  const { data, error } = await supabase.rpc("list_discord_destination_settings");
   if (error) fail(error, "Couldn't load destinations.");
-  // jsonb array; its shape is fixed by list_discord_destination_settings().
-  return (data ?? []) as DiscordSettingsSummary[];
+  // jsonb array in the generated types; its shape is fixed by list_discord_destination_settings().
+  return (data ?? []) as unknown as DiscordSettingsSummary[];
 }
 
 /** The message SQL would post with `settings`, for the sample spot or raw_spots row `spotId`. */
 export async function previewDiscordMessage(settings: DiscordSettings, spotId: number | null): Promise<DiscordPreview> {
-  const { data, error } = await untypedRpc("preview_discord_message", {
-    p_settings: { ...settings }, ...(spotId === null ? {} : { p_spot_id: spotId }),
+  const p_settings: Json = { ...settings };
+  const { data, error } = await supabase.rpc("preview_discord_message", {
+    p_settings, ...(spotId === null ? {} : { p_spot_id: spotId }),
   });
   if (error) fail(error, "Couldn't load the preview.");
   if (!data) throw new ApiError("Couldn't load the preview.");
-  // jsonb; its nine keys are fixed by discord_spot_fields().
-  return data as DiscordPreview;
+  // jsonb in the generated types; its nine keys are fixed by discord_spot_fields().
+  return data as unknown as DiscordPreview;
 }
 
 // ---- API tokens ------------------------------------------------------------

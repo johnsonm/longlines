@@ -1,8 +1,13 @@
-// The Discord mock-up's renderer for the plain line SQL builds
-// (discord_plain_line): only **bold** and [text](url), the two pieces of
-// markup SQL ever writes. Anything else, including a token the
-// 190-character clip cut in half, stays literal text. It returns React
-// nodes, never HTML. Also the mock-up's colour and time helpers.
+// The Discord mock-up's renderer for what SQL writes in a message
+// (discord_spot_fields): **bold** and [text](url), the two pieces of markup
+// SQL ever writes, and backslash escapes, since discord_escape puts a
+// backslash before every markdown character in a value. As in Discord, a
+// backslash before ASCII punctuation is dropped and the character is
+// literal, so it never opens or closes bold or opens a link; a backslash
+// before anything else stays. A link's text is matched as Discord matches
+// it, where backslashes mean nothing (LINK_TEXT). Anything else, including a token the clip cut in
+// half, stays literal text. It returns React nodes, never HTML. Also the
+// mock-up's colour and time helpers.
 
 import { createElement, Fragment, type ComponentType, type ReactNode } from "react";
 
@@ -16,6 +21,30 @@ function safeUrl(url: string): boolean {
   return /^https?:\/\/\S+$/i.test(url);
 }
 
+/** Whether text[i] is a backslash that escapes the next character (ASCII punctuation, as in Discord). */
+function escapes(text: string, i: number): boolean {
+  return text[i] === "\\" && i + 1 < text.length && /[!-/:-@[-`{-~]/.test(text[i + 1] ?? "");
+}
+
+/** The first `token` at or after `from` that no backslash escapes, or -1. */
+function findUnescaped(text: string, token: string, from: number): number {
+  for (let i = from; i < text.length; i += 1) {
+    if (escapes(text, i)) {
+      i += 1;
+      continue;
+    }
+    if (text.startsWith(token, i)) return i;
+  }
+  return -1;
+}
+
+// A masked link's text as Discord's parser (simple-markdown) matches it:
+// bracket pairs, any character but a bracket, or a ']' that a later ']'
+// closes before any '['. Backslashes mean nothing here (they are dropped
+// only when the text is parsed again), so an escaped '[' with no ']' after
+// it ends the match and the link fails, as it does in Discord.
+const LINK_TEXT = /^\[((?:\[[^\]]*\]|[^[\]]|\](?=[^[]*\]))*)\]\(/;
+
 /** Splits text into segments; bold may hold links and a link's text may hold bold. */
 export function parseDiscordMarkdown(text: string): Segment[] {
   const out: Segment[] = [];
@@ -26,8 +55,13 @@ export function parseDiscordMarkdown(text: string): Segment[] {
   };
   let i = 0;
   while (i < text.length) {
+    if (escapes(text, i)) {
+      plain += text[i + 1];
+      i += 2;
+      continue;
+    }
     if (text.startsWith("**", i)) {
-      const end = text.indexOf("**", i + 2);
+      const end = findUnescaped(text, "**", i + 2);
       if (end > i + 2) {
         flush();
         out.push({ kind: "bold", children: parseDiscordMarkdown(text.slice(i + 2, end)) });
@@ -36,8 +70,9 @@ export function parseDiscordMarkdown(text: string): Segment[] {
       }
     }
     if (text[i] === "[") {
-      const close = text.indexOf("](", i + 1);
-      const end = close === -1 ? -1 : text.indexOf(")", close + 2);
+      const inside = LINK_TEXT.exec(text.slice(i));
+      const close = inside ? i + 1 + (inside[1] ?? "").length : -1;
+      const end = close === -1 ? -1 : findUnescaped(text, ")", close + 2);
       if (close > i + 1 && end !== -1) {
         const url = text.slice(close + 2, end);
         if (safeUrl(url)) {

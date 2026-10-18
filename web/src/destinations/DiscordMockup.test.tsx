@@ -20,6 +20,37 @@ const CARD: DiscordPreview = {
   discord_suppress_embeds: false,
 };
 
+// preview_discord_message('{}') on the local db (20261018000100) for a POTA
+// spot whose callsign, spotter and park name are hostile markdown: SQL's
+// keys byte for byte, every value escaped by discord_escape.
+const HOSTILE: DiscordPreview = {
+  discord_style: "card",
+  discord_title: "\\*\\*K1\\*X\\_\\[Y\\]\\(https://evil.example\\) · 14.062 MHz · CW",
+  discord_description: "POTA · US-2763 · \\- \\*\\*Pwn\\*\\* \\[click\\]\\(javascript:alert\\(1\\)\\) \\\\ end · NC",
+  discord_grid: [{ name: "Band", value: "20m" }, { name: "Spotter", value: "\\<\\@everyone\\>\\#W1\\~\\~AW\\`" }],
+  discord_footer: "POTA · 17:42 UTC",
+  discord_color: 3066993,
+  discord_url: null,
+  discord_line:
+    "**\\*\\*K1\\*X\\_\\[Y\\]\\(https://evil.example\\)** · 14.062 MHz · CW · POTA · US-2763 · \\- \\*\\*Pwn\\*\\* \\[click\\]\\(javascript:alert\\(1\\)\\) \\\\ end",
+  discord_suppress_embeds: false,
+};
+
+// The same for a spot whose call is linkable (its base call is K1ABC) but
+// whose text is not, so the escaped text sits inside the profile links.
+const LINKED: DiscordPreview = {
+  discord_style: "card",
+  discord_title: "K1ABC/\\*\\* · 14.062 MHz · CW",
+  discord_description: "POTA · US-2763 · 1\\. \\[Park\\]\\(https://evil.example\\) \\<\\#123\\> · NC",
+  discord_grid: [{ name: "Band", value: "20m" }, { name: "Spotter", value: "W1AW" }],
+  discord_footer: "POTA · 17:42 UTC",
+  discord_color: 3066993,
+  discord_url: "https://app.longlines.io/call/K1ABC",
+  discord_line:
+    "**[K1ABC/\\*\\*](https://app.longlines.io/call/K1ABC)** · 14.062 MHz · CW · POTA · US-2763 · 1\\. \\[Park\\]\\(https://evil.example\\) \\<\\#123\\>",
+  discord_suppress_embeds: false,
+};
+
 const figure = () => within(screen.getByRole("figure", { name: "Discord message" }));
 
 describe("DiscordMockup", () => {
@@ -80,5 +111,49 @@ describe("DiscordMockup", () => {
     expect(colorHex(-5)).toBe("#000000");
     expect(colorHex(0x1ffffff)).toBe("#ffffff");
     expect(todayAt(new Date(2026, 9, 18, 9, 5))).toBe("Today at 9:05 AM");
+  });
+
+  it("draws SQL's escaped card values as Discord shows them, with no markup", () => {
+    renderPage(<DiscordMockup preview={HOSTILE} now={NOW} />);
+    const embed = screen.getByTestId("discord-embed");
+    expect(figure().getByText("**K1*X_[Y](https://evil.example) · 14.062 MHz · CW")).toBeInTheDocument();
+    expect(figure().getByText("POTA · US-2763 · - **Pwn** [click](javascript:alert(1)) \\ end · NC")).toBeInTheDocument();
+    expect(figure().getByText("<@everyone>#W1~~AW`")).toBeInTheDocument();
+    expect(within(embed).queryByRole("link")).not.toBeInTheDocument();
+    expect(embed.querySelector("strong")).toBeNull();
+    expect(embed.textContent).not.toContain("\\*");
+  });
+
+  it("draws SQL's escaped plain line with only SQL's own bold", () => {
+    renderPage(<DiscordMockup preview={{ ...HOSTILE, discord_style: "plain" }} now={NOW} />);
+    const line = screen.getByTestId("discord-line");
+    expect(line.textContent).toBe(
+      "**K1*X_[Y](https://evil.example) · 14.062 MHz · CW · POTA · US-2763 · - **Pwn** [click](javascript:alert(1)) \\ end",
+    );
+    expect(within(line).queryByRole("link")).not.toBeInTheDocument();
+    const bold = line.querySelectorAll("strong");
+    expect(bold).toHaveLength(1);
+    expect(bold[0]?.textContent).toBe("**K1*X_[Y](https://evil.example)");
+  });
+
+  it("keeps escaped text inside the title and plain-line profile links", () => {
+    const { unmount } = renderPage(<DiscordMockup preview={LINKED} now={NOW} />);
+    const title = figure().getByRole("link", { name: "K1ABC/** · 14.062 MHz · CW" });
+    expect(title).toHaveAttribute("href", "https://app.longlines.io/call/K1ABC");
+    expect(figure().getByText("POTA · US-2763 · 1. [Park](https://evil.example) <#123> · NC")).toBeInTheDocument();
+    expect(figure().getAllByRole("link")).toHaveLength(1);
+    unmount();
+    renderPage(<DiscordMockup preview={{ ...LINKED, discord_style: "plain" }} now={NOW} />);
+    const line = screen.getByTestId("discord-line");
+    const link = within(line).getByRole("link", { name: "K1ABC/**" });
+    expect(link).toHaveAttribute("href", "https://app.longlines.io/call/K1ABC");
+    expect(within(line).getAllByRole("link")).toHaveLength(1);
+    expect(line.textContent).toBe("K1ABC/** · 14.062 MHz · CW · POTA · US-2763 · 1. [Park](https://evil.example) <#123>");
+  });
+
+  it("drops a masked link from a card title but keeps its text", () => {
+    renderPage(<DiscordMockup preview={{ ...CARD, discord_url: null, discord_title: "[K1](https://a.example) **b**" }} now={NOW} />);
+    expect(figure().queryByRole("link")).not.toBeInTheDocument();
+    expect(figure().getByText("b").tagName).toBe("STRONG");
   });
 });

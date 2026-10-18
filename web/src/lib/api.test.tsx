@@ -415,7 +415,7 @@ describe("discord", () => {
     const rows = [{ destination_id: "d1", style: "card", field_count: 9 }, { destination_id: "d2", style: "plain", field_count: 6 }];
     fake.rpcs.set("list_discord_destination_settings", { data: rows });
     expect(await api.listDiscordDestinationSettings()).toEqual(rows);
-    expect(fake.client.rpc).toHaveBeenLastCalledWith("list_discord_destination_settings", {});
+    expect(fake.client.rpc).toHaveBeenLastCalledWith("list_discord_destination_settings");
     fake.rpcs.set("list_discord_destination_settings", { data: null });
     expect(await api.listDiscordDestinationSettings()).toEqual([]);
     fake.rpcs.set("list_discord_destination_settings", { error: boom });

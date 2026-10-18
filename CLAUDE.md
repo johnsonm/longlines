@@ -213,6 +213,17 @@ its Copy section is the copy source for the Discord editor.
   `DISCORD_MESSAGES_PER_CLAIM` and packs cards in order within Discord's 6,000-character message
   limit (only cards over about 600 characters make a sixth message); it never drops or delays one.
 - Profile links are absolute through `app_site_url()`; never hard-code the host elsewhere.
+- The web editor (`web/src/destinations/Discord*`) takes its copy from the spec's Copy section,
+  not `docs/ui-mock.html`.
+- `DiscordMockup` renders only SQL's keys from `preview_discord_message` and never joins fields.
+  The escaped values (title, description, grid values, plain line) go through
+  `discordMarkdown.ts`, which draws only bold, masked links (http(s) targets only) and backslash
+  escapes (a backslash before ASCII punctuation is dropped and the character is literal), as
+  Discord does, and matches link text by Discord's grammar, which ignores escapes; its tests pin real `preview_discord_message` output for hostile spots.
+- The editor's default settings are pinned to `discord_default_settings()` by
+  `discordModel.test.ts`; change the SQL and `discordModel.ts` together.
+- The field picker is the generic `FieldPicker`, shared with push's notification content card;
+  never fork it per destination type.
 
 ## Web app rules
 

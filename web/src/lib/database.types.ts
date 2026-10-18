@@ -445,17 +445,37 @@ isOneToOne: false
                   ]
                 },"destinations": {
                   Row: {
-                    "claim_tokens": number,"claim_tokens_at": string,"consecutive_failures": number,"created_at": string,"enabled": boolean,"health": string,"id": string,"last_error": string | null,"last_error_at": string | null,"last_success_at": string | null,"name": string,"signing_secret": string | null,"throttle_level": number,"throttled_until": string | null,"type": string,"url": string | null,"url_display": string,"user_id": string,"api_destination_json": Json | null
+                    "claim_due_at": string,"claim_tokens": number,"claim_tokens_at": string,"consecutive_failures": number,"created_at": string,"enabled": boolean,"health": string,"id": string,"last_error": string | null,"last_error_at": string | null,"last_success_at": string | null,"name": string,"signing_secret": string | null,"throttle_level": number,"throttled_until": string | null,"type": string,"url": string | null,"url_display": string,"user_id": string,"api_destination_json": Json | null
                   }
                   ComputedFields: "api_destination_json"
                   Insert: {
-                    "claim_tokens"?: number,"claim_tokens_at"?: string,"consecutive_failures"?: number,"created_at"?: string,"enabled"?: boolean,"health"?: string,"id"?: string,"last_error"?: string | null,"last_error_at"?: string | null,"last_success_at"?: string | null,"name": string,"signing_secret"?: string | null,"throttle_level"?: number,"throttled_until"?: string | null,"type": string,"url"?: string | null,"url_display": string,"user_id": string
+                    "claim_due_at"?: string,"claim_tokens"?: number,"claim_tokens_at"?: string,"consecutive_failures"?: number,"created_at"?: string,"enabled"?: boolean,"health"?: string,"id"?: string,"last_error"?: string | null,"last_error_at"?: string | null,"last_success_at"?: string | null,"name": string,"signing_secret"?: string | null,"throttle_level"?: number,"throttled_until"?: string | null,"type": string,"url"?: string | null,"url_display": string,"user_id": string
                   }
                   Update: {
-                    "claim_tokens"?: number,"claim_tokens_at"?: string,"consecutive_failures"?: number,"created_at"?: string,"enabled"?: boolean,"health"?: string,"id"?: string,"last_error"?: string | null,"last_error_at"?: string | null,"last_success_at"?: string | null,"name"?: string,"signing_secret"?: string | null,"throttle_level"?: number,"throttled_until"?: string | null,"type"?: string,"url"?: string | null,"url_display"?: string,"user_id"?: string
+                    "claim_due_at"?: string,"claim_tokens"?: number,"claim_tokens_at"?: string,"consecutive_failures"?: number,"created_at"?: string,"enabled"?: boolean,"health"?: string,"id"?: string,"last_error"?: string | null,"last_error_at"?: string | null,"last_success_at"?: string | null,"name"?: string,"signing_secret"?: string | null,"throttle_level"?: number,"throttled_until"?: string | null,"type"?: string,"url"?: string | null,"url_display"?: string,"user_id"?: string
                   }
                   Relationships: [
                     
+                  ]
+                },"discord_destination_settings": {
+                  Row: {
+                    "batch_seconds": number,"bold_first": boolean,"card_color": string,"destination_id": string,"detail_fields": (string)[],"footer": boolean,"grid_fields": (string)[],"line_fields": (string)[],"link_preview": string,"separator": string,"show_field_names": boolean,"style": string,"title_fields": (string)[],"title_link": string,"validate_discord_settings": undefined | null
+                  }
+                  ComputedFields: "validate_discord_settings"
+                  Insert: {
+                    "batch_seconds": number,"bold_first": boolean,"card_color": string,"destination_id": string,"detail_fields": (string)[],"footer": boolean,"grid_fields": (string)[],"line_fields": (string)[],"link_preview": string,"separator": string,"show_field_names": boolean,"style": string,"title_fields": (string)[],"title_link": string
+                  }
+                  Update: {
+                    "batch_seconds"?: number,"bold_first"?: boolean,"card_color"?: string,"destination_id"?: string,"detail_fields"?: (string)[],"footer"?: boolean,"grid_fields"?: (string)[],"line_fields"?: (string)[],"link_preview"?: string,"separator"?: string,"show_field_names"?: boolean,"style"?: string,"title_fields"?: (string)[],"title_link"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "discord_destination_settings_destination_id_fkey"
+      columns: ["destination_id"]
+isOneToOne: true
+      referencedRelation: "destinations"
+      referencedColumns: ["id"]
+    }
                   ]
                 },"fcc_uls_am": {
                   Row: {
@@ -905,6 +925,9 @@ isOneToOne: false
 "api_subscription_json":
 { Args: { "s": Omit<Database["public"]['Tables']["subscriptions"]['Row'], Database["public"]['Tables']["subscriptions"]['ComputedFields']> }; Returns: Json
                            },
+"app_site_url":
+{ Args: Record<PropertyKey, never>; Returns: string
+                           },
 "apply_license_loads":
 { Args: Record<PropertyKey, never>; Returns: undefined
                            },
@@ -966,6 +989,9 @@ isOneToOne: false
 "callsign_profile":
 { Args: { "p_callsign": string }; Returns: Json
                            },
+"check_discord_setting_keys":
+{ Args: { "p_settings": Json }; Returns: undefined
+                           },
 "claim_deliveries":
 { Args: { "p_limit"?: number,"p_vt"?: number }; Returns: {
               "attempts": number,"created_at": string,"delivery_id": number,"destination": Json,"msg_id": number,"spot": Json,"subscription_id": string
@@ -1020,6 +1046,12 @@ isOneToOne: false
               "burst": number,"rate_per_minute": number
             }[]
                            },
+"destination_claim_interval":
+{ Args: { "p_type": string }; Returns: string
+                           },
+"destination_claim_max":
+{ Args: { "p_type": string }; Returns: number
+                           },
 "destination_max_age":
 { Args: { "p_type": string }; Returns: string
                            },
@@ -1028,6 +1060,54 @@ isOneToOne: false
                            },
 "destination_url_display":
 { Args: { "p_type": string,"p_url": string }; Returns: string
+                           },
+"discord_clip":
+{ Args: { "p_max": number,"p_text": string }; Returns: string
+                           },
+"discord_color":
+{ Args: { "p_settings": Omit<Database["public"]['Tables']["discord_destination_settings"]['Row'], Database["public"]['Tables']["discord_destination_settings"]['ComputedFields']>,"p_spot": Json }; Returns: number
+                           },
+"discord_default_settings":
+{ Args: Record<PropertyKey, never>; Returns: Json
+                           },
+"discord_escape":
+{ Args: { "p_text": string }; Returns: string
+                           },
+"discord_field_values":
+{ Args: { "p_spot": Json }; Returns: Json
+                           },
+"discord_fields":
+{ Args: Record<PropertyKey, never>; Returns: (string)[]
+                           },
+"discord_fields_valid":
+{ Args: { "p_fields": (string)[],"p_max": number,"p_min": number }; Returns: boolean
+                           },
+"discord_footer":
+{ Args: { "p_spot": Json }; Returns: string
+                           },
+"discord_grid":
+{ Args: { "p_fields": (string)[],"p_values": Json }; Returns: Json
+                           },
+"discord_join":
+{ Args: { "p_fields": (string)[],"p_labels": boolean,"p_separator": string,"p_values": Json }; Returns: string
+                           },
+"discord_plain_line":
+{ Args: { "p_max"?: number,"p_settings": Omit<Database["public"]['Tables']["discord_destination_settings"]['Row'], Database["public"]['Tables']["discord_destination_settings"]['ComputedFields']>,"p_spot": Json,"p_values": Json }; Returns: string
+                           },
+"discord_profile_url":
+{ Args: { "p_spot": Json }; Returns: string
+                           },
+"discord_source_color":
+{ Args: { "p_source": string }; Returns: number
+                           },
+"discord_spot_fields":
+{ Args: { "p_settings": Omit<Database["public"]['Tables']["discord_destination_settings"]['Row'], Database["public"]['Tables']["discord_destination_settings"]['ComputedFields']>,"p_spot": Json }; Returns: Json
+                           },
+"discord_test_delivery":
+{ Args: { "p_destination_id": string,"p_spot_id"?: number }; Returns: Json
+                           },
+"discord_title_url":
+{ Args: { "p_settings": Omit<Database["public"]['Tables']["discord_destination_settings"]['Row'], Database["public"]['Tables']["discord_destination_settings"]['ComputedFields']>,"p_spot": Json }; Returns: string
                            },
 "duplicate_destination":
 { Args: { "p_id": string }; Returns: string
@@ -1058,6 +1138,9 @@ isOneToOne: false
                            },
 "forget_sign_in_attempt":
 { Args: { "p_attempt_id": number }; Returns: undefined
+                           },
+"get_discord_destination":
+{ Args: { "p_id": string }; Returns: Json
                            },
 "get_push_destination":
 { Args: { "p_id": string }; Returns: Json
@@ -1095,6 +1178,9 @@ isOneToOne: false
 { Args: Record<PropertyKey, never>; Returns: {
               "callsigns": (string)[],"id": string,"member_count": number,"name": string,"on_air": Json,"subscription_count": number,"updated_at": string
             }[]
+                           },
+"list_discord_destination_settings":
+{ Args: Record<PropertyKey, never>; Returns: Json
                            },
 "list_ingest_health":
 { Args: Record<PropertyKey, never>; Returns: {
@@ -1175,6 +1261,9 @@ isOneToOne: false
                            },
 "patch_subscription":
 { Args: { "p_id": string,"p_patch": Json }; Returns: undefined
+                           },
+"preview_discord_message":
+{ Args: { "p_settings": Json,"p_spot_id"?: number }; Returns: Json
                            },
 "preview_push_notification":
 { Args: { "p_body_fields": (string)[],"p_body_separator": string,"p_show_field_names": boolean,"p_spot_id"?: number,"p_title_fields": (string)[] }; Returns: {
@@ -1319,6 +1408,9 @@ isOneToOne: false
 "save_callsign_group":
 { Args: { "payload": Json }; Returns: string
                            },
+"save_discord_destination":
+{ Args: { "p_enabled": boolean,"p_id": string,"p_name": string,"p_settings": Json,"p_url": string }; Returns: string
+                           },
 "save_push_destination":
 { Args: { "p_device_ids": (string)[],"p_enabled": boolean,"p_id": string,"p_name": string,"p_settings": Json }; Returns: string
                            },
@@ -1351,6 +1443,12 @@ isOneToOne: false
                            },
 "validate_destination_url":
 { Args: { "p_type": string,"p_url": string }; Returns: undefined
+                           },
+"validate_discord_fields":
+{ Args: { "p_fields": (string)[],"p_what": string }; Returns: undefined
+                           },
+"validate_discord_settings":
+{ Args: { "p_settings": Omit<Database["public"]['Tables']["discord_destination_settings"]['Row'], Database["public"]['Tables']["discord_destination_settings"]['ComputedFields']> }; Returns: undefined
                            },
 "validate_push_endpoint":
 { Args: { "p_endpoint": string }; Returns: undefined
