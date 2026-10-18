@@ -6,12 +6,14 @@ import { fakeSupabase, type FakeSupabaseOptions } from "./fake_supabase.ts";
 
 const NOW = new Date("2026-10-05T14:00:00Z");
 const USER = { data: { user: { id: "u1" } } };
+// A webhook: the one type whose test spot is the TypeScript sample (push and
+// Discord tests come from SQL, below).
 const DEST: DeliveryDestination = {
   id: "00000000-0000-4000-8000-0000000000d1",
-  type: "discord",
+  type: "webhook",
   name: "Shack",
-  url: "https://discord.com/api/webhooks/1/x",
-  signing_secret: null,
+  url: "https://shack.example.com/spots",
+  signing_secret: "whsec_x",
   health: "ok",
   consecutive_failures: 0,
 };
@@ -257,4 +259,114 @@ Deno.test("handleSendTest leaves other destinations' devices alone", async () =>
   const { calls } = await run(post({ destination_id: "00000000-0000-4000-8000-0000000000d1" }));
   assertEquals(calls.from.map((f) => f.table), ["destinations"]);
   assertEquals(calls.rpc, []);
+});
+
+const DISCORD: DeliveryDestination = {
+  id: "00000000-0000-4000-8000-0000000000e1",
+  type: "discord",
+  name: "Club",
+  url: "https://discord.com/api/webhooks/1/x",
+  signing_secret: null,
+  health: "ok",
+  consecutive_failures: 0,
+};
+const DISCORD_SETTINGS = {
+  style: "card",
+  title_fields: ["callsign", "frequency", "mode"],
+  detail_fields: ["source", "reference", "place_name", "state"],
+  grid_fields: ["band", "spotter"],
+  title_link: "profile",
+  card_color: "source",
+  footer: true,
+  line_fields: ["callsign", "frequency", "mode", "source", "reference", "place_name"],
+  bold_first: true,
+  link_preview: "hidden",
+  show_field_names: false,
+  separator: "dot",
+  batch_seconds: 0,
+};
+const { push_title: _t, push_body: _b, push_url: _u, push_source_url: _s, ...SAMPLE } = TEST_SPOT;
+const DISCORD_TEST = {
+  discord: DISCORD_SETTINGS,
+  spot: {
+    ...SAMPLE,
+    discord_style: "card" as const,
+    discord_title: "N0CALL · 14.062 MHz · CW",
+    discord_description: "POTA · US-0000 · Test Park · TEST",
+    discord_grid: [{ name: "Band", value: "20m" }, { name: "Spotter", value: "LONGLINES" }],
+    discord_footer: "Test message from Long Lines · POTA · 14:00 UTC",
+    discord_color: 3066993,
+    discord_url: "https://app.longlines.io/call/N0CALL",
+    discord_line:
+      "Test message from Long Lines · **[N0CALL](https://app.longlines.io/call/N0CALL)**",
+    discord_suppress_embeds: false,
+  },
+};
+
+Deno.test("handleSendTest sends a Discord destination the message SQL rendered from its settings", async () => {
+  const { res, sent, calls } = await run(
+    post({ destination_id: "00000000-0000-4000-8000-0000000000e1" }),
+    {
+      from: { destinations: { data: DISCORD } },
+      rpc: { discord_test_delivery: { data: DISCORD_TEST } },
+    },
+  );
+  assertEquals(res.status, 200);
+  assertEquals(calls.rpc, [{
+    fn: "discord_test_delivery",
+    args: { p_destination_id: "00000000-0000-4000-8000-0000000000e1", p_spot_id: null },
+  }]);
+  assertEquals(sent[0]!.destination.discord, DISCORD_TEST.discord);
+  assertEquals(sent[0]!.batch[0]!.spot, DISCORD_TEST.spot);
+  assertEquals(sent[0]!.batch[0]!.created_at, NOW.toISOString());
+  assertEquals(calls.from.map((f) => f.table), ["destinations"]);
+});
+
+Deno.test("handleSendTest renders the spot the Discord preview shows", async () => {
+  const { calls } = await run(
+    post({ destination_id: "00000000-0000-4000-8000-0000000000e1", spot_id: 42 }),
+    {
+      from: { destinations: { data: DISCORD } },
+      rpc: { discord_test_delivery: { data: DISCORD_TEST } },
+    },
+  );
+  assertEquals(calls.rpc[0]?.args, {
+    p_destination_id: "00000000-0000-4000-8000-0000000000e1",
+    p_spot_id: 42,
+  });
+});
+
+Deno.test("handleSendTest reports a Discord lookup error and an unknown spot", async () => {
+  const failed = await run(post({ destination_id: "00000000-0000-4000-8000-0000000000e1" }), {
+    from: { destinations: { data: DISCORD } },
+    rpc: { discord_test_delivery: { error: { message: "x" } } },
+  });
+  assertEquals(failed.res.status, 500);
+  assertEquals(failed.body, { error: "Couldn't load that destination." });
+  assertEquals(failed.sent, []);
+  const missing = await run(
+    post({ destination_id: "00000000-0000-4000-8000-0000000000e1", spot_id: 7 }),
+    {
+      from: { destinations: { data: DISCORD } },
+      rpc: { discord_test_delivery: { data: null } },
+    },
+  );
+  assertEquals(missing.res.status, 404);
+  assertEquals(missing.body, { error: "Spot not found." });
+  assertEquals(missing.sent, []);
+  const noSettings = await run(post({ destination_id: "00000000-0000-4000-8000-0000000000e1" }), {
+    from: { destinations: { data: DISCORD } },
+    rpc: { discord_test_delivery: { data: null } },
+  });
+  assertEquals(noSettings.res.status, 404);
+  assertEquals(noSettings.body, { error: "Destination not found." });
+});
+
+Deno.test("handleSendTest sends a webhook the sample spot without asking SQL", async () => {
+  const { sent, calls } = await run(
+    post({ destination_id: "00000000-0000-4000-8000-0000000000d1" }),
+  );
+  assertEquals(calls.rpc, []);
+  assertEquals(sent[0]!.destination.discord, undefined);
+  assertEquals(sent[0]!.batch[0]!.spot.callsign, "N0CALL");
 });

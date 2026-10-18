@@ -6,6 +6,7 @@ import type {
   DiscordEmbed,
   DiscordEmbedField,
   DiscordMessage,
+  DiscordSettings,
   PendingDelivery,
   PushNotification,
   PushSettings,
@@ -13,6 +14,24 @@ import type {
 } from "./types.ts";
 
 export const DISCORD_EMBEDS_PER_MESSAGE = 10; // Discord's per-message limit
+/**
+ * Discord's total for one message's embeds: titles, descriptions, field names
+ * and values and footers together.
+ */
+export const DISCORD_EMBED_CHARS_PER_MESSAGE = 6000;
+// Discord allows ~30 messages/minute per webhook. A safety net here rather
+// than in send.ts (which re-exports it): SQL's claim keeps it unreachable.
+export const DISCORD_MESSAGES_PER_RUN = 30;
+/**
+ * Messages per claim, within Discord's ~5 requests per 2 seconds per webhook.
+ * The claim hands a Discord destination at most 50 spots (5 of 10) on average
+ * every 10 seconds (destination_claim_max, destination_claim_interval), so 5 a
+ * claim is 30 messages a minute; discordBatches groups spots to stay within it
+ * unless ten of the claim's cards will not fit in 6,000 characters.
+ */
+export const DISCORD_MESSAGES_PER_CLAIM = 5;
+/** Discord's SUPPRESS_EMBEDS message flag: links in `content` do not expand. */
+export const DISCORD_SUPPRESS_EMBEDS = 4;
 export const WEBHOOK_SPOTS_PER_REQUEST = 50;
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -68,17 +87,152 @@ export function embedForSpot(spot: DeliverySpot): DiscordEmbed {
   };
 }
 
-export function discordMessages(spots: readonly DeliverySpot[]): DiscordMessage[] {
-  return chunk(spots.map(embedForSpot), DISCORD_EMBEDS_PER_MESSAGE).map((embeds) => ({ embeds }));
+/** Every Discord message carries this: mentions such as @everyone never ping. */
+function noMentions(): DiscordMessage["allowed_mentions"] {
+  return { parse: [] };
 }
 
-/** The spot as docs/WEBHOOKS.md documents it: without the push-only fields SQL adds. */
+/**
+ * The card embed for a spot SQL rendered (discord_spot_fields). Only shapes
+ * SQL's keys, so it matches the preview: no `timestamp`, since Discord would
+ * show it in the footer row even with the footer off, and SQL's footer
+ * already carries the time. A spot without the keys (claimed before the
+ * migration) gets the legacy embed.
+ */
+export function cardEmbed(spot: DeliverySpot): DiscordEmbed {
+  if (spot.discord_title === undefined) return embedForSpot(spot);
+  const embed: DiscordEmbed = {
+    title: spot.discord_title,
+    fields: (spot.discord_grid ?? []).map((f) => ({ name: f.name, value: f.value, inline: true })),
+  };
+  if (spot.discord_description) embed.description = spot.discord_description;
+  if (spot.discord_url) embed.url = spot.discord_url;
+  if (spot.discord_color !== undefined) embed.color = spot.discord_color;
+  if (spot.discord_footer) embed.footer = { text: spot.discord_footer };
+  return embed;
+}
+
+/** One message and how many spots (deliveries) it carries, so the sender counts `sent` by spots. */
+export interface DiscordBatch {
+  message: DiscordMessage;
+  spots: number;
+}
+
+/**
+ * The messages for one run. Without settings (a row claimed before migration
+ * 20261018000100 is hosted; transitional, so the sender and the migration ship
+ * in either order) it is the legacy embed, ten per message. With settings: one
+ * spot per message when batch_seconds is 0, ten otherwise, and more per message
+ * (up to ten) only when the run would otherwise need more than
+ * DISCORD_MESSAGES_PER_CLAIM messages. A card spot is one embed (Discord takes
+ * ten per message), and cards are packed in order, a new message starting at
+ * the group size or where the next embed would take the message past
+ * Discord's 6,000 characters, so a short message's room goes to the next
+ * spots. Only cards that big (about 600 characters each) make a claim need
+ * more than five messages. A plain spot is one line of `content`, which SQL
+ * clips to 190 so ten lines fit in 2,000.
+ */
+export function discordBatches(
+  spots: readonly DeliverySpot[],
+  destination: Pick<DeliveryDestination, "discord">,
+): DiscordBatch[] {
+  const settings: DiscordSettings | undefined = destination.discord;
+  if (!settings) {
+    return chunk(spots, DISCORD_EMBEDS_PER_MESSAGE).map((group) => ({
+      message: { embeds: group.map(embedForSpot), allowed_mentions: noMentions() },
+      spots: group.length,
+    }));
+  }
+  const size = Math.min(
+    DISCORD_EMBEDS_PER_MESSAGE,
+    Math.max(
+      settings.batch_seconds === 0 ? 1 : DISCORD_EMBEDS_PER_MESSAGE,
+      Math.ceil(spots.length / DISCORD_MESSAGES_PER_CLAIM),
+    ),
+  );
+  if (settings.style === "plain") {
+    return chunk(spots, size).map((group) => ({
+      message: plainMessage(group, settings),
+      spots: group.length,
+    }));
+  }
+  return packCards(spots, size).map((embeds) => ({
+    message: { embeds, allowed_mentions: noMentions() },
+    spots: embeds.length,
+  }));
+}
+
+/** What Discord counts toward a message's 6,000 characters for one embed. */
+export function embedChars(embed: DiscordEmbed): number {
+  return embed.title.length + (embed.description?.length ?? 0) +
+    (embed.footer?.text.length ?? 0) +
+    embed.fields.reduce((n, f) => n + f.name.length + f.value.length, 0);
+}
+
+/**
+ * The cards in order, a message at most `size` embeds and, unless one card is
+ * over it alone, DISCORD_EMBED_CHARS_PER_MESSAGE. Only shapes messages: every
+ * spot is sent. Counts UTF-16 units, never fewer than the characters SQL
+ * clipped.
+ */
+function packCards(spots: readonly DeliverySpot[], size: number): DiscordEmbed[][] {
+  const out: DiscordEmbed[][] = [];
+  let current: DiscordEmbed[] = [];
+  let chars = 0;
+  for (const embed of spots.map(cardEmbed)) {
+    const n = embedChars(embed);
+    if (
+      current.length > 0 &&
+      (current.length >= size || chars + n > DISCORD_EMBED_CHARS_PER_MESSAGE)
+    ) {
+      out.push(current);
+      current = [];
+      chars = 0;
+    }
+    current.push(embed);
+    chars += n;
+  }
+  if (current.length > 0) out.push(current);
+  return out;
+}
+
+function plainMessage(spots: readonly DeliverySpot[], settings: DiscordSettings): DiscordMessage {
+  const message: DiscordMessage = {
+    content: spots.map((s) => s.discord_line ?? s.callsign).join(
+      settings.separator === "newline" ? "\n\n" : "\n",
+    ),
+    allowed_mentions: noMentions(),
+  };
+  if (spots.some((s) => s.discord_suppress_embeds === true)) {
+    message.flags = DISCORD_SUPPRESS_EMBEDS;
+  }
+  return message;
+}
+
+/** The messages alone, for callers that do not count spots. */
+export function discordMessages(
+  spots: readonly DeliverySpot[],
+  destination: Pick<DeliveryDestination, "discord"> = {},
+): DiscordMessage[] {
+  return discordBatches(spots, destination).map((b) => b.message);
+}
+
+/** The spot as docs/WEBHOOKS.md documents it: without the push and Discord fields SQL adds. */
 export function webhookSpot(spot: DeliverySpot): DeliverySpot {
   const {
     push_title: _title,
     push_body: _body,
     push_url: _url,
     push_source_url: _source,
+    discord_style: _style,
+    discord_title: _discordTitle,
+    discord_description: _description,
+    discord_grid: _grid,
+    discord_footer: _footer,
+    discord_color: _color,
+    discord_url: _discordUrl,
+    discord_line: _line,
+    discord_suppress_embeds: _suppress,
     ...rest
   } = spot;
   return rest;
@@ -209,9 +363,9 @@ export function backoffSeconds(attempt: number): number {
 }
 
 /**
- * The sample spot used by "Send test" for Discord and webhooks. Clearly
- * labeled so nobody chases it. A push test's spot comes from SQL
- * (push_test_delivery), rendered with the destination's fields.
+ * The sample spot used by "Send test" for webhooks. Clearly labeled so nobody
+ * chases it. A push or Discord test's spot comes from SQL (push_test_delivery,
+ * discord_test_delivery), rendered with the destination's settings.
  */
 export function sampleSpot(destination: DeliveryDestination): DeliverySpot {
   return {

@@ -12,6 +12,7 @@ import { signWebhookBody } from "../delivery/hmac.ts";
 import { PinnedConnectError, type pinnedPost } from "../delivery/pinned_http.ts";
 import type {
   DeliveryDestination,
+  DiscordSettings,
   PendingDelivery,
   PushDevice,
   PushNotification,
@@ -197,6 +198,126 @@ Deno.test("sendDiscord caps a single run at 30 messages per webhook", async () =
       assertEquals(result.ok, false);
       assertEquals(result.sent, 300);
       assertEquals(result.retryAfterSeconds, 60);
+    },
+  );
+});
+
+const DISCORD_SETTINGS: DiscordSettings = {
+  style: "card",
+  title_fields: ["callsign", "frequency", "mode"],
+  detail_fields: ["source", "reference", "place_name", "state"],
+  grid_fields: ["band", "spotter"],
+  title_link: "profile",
+  card_color: "source",
+  footer: true,
+  line_fields: ["callsign", "frequency", "mode", "source", "reference", "place_name"],
+  bold_first: true,
+  link_preview: "hidden",
+  show_field_names: false,
+  separator: "dot",
+  batch_seconds: 0,
+};
+
+/** A Discord delivery as claim_deliveries hands it over after the migration: rendered in SQL. */
+function renderedDelivery(id: number, destination: DeliveryDestination): PendingDelivery {
+  const d = delivery(id, destination);
+  return {
+    ...d,
+    spot: {
+      ...d.spot,
+      discord_style: destination.discord?.style ?? "card",
+      discord_title: `KK4PWJ #${id}`,
+      discord_description: "POTA · US-2763",
+      discord_grid: [{ name: "Band", value: "20m" }],
+      discord_footer: "POTA · 14:32 UTC",
+      discord_color: 3066993,
+      discord_url: "https://app.longlines.io/call/KK4PWJ",
+      discord_line: `**[KK4PWJ](https://app.longlines.io/call/KK4PWJ)** #${id}`,
+      discord_suppress_embeds: destination.discord?.style === "plain",
+    },
+  };
+}
+
+Deno.test("sendDiscord with settings and no window sends one message per spot", async () => {
+  const bodies: Array<{ embeds: Array<{ title: string; color: number }> }> = [];
+  await withServer(
+    async (req) => {
+      bodies.push(await req.json());
+      return new Response(null, { status: 204 });
+    },
+    async (base) => {
+      const d = { ...dest(`${base}/api/webhooks/1/abc`, "discord"), discord: DISCORD_SETTINGS };
+      const result = await sendDiscord(
+        d,
+        Array.from({ length: 5 }, (_, i) => renderedDelivery(i + 1, d)),
+        { allowInsecure: true },
+      );
+      assertEquals(result, { ok: true, sent: 5 });
+      assertEquals(bodies.length, 5);
+      assertEquals(bodies.map((b) => b.embeds.length), Array(5).fill(1));
+      assertEquals(bodies[0]?.embeds[0]?.title, "KK4PWJ #1");
+      assertEquals(bodies[0]?.embeds[0]?.color, 3066993);
+      assertEquals((bodies[0] as unknown as { allowed_mentions: unknown }).allowed_mentions, {
+        parse: [],
+      });
+    },
+  );
+});
+
+Deno.test("sendDiscord groups a busy claim into at most five messages", async () => {
+  let calls = 0;
+  await withServer(
+    () => {
+      calls++;
+      return new Response(null, { status: 204 });
+    },
+    async (base) => {
+      const d = { ...dest(`${base}/api/webhooks/1/abc`, "discord"), discord: DISCORD_SETTINGS };
+      const result = await sendDiscord(
+        d,
+        Array.from({ length: 40 }, (_, i) => renderedDelivery(i + 1, d)),
+        { allowInsecure: true },
+      );
+      // ceil(40 / 5) = 8 spots a message: 5 messages, within Discord's 5 per 2 seconds.
+      assertEquals(result, { ok: true, sent: 40 });
+      assertEquals(calls, 5);
+    },
+  );
+});
+
+Deno.test("sendDiscord posts plain lines as content with flags and counts sent by line", async () => {
+  const bodies: unknown[] = [];
+  let calls = 0;
+  await withServer(
+    async (req) => {
+      calls++;
+      bodies.push(await req.json());
+      return calls === 1
+        ? new Response(null, { status: 204 })
+        : Response.json({ retry_after: 1 }, { status: 429 });
+    },
+    async (base) => {
+      const d = {
+        ...dest(`${base}/api/webhooks/1/abc`, "discord"),
+        discord: { ...DISCORD_SETTINGS, style: "plain" as const, batch_seconds: 30 },
+      };
+      const result = await sendDiscord(
+        d,
+        Array.from({ length: 13 }, (_, i) => renderedDelivery(i + 1, d)),
+        { allowInsecure: true },
+      );
+      assertEquals(result.ok, false);
+      assertEquals(result.sent, 10);
+      assertEquals(result.retryAfterSeconds, 1);
+      const first = bodies[0] as { content: string; flags: number; allowed_mentions: unknown };
+      assertEquals(first.content.split("\n").length, 10);
+      assertEquals(
+        first.content.split("\n")[0],
+        "**[KK4PWJ](https://app.longlines.io/call/KK4PWJ)** #1",
+      );
+      assertEquals(first.flags, 4);
+      assertEquals(first.allowed_mentions, { parse: [] });
+      assertEquals("embeds" in first, false);
     },
   );
 });

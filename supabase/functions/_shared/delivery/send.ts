@@ -4,7 +4,8 @@
 
 import { signWebhookBody } from "./hmac.ts";
 import {
-  discordMessages,
+  DISCORD_MESSAGES_PER_RUN,
+  discordBatches,
   pushNotifications,
   pushPayload,
   pushSettingsOf,
@@ -23,7 +24,7 @@ import { encryptPushPayload, vapidAuthorization, type VapidKeys } from "./webpus
 import type { DeliveryDestination, PendingDelivery, PushDevice, PushSettings } from "./types.ts";
 
 export const USER_AGENT = "LongLines/0.2";
-export const DISCORD_MESSAGES_PER_RUN = 30; // Discord allows ~30 messages/minute per webhook
+export { DISCORD_MESSAGES_PER_RUN };
 export const WEBHOOK_TIMEOUT_MS = 10_000;
 const DISCORD_TIMEOUT_MS = 10_000;
 const PUSH_TIMEOUT_MS = 10_000;
@@ -108,12 +109,12 @@ export async function sendDiscord(
     }
   }
 
-  const messages = discordMessages(deliveries.map((d) => d.spot));
+  const batches = discordBatches(deliveries.map((d) => d.spot), destination);
   const url = new URL(destination.url);
   url.searchParams.set("wait", "false");
   let sent = 0;
 
-  for (const [index, message] of messages.entries()) {
+  for (const [index, { message, spots }] of batches.entries()) {
     if (index >= DISCORD_MESSAGES_PER_RUN) {
       return {
         ok: false,
@@ -155,7 +156,7 @@ export async function sendDiscord(
     if (!response.ok) {
       return { ok: false, sent, error: `Discord HTTP ${response.status}` };
     }
-    sent += message.embeds.length;
+    sent += spots;
   }
   return { ok: true, sent };
 }

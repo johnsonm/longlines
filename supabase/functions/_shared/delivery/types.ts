@@ -30,6 +30,22 @@ export interface DeliverySpot {
   push_body?: string;
   push_url?: string;
   push_source_url?: string | null;
+  /**
+   * Discord only, from SQL (discord_spot_fields): the message rendered from the
+   * destination's settings. The sender only shapes these into an embed or a
+   * content line, never joins or formats fields. Absent on rows claimed before
+   * migration 20261018000100, and stripped from webhook payloads (webhookSpot).
+   */
+  discord_style?: "card" | "plain";
+  discord_title?: string;
+  /** May be "" when no detail field has a value. */
+  discord_description?: string;
+  discord_grid?: Array<{ name: string; value: string }>;
+  discord_footer?: string | null;
+  discord_color?: number;
+  discord_url?: string | null;
+  discord_line?: string;
+  discord_suppress_embeds?: boolean;
 }
 
 /** A browser push subscription. The endpoint and keys are capability secrets. */
@@ -57,6 +73,24 @@ export interface PushSettings {
   quiet_mode: "silent" | "skip";
 }
 
+/** A Discord destination's settings (discord_destination_settings), as claim_deliveries hands them over. */
+export interface DiscordSettings {
+  style: "card" | "plain";
+  title_fields: string[];
+  detail_fields: string[];
+  grid_fields: string[];
+  title_link: "profile" | "source" | "none";
+  card_color: "source" | "blue" | "green" | "purple" | "orange" | "red" | "grey";
+  footer: boolean;
+  line_fields: string[];
+  bold_first: boolean;
+  link_preview: "hidden" | "shown";
+  show_field_names: boolean;
+  separator: "dot" | "comma" | "newline";
+  /** 0 (one message per spot), 10, 30 or 60: the claim's hold window. */
+  batch_seconds: number;
+}
+
 export interface DeliveryDestination {
   id: string;
   type: "discord" | "webhook" | "push";
@@ -72,6 +106,8 @@ export interface DeliveryDestination {
   push?: PushSettings;
   /** Push only: whether SQL found the destination in its quiet hours at claim time. */
   quiet_now?: boolean;
+  /** Discord only: its settings. Absent on rows claimed before the migration. */
+  discord?: DiscordSettings;
 }
 
 export interface PendingDelivery {
@@ -92,13 +128,21 @@ export interface DiscordEmbedField {
 
 export interface DiscordEmbed {
   title: string;
-  description: string;
+  description?: string;
+  url?: string;
+  color?: number;
   fields: DiscordEmbedField[];
-  timestamp: string;
+  footer?: { text: string };
+  /** The legacy embed's only; a SQL-rendered card leaves it out (its footer carries the time). */
+  timestamp?: string;
 }
 
 export interface DiscordMessage {
-  embeds: DiscordEmbed[];
+  embeds?: DiscordEmbed[];
+  content?: string;
+  flags?: number;
+  /** Always `{parse: []}`: no message ever pings anyone. */
+  allowed_mentions: { parse: never[] };
 }
 
 export interface WebhookPayload {
