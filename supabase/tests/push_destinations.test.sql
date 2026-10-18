@@ -413,7 +413,7 @@ select results_eq(format($$ select x ->> 'name', (x ->> 'enabled')::boolean, x -
 select is((get_push_destination((select id from copy2)) ->> 'name'), 'Copy of Desktop (2)', 'a second copy takes the next free name');
 create temp table hook as select id from create_destination('webhook', 'Hook', 'https://example.com/h');
 select throws_ok(format('select duplicate_destination(%L)', (select id from hook)), 'P0001',
-  'Only push destinations can be duplicated.', 'only push destinations are duplicated');
+  'Only push and Discord destinations can be duplicated.', 'a webhook is not duplicated');
 select pg_temp.as_user('22222222-2222-2222-2222-222222222222');
 select throws_ok(format('select duplicate_destination(%L)', (select id from desk)), 'P0001', 'Destination not found.',
   'another account''s destination cannot be duplicated');

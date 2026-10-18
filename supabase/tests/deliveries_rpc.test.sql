@@ -2,11 +2,12 @@
 -- deliveries, and the sweeps that drop them (20261006000010 delivery_rpcs,
 -- 20261015000400 rate_aware_claim, 20261015001400 sender_cleanup,
 -- 20261016000100 claim_drops_unwanted, 20261016000300 throttle_cap,
--- 20261016000400 push_destinations_v2 for the enabled sweep).
+-- 20261016000400 push_destinations_v2 for the enabled sweep, 20261018000100
+-- discord_destinations for the batch hold).
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(92);
+select plan(119);
 select pgmq.purge_queue('spot_events');
 select pgmq.purge_queue('deliveries_queue');
 
@@ -17,9 +18,10 @@ reset role;
 create temp table sub as select id from subscriptions;
 
 -- A destination starts with an empty bucket that refills from its creation,
--- which in a transaction is now(): a minute ago fills every bucket.
+-- which in a transaction is now(): a minute ago fills every bucket. It also
+-- clears Discord's claim schedule (claim_due_at, 20261018000100).
 create function pg_temp.fill_buckets() returns void language sql as $$
-  update destinations set claim_tokens = 0, claim_tokens_at = now() - interval '1 minute';
+  update destinations set claim_tokens = 0, claim_tokens_at = now() - interval '1 minute', claim_due_at = '-infinity';
 $$;
 
 select count(*) from ingest_spots(jsonb_build_array(
@@ -70,7 +72,12 @@ select is((select health || ':' || consecutive_failures from destinations), 'ok:
 -- Knobs, columns and grants (20261015000400)
 -- ---------------------------------------------------------------------------
 select results_eq($$ select rate_per_minute, burst from destination_budget('discord') $$,
-  $$ values (300::numeric, 300::numeric) $$, 'discord budget: 300 spots a minute, burst equal to the rate');
+  $$ values (300::numeric, 100::numeric) $$, 'discord budget: 300 spots a minute, banking two claims of 50 (20261018000100)');
+select is(array[destination_claim_interval('discord'), destination_claim_interval('push'), destination_claim_interval('webhook')],
+  array[interval '10 seconds', interval '0', interval '0'],
+  'a Discord destination is claimed on average every 10 seconds (6 claims of 5 messages a minute); other types have no interval');
+select is(array[destination_claim_max('discord'), destination_claim_max('push'), destination_claim_max('webhook')],
+  array[50::numeric, null, null], 'a Discord claim takes at most 50 spots (5 messages of 10); other types only their tokens');
 select results_eq($$ select rate_per_minute, burst from destination_budget('push') $$,
   $$ values (3::numeric, 3::numeric) $$, 'push budget: 3 spots a minute');
 select results_eq($$ select rate_per_minute, burst from destination_budget('webhook') $$,
@@ -86,6 +93,7 @@ select ok(not has_column_privilege('authenticated', 'public.destinations', 'thro
           and not has_column_privilege('authenticated', 'public.destinations', 'throttle_level', 'select')
           and not has_column_privilege('authenticated', 'public.destinations', 'claim_tokens', 'select')
           and not has_column_privilege('authenticated', 'public.destinations', 'claim_tokens_at', 'select')
+          and not has_column_privilege('authenticated', 'public.destinations', 'claim_due_at', 'select')
           and has_column_privilege('authenticated', 'public.destinations', 'health', 'select'),
   'the throttle columns are not in the client column grant');
 select ok(not has_function_privilege('authenticated', 'public.throttle_destination(uuid, bigint[], int)', 'execute')
@@ -153,8 +161,10 @@ select results_eq(
   'every destination gets its newest spot before any gets its second, newest first within one');
 select is((select count(*) from pgmq.q_deliveries_queue where vt <= clock_timestamp()), 4::bigint,
   'messages beyond p_limit stay visible');
-select is((select claim_tokens from destinations where id = (select id from dd)), 298::numeric, 'Chat paid two tokens');
+select is((select claim_tokens from destinations where id = (select id from dd)), 98::numeric, 'Chat paid two tokens');
 select is((select claim_tokens from destinations where id = (select id from dw)), 999::numeric, 'Shack paid one');
+-- Chat due its next claim (20261018000100); Shack, a webhook, has no interval.
+update destinations set claim_due_at = clock_timestamp() where id = (select id from dd);
 create temp table fair2 as select * from claim_deliveries(200, 60) with ordinality;
 select results_eq(
   $$ select destination ->> 'name', (spot ->> 'spot_time')::timestamptz from fair2 order by ordinality $$,
@@ -169,13 +179,91 @@ select is((select count(*) from pgmq.q_deliveries_queue where vt <= clock_timest
 select pg_temp.reset_queue();
 select pg_temp.queue((select id from dd), 'budget-', 400, now());
 create temp table big as select * from claim_deliveries(1000, 60) with ordinality;
-select is((select count(*) from big), 300::bigint, '400 queued for a Discord webhook: 300 claimed');
-select is((select count(*) from pgmq.q_deliveries_queue where vt <= clock_timestamp()), 100::bigint, 'the other 100 stay visible');
-select is((select claim_tokens from destinations where id = (select id from dd)), 0::numeric, 'the bucket is empty');
-select is((select min((spot ->> 'spot_time')::timestamptz) from big), now() - interval '299 minutes',
-  'the 100 left behind are the oldest');
+select is((select count(*) from big), 50::bigint, '400 queued for a Discord webhook: one claim''s 50 claimed');
+select is((select count(*) from pgmq.q_deliveries_queue where vt <= clock_timestamp()), 350::bigint, 'the other 350 stay visible');
+select is((select claim_tokens from destinations where id = (select id from dd)), 50::numeric,
+  'the bucket keeps the other 50 of its 100 for the next claim');
+select is((select min((spot ->> 'spot_time')::timestamptz) from big), now() - interval '49 minutes',
+  'the 350 left behind are the oldest');
 select is((select (spot ->> 'spot_time')::timestamptz from big where ordinality = 1), now(), 'the newest comes first');
-select is((select count(*) from claim_deliveries(5, 60) c), 0::bigint, 'an empty bucket claims nothing');
+-- An empty bucket on a destination due its next claim, so the bucket alone
+-- decides. The bucket refills from the call's start, and rendering Discord
+-- spots (20261018000100) takes long enough to refill a token on a slow
+-- machine: stamp the empty bucket now.
+update destinations set claim_tokens = 0, claim_tokens_at = clock_timestamp(), claim_due_at = '-infinity'
+  where id = (select id from dd);
+select is((select count(*) from claim_deliveries(5, 60) c), 0::bigint, 'an empty bucket claims nothing, even when due');
+
+-- ---------------------------------------------------------------------------
+-- Claim interval (20261018000100): Discord on average every 10 seconds, on
+-- a schedule (claim_due_at) a claim may run half an interval ahead of
+-- ---------------------------------------------------------------------------
+select pg_temp.reset_queue();
+select pg_temp.queue((select id from dd), 'iv-', 3, now());
+select is((select count(*) from claim_deliveries(200, 60)), 3::bigint, 'a Discord destination not claimed lately goes at once');
+select ok((select claim_due_at between clock_timestamp() + interval '9 seconds' and clock_timestamp() + interval '10 seconds'
+           from destinations where id = (select id from dd)), 'the claim makes the next one due in 10 seconds');
+select pg_temp.queue((select id from dd), 'iv2-', 2, now());
+create temp table iv_tokens as select claim_tokens, claim_tokens_at, claim_due_at from destinations where id = (select id from dd);
+select is((select count(*) from claim_deliveries(200, 60)), 0::bigint, 'claimed a moment ago, it waits for the interval');
+select results_eq($$ select claim_tokens, claim_tokens_at, claim_due_at from destinations where id = (select id from dd) $$,
+  $$ select claim_tokens, claim_tokens_at, claim_due_at from iv_tokens $$, 'a waiting destination is not debited or rescheduled');
+-- 4 seconds on (due in 6): still more than half an interval early.
+update destinations set claim_due_at = clock_timestamp() + interval '6 seconds' where id = (select id from dd);
+select is((select count(*) from claim_deliveries(200, 60)), 0::bigint, 'four seconds after a claim is too early');
+-- The sender polls 5 s after a cycle, so the next poll comes about 6 s after
+-- the claim (due in 4): within half an interval, so it goes, and the schedule
+-- moves on from the due time, not from now.
+update destinations set claim_due_at = clock_timestamp() + interval '4 seconds' where id = (select id from dd);
+select is((select count(*) from claim_deliveries(200, 60)), 2::bigint, 'the poll six seconds after a claim takes the next spots');
+select ok((select claim_due_at between clock_timestamp() + interval '13 seconds' and clock_timestamp() + interval '14 seconds'
+           from destinations where id = (select id from dd)),
+  'the next claim is due 10 seconds after the last was due, so poll-aligned claims average one per 10 seconds');
+-- Polls 6 s apart for a minute (0 to 60 s) with a backlog throughout. A plain
+-- 10 s gap would take every other poll (12 s apart, 250 a minute); the
+-- schedule takes polls 0, 6, 18, 30, 36, 48 and 60.
+select pg_temp.reset_queue();
+select pg_temp.queue((select id from dd), 'ivr-', 400, now());
+create temp table iv_run (poll int, n bigint); -- poll: seconds after the first
+do $$
+declare
+  i int;
+  v_n bigint;
+  v_shift interval;
+  v_at timestamptz;
+begin
+  for i in 0..10 loop
+    -- Each poll is 6 s after the last: shift the clock-dependent columns back
+    -- by 6 s less the real time since the last poll, so a slow machine does
+    -- not change the simulated gaps.
+    if i > 0 then
+      v_shift := interval '6 seconds' - (clock_timestamp() - v_at);
+      update destinations set claim_due_at = claim_due_at - v_shift,
+                              claim_tokens_at = claim_tokens_at - v_shift
+        where id = (select id from dd);
+    end if;
+    v_at := clock_timestamp();
+    select count(*) into v_n from claim_deliveries(200, 60);
+    insert into iv_run values (i * 6, v_n);
+  end loop;
+end $$;
+select is((select array_agg(poll order by poll) from iv_run where n > 0), array[0, 6, 18, 30, 36, 48, 60],
+  'claimed at polls 0, 6, 18, 30, 36, 48 and 60: one per 10 s on average, never closer than 5 s');
+select is((select array_agg(distinct n) from iv_run where n > 0), array[50::bigint],
+  'every claim is a full 50, so the destination keeps up 300 spots a minute (no refill lost to the cap)');
+
+-- A claim p_limit cut short keeps its tokens: the bucket banks them past one
+-- claim's 50, so the next claim is a full one and the rest stays banked.
+select pg_temp.reset_queue();
+select pg_temp.queue((select id from dd), 'ivp-', 200, now());
+update destinations set claim_tokens = 50, claim_tokens_at = clock_timestamp() where id = (select id from dd);
+select is((select count(*) from claim_deliveries(10, 60)), 10::bigint, 'p_limit cuts a Discord claim to 10');
+select is((select floor(claim_tokens) from destinations where id = (select id from dd)), 40::numeric, 'it paid only for the 10');
+update destinations set claim_due_at = clock_timestamp(), claim_tokens_at = clock_timestamp() - interval '10 seconds'
+  where id = (select id from dd);
+select is((select count(*) from claim_deliveries(200, 60)), 50::bigint, 'the next claim is a full 50');
+select ok((select claim_tokens between 40 and 41 from destinations where id = (select id from dd)),
+  'and the 40 left over from the short claim stay banked (40 + 50 refilled - 50)');
 select is((select array_agg(k order by k) from big b, jsonb_object_keys(to_jsonb(b)) k where b.ordinality = 1),
   array['attempts', 'created_at', 'delivery_id', 'destination', 'msg_id', 'ordinality', 'spot', 'subscription_id'],
   'the result columns are unchanged');
@@ -194,6 +282,58 @@ select is((select count(*) from claim_deliveries(200, 60)), 1::bigint, 'a minute
 update destinations set claim_tokens_at = now() - interval '1 hour' where id = (select id from dp);
 select pg_temp.queue((select id from dp), 'push2-', 5, now());
 select is((select count(*) from claim_deliveries(200, 60)), 3::bigint, 'the bucket never banks more than the burst');
+
+-- ---------------------------------------------------------------------------
+-- Batch hold (20261018000100): a Discord destination with a window waits
+-- until its oldest ready row is that old or ten are ready
+-- ---------------------------------------------------------------------------
+select pg_temp.reset_queue();
+update discord_destination_settings set batch_seconds = 30 where destination_id = (select id from dd);
+create temp table hold as select unnest(pg_temp.queue((select id from dd), 'hold-', 3, now())) as id;
+select pg_temp.queue((select id from dw), 'hold-w-', 2, now());
+create temp table hold_vt as select q.msg_id, q.vt from pgmq.q_deliveries_queue q;
+create temp table hold1 as select * from claim_deliveries(200, 60);
+select is((select count(*) from hold1 where destination ->> 'id' = (select id::text from dd)), 0::bigint,
+  'a 30-second window holds three fresh spots');
+select is((select count(*) from hold1 where destination ->> 'id' = (select id::text from dw)), 2::bigint,
+  'the other destination is claimed in the same call');
+select ok((select bool_and(q.vt = h.vt) from pgmq.q_deliveries_queue q join hold_vt h on h.msg_id = q.msg_id
+           where (q.message ->> 'delivery_id')::bigint in (select id from hold)), 'held messages keep their vt');
+select results_eq($$ select claim_tokens, claim_tokens_at from destinations where id = (select id from dd) $$,
+  $$ values (0::numeric, now() - interval '1 minute') $$, 'a held destination is not debited');
+select is((select count(*) from deliveries where id in (select id from hold) and status = 'pending' and dropped_at is null), 3::bigint,
+  'held rows stay pending');
+select mark_deliveries_sent(array(select delivery_id from hold1), array(select msg_id from hold1));
+select pg_temp.queue((select id from dw), 'hold-w2-', 2, now());
+select is((select count(*) from claim_deliveries(2, 60) c where c.destination ->> 'id' = (select id::text from dw)), 2::bigint,
+  'held rows take no share of p_limit');
+update deliveries set created_at = now() - interval '31 seconds' where id = (select min(id) from hold);
+create temp table hold2 as select * from claim_deliveries(200, 60) with ordinality;
+select results_eq($$ select (spot ->> 'spot_time')::timestamptz from hold2 order by ordinality $$,
+  $$ values (now()), (now() - interval '1 minute'), (now() - interval '2 minutes') $$,
+  'once the oldest is older than the window all three go, newest first');
+
+select pg_temp.reset_queue();
+select pg_temp.queue((select id from dd), 'hold10-', 10, now());
+select is((select count(*) from claim_deliveries(200, 60)), 10::bigint, 'ten fresh spots go at once');
+select pg_temp.reset_queue();
+select pg_temp.queue((select id from dd), 'hold9-', 10, now());
+update pgmq.q_deliveries_queue set vt = clock_timestamp() + interval '1 minute'
+  where msg_id = (select min(msg_id) from pgmq.q_deliveries_queue);
+select is((select count(*) from claim_deliveries(200, 60)), 0::bigint, 'a row in flight does not count toward the ten');
+
+select pg_temp.reset_queue();
+select pg_temp.queue((select id from dd), 'holdt-', 3, now());
+update deliveries set created_at = now() - interval '31 seconds';
+update destinations set throttled_until = now() + interval '1 minute' where id = (select id from dd);
+select is((select count(*) from claim_deliveries(200, 60)), 0::bigint, 'a throttle holds rows older than the window');
+update destinations set throttled_until = now() - interval '1 second' where id = (select id from dd);
+select is((select count(*) from claim_deliveries(200, 60)), 3::bigint, 'and when it lifts they go at once');
+
+select pg_temp.reset_queue();
+update discord_destination_settings set batch_seconds = 0 where destination_id = (select id from dd);
+select pg_temp.queue((select id from dd), 'hold0-', 3, now());
+select is((select count(*) from claim_deliveries(200, 60)), 3::bigint, 'without a window every spot goes at once');
 
 -- ---------------------------------------------------------------------------
 -- Paused and throttled destinations

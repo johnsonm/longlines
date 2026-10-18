@@ -26,7 +26,9 @@ select set_eq(
         'create_api_token', 'rotate_api_token',
         'register_push_device', 'unregister_push_device', 'list_push_devices', 'delete_push_device',
         'rename_push_device', 'report_push_device_blocked', 'save_push_destination', 'get_push_destination',
-        'duplicate_destination', 'preview_push_notification'],
+        'duplicate_destination', 'preview_push_notification',
+        'save_discord_destination', 'get_discord_destination', 'list_discord_destination_settings',
+        'preview_discord_message'],
   'authenticated may execute only the client RPCs');
 
 select set_eq(
