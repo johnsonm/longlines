@@ -1,5 +1,5 @@
 -- pgTAP: spot_stream and the callsign rollups (20261012000040), callsign_days and the roll-up
--- status (20261019000100).
+-- status (20261019000200).
 begin;
 create extension if not exists pgtap with schema extensions;
 select plan(90);

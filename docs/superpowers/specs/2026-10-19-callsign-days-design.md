@@ -1,6 +1,6 @@
 # Daily per-callsign activity and roll-up status: design
 
-Date: 2026-10-19. Status: approved. Migration: `supabase/migrations/20261019000100_callsign_days.sql`.
+Date: 2026-10-19. Status: approved. Migration: `supabase/migrations/20261019000200_callsign_days.sql`.
 
 ## Purpose
 

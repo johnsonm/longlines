@@ -133,14 +133,21 @@ $$;
 -- paths, and each logged slice here is a range probe of rbn_spots' unique
 -- index, which leads with spot_time, stopping at the first short slice. A
 -- day with nothing archived costs one archive_log probe.
+--
+-- plpgsql, not SQL, here and in first_rollup_day: both read rbn_spots, whose
+-- partitions maintain_rbn_spots drops. A SQL function called from a plpgsql
+-- expression keeps its plan for the rest of the transaction, so a second
+-- call after a drop fails with "could not open relation"; plpgsql's plans are
+-- invalidated by the drop.
 create function public.rbn_day_retired(p_day date)
 returns boolean
-language sql
+language plpgsql
 stable
 security definer
 set search_path = public
 as $$
-  select exists (
+begin
+  return exists (
     select 1
     from archive_log l
     where l.source = 'rbn'
@@ -150,6 +157,7 @@ as $$
                          where r.spot_time >= l.slice_start
                            and r.spot_time < l.slice_start
                                              + make_interval(mins => public.archive_slice_minutes('rbn'))));
+end;
 $$;
 
 -- The first UTC day the roll-ups cover: the earlier of the first marker and
@@ -158,15 +166,17 @@ $$;
 -- database with RBN rows alone).
 create function public.first_rollup_day()
 returns date
-language sql
+language plpgsql
 stable
 security definer
 set search_path = public
 as $$
-  select coalesce(
+begin
+  return coalesce(
     least((select min(r.day) from callsign_rollup_days r),
           (select (min(s.spot_time) at time zone 'utc')::date from raw_spots s where s.source <> 'rbn')),
     (select (min(s.spot_time) at time zone 'utc')::date from spot_stream s));
+end;
 $$;
 
 -- Days already rolled up with (day, true): the archive has their RBN rows,

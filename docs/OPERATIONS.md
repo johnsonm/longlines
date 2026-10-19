@@ -1053,7 +1053,7 @@ without its callsign rollup`), but the view is the record; `cron.job_run_details
 
 ## Pushing the callsign_days migration
 
-`20261019000100` alters `callsign_rollup_days`, and the hourly job holds row locks on it while it
+`20261019000200` alters `callsign_rollup_days`, and the hourly job holds row locks on it while it
 runs, so the migration starts with `select set_config('lock_timeout', '10s', true)` and fails
 rather than queue with the whole transaction open. The setting is transaction-scoped, which is how
 `supabase db push` applies a migration; applied by hand with psql, wrap the file in `begin;` /

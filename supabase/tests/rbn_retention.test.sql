@@ -1,5 +1,5 @@
 -- pgTAP: rbn_spots retention (20261011000005, 20261012000010,
--- 20261017004020, 20261019000100). A day older than seven is dropped only when
+-- 20261017004020, 20261019000200). A day older than seven is dropped only when
 -- every 10-minute slice is archived with the database's count and the callsign
 -- rollups have recorded it, or it is older than 14 days; the latter is recorded
 -- in callsign_rollup_failures once, when the partition goes. A late row on a
