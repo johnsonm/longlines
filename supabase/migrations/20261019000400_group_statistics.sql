@@ -24,9 +24,14 @@ alter table callsign_groups
 
 -- One row per group and period; dropped with the group (and so with the
 -- account). Service-role only: clients read it through the RPCs below.
+-- roster is the fingerprint of the members a payload was built from
+-- (group_stats_roster); a row whose roster no longer matches is a miss. That
+-- covers a member change, a call hidden or unhidden, a base-call rebase, and a
+-- build that started before a save and committed after it.
 create table group_stats_cache (
   group_id     uuid        not null references callsign_groups (id) on delete cascade,
   period       text        not null check (period in ('7d', '30d')),
+  roster       text        not null,
   payload      jsonb       not null,
   generated_at timestamptz not null default now(),
   primary key (group_id, period)
@@ -34,6 +39,32 @@ create table group_stats_cache (
 
 alter table group_stats_cache enable row level security;
 revoke all on group_stats_cache from anon, authenticated;
+
+-- The members a group's statistics count: its base calls minus
+-- hidden_callsigns, sorted. The one statement of the hiding rule for groups.
+create function public.group_member_bases(p_group_id uuid)
+returns text[]
+language sql
+stable
+set search_path = public
+as $$
+  select coalesce(array_agg(m.callsign order by m.callsign), '{}')
+  from callsign_group_members m
+  where m.group_id = p_group_id
+    and not exists (select 1 from hidden_callsigns h where h.callsign = m.callsign);
+$$;
+
+create function public.group_stats_roster(p_bases text[])
+returns text
+language sql
+immutable
+set search_path = public, extensions
+as $$
+  select md5(array_to_string(p_bases, ','));
+$$;
+
+revoke all on function public.group_member_bases(uuid) from public;
+revoke all on function public.group_stats_roster(text[]) from public;
 
 -- Ten characters of a-z2-7, five random bits each (new_api_token()'s masking:
 -- a 32-letter alphabet, so masking a byte to five bits is unbiased). 50 bits,
@@ -80,6 +111,7 @@ declare
   v_calls   text[];
   v_removed int;
   v_added   int;
+  v_key     text;
 begin
   if v_user is null then
     raise exception 'Not signed in.';
@@ -91,8 +123,13 @@ begin
      or jsonb_typeof(payload -> 'show_callsigns') not in ('boolean', 'null') then
     raise exception 'Not a valid setting.';
   end if;
-  v_public := (payload ->> 'public')::boolean;
-  v_show := (payload ->> 'show_callsigns')::boolean;
+  -- The management API does not share pages (spec, decision 8): api_call
+  -- sets longlines.via_api for the length of its call, and the keys are
+  -- ignored, whichever operation reached this save.
+  if coalesce(current_setting('longlines.via_api', true), '') <> 'on' then
+    v_public := (payload ->> 'public')::boolean;
+    v_show := (payload ->> 'show_callsigns')::boolean;
+  end if;
 
   v_norm := public.normalize_group_callsigns(
     array(select jsonb_array_elements_text(coalesce(payload -> 'callsigns', '[]'::jsonb))));
@@ -137,13 +174,21 @@ begin
   return v_id;
 exception
   when unique_violation then
+    get stacked diagnostics v_key = constraint_name;
+    if v_key = 'callsign_groups_public_slug_key' then
+      -- Two groups drew the same code at once; new_group_slug's check cannot
+      -- see the other's uncommitted row. Saving again draws another.
+      raise exception 'Couldn''t make the link. Try again.';
+    end if;
     raise exception 'You already have a group with that name.';
 end;
 $$;
 
--- The management API does not share pages (spec, decision 8): api_call drops
--- the two sharing keys before a group create or update, since routeArgs passes
--- a body's other keys through. The body is 20261016000600's otherwise.
+-- api_call from 20261016000600, plus longlines.via_api for the length of the
+-- call (set like the JWT claims, and put back the same way), which
+-- save_callsign_group reads to ignore the sharing keys: routeArgs passes a
+-- body's other fields through, so a token could otherwise publish a page
+-- without the confirm dialog.
 create or replace function public.api_call(p_token_id uuid, p_op text, p_args jsonb)
 returns jsonb
 language plpgsql
@@ -153,6 +198,7 @@ as $$
 declare
   v_sub    text := current_setting('request.jwt.claim.sub', true);
   v_claims text := current_setting('request.jwt.claims', true);
+  v_via    text := current_setting('longlines.via_api', true);
   v_user   uuid;
   v_scope  text;
   v_needs  text;
@@ -185,6 +231,7 @@ begin
   perform set_config('request.jwt.claim.sub', v_user::text, true);
   perform set_config('request.jwt.claims',
     json_build_object('sub', v_user, 'role', 'authenticated')::text, true);
+  perform set_config('longlines.via_api', 'on', true);
 
   v_id := nullif(p_args ->> 'id', '')::uuid;
 
@@ -246,10 +293,10 @@ begin
         raise exception 'Group not found.';
       end if;
     when 'create_group' then
-      v_id := public.save_callsign_group(p_args - 'id' - 'public' - 'show_callsigns');
+      v_id := public.save_callsign_group(p_args - 'id');
       select public.api_group_json(to_jsonb(g)) into v_result from public.list_callsign_groups() g where g.id = v_id;
     when 'update_group' then
-      perform public.patch_callsign_group(v_id, p_args - 'id' - 'public' - 'show_callsigns');
+      perform public.patch_callsign_group(v_id, p_args - 'id');
       select public.api_group_json(to_jsonb(g)) into v_result from public.list_callsign_groups() g where g.id = v_id;
     when 'delete_group' then
       perform public.delete_callsign_group(v_id);
@@ -264,6 +311,7 @@ begin
 
   perform set_config('request.jwt.claim.sub', coalesce(v_sub, ''), true);
   perform set_config('request.jwt.claims', coalesce(v_claims, ''), true);
+  perform set_config('longlines.via_api', coalesce(v_via, ''), true);
   return v_result;
 end;
 $$;
@@ -276,7 +324,7 @@ $$;
 -- web/src/groups/stats/types.ts, pinned by group_statistics.test.sql). The
 -- clock is an argument so the test can pin it; group_statistics passes now().
 --
--- Members are the group's base calls minus hidden_callsigns: a hidden call
+-- Members are group_member_bases(): base calls minus hidden_callsigns. A hidden call
 -- counts nowhere, not even in totals or "of N members". A period is the last 7
 -- or 30 UTC days ending today; "previous" is the same number of days before.
 --
@@ -284,8 +332,9 @@ $$;
 -- callsign_activity and callsign_seen lead with base; spot_stream through the
 -- base-callsign indexes):
 --   day_spots  spots per member per day, a year back: callsign_days for
---              rolled-up days plus the live days, as callsign_profile's
---              calendar does. Totals, days, the heat map and the sparkline.
+--              rolled-up days (day-grain callsign_activity for a day not yet
+--              filled) plus the live days, as callsign_profile's calendar
+--              does. Totals, days, the heat map and the sparkline.
 --   mix        spots per member, band and mode bucket in the period:
 --              day-grain callsign_activity (kept 35 days) plus the live days.
 --   refs       the period's spots with a reference (raw_spots' arm only), for
@@ -324,10 +373,7 @@ begin
   v_from := v_today - (v_days - 1);
   v_prev := v_from - v_days;
 
-  select coalesce(array_agg(m.callsign order by m.callsign), '{}') into v_bases
-  from callsign_group_members m
-  where m.group_id = p_group_id
-    and not exists (select 1 from hidden_callsigns h where h.callsign = m.callsign);
+  v_bases := public.group_member_bases(p_group_id);
 
   -- callsign_profile's live window: the oldest of the last 14 days without a
   -- marker, never before the first marker. Today never has one.
@@ -353,6 +399,15 @@ begin
         select d.base, d.day, d.spots::bigint as n
         from callsign_days d
         where d.base = any (v_bases) and d.day >= v_year and d.day <= v_today
+        union all
+        -- Days rolled up before callsign_days existed and not yet filled by
+        -- backfill_callsign_days: their day-grain activity rows, which
+        -- compaction keeps until the fill (20261019000200).
+        select a.base, a.period, a.spots::bigint
+        from callsign_activity a
+        join callsign_rollup_days r on r.day = a.period and r.days_filled_at is null
+        where a.base = any (v_bases) and a.role = 'heard' and a.grain = 'day'
+          and a.period >= v_year and a.period <= v_today
         union all
         select l.base, l.day, count(*) from live l group by l.base, l.day
       ) x
@@ -530,11 +585,19 @@ revoke all on function public.group_statistics(uuid, text) from public;
 -- 3. The cache and the RPCs
 -- ---------------------------------------------------------------------------
 
--- An hour-old payload is served as is ("Statistics refresh every hour");
--- otherwise one request builds it while the others wait for it, as
--- cached_callsign_profile (20261013000310) does: the wait is capped at 2 s,
--- after which a waiter builds its own. Null when the group does not exist.
-create function public.cached_group_statistics(p_group_id uuid, p_period text)
+-- A payload under an hour old, built from the group's current members, is
+-- served as is ("Statistics refresh every hour"); otherwise one request builds
+-- it while the others wait for it, as cached_callsign_profile
+-- (20261013000310) does: the wait is capped at 2 s, after which a waiter
+-- builds its own. The roster check makes a member change, a hidden call or a
+-- build that raced a save a miss, whatever the row's age. Null when the group
+-- does not exist.
+--
+-- p_max_age lets list_group_summaries take an older row when its time budget
+-- is spent; p_build false returns null instead of building.
+create function public.cached_group_statistics(p_group_id uuid, p_period text,
+                                               p_max_age interval default interval '1 hour',
+                                               p_build boolean default true)
 returns jsonb
 language plpgsql
 security definer
@@ -542,17 +605,19 @@ set search_path = public
 as $$
 declare
   v_lock_timeout text := current_setting('lock_timeout');
+  v_roster       text := public.group_stats_roster(public.group_member_bases(p_group_id));
   v_payload      jsonb;
 begin
   for v_pass in 1..2 loop
     select c.payload into v_payload
     from group_stats_cache c
-    where c.group_id = p_group_id and c.period = p_period and c.generated_at > now() - interval '1 hour';
+    where c.group_id = p_group_id and c.period = p_period and c.roster = v_roster
+      and c.generated_at > now() - p_max_age;
     if found then
       return v_payload;
     end if;
 
-    exit when v_pass = 2;
+    exit when v_pass = 2 or not p_build;
 
     -- Held until this request commits, after the upsert below. Each statement
     -- takes a new snapshot, so the second pass sees what a builder committed.
@@ -565,13 +630,22 @@ begin
     perform set_config('lock_timeout', v_lock_timeout, true);
   end loop;
 
+  if not p_build then
+    return null;
+  end if;
   v_payload := public.group_statistics(p_group_id, p_period);
   if v_payload is null then
     return null;
   end if;
-  insert into group_stats_cache (group_id, period, payload, generated_at)
-  values (p_group_id, p_period, v_payload, now())
-  on conflict (group_id, period) do update set payload = excluded.payload, generated_at = excluded.generated_at;
+  -- The roster of the members this payload counted, from the payload itself,
+  -- so a save that committed during the build leaves a row that misses.
+  insert into group_stats_cache (group_id, period, roster, payload, generated_at)
+  values (p_group_id, p_period,
+          public.group_stats_roster(array(select e ->> 'callsign' from jsonb_array_elements(v_payload -> 'members') e
+                                          order by e ->> 'callsign')),
+          v_payload, now())
+  on conflict (group_id, period) do update
+    set roster = excluded.roster, payload = excluded.payload, generated_at = excluded.generated_at;
   return v_payload;
 end;
 $$;
@@ -627,39 +701,60 @@ $$;
 -- cached payload as its statistics page, so the two agree, plus who is on the
 -- air now (members heard in the last 30 minutes, newest first), read live
 -- since it goes stale within minutes. Hidden calls are left out of both.
+--
+-- Stale or missing payloads are built in name order while the call has spent
+-- under 3 s, so a cold cache over many busy groups stays inside the API's 8 s
+-- statement timeout (a timeout would roll every build back and the next load
+-- would start over). Past the budget a group gets its newest payload of any
+-- age, or null figures when it has never been built; its statistics page
+-- builds it, and the next load of the cards picks it up.
 create function public.list_group_summaries()
 returns table (id uuid, public boolean, spots bigint, members_heard int, member_count int, daily int[],
                on_air text[])
 language plpgsql
 security definer
 set search_path = public
+-- One on-air read per group: keep the member array a constant to the planner
+-- past the fifth group (see group_statistics_at).
+set plan_cache_mode = force_custom_plan
 as $$
 declare
-  v_user uuid := auth.uid();
+  v_user    uuid := auth.uid();
+  v_started timestamptz := clock_timestamp();
+  v_group   record;
+  v_bases   text[];
+  v_payload jsonb;
 begin
   if v_user is null then
     raise exception 'Not signed in.';
   end if;
-  return query
-  select g.id, g.public,
-         (s.p -> 'kpis' ->> 'spots')::bigint,
-         (s.p -> 'kpis' ->> 'membersHeard')::int,
-         (s.p ->> 'memberCount')::int,
-         array(select (e ->> 'spots')::int from jsonb_array_elements(s.p -> 'daily') with ordinality as x(e, i) order by x.i),
-         array(select a.base
-               from (select l.base_callsign as base, max(l.spot_time) as t
-                     from spot_stream l
-                     where l.base_callsign = any (array(
-                             select m.callsign from callsign_group_members m
-                             where m.group_id = g.id
-                               and not exists (select 1 from hidden_callsigns h where h.callsign = m.callsign)))
-                       and l.spot_time > now() - interval '30 minutes'
-                     group by l.base_callsign) a
-               order by a.t desc, a.base)
-  from callsign_groups g
-  cross join lateral (select public.cached_group_statistics(g.id, '30d') as p) s
-  where g.user_id = v_user
-  order by lower(g.name);
+  for v_group in
+    select g.id, g.public from callsign_groups g where g.user_id = v_user order by lower(g.name), g.id
+  loop
+    if clock_timestamp() - v_started < interval '3 seconds' then
+      v_payload := public.cached_group_statistics(v_group.id, '30d');
+    else
+      v_payload := public.cached_group_statistics(v_group.id, '30d', interval '100 years', false);
+    end if;
+    id := v_group.id;
+    public := v_group.public;
+    spots := (v_payload -> 'kpis' ->> 'spots')::bigint;
+    members_heard := (v_payload -> 'kpis' ->> 'membersHeard')::int;
+    member_count := (v_payload ->> 'memberCount')::int;
+    daily := case when v_payload is not null then array(
+               select (x.e ->> 'spots')::int
+               from jsonb_array_elements(v_payload -> 'daily') with ordinality as x(e, i) order by x.i) end;
+    v_bases := public.group_member_bases(v_group.id);
+    on_air := array(
+      select a.base
+      from (select l.base_callsign as base, max(l.spot_time) as t
+            from spot_stream l
+            where l.base_callsign = any (v_bases)
+              and l.spot_time > now() - interval '30 minutes'
+            group by l.base_callsign) a
+      order by a.t desc, a.base);
+    return next;
+  end loop;
 end;
 $$;
 
@@ -700,7 +795,7 @@ begin
 end;
 $$;
 
-revoke all on function public.cached_group_statistics(uuid, text) from public;
+revoke all on function public.cached_group_statistics(uuid, text, interval, boolean) from public;
 revoke all on function public.group_stats_redact(jsonb) from public;
 revoke all on function public.get_group_statistics(uuid, text) from public;
 revoke all on function public.list_group_summaries() from public;

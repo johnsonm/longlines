@@ -91,7 +91,8 @@ Each part runs in a fresh Claude Code session in its own worktree. The branches 
 - Applied migrations are never edited. `save_callsign_group` is recreated from its latest
   definition (`20261013000210`) with `create or replace`, so its grants stay.
   `list_callsign_groups`, `api_group_json` and `patch_callsign_group` do not change. `api_call`
-  is recreated from `20261016000600` only to drop the two sharing keys (spec, decision 8).
+  is recreated from `20261016000600` only to set `longlines.via_api`, under which
+  `save_callsign_group` ignores the sharing keys (spec, decision 8).
 - Behaviour goes in SQL: every figure, ranking, tie break, top-list length, the 10 places, period
   bounds, hidden calls, redaction, the code, cache freshness. The web formats numbers and ages and
   hides sections whose keys are absent. It never ranks, sums, filters callsigns for privacy or works
@@ -251,7 +252,7 @@ passes seeded or not).
 - [x] `supabase gen types typescript --local > web/src/lib/database.types.ts`. Run `cd web && npm
   run build` to show the regeneration (which includes #223/#225's objects) breaks nothing.
 - [x] All gates.
-- [ ] Commit `Group statistics: smoke test and generated types`, push, open PR 2 stacked on
+- [x] Commit `Group statistics: smoke test and generated types`, push, open PR 2 stacked on
   `group-stats-spec`. Run /code-review and fix what it finds.
 
 ---

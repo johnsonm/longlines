@@ -3,7 +3,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(58);
+select plan(64);
 
 -- ---------------------------------------------------------------------------
 -- Sharing columns and the save keys
@@ -221,6 +221,37 @@ reset role;
 select is((select count(*) from group_stats_cache where group_id = (select id from club)), 0::bigint,
   'a member change clears the cache');
 
+-- The roster check: a cached payload built from other members is a miss, whatever its age.
+select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
+select get_group_statistics((select id from club), '30d');
+reset role;
+insert into hidden_callsigns (callsign) values ('KK4PWJ');
+select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
+select is((select array(select e ->> 'callsign' from jsonb_array_elements(get_group_statistics((select id from club), '30d') -> 'members') e)),
+  array['W4ABC'], 'a call hidden after the build is gone on the next read, not an hour later');
+reset role;
+delete from hidden_callsigns where callsign = 'KK4PWJ';
+update group_stats_cache set roster = 'built before a save', payload = '{"stale": true}' where group_id = (select id from club);
+select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
+select ok(not get_group_statistics((select id from club), '30d') ? 'stale',
+  'a payload whose roster does not match the members is rebuilt, so a build that raced a save is not served');
+reset role;
+select is(cached_group_statistics((select id from g2), '30d', interval '1 hour', false), null,
+  'without building, a group never built has nothing to serve');
+select ok(cached_group_statistics((select id from club), '30d', interval '100 years', false) ? 'kpis',
+  'without building, the cached payload is served');
+
+-- A day rolled up before callsign_days existed and not filled yet counts from its day-grain activity rows.
+update callsign_rollup_days set days_filled_at = null where day = pg_temp.d(-10);
+create temp table day10 as select * from callsign_days where day = pg_temp.d(-10);
+delete from callsign_days where day = pg_temp.d(-10);
+select is((select group_statistics((select id from club), '30d') -> 'kpis' -> 'spots'), '6'::jsonb,
+  'an unfilled rolled-up day still counts');
+update callsign_rollup_days set days_filled_at = now() where day = pg_temp.d(-10);
+select is((select group_statistics((select id from club), '30d') -> 'kpis' -> 'spots'), '3'::jsonb,
+  'and a filled day counts only from callsign_days (none left for day -10 here)');
+insert into callsign_days select * from day10;
+
 select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
 select throws_ok(format('select get_group_statistics(%L, %L)', (select id from club), '1y'), 'P0001', 'Not a valid period.');
 select throws_ok(format('select get_group_statistics(%L, %L)', gen_random_uuid(), '30d'), 'P0001', 'Group not found.');
@@ -276,7 +307,7 @@ select ok(not has_function_privilege('authenticated', 'public.public_group_stati
           and not has_function_privilege('anon', 'public.public_group_statistics(text, text)', 'execute')
           and has_function_privilege('service_role', 'public.public_group_statistics(text, text)', 'execute'),
   'only the service role reads public pages');
-select ok(not has_function_privilege('authenticated', 'public.cached_group_statistics(uuid, text)', 'execute')
+select ok(not has_function_privilege('authenticated', 'public.cached_group_statistics(uuid, text, interval, boolean)', 'execute')
           and not has_function_privilege('authenticated', 'public.group_stats_redact(jsonb)', 'execute'),
   'clients cannot call the cache or the redaction');
 

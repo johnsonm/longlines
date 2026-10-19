@@ -549,14 +549,14 @@ isOneToOne: true
                   ]
                 },"group_stats_cache": {
                   Row: {
-                    "generated_at": string,"group_id": string,"payload": NonNullable<Json>,"period": string
+                    "generated_at": string,"group_id": string,"payload": NonNullable<Json>,"period": string,"roster": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "generated_at"?: string,"group_id": string,"payload": NonNullable<Json>,"period": string
+                    "generated_at"?: string,"group_id": string,"payload": NonNullable<Json>,"period": string,"roster": string
                   }
                   Update: {
-                    "generated_at"?: string,"group_id"?: string,"payload"?: NonNullable<Json>,"period"?: string
+                    "generated_at"?: string,"group_id"?: string,"payload"?: NonNullable<Json>,"period"?: string,"roster"?: string
                   }
                   Relationships: [
                     {
@@ -1082,7 +1082,7 @@ isOneToOne: true
 { Args: { "p_callsign": string }; Returns: Json
                            },
 "cached_group_statistics":
-{ Args: { "p_group_id": string,"p_period": string }; Returns: Json
+{ Args: { "p_build"?: boolean,"p_group_id": string,"p_max_age"?: string,"p_period": string }; Returns: Json
                            },
 "callsign_available":
 { Args: { "p_callsign": string }; Returns: boolean
@@ -1272,6 +1272,9 @@ isOneToOne: true
 "group_matches":
 { Args: { "p_base": string,"p_group_ids": (string)[] }; Returns: boolean
                            },
+"group_member_bases":
+{ Args: { "p_group_id": string }; Returns: (string)[]
+                           },
 "group_statistics":
 { Args: { "p_group_id": string,"p_period": string }; Returns: Json
                            },
@@ -1280,6 +1283,9 @@ isOneToOne: true
                            },
 "group_stats_redact":
 { Args: { "p": Json }; Returns: Json
+                           },
+"group_stats_roster":
+{ Args: { "p_bases": (string)[] }; Returns: string
                            },
 "ingest_aprs_packets":
 { Args: { "p_rows": Json }; Returns: number
