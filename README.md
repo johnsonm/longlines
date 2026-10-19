@@ -1,356 +1,58 @@
 # Long Lines
 
-Long Lines is a routing fabric for amateur radio spots. It watches the public spot feeds for
-[Parks on the Air](https://pota.app), [Summits on the Air](https://sotawatch.sota.org.uk) and
-[World Wide Flora & Fauna](https://wwff.co), plus the
-[Reverse Beacon Network](https://reversebeacon.net) for the callsigns you follow, normalizes
-every spot into one shape, and delivers the ones you care about to a Discord channel or a signed
-webhook within about a minute of them being posted.
+Long Lines collects amateur radio spots from public feeds, stores them in one shape, and sends the
+ones you ask for to Discord, a webhook or your phone, usually within a minute.
 
-The name is an homage to AT&T's Long Lines microwave backbone. The project moves other people's
-signals from where they are published to where they are wanted; it does not generate spots
-itself.
+## What it does
 
-## Why it exists
+- **Sources:** POTA, SOTAwatch, WWFF, DX Cluster and the Reverse Beacon Network. APRS-IS packets
+  are stored and archived but never matched.
+- **Connections:** filters on source, band, mode, callsign, reference and callsign groups, with
+  a live preview of what would match.
+- **Destinations:** Discord, signed webhooks and web push.
+- **Public pages:** stats, a live band map and callsign profiles.
+- **Management API:** token-based access to the same operations as the web app
+  ([docs/API.md](docs/API.md)).
+- **Archive:** every spot is written to Backblaze B2 as Parquet.
 
-Spots are how portable operators tell the world "I am on the air, here, now." They are
-time-critical: an activation lasts an hour or two, and a park or summit you want to work may
-only be spotted once. Each program publishes its own feed, in its own format, with its own
-quirks, and the only way to follow them is to keep a browser tab open and refresh.
-
-Long Lines exists so that you can describe what you want once ("CW on 20m and 40m from any
-SOTA summit", "this list of callsigns on any band") and have matching spots pushed to you, from
-every supported source, in a single format. It also exists as a small, honest example of
-running a real-time pipeline almost entirely on Supabase: Postgres does the scheduling, queuing
-and matching, and Edge Functions pull the feeds. Two small processes on Fly.io do what an Edge
-Function cannot: a relay holds the feeds that only exist as persistent connections, and a sender
-delivers what matched.
-
-## How it works
-
-Everything runs inside one Supabase project plus a static web app, except for two small
-processes on Fly.io: a relay that holds the streaming feeds (RBN, DX Cluster, APRS-IS) and a
-sender that delivers to Discord, webhooks and push services.
+## How it fits together
 
 ```
-POTA / SOTAwatch / WWFF ──► ingest functions ──► raw_spots + spot_events queue
-RBN telnet ──► relay (Fly.io) ──► ingest-rbn ──┘
-APRS-IS ──► relay ──► ingest-aprs ──► aprs_packets (stored and archived, not matched)
-                                                   │
-                                   match_pending_spots (SQL, every minute)
-                                                   │
-                                        deliveries + deliveries_queue
-                                                   │
-                                   sender (Fly.io) ──► Discord / webhooks / push
+POTA / SOTAwatch / WWFF ──► Edge Functions (pg_cron) ──┐
+RBN / DX Cluster / APRS-IS ──► relay (Fly.io) ─────────┴─► Postgres: store, match
+                                                              │
+                                     sender (Fly.io) ◄────────┘──► Discord / webhooks / push
 ```
 
-**Ingest.** `pg_cron` calls the `ingest-pota` and `ingest-wwff` functions every minute and
-`ingest-sotawatch` every 30 seconds over `pg_net`. Each function fetches its upstream feed,
-normalizes the spots (uppercase callsigns, kHz frequencies, lowercase modes, derived `band` and
-`mode_family`), and hands the whole batch to one `ingest_spots` RPC. That RPC inserts into `raw_spots` and enqueues
-a `spot_events` message per new row in a single transaction. Dedup is a unique constraint over
-a content hash, so re-fetching an unchanged feed inserts nothing and an edited spot lands as a
-new row. Spots that cannot be normalized go to `ingest_failures` instead of aborting the run.
-
-**Streaming sources.** RBN only offers a persistent telnet stream, which an Edge Function cannot
-hold, so `relay/` (a small Deno process on one Fly.io machine) keeps a single connection open.
-It forwards every spot in batches every 10 seconds, and pushes an empty batch at least once a
-minute so source health shows the relay is alive. `ingest-rbn` stores every spot in `rbn_spots`
-(partitioned by day; seven days stay in the database) and sends only spots of callsigns named in a
-subscription on to matching, through the same orchestrator as the pulled sources. The relay
-authenticates with a shared secret and never holds
-a Supabase key. An RBN spot only matches subscriptions that name callsigns, so a broad "any
-source, 20m CW" subscription is not flooded with other people's watchlist hits. The relay also holds the
-APRS-IS full feed: every packet on the network goes into `aprs_packets` (about two days in the
-database, everything in the B2 archive) for later analysis. APRS packets are not spots and
-never reach matching. See
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) ("Streaming sources: the relay").
-
-**Match.** `match_pending_spots()` is a Postgres function that runs after every successful
-ingest and on a one-minute cron as a safety net. It joins a batch of `spot_events` against every enabled subscription
-that has a destination, using the `spot_matches` predicate, applies each subscription's per-callsign quiet window, and
-writes one `deliveries` row per destination and spot. The web app's live preview calls the same
-predicate, so what you see while editing a subscription is exactly what will be delivered.
-
-**Deliver.** The sender (`sender/`, one Fly.io machine) polls the queue every few seconds as a
-restricted database role and sends what `claim_deliveries()` hands it: Discord as embeds,
-webhooks as JSON signed with an HMAC-SHA256 header, with the fields, key style and grouping each
-destination picks, push as encrypted notifications. The claim
-decides everything: newest spots first, a per-minute budget per destination, throttled and paused
-destinations skipped, and deliveries older than their limit (24 hours; 15 minutes for push)
-dropped. Every outcome goes back through an RPC so delivery rows, queue messages and destination
-health change atomically. Failures back off and retry; five in a row mark the destination
-failing. A rate limit throttles the destination rather than counting against it. Outbound URLs
-are checked in SQL at creation and again before each request, with DNS resolved, so private
-addresses are never reached.
-
-**Archive.** Every spot from every source is also written to a private Backblaze B2 bucket as Parquet,
-one file per slice (five minutes for APRS-IS, ten for RBN, an hour for the others) in
-`<source>/year=/month=/day=` folders, by the `archive` function every 10 minutes. DuckDB, pandas or Spark read the files directly. RBN days leave the database
-only after their archive matches.
-
-**Web app.** `web/` is a Vite, React and MUI single-page app that talks to Supabase with the anon
-key and the user's session. Users sign in with a callsign or email, see source health, create
-destinations (the signing secret is shown once), and build subscriptions with filters on source,
-band, mode, callsign and reference. All client writes go through RPCs, and sensitive columns are
-excluded from the grants, so nothing in the browser can read a destination URL or secret.
-
-The design rationale is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), day-two checks and
-dashboard settings in [docs/OPERATIONS.md](docs/OPERATIONS.md), and the webhook contract with a
-verification example in [docs/WEBHOOKS.md](docs/WEBHOOKS.md).
-
-## Repository layout
+Almost everything is Supabase: Postgres does the scheduling, queuing and matching, and Deno Edge
+Functions pull the feeds. Two small Deno processes run on Fly.io: `relay/` holds the streaming
+feeds and `sender/` delivers.
 
 | Path | What it is |
 | --- | --- |
-| `supabase/migrations/` | Schema, RPCs, queues, cron jobs. Applied migrations are never edited; add a new one. |
-| `supabase/functions/_shared/` | All Edge Function logic: ingest orchestrator, source adapters, mode canonicalization, delivery formatting and sending. |
-| `supabase/functions/ingest-*`, `send-test`, `sign-in`, `delete-account` | Thin entrypoints around `_shared`. `ingest-rbn` is the push endpoint the relay calls. |
-| `supabase/functions/_shared/__tests__/` | Deno unit tests and the fixtures captured from the real feeds (POTA, SOTAwatch and WWFF JSON, an RBN telnet capture). Nothing in the suite calls an upstream. |
-| `relay/` | The stream relay that runs on Fly.io: telnet session, batching forwarder, `/healthz`, its Dockerfile and `fly.toml`. It imports the RBN parser from `_shared`. Tests use a local TCP server, never RBN. |
-| `sender/` | The outbound sender that runs on Fly.io: polls the delivery queue and sends to Discord, webhooks and push services, with its Dockerfile and `fly.toml`. Policy stays in SQL; it imports the delivery modules from `_shared`. |
-| `supabase/tests/` | pgTAP suites that assert grants, RLS and RPC behavior against a fresh database. |
-| `scripts/` | `smoke-test.sql` (also run by CI), the one-time `setup-db-settings.sql` for Vault and `setup-sender-role.sql` for the sender's role password. |
-| `web/` | The user-facing app. `src/lib/api.ts` is the only module that touches supabase-js. |
-| `web/scripts/` | Local-development helpers behind the npm scripts: env setup, `dev:full`, function invokes, the local CI runner. |
-| `docs/` | Architecture, operations, webhook contract, and the UI mock the copy is taken from. |
+| `supabase/migrations/` | Schema, RPCs, queues and cron jobs |
+| `supabase/functions/` | Edge Functions; the logic is in `_shared/` |
+| `relay/`, `sender/` | The two Fly.io processes |
+| `web/` | Vite, React and MUI web app |
+| `docs/` | Architecture, operations, webhooks and API |
 
 ## Running it locally
 
-Prerequisites: [Docker](https://docs.docker.com/get-docker/), the
-[Supabase CLI](https://supabase.com/docs/guides/cli), [Deno](https://deno.com) 2.x, and Node
-22.18 or later for the web app. On macOS: `brew install supabase/tap/supabase deno node`.
-
-Day-to-day commands are npm scripts in `web/package.json`; run them from `web/`.
-
-### Quick start
+Needs Docker, the Supabase CLI, Deno 2 and Node 22.18+.
 
 ```sh
 cd web
 npm install
-npm run dev:full
+npm run dev:full     # local Supabase stack, Edge Functions and the app on http://localhost:5173
+npm run test:all     # every CI check, with a summary
 ```
 
-`dev:full` starts the local Supabase stack (Postgres, Auth, the API gateway, Studio and a mail
-catcher), applies every migration, writes the local URL and anon key into `web/.env.local`, then
-runs Vite and the Edge Functions side by side. Ctrl+C stops both; the stack keeps running until
-`npm run supabase:stop`. The first start downloads the Docker images and takes a few minutes.
+`web/package.json` lists the other scripts (`invoke:pota`, `db:match`, `sender`, `supabase:reset`
+and so on).
 
-| Service | URL |
-| --- | --- |
-| Web app | http://localhost:5173 |
-| API | http://127.0.0.1:54321 |
-| Studio (`npm run supabase:studio`) | http://127.0.0.1:54323 |
-| Mail catcher (`npm run supabase:mail`) | http://127.0.0.1:54324 |
+## More
 
-Local Auth requires email confirmation, so after signing up open the mail catcher and click the
-link. Local `config.toml` already lists `http://localhost:5173` in the redirect URLs.
-
-### Ingest and delivery by hand
-
-The cron jobs exist locally but have no Vault secrets to call the functions with, so trigger runs
-yourself while `dev:full` (or `npm run supabase:functions`) is serving the functions:
-
-```sh
-npm run invoke:pota          # or invoke:sotawatch, invoke:wwff
-```
-
-The response is the run summary (`fetched`, `inserted`, `skipped`, `failed`). These calls hit
-the real POTA, SOTAwatch and WWFF feeds, so be polite and do not script them in a loop. Then check
-what landed with `npm run db:psql`:
-
-```sql
-select * from ingest_health;
-select source, count(*) from raw_spots group by source;
-select * from pgmq.metrics('spot_events');
-```
-
-To push spots through matching and delivery, run the matcher, then start the sender, which polls
-the queue every few seconds and sends to Discord, webhooks and push devices (Ctrl+C stops it):
-
-```sh
-npm run db:match
-npm run sender
-```
-
-The sender connects to the stack's Postgres and allows plain-http destinations on this machine; it
-reads the VAPID keys from `supabase/functions/.env` when that file has them. The matcher's
-`pg_notify` has no listener locally; the sender finds new rows on its next poll.
-
-Push notifications need a VAPID pair locally, in three places (all gitignored). Generate one with
-`deno run scripts/generate-vapid-keys.ts mailto:you@example.com`, then put its three
-`LONGLINES_VAPID_*` lines in `supabase/functions/.env` (the file `supabase functions serve` reads,
-for `send-test`) and in the environment of `npm run sender` (it passes that file through, so the
-same file does), and `LONGLINES_VAPID_PUBLIC_KEY=<public>` in `web/.env.local` (Vite maps it onto
-`VITE_VAPID_PUBLIC_KEY`; without it the app reports push as unsupported). `localhost` counts as a
-secure context, so Chrome and Firefox can turn notifications on at http://localhost:5173.
-
-RBN spots arrive through the relay rather than an invoke. To run it against the local stack,
-serve the functions with a relay secret and start the relay with the same value:
-
-```sh
-echo 'LONGLINES_RELAY_SECRET=local-secret' > /tmp/relay.env
-supabase functions serve --env-file /tmp/relay.env
-
-LONGLINES_FUNCTIONS_URL=http://127.0.0.1:54321/functions/v1 \
-LONGLINES_RELAY_SECRET=local-secret RELAY_LOGIN_CALL=<your callsign> \
-deno run --allow-net --allow-env relay/main.ts
-```
-
-This opens a real connection to `telnet.reversebeacon.net`, so stop it when you are done. Every
-spot lands in `rbn_spots` (tens of thousands an hour); only callsigns named in a subscription that
-includes RBN go on to `raw_spots` and matching.
-
-The sender and the Edge Functions refuse plain-http and private addresses, so a receiver on your
-own machine is rejected by default. `npm run sender` allows them on this machine
-(`LONGLINES_ALLOW_INSECURE_DESTINATIONS=1`); for the Edge send-test, put the same line in
-`supabase/functions/.env`. Either way, insert the destination row directly in SQL, as described in
-[docs/OPERATIONS.md](docs/OPERATIONS.md). Never set that variable on a hosted project or on Fly.
-
-### Tests and checks
-
-```sh
-npm run test:all             # every CI check, then a pass/fail summary
-npm run test:all:fresh       # the same after `supabase db reset`
-npm run test:deno            # one group: fmt, lint, check and the coverage-gated tests for the Edge Functions, relay and sender
-npm run test:db              # one group: db lint, pgTAP, scripts/smoke-test.sql and the sender db tests (stack must be running)
-```
-
-`test:all` runs what CI runs on every pull request and push to `main`: Deno fmt/lint/check and
-the tests with their 80% coverage gate, `supabase db lint`, the pgTAP suites, the smoke test, the
-sender's database adapter tests, and the web app's lint, tests with their 80% coverage gate, and
-build. It
-keeps going after a failure so the summary shows everything at once.
-
-The local stack is shared by every checkout and worktree of this repo. If another branch's
-migrations are applied, or local ingest runs left rows in `raw_spots`, pgTAP can fail locally
-while CI is green. `test:all` warns when the database's migrations don't match the checkout;
-`test:all:fresh` resets the database to this checkout first, which wipes local data.
-
-For a single Deno test, use the task directly from the repo root:
-
-```sh
-deno test -P supabase/functions/_shared/__tests__/pota.test.ts --filter "hashes"
-```
-
-### Resetting
-
-`npm run supabase:reset` drops the local database and re-applies every migration. After any
-schema change, regenerate the types the web app compiles against:
-
-```sh
-npm run supabase:types
-```
-
-If the stack is stuck or corrupted and a reset doesn't help, `npm run supabase:nuke` removes this
-project's containers, volumes and network (other projects' stacks are left alone). Start again with
-`npm run supabase:start`.
-
-### npm script reference
-
-| Command | What it does |
-| --- | --- |
-| `dev:full` | `supabase:start`, then Vite and `supabase functions serve` together. |
-| `supabase:start` / `stop` / `restart` / `status` | The matching `supabase` command for this repo. `start` also runs `supabase:setup-env`. |
-| `supabase:setup-env` | Writes `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` into `web/.env.local` from `supabase status`. Other lines in the file are kept. |
-| `supabase:functions` | `supabase functions serve` on its own. |
-| `supabase:reset` | `supabase db reset`. Wipes local data, then loads `supabase/seed.sql`: a synthetic week of POTA, SOTA, WWFF and RBN spots so the Stats page has something to show. |
-| `supabase:types` | Regenerates `web/src/lib/database.types.ts`. |
-| `supabase:studio` / `supabase:mail` | Opens Studio or the mail catcher (macOS `open`). |
-| `supabase:nuke` | Removes this project's Docker containers, volumes and network. Wipes local data. |
-| `invoke:pota` / `invoke:sotawatch` / `invoke:wwff` | Calls the function with the local service-role key, as cron does when hosted. |
-| `db:match` | Runs `match_pending_spots()` once. |
-| `sender` | Runs the outbound sender (`sender/main.ts`) against the local stack. Opt in; not part of `dev:full`. |
-| `db:psql` | Opens psql in the database container (`psql` is not installed with the CLI). |
-| `test:all` / `test:all:fresh` / `test:deno` / `test:db` | The checks described above. |
-| `dev` / `test` / `lint` / `build` | Vite, Vitest, oxlint, and `tsc -b` + `vite build` for the web app alone. |
-
-The scripts behind them are in `web/scripts/` and only ever talk to the local stack.
-
-### Without npm
-
-The scripts are thin wrappers, so the plain commands still work from the repo root:
-
-```sh
-supabase start                                    # prints the local URLs and keys
-supabase functions serve
-curl -X POST http://127.0.0.1:54321/functions/v1/ingest-pota \
-  -H "Authorization: Bearer <local service_role key>"
-docker exec -i supabase_db_longlines psql -U postgres
-supabase gen types typescript --local > web/src/lib/database.types.ts
-```
-
-For the web app on its own, copy `web/.env.example` to `web/.env.local`, paste the local anon key,
-and run `npm run dev` in `web/`.
-
-## Deploying to a hosted project
-
-The short version. [docs/OPERATIONS.md](docs/OPERATIONS.md) has the Auth, SMTP and Vercel
-settings that go with it.
-
-```sh
-supabase login
-supabase link --project-ref <PROJECT_REF>
-supabase db push
-
-supabase secrets set LONGLINES_USER_AGENT_URL=https://github.com/<you>/longlines
-supabase secrets set LONGLINES_RELAY_SECRET=<openssl rand -hex 32>   # shared with the relay
-for fn in ingest-pota ingest-sotawatch ingest-wwff ingest-rbn send-test sign-in delete-account archive; do
-  supabase functions deploy "$fn"
-done
-
-# One time: give cron the project URL and service-role key via Vault.
-# Edit the placeholders in scripts/setup-db-settings.sql first; never commit real values.
-psql "$DATABASE_URL" -f scripts/setup-db-settings.sql
-```
-
-After a minute or two, `select * from ingest_health;` should show POTA, SOTAwatch and WWFF
-with a recent `last_success_at`. The web app deploys to Vercel from `web/` as a plain static site.
-
-### The relay on Fly.io
-
-The relay is one `shared-cpu-1x` machine with 256 MB (it uses about 20 MB). Set it up once, from
-the repository root:
-
-```sh
-fly apps create longlines-relay
-fly secrets set \
-  LONGLINES_FUNCTIONS_URL=https://<PROJECT_REF>.supabase.co/functions/v1 \
-  LONGLINES_RELAY_SECRET=<same value as above> \
-  RELAY_LOGIN_CALL=<your callsign>
-fly deploy --config relay/fly.toml --ha=false   # --ha=false: one machine, so one session to RBN
-```
-
-After that, Fly's GitHub integration (connected in the Fly dashboard, with "Config path" set to
-`relay/fly.toml` and the working directory left at the repository root) deploys every merge to
-`main`. When the integration is
-first connected, Fly's launcher opens a
-PR with its own generic `fly.toml`, `Dockerfile` and `example.ts`. Close it rather than merging:
-that config runs the wrong entrypoint, exposes a public HTTP service that stops the idle machine,
-and asks for two machines.
-
-Once deployed, `fly logs` should show `connected to telnet.reversebeacon.net:7000` and
-`ingest_health` should show `rbn` with a `last_success_at` under a minute old. The deploy order,
-secret rotation and troubleshooting are in [docs/OPERATIONS.md](docs/OPERATIONS.md) ("Relay
-(RBN)").
-
-### The sender on Fly.io
-
-The sender is the same kind of machine, on a Fly network of its own, reaching Postgres as the
-`delivery_sender` role through the project's session pooler. It holds that role's password and the
-VAPID pair, never a Supabase API key:
-
-```sh
-psql "$DATABASE_URL" -f scripts/setup-sender-role.sql   # edit the placeholder first; sets the role password
-fly apps create longlines-sender --network sender       # its own private network; fixed at creation
-fly secrets set -a longlines-sender \
-  SENDER_DATABASE_URL='postgresql://delivery_sender.<PROJECT_REF>:<PASSWORD>@<POOLER_HOST>:5432/postgres' \
-  LONGLINES_VAPID_PUBLIC_KEY=<public> LONGLINES_VAPID_PRIVATE_KEY=<private> LONGLINES_VAPID_SUBJECT=mailto:you@example.com
-fly deploy --config sender/fly.toml --ha=false
-fly scale count 1 -a longlines-sender                   # exactly one: a second machine would send duplicates
-```
-
-Bind the GitHub integration the same way with "Config path" `sender/fly.toml`. `fly checks list
--a longlines-sender` should show the health check passing and `fly logs` a line per cycle that
-sent something. The full setup, the secrets table and the troubleshooting are in
-[docs/OPERATIONS.md](docs/OPERATIONS.md) ("Delivery").
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): design and reasoning
+- [docs/OPERATIONS.md](docs/OPERATIONS.md): deploying, health checks and troubleshooting
+- [docs/WEBHOOKS.md](docs/WEBHOOKS.md): the webhook contract and how to verify signatures
+- [docs/API.md](docs/API.md): the management API
