@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  cellCount, cellDate, cellSources, gridLabel, heatGrid, heatLevel, periodDays, periodLabel, periodTitle,
+  cellCount, cellDate, cellSources, gridLabel, heatGrid, heatScale, periodDays, periodLabel, periodTitle,
 } from "./calendar";
 import { HEARD } from "./fixtures";
 import type { CalendarPeriod } from "./types";
@@ -9,8 +9,20 @@ const calendar = HEARD.calendar!;
 const [past, thisYear, lastYear] = calendar.periods as [CalendarPeriod, CalendarPeriod, CalendarPeriod];
 
 describe("profile calendar", () => {
-  it("levels spots by the legend's bounds", () => {
-    expect([0, 1, 49, 50, 149, 150, 299, 300, 5000].map(heatLevel)).toEqual([0, 1, 1, 2, 2, 3, 3, 4, 4]);
+  it("levels days by rank within the period, about a quarter each", () => {
+    const level = heatScale([0, 0, 2, 4, 6, 8, 10, 12, 14, 16]);
+    expect([0, 2, 4, 6, 8, 10, 12, 14, 16].map(level)).toEqual([0, 1, 1, 2, 2, 3, 3, 4, 4]);
+  });
+
+  it("shades a quiet call's busy days as dark as a loud call's", () => {
+    expect([1, 2, 3].map(heatScale([1, 1, 2, 3]))).toEqual([2, 3, 4]);
+    expect([100, 200, 300].map(heatScale([100, 100, 200, 300]))).toEqual([2, 3, 4]);
+  });
+
+  it("keeps equal counts on one level and the busiest day darkest", () => {
+    expect(heatScale([5, 5, 5])(5)).toBe(4);
+    expect([1, 9].map(heatScale([1, 9]))).toEqual([2, 4]);
+    expect(heatScale([])(3)).toBe(0);
   });
 
   it("lays the past year out in week columns, Sunday on top", () => {

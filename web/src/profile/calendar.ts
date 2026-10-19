@@ -6,13 +6,25 @@ import { sourceName } from "../sources/sources";
 import { fmt } from "../stats/format";
 import type { Calendar, CalendarPeriod } from "./types";
 
-/** Lower bounds of levels 1-4; the legend's caption says the same. */
-export const HEAT_LEVELS = [1, 50, 150, 300] as const;
-export const HEAT_LEGEND = "Spots per day: none, 1 to 49, 50 to 149, 150 to 299, 300 or more.";
+/** The shades after "none"; levels run 0 to HEAT_LEVELS. */
+export const HEAT_LEVELS = 4;
 
-/** 0 for no spots, then 1-4 by HEAT_LEVELS. */
-export function heatLevel(spots: number): number {
-  return HEAT_LEVELS.filter((min) => spots >= min).length;
+/**
+ * Levels relative to the period's own days on the air, never fixed counts:
+ * days are ranked by spots and each level holds about a quarter of them, so a
+ * call heard a few times a day shows its busy days as plainly as one heard
+ * hundreds of times. A day's level is the quarter its rank ends in, so equal
+ * counts share a level and the busiest day is always the darkest.
+ */
+export function heatScale(spots: readonly number[]): (spots: number) => number {
+  const active = spots.filter((n) => n > 0).sort((a, b) => a - b);
+  const levels = new Map<number, number>();
+  active.forEach((n, i) => {
+    // The last index holding n is its rank; a later equal count overwrites.
+    levels.set(n, Math.ceil(((i + 1) / active.length) * HEAT_LEVELS));
+  });
+  // 0 for no spots, else 1 to HEAT_LEVELS.
+  return (n) => (n > 0 ? levels.get(n) ?? 0 : 0);
 }
 
 export type HeatCell = {
