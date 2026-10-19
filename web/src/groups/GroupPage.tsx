@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Alert, Box, Breadcrumbs, Button, Chip, LinearProgress, Link, Stack, Tab, Tabs, Typography, useMediaQuery, type Theme,
 } from "@mui/material";
@@ -23,13 +23,17 @@ export function GroupPage({ id, tab }: { id: string; tab: GroupTab }) {
   const period = parsePeriod(search.get("period"));
   const [stats, setStats] = useState<OwnerGroupStatistics | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Only the newest request lands: a slow build for a period left behind never replaces a newer one.
+  const latest = useRef(0);
 
   const load = useCallback(async () => {
+    const request = ++latest.current;
     setError(null);
     try {
-      setStats(await loadGroupStatistics(id, period));
+      const next = await loadGroupStatistics(id, period);
+      if (request === latest.current) setStats(next);
     } catch (err) {
-      setError(errorText(err, "Couldn't load the statistics."));
+      if (request === latest.current) setError(errorText(err, "Couldn't load the statistics."));
     }
   }, [id, period]);
 
@@ -73,7 +77,7 @@ export function GroupPage({ id, tab }: { id: string; tab: GroupTab }) {
       </Stack>
       <Tabs value={tab}>
         <Tab value="statistics" label="Statistics" component={RouterLink} to={`/groups/${g.id}${query}`} />
-        <Tab value="settings" label="Settings" component={RouterLink} to={`/groups/${g.id}/settings`} />
+        <Tab value="settings" label="Settings" component={RouterLink} to={`/groups/${g.id}/settings${query}`} />
       </Tabs>
       {error && <Alert severity="error">{error}</Alert>}
       {tab === "statistics" && <GroupStatistics stats={stats} period={period} onPeriod={choosePeriod} />}

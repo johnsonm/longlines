@@ -11,6 +11,7 @@ vi.mock("../lib/api", () => ({
   listGroups: vi.fn(),
   listGroupSummaries: vi.fn(),
   loadSubscriptions: vi.fn(),
+  normalizeCallsigns: vi.fn(),
   saveGroup: vi.fn(),
 }));
 vi.mock("../stats/useStats", () => ({ useStats: () => ({ stats: null, loading: false, error: null }) }));
@@ -74,7 +75,8 @@ describe("GroupsPage", () => {
     expect(within(c).getByText("10,082 spots")).toBeInTheDocument();
     expect(within(c).getByText("19 of 24 members heard")).toBeInTheDocument();
     expect(within(c).getByRole("img", { name: "Spots per day, last 30 days" })).toBeInTheDocument();
-    expect(within(c).getByText("3 on the air now: W4ABC, KK4PWJ, N4GHI")).toBeInTheDocument();
+    expect(within(c).getByText(/^3 on the air now:/)).toHaveTextContent("3 on the air now: W4ABC, KK4PWJ, N4GHI");
+    expect(within(c).getByRole("link", { name: "N4GHI" })).toHaveAttribute("href", "/call/N4GHI");
     expect(within(c).getByRole("link", { name: "Statistics" })).toHaveAttribute("href", "/groups/a");
     expect(within(c).getByRole("link", { name: "Settings" })).toHaveAttribute("href", "/groups/a/settings");
   });
@@ -91,6 +93,21 @@ describe("GroupsPage", () => {
     const b = card("New club");
     expect(within(b).queryByText("Last 30 days")).not.toBeInTheDocument();
     expect(within(b).queryByRole("img")).not.toBeInTheDocument();
+  });
+
+  it("shows the cards without figures when the summaries fail, and names more than three on the air", async () => {
+    vi.mocked(listGroups).mockResolvedValue([group("a", { name: "RARS" })]);
+    vi.mocked(listGroupSummaries).mockRejectedValueOnce(new Error("canceling statement due to statement timeout"));
+    const { app } = renderPage(<GroupsPage />, { route: "/groups" });
+    expect(await screen.findByRole("heading", { name: "RARS" })).toBeInTheDocument();
+    await waitFor(() => expect(app.notify).toHaveBeenCalledWith("canceling statement due to statement timeout"));
+    expect(screen.queryByText("Last 30 days")).not.toBeInTheDocument();
+    expect(screen.getByText("Nobody on the air right now")).toBeInTheDocument();
+  });
+
+  it("names three on the air and counts the rest", async () => {
+    render([group("a", { name: "RARS" })], [summary("a", { on_air: ["A1A", "B1B", "C1C", "D1D", "E1E"] })]);
+    expect(await screen.findByText(/^5 on the air now:/)).toHaveTextContent("5 on the air now: A1A, B1B, C1C and 2 more");
   });
 
   it("uses the shorter sentence and a full-width button on phones", async () => {

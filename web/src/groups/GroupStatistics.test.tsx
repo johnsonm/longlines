@@ -78,7 +78,7 @@ describe("GroupStatistics", () => {
     expect(screen.getByText("Club spots by mode")).toBeInTheDocument();
     const places = card("Most activated places");
     expect(within(places).getByText("Falls Lake SRA")).toBeInTheDocument();
-    expect(within(places).getByText("KK4PWJ, W4ABC")).toBeInTheDocument();
+    expect(within(places).getAllByRole("link", { name: "W4ABC" })[0]).toHaveAttribute("href", "/call/W4ABC");
     expect(within(places).getByText("By")).toBeInTheDocument();
   });
 
@@ -88,6 +88,24 @@ describe("GroupStatistics", () => {
     expect(screen.queryByText("Members")).not.toBeInTheDocument();
     expect(within(card("Most activated places")).queryByText("By")).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "KK4PWJ" })).not.toBeInTheDocument();
+  });
+
+  it("pages past 100 members once they are all shown", async () => {
+    const many = Array.from({ length: 150 }, (_, i) => ({
+      callsign: `K${String(i).padStart(3, "0")}AA`, spots: 150 - i, days: 1, mainMode: "CW" as const, lastHeard: null,
+    }));
+    const { user } = render({ ...STATS, members: many, memberCount: 150 });
+    const members = card("Members");
+    await user.click(within(members).getByRole("button", { name: "Show all 150 members" }));
+    expect(within(members).getByText("1–100 of 150")).toBeInTheDocument();
+    await user.click(within(members).getByRole("button", { name: "Go to next page" }));
+    expect(within(members).getByText("K149AA")).toBeInTheDocument();
+  });
+
+  it("words the figures by the payload's period while another one loads", () => {
+    renderPage(<GroupStatistics stats={STATS} period="7d" onPeriod={vi.fn()} now={NOW} />);
+    expect(screen.getByText("12% more than the previous 30 days")).toBeInTheDocument();
+    expect(screen.getByText("17 of 30")).toBeInTheDocument();
   });
 
   it("says when there were no activations", () => {

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Alert, Box, Button, Card, CardContent, CardHeader, Chip, Divider, Grid, LinearProgress, Stack, Switch, TextField, Tooltip, Typography,
 } from "@mui/material";
@@ -37,16 +37,20 @@ export function GroupSettings({ group, onSaved }: { group: OwnerGroup; onSaved: 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Loaded once per group: a save keeps the form as saved rather than reloading it.
+  const groupId = group.id;
+  const initial = useRef(group);
   useEffect(() => {
     let live = true;
+    const g = initial.current;
     Promise.all([listGroups(), loadSubscriptions()])
       .then(([groups, subs]) => {
         if (!live) return;
-        const calls = groups.find((g) => g.id === group.id)?.callsigns ?? [];
-        const s = { name: group.name, calls, isPublic: group.public, show: group.show_callsigns };
+        const calls = groups.find((x) => x.id === groupId)?.callsigns ?? [];
+        const s = { name: g.name, calls, isPublic: g.public, show: g.show_callsigns };
         setStored(s);
         setForm(s);
-        setUsedBy(subs.filter((sub) => sub.group_ids.includes(group.id)));
+        setUsedBy(subs.filter((sub) => sub.group_ids.includes(groupId)));
       })
       .catch((err: unknown) => {
         if (live) setError(errorText(err, "Couldn't load the group."));
@@ -54,12 +58,13 @@ export function GroupSettings({ group, onSaved }: { group: OwnerGroup; onSaved: 
     return () => {
       live = false;
     };
-  }, [group]);
+  }, [groupId]);
 
   if (error && !form) return <Alert severity="error">{error}</Alert>;
   if (!form || !stored) return <LinearProgress />;
 
-  const set = (patch: Partial<Stored>) => setForm({ ...form, ...patch });
+  // Functional, so an add that resolves after another edit merges into the form as it is then.
+  const set = (patch: Partial<Stored>) => setForm((f) => (f ? { ...f, ...patch } : f));
   const url = group.public_slug ? publicUrl(window.location.origin, group.public_slug) : null;
   const used = group.subscription_count;
 

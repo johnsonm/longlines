@@ -15,6 +15,8 @@ import {
 import type { GroupMember, GroupPeriod, GroupStatistics as Stats, TopList } from "./stats/types";
 
 const MEMBERS_SHOWN = 10;
+/** The MIT DataGrid always paginates, at most 100 rows a page; past that its footer pages. */
+const GRID_PAGE = 100;
 
 const TOP_CARDS: { list: TopList; title: string; subtitle: string }[] = [
   { list: "spots", title: "Most spots", subtitle: "All modes and sources" },
@@ -27,6 +29,7 @@ const TOP_CARDS: { list: TopList; title: string; subtitle: string }[] = [
 
 interface Props {
   stats: Stats;
+  /** The Period menu's choice; the labels follow `stats.period`, the period the figures are for. */
   period: GroupPeriod;
   onPeriod: (period: GroupPeriod) => void;
   now?: Date;
@@ -57,7 +60,7 @@ export function GroupStatistics({ stats, period, onPeriod, now: pinned }: Props)
 
       <Grid container spacing={2}>
         <Grid size={{ xs: 6, md: 3 }}>
-          <Kpi label="Spots heard" value={fmt(kpis.spots)} detail={comparisonLine(kpis.spots, kpis.previousSpots, period)} />
+          <Kpi label="Spots heard" value={fmt(kpis.spots)} detail={comparisonLine(kpis.spots, kpis.previousSpots, stats.period)} />
         </Grid>
         <Grid size={{ xs: 6, md: 3 }}>
           <Kpi label="Active members" value={`${fmt(kpis.membersHeard)} of ${fmt(stats.memberCount)}`} detail="Heard at least once" />
@@ -80,7 +83,7 @@ export function GroupStatistics({ stats, period, onPeriod, now: pinned }: Props)
               <Grid size={{ xs: 12, sm: 6, md: 4 }} key={c.list}>
                 <TopCard
                   title={c.title} subtitle={c.subtitle} entries={stats.top?.[c.list] ?? []}
-                  value={(v) => (c.list === "days" ? `${fmt(v)} of ${periodDays(period)}` : fmt(v))}
+                  value={(v) => (c.list === "days" ? `${fmt(v)} of ${periodDays(stats.period)}` : fmt(v))}
                 />
               </Grid>
             ))}
@@ -122,8 +125,23 @@ export function GroupStatistics({ stats, period, onPeriod, now: pinned }: Props)
   );
 }
 
-function CallLink({ call }: { call: string }) {
+/** A member's call links to its profile; members are base calls from SQL. */
+export function CallLink({ call }: { call: string }) {
   return <Link component={RouterLink} to={`/call/${call}`} underline="hover">{call}</Link>;
+}
+
+/** "KK4PWJ, W4ABC", each a profile link. */
+export function CallList({ calls }: { calls: string[] }) {
+  return (
+    <>
+      {calls.map((c, i) => (
+        <span key={c}>
+          {i > 0 && ", "}
+          <CallLink call={c} />
+        </span>
+      ))}
+    </>
+  );
 }
 
 function TopCard({ title, subtitle, entries, value }: {
@@ -187,7 +205,15 @@ function MembersCard({ members, heard, count, now }: { members: GroupMember[]; h
     <ChartCard title="Members" subheader={`Ranked by spots heard in the period. ${heard} of ${plural(count, "member", "members")} were heard.`}>
       <Stack spacing={1.5}>
         <TextField size="small" label="Search members" value={query} onChange={(e) => setQuery(e.target.value)} sx={{ maxWidth: 280 }} />
-        <DataGrid {...GRID} rows={shown} columns={columns} localeText={{ noRowsLabel: "No members match" }} />
+        <DataGrid
+          {...GRID}
+          hideFooter={shown.length <= GRID_PAGE}
+          pageSizeOptions={[GRID_PAGE]}
+          initialState={{ pagination: { paginationModel: { pageSize: GRID_PAGE } } }}
+          rows={shown}
+          columns={columns}
+          localeText={{ noRowsLabel: "No members match" }}
+        />
         {!all && !q && members.length > MEMBERS_SHOWN && (
           <Box>
             <Button size="small" onClick={() => setAll(true)}>{`Show all ${plural(members.length, "member", "members")}`}</Button>
@@ -210,7 +236,7 @@ function PlacesCard({ places }: { places: Stats["places"] }) {
     ...(hasBy && !mobile
       ? [{
         field: "by", headerName: "By", flex: 1, minWidth: 140, sortable: false,
-        valueFormatter: (v: string[] | undefined) => (v ?? []).join(", "),
+        renderCell: (p) => <CallList calls={(p.row as { by?: string[] }).by ?? []} />,
       } satisfies GridColDef]
       : []),
   ];

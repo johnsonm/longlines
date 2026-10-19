@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import { renderPage } from "../test/render";
-import { deleteGroup, listGroups, loadSubscriptions, saveGroup, type SubscriptionWithLinks } from "../lib/api";
+import { deleteGroup, listGroups, loadSubscriptions, normalizeCallsigns, saveGroup, type SubscriptionWithLinks } from "../lib/api";
 import { GroupSettings } from "./GroupSettings";
 import { OWNER } from "./stats/fixtures";
 import type { OwnerGroup } from "./stats/types";
@@ -97,6 +97,23 @@ describe("GroupSettings", () => {
     await user.click(screen.getByRole("switch", { name: "Show callsigns" }));
     await user.click(screen.getByRole("button", { name: "Save changes" }));
     expect(saveGroup).toHaveBeenCalledWith({ id: "g1", name: "Piedmont club", callsigns: ["K4DEF", "W4ABC"], public: true, show_callsigns: false });
+  });
+
+  it("keeps a rename made while an add is being checked", async () => {
+    let finish: (r: { callsigns: string[]; rejected: string[] }) => void = () => undefined;
+    vi.mocked(normalizeCallsigns).mockReturnValue(new Promise((r) => (finish = r)));
+    vi.mocked(saveGroup).mockResolvedValue("g1");
+    const { user } = render();
+    await user.type(await screen.findByRole("textbox", { name: "Paste callsigns" }), "n4dxx");
+    await user.click(screen.getByRole("button", { name: "Add callsigns" }));
+    const name = screen.getByRole("textbox", { name: "Name" });
+    await user.clear(name);
+    await user.type(name, "Renamed");
+    finish({ callsigns: ["N4DXX"], rejected: [] });
+    await screen.findByText("4 of 1,000 callsigns");
+    expect(name).toHaveValue("Renamed");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+    expect(saveGroup).toHaveBeenCalledWith(expect.objectContaining({ name: "Renamed", callsigns: ["K4DEF", "KK4PWJ", "N4DXX", "W4ABC"] }));
   });
 
   it("shows a refused save", async () => {

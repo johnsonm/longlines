@@ -355,9 +355,9 @@ exactly like the pgTAP-pinned payload.
 
 ### Task 9: PR 3
 
-- [ ] `npm run test:all`. Compare by hand in `npm run dev:full` with seeded calls at desktop and
+- [x] `npm run test:all`. Compare by hand in `npm run dev:full` with seeded calls at desktop and
   phone width.
-- [ ] Push, open PR 3 stacked on `group-stats-schema`. Note that it needs PR 2's migration on
+- [x] Push, open PR 3 stacked on `group-stats-schema`. Note that it needs PR 2's migration on
   hosted. Run /code-review and fix what it finds.
 
 ---

@@ -223,8 +223,8 @@ function SignedIn({ page }: { page: Page }) {
         <SubscriptionRoute subs={subs} dests={dests} loading={loading} reload={reload} prefs={prefs} mobile={mobile} />
       )}
       {page === "groups" && <GroupsPage />}
-      {page === "group" && <GroupRoute tab="statistics" />}
-      {page === "group-settings" && <GroupRoute tab="settings" />}
+      {/* One slot for both tabs, so switching tabs keeps the page and its loaded statistics. */}
+      {(page === "group" || page === "group-settings") && <GroupRoute tab={page === "group" ? "statistics" : "settings"} />}
       {page === "destinations" && <DestinationsPage dests={dests} subs={subs} loading={loading} reload={reload} />}
       {(page === "destination-new" || page === "destination") && (
         <DestinationRoute dests={dests} loading={loading} reload={reload} mobile={mobile} />

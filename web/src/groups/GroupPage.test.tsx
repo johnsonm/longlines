@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import { renderPage } from "../test/render";
 import { setMobile } from "../test/media";
-import { listGroups, loadGroupStatistics, loadSubscriptions } from "../lib/api";
+import { listGroups, loadGroupStatistics, loadSubscriptions, saveGroup } from "../lib/api";
 import { GroupPage } from "./GroupPage";
 import { OWNER } from "./stats/fixtures";
 
@@ -48,6 +48,26 @@ describe("GroupPage", () => {
     await waitFor(() => expect(loadGroupStatistics).toHaveBeenLastCalledWith("g1", "7d"));
     expect(screen.getByTestId("location").dataset.search).toBe("?period=7d");
     expect(screen.getByRole("tab", { name: "Statistics" })).toHaveAttribute("href", "/groups/g1?period=7d");
+    expect(screen.getByRole("tab", { name: "Settings" })).toHaveAttribute("href", "/groups/g1/settings?period=7d");
+  });
+
+  it("keeps the newest period's figures when an older request lands last", async () => {
+    let finishOld: (s: typeof OWNER) => void = () => undefined;
+    vi.mocked(loadGroupStatistics)
+      .mockReturnValueOnce(Promise.resolve(OWNER))
+      .mockReturnValueOnce(new Promise((r) => (finishOld = r)))
+      .mockResolvedValueOnce({ ...OWNER, period: "30d", kpis: { ...OWNER.kpis, spots: 4242 } });
+    const { user } = renderPage(<GroupPage id="g1" tab="statistics" />, { route: "/groups/g1" });
+    await screen.findByText("10,082");
+    await user.click(screen.getByRole("combobox", { name: "Period" }));
+    await user.click(await screen.findByRole("option", { name: "Last 7 days" }));
+    await user.click(screen.getByRole("combobox", { name: "Period" }));
+    await user.click(await screen.findByRole("option", { name: "Last 30 days" }));
+    expect(await screen.findByText("4,242")).toBeInTheDocument();
+    finishOld({ ...OWNER, period: "7d", kpis: { ...OWNER.kpis, spots: 777 } });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.queryByText("777")).not.toBeInTheDocument();
+    expect(screen.getByText("4,242")).toBeInTheDocument();
   });
 
   it("says when the group can't be found", async () => {
@@ -68,6 +88,14 @@ describe("GroupPage", () => {
     const { user } = renderPage(<GroupPage id="g1" tab="statistics" />, { route: "/groups/g1" });
     await user.click(await screen.findByRole("button", { name: "Get alerts" }));
     expect(within(await screen.findByRole("dialog", { name: "New connection" })).getByRole("button", { name: "Continue" })).toBeInTheDocument();
+  });
+
+  it("reloads the statistics after a save but loads the members once", async () => {
+    vi.mocked(saveGroup).mockResolvedValue("g1");
+    const { user } = renderPage(<GroupPage id="g1" tab="settings" />, { route: "/groups/g1/settings" });
+    await user.click(await screen.findByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(loadGroupStatistics).toHaveBeenCalledTimes(2));
+    expect(listGroups).toHaveBeenCalledTimes(1);
   });
 
   it("shows the Settings tab", async () => {

@@ -14,6 +14,7 @@ import { listGroups, listGroupSummaries } from "../lib/api";
 import { errorText, useNotify } from "../app/hooks";
 import { plural } from "../profile/format";
 import { NewGroupDialog } from "./NewGroupDialog";
+import { CallList } from "./GroupStatistics";
 import { groupMeta, onAirLine } from "./stats/model";
 import type { GroupSummary } from "./stats/types";
 import type { CallsignGroup } from "./types";
@@ -30,16 +31,20 @@ export function GroupsPage() {
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
 
+  // The summaries can build statistics and take a few seconds; the cards show without them if they fail.
   const load = useCallback(async () => {
+    const summaries = listGroupSummaries().catch((err: unknown) => {
+      notify(errorText(err, "Couldn't load the statistics."));
+      return [];
+    });
     try {
-      const [g, s] = await Promise.all([listGroups(), listGroupSummaries()]);
-      setGroups(g);
-      setSummaries(new Map(s.map((x) => [x.id, x])));
+      setGroups(await listGroups());
     } catch (err) {
       notify(errorText(err, "Couldn't load your groups."));
     } finally {
       setLoading(false);
     }
+    setSummaries(new Map((await summaries).map((x) => [x.id, x])));
   }, [notify]);
 
   useEffect(() => {
@@ -130,9 +135,12 @@ function GroupCard({ group: g, summary, busy, onAlerts }: CardProps) {
               )}
             </Stack>
           )}
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>{onAirLine(summary?.on_air ?? [])}</Typography>
         </CardContent>
       </CardActionArea>
+      {/* Outside the card's link, so each call can link to its profile. */}
+      <CardContent sx={{ pt: 0 }}>
+        <OnAir calls={summary?.on_air ?? []} />
+      </CardContent>
       <Divider />
       <CardActions>
         <Button size="small" startIcon={<BarChartIcon />} component={RouterLink} to={`/groups/${g.id}`}>Statistics</Button>
@@ -140,5 +148,18 @@ function GroupCard({ group: g, summary, busy, onAlerts }: CardProps) {
         <Button size="small" color="inherit" startIcon={<NotificationsActiveIcon />} disabled={busy} onClick={onAlerts}>Get alerts</Button>
       </CardActions>
     </Card>
+  );
+}
+
+/** "3 on the air now: W4ABC, KK4PWJ, N4GHI", the calls as profile links. */
+function OnAir({ calls }: { calls: string[] }) {
+  if (calls.length === 0) return <Typography variant="body2" color="text.secondary">{onAirLine(calls)}</Typography>;
+  const more = calls.length > 3 ? ` and ${calls.length - 3} more` : "";
+  return (
+    <Typography variant="body2" color="text.secondary">
+      {`${calls.length} on the air now: `}
+      <CallList calls={calls.slice(0, 3)} />
+      {more}
+    </Typography>
   );
 }
