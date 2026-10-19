@@ -36,7 +36,19 @@ export const HEARD: HeardProfile = {
   heardBy: [{ spotter: "W3LPL", spots: 88, bestSnr: 31, topBand: "20m" }, { spotter: "DL8LAS", spots: 12, bestSnr: null, topBand: null }],
   recentSpots: [
     { time: "2026-10-12T14:32:00Z", callsign: "KK4PWJ/P", frequencyKhz: 14062, band: "20m", mode: "cw", reference: "US-0817", source: "pota", spotter: "N4XYZ" },
-  ],
+  ],  calendar: {
+    days: [
+      { day: "2025-12-31", spots: 3, sources: { pota: 3 } },
+      { day: "2026-10-10", spots: 30, sources: { rbn: 29, pota: 1 } },
+      { day: "2026-10-11", spots: 484, sources: { rbn: 470, pota: 14 } },
+      { day: "2026-10-12", spots: 1, sources: { sotawatch: 1 } },
+    ],
+    periods: [
+      { period: "past", from: "2025-10-13", to: "2026-10-12", days: 365, spots: 518, daysOnAir: 4, longestStreak: 3, busiest: { day: "2026-10-11", spots: 484 } },
+      { period: "2026", from: "2026-01-01", to: "2026-12-31", days: 285, spots: 515, daysOnAir: 3, longestStreak: 3, busiest: { day: "2026-10-11", spots: 484 } },
+      { period: "2025", from: "2025-01-01", to: "2025-12-31", days: 365, spots: 3, daysOnAir: 1, longestStreak: 1, busiest: { day: "2025-12-31", spots: 3 } },
+    ],
+  },
 };
 
 export const FULL: CallsignProfile = {
