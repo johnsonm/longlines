@@ -554,6 +554,36 @@ The delivery side (retries, pause, attempts, rendering, Vault) is in "Delivery r
   `station_count` from the preview). The web shows group names and SQL's numbers and never tests
   a call against a group's members.
 
+## Group statistics rules
+
+The design is `docs/superpowers/specs/2026-10-19-group-statistics-design.md` (canvas page 10); its
+Copy section is the copy source for the group pages.
+
+- `group_statistics_at` builds the whole payload in SQL from `callsign_days`, day-grain
+  `callsign_activity` (so periods stop at 30 days), `callsign_seen` and `spot_stream`. Its shape is
+  `GroupStatistics` in `web/src/groups/stats/types.ts`, pinned by
+  `supabase/tests/group_statistics.test.sql`; change the SQL, the type and the test together.
+  Every figure, ranking and list length is SQL's; the web never sums, ranks or filters callsigns.
+- `group_member_bases()` is the one statement of which members count: base calls minus
+  `hidden_callsigns`. A hidden call counts nowhere, totals included.
+- No cron: `cached_group_statistics` serves `group_stats_cache` for an hour, single-flight, and a
+  row whose `roster` no longer matches the members is a miss. `list_group_summaries` builds within
+  a 3 s budget, then serves older rows; keep it inside the 8 s statement timeout.
+- `save_callsign_group` stays the only write path; `public` and `show_callsigns` are optional keys
+  it ignores under `longlines.via_api` (set by `api_call`), so the API never publishes a page.
+  `public_slug` is made once and never changes.
+- A page without callsigns is redacted in SQL (`group_stats_redact`, inside
+  `public_group_statistics`), never in the web, which only hides sections whose keys are absent.
+- `group-page` is `verify_jwt = false` and never imports `isServiceRole`. It shares the profile's
+  rate limit, answers an unknown, private or malformed code with the same 404, never logs a code,
+  and sends `Cache-Control: no-store` so turning a page off works on the next load. `/g/*` is
+  noindex twice: `X-Robots-Tag` in `web/vercel.json` and a robots meta tag while the page is
+  mounted.
+- `GroupHeatMap` uses the profile's grid helpers (`profile/calendar.ts`) with the club's fixed
+  levels (`groupHeatLevel`), never the profile's per-period levels.
+- `GroupStatistics` is shared by the owner's page and the public page. Every callsign it shows
+  links to `/call/<base>` (`CallLink`, `CallList`).
+
 ## Subscription rules
 
 - Users and API clients call a subscription a **connection**: web copy, web routes (`/connections`;

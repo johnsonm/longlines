@@ -1351,6 +1351,24 @@ The Stats snapshot drops hidden calls from its top lists (a trigger on `stats_sn
 next hourly refresh on; to drop a newly hidden call now, run
 `update stats_snapshots set payload = payload;`.
 
+## Taking a group's public page down
+
+The owner turns it off on the group's Settings tab. To do it for them, by the code in the link:
+
+```sql
+update callsign_groups set public = false where public_slug = '7f3kq6xm2a';
+```
+
+The next load of `/g/<code>` shows "This page is private": `group-page` sends `no-store`, so no
+browser or CDN keeps the old page. The code stays with the group, so turning the page back on
+brings the same link back. Hiding a member's call (`hidden_callsigns`, above) drops it from every
+group's figures on the next load.
+
+## Group statistics look stale
+
+Group statistics are cached for an hour per period, and rebuilt early when the members change. To
+rebuild one group's now: `delete from group_stats_cache where group_id = '<id>';`.
+
 ## A profile looks stale
 
 Profiles are cached for 15 minutes. To rebuild one now:

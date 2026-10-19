@@ -21,6 +21,7 @@ import { SubscriptionsPage } from "./subscriptions/SubscriptionsPage";
 import { SubscriptionEditorPage } from "./subscriptions/SubscriptionEditorPage";
 import { GroupsPage } from "./groups/GroupsPage";
 import { GroupPage } from "./groups/GroupPage";
+import { PublicGroupPage } from "./groups/PublicGroupPage";
 import { StatsPage } from "./stats/StatsPage";
 import { BandMapPage } from "./bandmap/BandMapPage";
 import { ApiTokensPage } from "./tokens/ApiTokensPage";
@@ -78,6 +79,7 @@ function Router() {
       <Route path="/stats" element={<PublicRoute page="stats" />} />
       <Route path="/lookup" element={<PublicRoute page="lookup" />} />
       <Route path="/call/*" element={<PublicRoute page="call" />} />
+      <Route path="/g/:slug" element={<PublicRoute page="group-public" />} />
       <Route path="/account" element={<RequireAuth page="account" />} />
       <Route path="/api-tokens" element={<RequireAuth page="api-tokens" />} />
       <Route path="*" element={<Navigate to="/sources" replace />} />
@@ -99,13 +101,13 @@ function PublicOnly({ children }: { children: ReactNode }) {
   return children;
 }
 
-type Page = "sources" | "source" | "band-map" | "subscriptions" | "subscription-new" | "subscription" | "groups" | "group" | "group-settings" | "destinations" | "destination-new" | "destination" | "stats" | "lookup" | "call" | "account" | "api-tokens";
-type PublicPage = "band-map" | "stats" | "lookup" | "call";
+type Page = "sources" | "source" | "band-map" | "subscriptions" | "subscription-new" | "subscription" | "groups" | "group" | "group-settings" | "destinations" | "destination-new" | "destination" | "stats" | "lookup" | "call" | "account" | "api-tokens" | "group-public";
+type PublicPage = "band-map" | "stats" | "lookup" | "call" | "group-public";
 
 // Signed-out visitors read profiles in UTC.
 const UTC: TimePrefs = { utcTimes: true, timezone: "UTC" };
 
-/** The band map, Stats and callsign profiles are public: signed-in users see them inside the app, everyone else in the public shell. */
+/** The band map, Stats, callsign profiles and public group pages are public: signed-in users see them inside the app, everyone else in the public shell. */
 function PublicRoute({ page }: { page: PublicPage }) {
   const { session, sessionLoading } = useApp();
   if (sessionLoading) return <LinearProgress />;
@@ -116,6 +118,7 @@ function PublicRoute({ page }: { page: PublicPage }) {
       {page === "stats" && <StatsPage />}
       {page === "lookup" && <LookupPage />}
       {page === "call" && <CallsignPage prefs={UTC} />}
+      {page === "group-public" && <PublicGroupRoute />}
     </PublicShell>
   );
 }
@@ -150,6 +153,12 @@ function ProfileError({ message }: { message: string }) {
       </Alert>
     </Box>
   );
+}
+
+/** A public group page takes its code as a prop, so its tests need no router params. */
+function PublicGroupRoute() {
+  const { slug } = useParams();
+  return <PublicGroupPage key={slug} slug={slug ?? ""} />;
 }
 
 /** A group's page takes its id as a prop, so its tests need no router params. */
@@ -234,6 +243,7 @@ function SignedIn({ page }: { page: Page }) {
       {page === "call" && <CallsignPage prefs={prefs} signedIn />}
       {page === "account" && <AccountPage profile={profile} />}
       {page === "api-tokens" && <ApiTokensPage />}
+      {page === "group-public" && <PublicGroupRoute />}
     </AppShell>
   );
 }

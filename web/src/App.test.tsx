@@ -55,6 +55,7 @@ vi.mock("./subscriptions/SubscriptionEditorPage", () => ({
 }));
 vi.mock("./groups/GroupsPage", () => ({ GroupsPage: () => <p>groups page</p> }));
 vi.mock("./groups/GroupPage", () => ({ GroupPage: ({ id, tab }: { id: string; tab: string }) => <p>group page {id} {tab}</p> }));
+vi.mock("./groups/PublicGroupPage", () => ({ PublicGroupPage: ({ slug }: { slug: string }) => <p>public group page {slug}</p> }));
 vi.mock("./stats/StatsPage", () => ({ StatsPage: () => <p>stats page</p> }));
 vi.mock("./account/AccountPage", () => ({ AccountPage: () => <p>account page</p> }));
 vi.mock("./profile/LookupPage", () => ({ LookupPage: () => <p>lookup page</p> }));
@@ -161,6 +162,18 @@ describe("App routing", () => {
     session(null);
     renderAt("/call/KK4PWJ/P");
     expect(await screen.findByText("callsign page UTC signed out")).toBeInTheDocument();
+  });
+
+  it("serves a public group page signed out, and inside the app when signed in", async () => {
+    session(null);
+    const { unmount } = renderAt("/g/7f3kq6xm2a");
+    expect(await screen.findByText("public group page 7f3kq6xm2a")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sign in" })).toBeInTheDocument();
+    unmount();
+    session(SESSION);
+    renderAt("/g/7f3kq6xm2a");
+    expect(await screen.findByText("public group page 7f3kq6xm2a")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Sign in" })).not.toBeInTheDocument();
   });
 
   it("serves lookup and profiles inside the app shell when signed in", async () => {

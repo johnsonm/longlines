@@ -7,7 +7,7 @@ import type { LatestStats, StatsPayload } from "../stats/types";
 import type { CallsignProfile } from "../profile/types";
 import type { BandMapPayload } from "../bandmap/types";
 import type { CallsignGroup, GroupInput, NormalizedCallsigns } from "../groups/types";
-import type { GroupPeriod, GroupSummary, OwnerGroupStatistics } from "../groups/stats/types";
+import type { GroupPeriod, GroupSummary, OwnerGroupStatistics, PublicGroupStatistics } from "../groups/stats/types";
 import type { Rules } from "../subscriptions/model";
 
 type Tables = Database["public"]["Tables"];
@@ -801,6 +801,22 @@ export async function loadGroupStatistics(id: string, period: GroupPeriod): Prom
   if (data === null) throw new ApiError("Couldn't load the statistics.");
   // jsonb in the generated types; its shape is pinned by supabase/tests/group_statistics.test.sql.
   return data as unknown as OwnerGroupStatistics;
+}
+
+/**
+ * A public group page through the group-page function, with no session. Null
+ * when the code is unknown or the page is private: the function answers both
+ * with the same 404.
+ */
+export async function loadPublicGroup(slug: string, period: GroupPeriod): Promise<PublicGroupStatistics | null> {
+  const query = new URLSearchParams({ slug, period });
+  try {
+    return await fetchFunction<PublicGroupStatistics>(`group-page?${query.toString()}`, { headers: { apikey: SUPABASE_ANON_KEY } });
+  } catch (err) {
+    // Only the function's own answer means private; a gateway 404 (the function not deployed) is an outage.
+    if (err instanceof ApiError && err.code === "404" && err.message === "private") return null;
+    throw err;
+  }
 }
 
 export async function deleteGroup(id: string): Promise<void> {

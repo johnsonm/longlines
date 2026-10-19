@@ -430,6 +430,12 @@ verify_jwt = false
 [functions.band-map]
 verify_jwt = false
 
+# group-page serves a group's public statistics page to signed-out browsers. It
+# checks no caller identity, only the profile's per-IP rate limit; SQL returns
+# nothing unless the owner made the page public (_shared/handlers/group_page.ts).
+[functions.group-page]
+verify_jwt = false
+
 # api is the management API for scripts. Callers send a personal API token
 # (ll_...), not a JWT, and the function checks it itself (_shared/handlers/api.ts).
 [functions.api]
