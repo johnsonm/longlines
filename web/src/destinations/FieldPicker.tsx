@@ -1,5 +1,5 @@
 import {
-  Avatar, FormHelperText, IconButton, List, ListItem, ListItemAvatar, ListItemText, MenuItem, Paper, Stack, TextField, Typography,
+  Avatar, Box, Chip, FormHelperText, IconButton, List, ListItem, ListItemAvatar, ListItemText, MenuItem, Paper, Stack, TextField, Typography,
 } from "@mui/material";
 import ArrowDownwardIcon from "@mui/icons-material/ArrowDownward";
 import ArrowUpwardIcon from "@mui/icons-material/ArrowUpward";
@@ -16,15 +16,25 @@ export interface FieldPickerProps<T extends string> {
   max: number;
   helper: string;
   onChange: (fields: T[]) => void;
+  /** A key name shown in monospace under each row's label (the webhook payload's keys). */
+  keyOf?: (id: T) => string;
+  /**
+   * How fields are added: a select (push, Discord), or "+ {label}" chips under
+   * the heading Not included (webhooks), hidden with their heading while every
+   * field is included. The helper stays either way.
+   */
+  addAs?: "select" | "chips";
 }
 
 /**
  * An ordered pick of fields (decision 4 of the push and Discord specs): a
- * numbered list with move and remove buttons and a select of the fields not
- * yet picked. There is no text input; SQL renders every field and checks
+ * numbered list with move and remove buttons and a select (or chips) of the
+ * fields not yet picked. There is no text input; SQL renders every field and checks
  * the lists again on save.
  */
-export function FieldPicker<T extends string>({ heading, fields, all, min, max, helper, onChange }: FieldPickerProps<T>) {
+export function FieldPicker<T extends string>({
+  heading, fields, all, min, max, helper, onChange, keyOf, addAs = "select",
+}: FieldPickerProps<T>) {
   const unpicked = unpickedFields(fields, all);
   const full = fields.length >= max;
   const selectId = `add-${heading.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-field`;
@@ -63,7 +73,11 @@ export function FieldPicker<T extends string>({ heading, fields, all, min, max, 
               <ListItemAvatar>
                 <Avatar>{i + 1}</Avatar>
               </ListItemAvatar>
-              <ListItemText primary={fieldLabel(f)} sx={{ pr: 12 }} />
+              <ListItemText
+                primary={fieldLabel(f)} sx={{ pr: 12 }}
+                // A bare <code> keeps the browser's monospace font; MUI 9 has no fontFamily prop.
+                secondary={keyOf ? <Box component="code">{keyOf(f)}</Box> : undefined}
+              />
             </ListItem>
           ))}
           {fields.length === 0 && (
@@ -73,19 +87,35 @@ export function FieldPicker<T extends string>({ heading, fields, all, min, max, 
           )}
         </List>
       </Paper>
-      <TextField
-        select id={selectId} label="Add a field" value="" fullWidth size="small" disabled={full || unpicked.length === 0}
-        onChange={(e) => onChange(addField(fields, e.target.value as T, max))}
-        slotProps={{
-          inputLabel: { shrink: true },
-          select: {
-            displayEmpty: true, SelectDisplayProps: { "aria-describedby": helperId },
-            renderValue: () => <Typography component="span" color="text.secondary">Choose a field</Typography>,
-          },
-        }}
-      >
-        {unpicked.map((f) => <MenuItem key={f.id} value={f.id}>{f.label}</MenuItem>)}
-      </TextField>
+      {addAs === "chips" ? (
+        unpicked.length > 0 && (
+          <Stack spacing={1}>
+            <Typography variant="subtitle2" component="h4">Not included</Typography>
+            <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap" }}>
+              {unpicked.map((f) => (
+                <Chip
+                  key={f.id} size="small" variant="outlined" label={`+ ${f.label}`} aria-label={`Add ${f.label}`} disabled={full}
+                  onClick={() => onChange(addField(fields, f.id, max))}
+                />
+              ))}
+            </Stack>
+          </Stack>
+        )
+      ) : (
+        <TextField
+          select id={selectId} label="Add a field" value="" fullWidth size="small" disabled={full || unpicked.length === 0}
+          onChange={(e) => onChange(addField(fields, e.target.value as T, max))}
+          slotProps={{
+            inputLabel: { shrink: true },
+            select: {
+              displayEmpty: true, SelectDisplayProps: { "aria-describedby": helperId },
+              renderValue: () => <Typography component="span" color="text.secondary">Choose a field</Typography>,
+            },
+          }}
+        >
+          {unpicked.map((f) => <MenuItem key={f.id} value={f.id}>{f.label}</MenuItem>)}
+        </TextField>
+      )}
       <FormHelperText id={helperId}>{helper}</FormHelperText>
     </Stack>
   );

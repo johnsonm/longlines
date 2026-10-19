@@ -202,7 +202,7 @@ select results_eq($$ select d ->> 'type', d ? 'discord', d ? 'push', d ? 'webhoo
 select is((select d -> 'webhook' from jsonb_array_elements(pg_temp.call('list_destinations')) d where d ->> 'name' = 'Hook'),
   '{"fields": ["id", "time", "callsign", "frequency", "mode", "band", "source", "reference", "place_name", "state", "spotter"],
     "key_style": "snake", "time_format": "iso_utc", "frequency_unit": "khz", "missing_values": "omit", "batch_seconds": 0,
-    "retry_policy": "three_10m", "pause_after_failures": null, "headers": [], "auto_disabled_at": null}'::jsonb
+    "retry_policy": "three_10m", "pause_after_failures": 20, "headers": [], "auto_disabled_at": null}'::jsonb
   || jsonb_build_object('secret_rotated_at', now()),
   'a webhook created through the API gets the defaults and shows them');
 update destinations set enabled = false, auto_disabled_at = now() - interval '1 hour', pause_failures = 20

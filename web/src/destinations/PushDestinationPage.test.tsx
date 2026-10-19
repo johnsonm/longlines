@@ -40,7 +40,7 @@ function device(id: string, overrides: Partial<PushDevice> = {}): PushDevice {
 function dest(id: string, overrides: Partial<Destination> = {}): Destination {
   return {
     id, user_id: "u1", type: "push", name: `Dest ${id}`, enabled: true, url_display: "", health: "ok",
-    consecutive_failures: 0, last_success_at: null, last_error: null, last_error_at: null, created_at: "2026-10-01T00:00:00Z",
+    consecutive_failures: 0, last_success_at: null, last_error: null, last_error_at: null, created_at: "2026-10-01T00:00:00Z", auto_disabled_at: null,
     ...overrides,
   };
 }
@@ -63,7 +63,7 @@ beforeEach(() => {
   vi.mocked(renamePushDevice).mockReset().mockResolvedValue();
   vi.mocked(loadRecentSpots).mockReset().mockResolvedValue([]);
   vi.mocked(previewPushNotification).mockReset().mockResolvedValue({ title: "N0CALL · 14.062 MHz · CW", body: "POTA · US-0000", url: "/call/N0CALL", source_url: null });
-  vi.mocked(sendTest).mockReset().mockResolvedValue();
+  vi.mocked(sendTest).mockReset().mockResolvedValue({ status: null });
   vi.mocked(currentEndpoint).mockReset().mockReturnValue("https://fcm.googleapis.com/fcm/send/abc");
   vi.mocked(disablePush).mockReset().mockResolvedValue();
   vi.mocked(enablePush).mockReset().mockResolvedValue("dev3");

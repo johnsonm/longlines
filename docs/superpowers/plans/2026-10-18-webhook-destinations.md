@@ -432,14 +432,14 @@ built up over Tasks 1 to 4, each with its tests.
 **Files:** `web/src/lib/api.ts` (+ test), `web/src/destinations/webhookModel.ts` (new, + test),
 `web/src/destinations/FieldPicker.tsx` (+ test for the new props).
 
-- [ ] `api.ts`: types `WebhookField`, `WebhookSettings`, `WebhookHeaderInput {name: string;
+- [x] `api.ts`: types `WebhookField`, `WebhookSettings`, `WebhookHeaderInput {name: string;
   value?: string}`, `WebhookDestination`, `WebhookDestinationInput`, `WebhookSettingsSummary`;
   `saveWebhookDestination(input) → {id, signingSecret: string | null}`,
   `getWebhookDestination(id)`, `listWebhookDestinationSettings()`,
   `previewWebhookRequest(settings, spotId | null, destinationId | null) → unknown` (the parsed
   body, key order kept); `sendTest` returns `{status: number | null}`; `Destination` and its column
   list gain `auto_disabled_at`. Tests: RPC names and arguments for each.
-- [ ] `webhookModel.ts`: `WEBHOOK_FIELDS` (ids and the spec's labels), `FIELDS_MIN` 1,
+- [x] `webhookModel.ts`: `WEBHOOK_FIELDS` (ids and the spec's labels), `FIELDS_MIN` 1,
   `FIELDS_MAX` 14, `DEFAULT_WEBHOOK_SETTINGS`, `PAUSE_AFTER` 20, `webhookKey(field, keyStyle,
   unit)`, the option lists (`KEY_STYLES`, `TIME_FORMATS`, `FREQUENCY_UNITS`, `MISSING_VALUES`,
   `REQUEST_OPTIONS`, `RETRY_POLICIES`) with the Copy labels, `timeExample(format)`,
@@ -447,18 +447,18 @@ built up over Tasks 1 to 4, each with its tests.
   helpers (`addHeader`, `removeHeader`, `headerInput`: saved rows send no value unless typed),
   `webhookCardLine(count, batchSeconds)`. Reuse `sendTestBlocker` from `discordModel.ts` (move it
   to `fieldList.ts` or a shared module if both import it).
-- [ ] A migration (next free number after `20261018000300`) that `create or replace`s
+- [x] A migration (next free number after `20261018000300`) that `create or replace`s
   `webhook_default_settings()` with pause 20 (spec, decision 10), a pgTAP case in
   `webhook_destinations.test.sql` (and `management_api.test.sql`'s API-created webhook) updated
   to 20, and `docs/WEBHOOKS.md`'s "off by default for now" changed to "on by default for new
   destinations".
-- [ ] `webhookModel.test.ts` (node): `DEFAULT_WEBHOOK_SETTINGS` equals the jsonb in
+- [x] `webhookModel.test.ts` (node): `DEFAULT_WEBHOOK_SETTINGS` equals the jsonb in
   `webhook_default_settings()` read from the latest migration that defines it (the pause-default
   migration above), as `discordModel.test.ts` does;
   `webhookKey` for every field, style and unit equals the spec's key table; card lines, including
   "Webhook · 1 field" and "Webhook · 1 field · grouped every 30 seconds"; header input rules;
   `dirty`.
-- [ ] `FieldPicker`: optional `keyOf?: (id: T) => string` (monospace secondary per row) and
+- [x] `FieldPicker`: optional `keyOf?: (id: T) => string` (monospace secondary per row) and
   `addAs?: "select" | "chips"` (chips "+ {label}" with aria-label "Add {label}" under "Not
   included"). With every field included the heading and chips are hidden and the helper stays;
   test that case. Push and Discord tests unchanged.
@@ -470,21 +470,22 @@ built up over Tasks 1 to 4, each with its tests.
 `DestinationDialog.tsx`, `DestinationsPage.tsx` (each + test), `web/src/App.tsx` (+ test), the push
 and Discord specs (one Copy line each).
 
-- [ ] `cardMeta`: "Used by …" / "Not used by any connection" (spec decision 17; update the push and
+- [x] `cardMeta`: "Used by …" / "Not used by any connection" (spec decision 17; update the push and
   Discord card tests and the function's "per the page 5 copy" comment). Delete tooltip singular and
   plural. Add a one-line amendment to the Copy of
   `docs/superpowers/specs/2026-10-13-push-notifications-design.md` and
   `docs/superpowers/specs/2026-10-18-discord-destination-design.md` pointing the card meta line at
   the webhook spec's decision 17.
-- [ ] `DestinationCard`: webhooks editable and duplicable; Rotate secret goes; the type line from
+- [x] `DestinationCard`: webhooks editable and duplicable; Rotate secret goes; the type line from
   `webhookCardLine` with the page's one `listWebhookDestinationSettings()` (called only when a
   webhook exists, like `listDiscordDestinationSettings`); `HealthChip` gets `paused` when
   `auto_disabled_at` is set.
-- [ ] `DestinationsPage`: a webhook's Send test toasts "{name} answered HTTP {status}."; the rotate
+- [x] `DestinationsPage`: a webhook's Send test toasts "{name} answered HTTP {status}." for any
+  status, a non-2xx one read off the 502's `ApiError.receiverStatus` (`answeredStatus`); the rotate
   `SecretDialog` and its state go.
-- [ ] `DestinationDialog`: only the type step; Continue navigates to `/destinations/new?type={id}`
+- [x] `DestinationDialog`: only the type step; Continue navigates to `/destinations/new?type={id}`
   for all three; `onCreated` and the details step go (update its test and the page's).
-- [ ] `App.tsx` `DestinationRoute`: `webhook` → `WebhookDestinationPage` (a stub until Task 9 is
+- [x] `App.tsx` `DestinationRoute`: `webhook` → `WebhookDestinationPage` (a stub until Task 9 is
   fine inside this commit if the page lands next; otherwise do Task 9 first).
 - [ ] Commit `Destinations: webhook cards with Edit and Duplicate, type picker hands off to the editor`.
 
@@ -493,23 +494,27 @@ and Discord specs (one Copy line each).
 **Files:** `web/src/destinations/WebhookDestinationPage.tsx`, `WebhookEndpointCard.tsx`,
 `SigningSecretDialog.tsx` (new, each + test).
 
-- [ ] `WebhookDestinationPage`: the Discord page's gatekeeper, Loader and Editor; the paused alert
+- [x] `WebhookDestinationPage`: the Discord page's gatekeeper, Loader and Editor; the paused alert
   ("Paused {ago} after ...", from `auto_disabled_at`) whenever it is set, whatever the pause
   switch says; save through `saveWebhookDestination`; new → the created
   `SigningSecretDialog`, and on Done toast "Added {name}" and go to `/destinations`; edit → toast
-  "Saved changes" and go to `/destinations`; the name-taken message on the Name field.
-- [ ] `WebhookEndpointCard`: Webhook URL with "Must start with https://"; on edit the masked URL,
+  "Saved changes" and go to `/destinations`; the name-taken message on the Name field; Save,
+  Cancel and Rotate disabled while either request runs; `toInput(form, initial)` sends a saved
+  destination's Enabled only when the switch changed (else null), so a pause since load stays.
+- [x] `WebhookEndpointCard`: Webhook URL with "Must start with https://"; on edit the masked URL,
   Replace URL, "The URL is hidden after saving.", Keep current URL while replacing; the signing
   secret block (`whsec_••••••••`, Rotate → `rotateSigningSecret` → the rotated dialog, "Rotated
   {ago}" from `timeAgo`; the new-destination sentence instead); header rows (Header, Value with the
   saved placeholder, Remove header, Add a header disabled at 10) and the sentence.
-- [ ] `SigningSecretDialog`: both variants (Copy); Copy writes to the clipboard and shows Copied;
+- [x] `SigningSecretDialog`: both variants (Copy); Copy writes to the clipboard and shows Copied;
   Done disabled until the checkbox; no `onClose` on the `Dialog`.
-- [ ] Tests: new and edit modes, a non-webhook id redirect, Replace URL and Keep current URL, an
+- [x] Tests: new and edit modes, a non-webhook id redirect, Replace URL and Keep current URL, an
   empty URL keeps the stored one in the saved input, header add/remove/rename-needs-value, the
   10-header limit, Rotate opens the dialog with the new secret and, after Done, the page stays
   with unsaved edits kept and the secret line reads "Rotated 1 minute ago"; Done gating; the
-  paused alert, including with the pause switch off; the phone layout (`setMobile(true)`, Save).
+  paused alert, including with the pause switch off; the phone layout (`setMobile(true)`, Save);
+  a cleared header name or a value with no name blocks Save; Save/Cancel/Rotate block each other;
+  an untouched Enabled saves as null.
 - [ ] Commit `Webhook editor: page, endpoint, headers and the signing secret dialog`.
 
 ### Task 10: Payload, Delivery and the Request preview
@@ -517,18 +522,18 @@ and Discord specs (one Copy line each).
 **Files:** `web/src/destinations/WebhookPayloadCard.tsx`, `WebhookDeliveryCard.tsx`,
 `WebhookPreviewCard.tsx` (new, each + test).
 
-- [ ] `WebhookPayloadCard`: the Always sent box; `FieldPicker` with heading "Included, in this
+- [x] `WebhookPayloadCard`: the Always sent box; `FieldPicker` with heading "Included, in this
   order", `keyOf` from `webhookKey` with the current style and unit, `addAs="chips"`, min 1, max
   14, the Comment note as helper; the four selects with their helpers; Reset to default fields
   (only `fields` back to the defaults, as Discord's; the selects keep their choices).
-- [ ] `WebhookDeliveryCard`: Requests and Retry selects with helpers (the Requests helper names
+- [x] `WebhookDeliveryCard`: Requests and Retry selects with helpers (the Requests helper names
   the other choice, Copy); the pause `SettingSwitch`
   (on is `PAUSE_AFTER`, off is null) with its aria-label.
-- [ ] `WebhookPreviewCard`: the spot select from `useRecentSpotPicker`; the request line (typed URL
+- [x] `WebhookPreviewCard`: the spot select from `useRecentSpotPicker`; the request line (typed URL
   path when new or replacing, else `url_display`'s path), the five fixed headers in the sent order
   (`Accept` first), each extra header name with `••••••••`, then `previewWebhookRequest(...)` pretty-printed with two spaces, debounced
   300 ms; Send test request with `sendTestBlocker` captions; the result line from `sendTest`.
-- [ ] Tests: field add (chip), move, remove, the minimum; Reset leaves the selects alone; keys
+- [x] Tests: field add (chip), move, remove, the minimum; Reset leaves the selects alone; keys
   follow style and unit; each select round-trips, and the Requests helper switches with it; the pause switch maps to 20 and null; the preview RPC is called with the settings,
   the chosen spot and the destination id, and its keys show in order; the request line in new,
   edit and replacing modes; masked header names; Send test states and the status line.
@@ -539,12 +544,12 @@ and Discord specs (one Copy line each).
 **Files:** `CLAUDE.md`, `docs/superpowers/specs/2026-10-18-webhook-destination-design.md`, `README.md` if it
 describes the webhook body.
 
-- [ ] CLAUDE.md: a "Webhook rules" section after "Discord rules" (settings and headers tables,
+- [x] CLAUDE.md: a "Webhook rules" section after "Discord rules" (settings and headers tables,
   Vault, SQL renders pairs, the preview's `json`, the hold and `destination_batch_full`,
   `webhook_claim_max`, the retry knobs and the shared predicate, pause as `enabled = false`, the
   reserved header list in two places, the editor copy source). (The Source catalog wording went
   in with PR 2.)
-- [ ] Spec status line: shipped.
+- [x] Spec status line: shipped.
 - [ ] Gates, then the end to end from the spec's Verification (local receiver, `psql` to point the
   URL at it, `npm run sender` with `LONGLINES_ALLOW_INSECURE_DESTINATIONS=1`). Record in the PR
   which steps ran.

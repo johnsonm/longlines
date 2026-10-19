@@ -1,6 +1,6 @@
 // The preview cards' spot picker: the last few spots the preview RPCs can
 // read, newest first, and the one chosen (null for the sample spot). Shared
-// by the push and Discord editors.
+// by the push, Discord and webhook editors.
 
 import { useEffect, useState } from "react";
 import { loadRecentSpots, type RecentSpot } from "../lib/api";
