@@ -1,37 +1,40 @@
 import { useCallback, useEffect, useState } from "react";
 import {
-  Box, Button, Card, CardActions, CardContent, Chip, Grid, LinearProgress, Paper, Stack, Tooltip, Typography, useMediaQuery, type Theme,
+  Box, Button, Card, CardActionArea, CardActions, CardContent, Chip, Divider, Grid, LinearProgress, Paper, Stack, Typography,
+  useMediaQuery, type Theme,
 } from "@mui/material";
+import { SparkLineChart } from "@mui/x-charts/SparkLineChart";
 import AddIcon from "@mui/icons-material/Add";
-import DeleteIcon from "@mui/icons-material/Delete";
+import BarChartIcon from "@mui/icons-material/BarChart";
 import EditIcon from "@mui/icons-material/Edit";
 import NotificationsActiveIcon from "@mui/icons-material/NotificationsActive";
-import { useNavigate } from "react-router";
+import { Link as RouterLink, useNavigate } from "react-router";
 import { PageTitle } from "../layout/PageTitle";
-import { deleteGroup, listGroups, loadSubscriptions } from "../lib/api";
-import { hasPositiveRule, toInput } from "../subscriptions/model";
-import { SourcePickerDialog } from "../subscriptions/SourcePickerDialog";
+import { listGroups, listGroupSummaries } from "../lib/api";
 import { errorText, useNotify } from "../app/hooks";
-import { GroupDialog } from "./GroupDialog";
-import { CARD_CHIPS, groupMeta, spotLines } from "./model";
-import type { CallsignGroup, GroupInput } from "./types";
+import { plural } from "../profile/format";
+import { NewGroupDialog } from "./NewGroupDialog";
+import { groupMeta, onAirLine } from "./stats/model";
+import type { GroupSummary } from "./stats/types";
+import type { CallsignGroup } from "./types";
+import { useGetAlerts } from "./useGetAlerts";
 
+/** The landing page (canvas page 10): one card per group with its last 30 days, built in SQL. */
 export function GroupsPage() {
   const notify = useNotify();
   const navigate = useNavigate();
   const mobile = useMediaQuery((t: Theme) => t.breakpoints.down("sm"));
-  const [picking, setPicking] = useState<CallsignGroup | null>(null);
+  const alerts = useGetAlerts();
   const [groups, setGroups] = useState<CallsignGroup[]>([]);
+  const [summaries, setSummaries] = useState<Map<string, GroupSummary>>(new Map());
   const [loading, setLoading] = useState(true);
-  const [editing, setEditing] = useState<GroupInput | null>(null);
-  const [busyId, setBusyId] = useState<string | null>(null);
-  // Spot ages count from when the list was read, which is when SQL worked out who is on the air.
-  const [now, setNow] = useState(() => new Date());
+  const [creating, setCreating] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      setGroups(await listGroups());
-      setNow(new Date());
+      const [g, s] = await Promise.all([listGroups(), listGroupSummaries()]);
+      setGroups(g);
+      setSummaries(new Map(s.map((x) => [x.id, x])));
     } catch (err) {
       notify(errorText(err, "Couldn't load your groups."));
     } finally {
@@ -43,49 +46,11 @@ export function GroupsPage() {
     void load();
   }, [load]);
 
-  const run = async (id: string, fallback: string, action: () => Promise<void>) => {
-    setBusyId(id);
-    try {
-      await action();
-    } catch (err) {
-      notify(errorText(err, fallback));
-    } finally {
-      setBusyId(null);
-    }
+  const onCreated = (id: string, name: string) => {
+    setCreating(false);
+    notify(`Created ${name}`);
+    void navigate(`/groups/${id}`);
   };
-
-  // Mirrors Get alerts on a callsign profile (CallsignPage), with the group in place of the call: pick a
-  // source, then the editor opens with the group as its filter. Nothing is saved until the user saves there.
-  const getAlerts = (g: CallsignGroup) => run(g.id, "Couldn't load your connections.", async () => {
-    // Read fresh rather than from the app's copy, which may not have loaded yet.
-    const existing = (await loadSubscriptions()).find((s) => hasPositiveRule(toInput(s).rules, "group", g.id));
-    if (existing) {
-      notify(`You already have ${existing.name}.`);
-      void navigate(`/connections/${existing.id}`);
-      return;
-    }
-    setPicking(g);
-  });
-
-  const pick = (source: string) => {
-    if (!picking) return;
-    void navigate(`/connections/new?source=${encodeURIComponent(source)}&group=${encodeURIComponent(picking.id)}`);
-  };
-
-  const remove = (g: CallsignGroup) => run(g.id, "Couldn't delete the group.", async () => {
-    await deleteGroup(g.id);
-    await load();
-    notify(`Deleted ${g.name}`);
-  });
-
-  const onSaved = async (name: string) => {
-    const created = !editing?.id;
-    setEditing(null);
-    await load();
-    notify(created ? `Created ${name}` : "Saved changes");
-  };
-
-  const startNew = () => setEditing({ name: "", callsigns: [] });
 
   return (
     <Stack spacing={3}>
@@ -93,86 +58,86 @@ export function GroupsPage() {
         <Box>
           <PageTitle>Groups</PageTitle>
           <Typography color="text.secondary">
-            A group is a named list of callsigns, like your club roster. Use groups in connections to get alerts when any member is spotted.
+            {mobile
+              ? "A group is a named list of callsigns, like a club roster. See how the group is doing and share its statistics."
+              : "A group is a named list of callsigns, like a club roster. See how the group is doing, share its statistics, and use it in connection rules."}
           </Typography>
         </Box>
-        <Button variant="contained" startIcon={<AddIcon />} onClick={startNew} sx={{ flexShrink: 0 }}>New group</Button>
+        <Button variant="contained" startIcon={<AddIcon />} onClick={() => setCreating(true)} fullWidth={mobile} sx={{ flexShrink: 0 }}>
+          New group
+        </Button>
       </Stack>
       {loading && <LinearProgress />}
       {!loading && groups.length === 0
         ? (
           <Paper variant="outlined" sx={{ p: 4, textAlign: "center" }}>
             <Typography gutterBottom>No groups yet.</Typography>
-            <Button onClick={startNew}>Create your first group</Button>
+            <Button onClick={() => setCreating(true)}>Create your first group</Button>
           </Paper>
         )
         : (
           <Grid container spacing={2}>
             {groups.map((g) => (
               <Grid size={{ xs: 12, md: 6 }} key={g.id}>
-                <GroupCard
-                  group={g} now={now} busy={busyId === g.id}
-                  onAlerts={() => void getAlerts(g)}
-                  onEdit={() => setEditing({ id: g.id, name: g.name, callsigns: g.callsigns })}
-                  onDelete={() => void remove(g)}
-                />
+                <GroupCard group={g} summary={summaries.get(g.id)} busy={alerts.busyId === g.id} onAlerts={() => alerts.start(g.id)} />
               </Grid>
             ))}
           </Grid>
         )}
-      {picking && <SourcePickerDialog open fullScreen={mobile} onClose={() => setPicking(null)} onContinue={pick} />}
-      {editing && <GroupDialog initial={editing} onClose={() => setEditing(null)} onSaved={(name) => void onSaved(name)} />}
+      {alerts.dialog}
+      {creating && <NewGroupDialog onClose={() => setCreating(false)} onCreated={onCreated} />}
     </Stack>
   );
 }
 
 interface CardProps {
   group: CallsignGroup;
-  now: Date;
+  summary: GroupSummary | undefined;
   busy: boolean;
   onAlerts: () => void;
-  onEdit: () => void;
-  onDelete: () => void;
 }
 
-function GroupCard({ group: g, now, busy, onAlerts, onEdit, onDelete }: CardProps) {
-  const used = g.subscription_count > 0;
-  const hidden = g.callsigns.length - CARD_CHIPS;
-  const latest = g.on_air.count > 0 ? g.on_air.latest : null;
-  const lines = latest ? spotLines(latest, now) : null;
+function GroupCard({ group: g, summary, busy, onAlerts }: CardProps) {
+  const isPublic = summary?.public ?? false;
+  const daily = summary?.daily ?? null;
   return (
     <Card variant="outlined" sx={{ height: "100%", display: "flex", flexDirection: "column" }}>
-      <CardContent sx={{ flexGrow: 1 }}>
-        <Typography variant="h6" component="h2" sx={{ overflowWrap: "anywhere" }}>{g.name}</Typography>
-        <Typography color="text.secondary">{groupMeta(g.member_count, g.subscription_count)}</Typography>
-        {g.callsigns.length > 0 && (
-          <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap", mt: 1.5 }}>
-            {g.callsigns.slice(0, CARD_CHIPS).map((c) => <Chip key={c} size="small" variant="outlined" label={c} />)}
-            {hidden > 0 && <Chip size="small" label={`+${hidden} more`} />}
+      <CardActionArea component={RouterLink} to={`/groups/${g.id}`} sx={{ flexGrow: 1 }}>
+        <CardContent>
+          <Stack direction="row" spacing={2} sx={{ justifyContent: "space-between", alignItems: "flex-start" }}>
+            <Box sx={{ minWidth: 0 }}>
+              <Typography variant="h6" component="h2" sx={{ overflowWrap: "anywhere" }}>{g.name}</Typography>
+              <Typography variant="body2" color="text.secondary">{groupMeta(g.member_count, g.subscription_count)}</Typography>
+            </Box>
+            <Chip
+              size="small" label={isPublic ? "Public" : "Private"} color={isPublic ? "success" : "default"}
+              variant={isPublic ? "filled" : "outlined"}
+            />
           </Stack>
-        )}
-        {g.on_air.count > 0 && (
-          <Box sx={{ mt: 1.5 }}>
-            <Chip size="small" color="success" label={`${g.on_air.count} on the air now`} />
-            {lines && (
-              <Box sx={{ mt: 1 }}>
-                <Typography variant="body2">{lines[0]}</Typography>
-                <Typography variant="body2" color="text.secondary">{lines[1]}</Typography>
+          {summary && summary.spots !== null && (
+            <Stack direction="row" spacing={2} sx={{ justifyContent: "space-between", alignItems: "flex-end", mt: 2 }}>
+              <Box>
+                <Typography variant="overline" color="text.secondary" component="div">Last 30 days</Typography>
+                <Typography variant="h5" component="div">{plural(summary.spots, "spot", "spots")}</Typography>
+                <Typography variant="body2" color="text.secondary">
+                  {`${summary.members_heard ?? 0} of ${plural(summary.member_count ?? 0, "member", "members")} heard`}
+                </Typography>
               </Box>
-            )}
-          </Box>
-        )}
-      </CardContent>
+              {daily && (
+                <Box role="img" aria-label="Spots per day, last 30 days" sx={{ width: 120, height: 32, flexShrink: 0 }}>
+                  <SparkLineChart data={daily} height={32} width={120} />
+                </Box>
+              )}
+            </Stack>
+          )}
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>{onAirLine(summary?.on_air ?? [])}</Typography>
+        </CardContent>
+      </CardActionArea>
+      <Divider />
       <CardActions>
-        <Button size="small" startIcon={<NotificationsActiveIcon />} disabled={busy} onClick={onAlerts}>Get alerts</Button>
-        <Button size="small" startIcon={<EditIcon />} disabled={busy} onClick={onEdit}>Edit</Button>
-        <Tooltip title={used ? "Remove it from its connections first" : ""}>
-          <Box component="span">
-            <Button size="small" color="error" startIcon={<DeleteIcon />} disabled={used || busy} onClick={onDelete} aria-label={`Delete ${g.name}`}>
-              Delete
-            </Button>
-          </Box>
-        </Tooltip>
+        <Button size="small" startIcon={<BarChartIcon />} component={RouterLink} to={`/groups/${g.id}`}>Statistics</Button>
+        <Button size="small" color="inherit" startIcon={<EditIcon />} component={RouterLink} to={`/groups/${g.id}/settings`}>Settings</Button>
+        <Button size="small" color="inherit" startIcon={<NotificationsActiveIcon />} disabled={busy} onClick={onAlerts}>Get alerts</Button>
       </CardActions>
     </Card>
   );

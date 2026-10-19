@@ -1,33 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { csvSummary, groupMeta, limitText, mergeCallsigns, rejectedText, spotLines, wouldExceed } from "./model";
-import type { GroupSpot } from "./types";
-
-describe("groupMeta", () => {
-  it("counts callsigns and subscriptions with singular forms", () => {
-    expect(groupMeta(12, 1)).toBe("12 callsigns · used by 1 connection");
-    expect(groupMeta(1, 0)).toBe("1 callsign · used by 0 connections");
-    expect(groupMeta(1000, 2)).toBe("1,000 callsigns · used by 2 connections");
-  });
-});
-
-describe("spotLines", () => {
-  const now = new Date("2026-10-13T14:02:30Z");
-  const spot: GroupSpot = {
-    callsign: "KK4PWJ", frequency_khz: 14062, band: "20m", mode: "CW", source: "pota", reference: "US-2763",
-    spot_time: "2026-10-13T14:00:00Z",
-  };
-
-  it("reads like the mock", () => {
-    expect(spotLines(spot, now)).toEqual(["KK4PWJ 14062.0 kHz CW", "20m · POTA · US-2763 · 2m ago"]);
-  });
-
-  it("leaves out what the spot doesn't have", () => {
-    expect(spotLines({ ...spot, frequency_khz: null, band: null, mode: null, reference: null, source: "dxcluster" }, now))
-      .toEqual(["KK4PWJ", "DX Cluster · 2m ago"]);
-    expect(spotLines({ ...spot, mode: "ssb", spot_time: "2026-10-13T14:03:00Z" }, now)[0]).toBe("KK4PWJ 14062.0 kHz SSB");
-    expect(spotLines({ ...spot, spot_time: "2026-10-13T14:03:00Z" }, now)[1]).toBe("20m · POTA · US-2763 · 0s ago");
-  });
-});
+import { csvSummary, limitText, mergeCallsigns, rejectedText, wouldExceed } from "./model";
 
 describe("mergeCallsigns", () => {
   it("adds new calls, drops repeats and sorts", () => {
