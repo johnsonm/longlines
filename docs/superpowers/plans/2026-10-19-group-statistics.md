@@ -90,7 +90,9 @@ Each part runs in a fresh Claude Code session in its own worktree. The branches 
 - Commit messages end with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 - Applied migrations are never edited. `save_callsign_group` is recreated from its latest
   definition (`20261013000210`) with `create or replace`, so its grants stay.
-  `list_callsign_groups`, `api_call`, `api_group_json` and `patch_callsign_group` do not change.
+  `list_callsign_groups`, `api_group_json` and `patch_callsign_group` do not change. `api_call`
+  is recreated from `20261016000600` only to set `longlines.via_api`, under which
+  `save_callsign_group` ignores the sharing keys (spec, decision 8).
 - Behaviour goes in SQL: every figure, ranking, tie break, top-list length, the 10 places, period
   bounds, hidden calls, redaction, the code, cache freshness. The web formats numbers and ages and
   hides sections whose keys are absent. It never ranks, sums, filters callsigns for privacy or works
@@ -158,7 +160,7 @@ passes seeded or not).
 **Files:** the migration (section 1); `supabase/tests/group_statistics.test.sql` (new);
 `supabase/tests/callsign_groups.test.sql`; `supabase/tests/management_api.test.sql`.
 
-- [ ] Failing tests first:
+- [x] Failing tests first:
   - A new group has `public = false`, `show_callsigns = false` and `public_slug` null.
   - Saving with `public: true` sets a code matching `^[a-z2-7]{10}$`.
   - Renaming, members changes and off-then-on keep the same code.
@@ -166,22 +168,22 @@ passes seeded or not).
   - `public: "yes"` raises "Not a valid setting."
   - An API `update_group` PATCH keeps the flags.
   - 1,000 calls to `new_group_slug()` give 1,000 distinct well-formed codes.
-- [ ] `alter table callsign_groups add column public …, show_callsigns …, public_slug …` (spec,
+- [x] `alter table callsign_groups add column public …, show_callsigns …, public_slug …` (spec,
   Schema).
-- [ ] `new_group_slug()`: `gen_random_bytes(10)`, each byte `& 31` into
+- [x] `new_group_slug()`: `gen_random_bytes(10)`, each byte `& 31` into
   `'abcdefghijklmnopqrstuvwxyz234567'` (`new_api_token()`'s masking). The caller loops on
   `unique_violation`.
-- [ ] `group_stats_cache` (spec, Cache table) is created here, ahead of `save_callsign_group`, so the
+- [x] `group_stats_cache` (spec, Cache table) is created here, ahead of `save_callsign_group`, so the
   save can clear it. Then `save_callsign_group` from `20261013000210` plus the two keys, the code
   on first public, and the cache delete when the member diff is non-empty.
-- [ ] `supabase db reset && supabase test db`.
-- [ ] Commit `Group statistics: public page columns and save keys`.
+- [x] `supabase db reset && supabase test db`.
+- [x] Commit `Group statistics: public page columns and save keys`.
 
 ### Task 2: The builder
 
 **Files:** the migration (section 2); `group_statistics.test.sql`.
 
-- [ ] Failing tests first, with a fixed clock. Stub `now()` by passing the day into an internal
+- [x] Failing tests first, with a fixed clock. Stub `now()` by passing the day into an internal
   `group_statistics_at(p_group_id, p_period, p_now)` and have `group_statistics` call it with
   `now()`, following `refresh_stats_snapshot_at`. Insert hand-made `callsign_days`,
   `callsign_activity`, `callsign_seen`, `callsign_rollup_days` and `raw_spots` rows for three
@@ -197,10 +199,9 @@ passes seeded or not).
   - `mainMode` labels
   - `bands` as twelve entries, `modes` in bucket order
   - `places` top 10 with `by`
-  - `onAir`
   - the hidden member nowhere and not in `memberCount`
   - "Not a valid period." for `'90d'`
-- [ ] `group_statistics_at` and `group_statistics`, stable, definer, `search_path` pinned. Reads
+- [x] `group_statistics_at` and `group_statistics`, stable, definer, `search_path` pinned. Reads
   follow the spec's builder:
   - Members exclude `hidden_callsigns`.
   - `callsign_days` and `callsign_activity` are read by `base = any(v_bases)`.
@@ -209,16 +210,16 @@ passes seeded or not).
     CTE with an array.
   - References come from `spot_stream` for the period with `program is not null`.
   - `mode_bucket` labels are as stored; the web maps `FT8/FT4` to "FT8 and FT4".
-- [ ] `supabase db reset && supabase test db`; `explain analyze` on a 1,000-member seeded group,
+- [x] `supabase db reset && supabase test db`; `explain analyze` on a 1,000-member seeded group,
   timing noted for the PR.
-- [ ] Commit `Group statistics: the payload builder`.
+- [x] Commit `Group statistics: the payload builder`.
 
 ### Task 3: Cache, client RPCs, public RPC, redaction
 
 **Files:** the migration (section 3, grants last); `group_statistics.test.sql`;
 `supabase/tests/advisor.test.sql`; `supabase/tests/account_delete.test.sql`.
 
-- [ ] Failing tests first:
+- [x] Failing tests first:
   - `cached_group_statistics` returns the same `generatedAt` on a second call and a new one after
     the row is aged past an hour.
   - A member change deletes the rows.
@@ -233,25 +234,25 @@ passes seeded or not).
   - `group_stats_cache` has RLS on and no client privileges.
   - Deleting the account removes the cache rows.
   - The advisor lists are updated.
-- [ ] `cached_group_statistics` (one hour, advisory lock keyed on group and
+- [x] `cached_group_statistics` (one hour, advisory lock keyed on group and
   period, 2 s `lock_timeout`, as `20261013000310`), `group_stats_redact`, `get_group_statistics`,
   `list_group_summaries`, `public_group_statistics`.
-- [ ] Grants: revoke all from public, anon and authenticated on every new function. Grant execute
+- [x] Grants: revoke all from public, anon and authenticated on every new function. Grant execute
   on `get_group_statistics` and `list_group_summaries` to `authenticated`, and on
   `public_group_statistics` to `service_role`.
-- [ ] `supabase db reset && supabase test db`.
-- [ ] Commit `Group statistics: cache, owner and public RPCs`.
+- [x] `supabase db reset && supabase test db`.
+- [x] Commit `Group statistics: cache, owner and public RPCs`.
 
 ### Task 4: Smoke test, types and PR 2
 
 **Files:** `scripts/smoke-test.sql`; `web/src/lib/database.types.ts`.
 
-- [ ] Smoke lines: the columns exist; `group_stats_cache` has RLS; `public_group_statistics('zzzzzzzzzz', '30d')`
+- [x] Smoke lines: the columns exist; `group_stats_cache` has RLS; `public_group_statistics('zzzzzzzzzz', '30d')`
   is null.
-- [ ] `supabase gen types typescript --local > web/src/lib/database.types.ts`. Run `cd web && npm
+- [x] `supabase gen types typescript --local > web/src/lib/database.types.ts`. Run `cd web && npm
   run build` to show the regeneration (which includes #223/#225's objects) breaks nothing.
-- [ ] All gates.
-- [ ] Commit `Group statistics: smoke test and generated types`, push, open PR 2 stacked on
+- [x] All gates.
+- [x] Commit `Group statistics: smoke test and generated types`, push, open PR 2 stacked on
   `group-stats-spec`. Run /code-review and fix what it finds.
 
 ---

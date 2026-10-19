@@ -219,14 +219,14 @@ isOneToOne: false
                   ]
                 },"callsign_groups": {
                   Row: {
-                    "created_at": string,"id": string,"name": string,"updated_at": string,"user_id": string
+                    "created_at": string,"id": string,"name": string,"public": boolean,"public_slug": string | null,"show_callsigns": boolean,"updated_at": string,"user_id": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "created_at"?: string,"id"?: string,"name": string,"updated_at"?: string,"user_id": string
+                    "created_at"?: string,"id"?: string,"name": string,"public"?: boolean,"public_slug"?: string | null,"show_callsigns"?: boolean,"updated_at"?: string,"user_id": string
                   }
                   Update: {
-                    "created_at"?: string,"id"?: string,"name"?: string,"updated_at"?: string,"user_id"?: string
+                    "created_at"?: string,"id"?: string,"name"?: string,"public"?: boolean,"public_slug"?: string | null,"show_callsigns"?: boolean,"updated_at"?: string,"user_id"?: string
                   }
                   Relationships: [
                     
@@ -546,6 +546,26 @@ isOneToOne: true
                   }
                   Relationships: [
                     
+                  ]
+                },"group_stats_cache": {
+                  Row: {
+                    "generated_at": string,"group_id": string,"payload": NonNullable<Json>,"period": string,"roster": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "generated_at"?: string,"group_id": string,"payload": NonNullable<Json>,"period": string,"roster": string
+                  }
+                  Update: {
+                    "generated_at"?: string,"group_id"?: string,"payload"?: NonNullable<Json>,"period"?: string,"roster"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "group_stats_cache_group_id_fkey"
+      columns: ["group_id"]
+isOneToOne: false
+      referencedRelation: "callsign_groups"
+      referencedColumns: ["id"]
+    }
                   ]
                 },"hidden_callsigns": {
                   Row: {
@@ -1061,6 +1081,9 @@ isOneToOne: true
 "cached_callsign_profile":
 { Args: { "p_callsign": string }; Returns: Json
                            },
+"cached_group_statistics":
+{ Args: { "p_build"?: boolean,"p_group_id": string,"p_max_age"?: string,"p_period": string }; Returns: Json
+                           },
 "callsign_available":
 { Args: { "p_callsign": string }; Returns: boolean
                            },
@@ -1237,6 +1260,9 @@ isOneToOne: true
 "get_discord_destination":
 { Args: { "p_id": string }; Returns: Json
                            },
+"get_group_statistics":
+{ Args: { "p_id": string,"p_period": string }; Returns: Json
+                           },
 "get_push_destination":
 { Args: { "p_id": string }; Returns: Json
                            },
@@ -1245,6 +1271,21 @@ isOneToOne: true
                            },
 "group_matches":
 { Args: { "p_base": string,"p_group_ids": (string)[] }; Returns: boolean
+                           },
+"group_member_bases":
+{ Args: { "p_group_id": string }; Returns: (string)[]
+                           },
+"group_statistics":
+{ Args: { "p_group_id": string,"p_period": string }; Returns: Json
+                           },
+"group_statistics_at":
+{ Args: { "p_group_id": string,"p_now": string,"p_period": string }; Returns: Json
+                           },
+"group_stats_redact":
+{ Args: { "p": Json }; Returns: Json
+                           },
+"group_stats_roster":
+{ Args: { "p_bases": (string)[] }; Returns: string
                            },
 "ingest_aprs_packets":
 { Args: { "p_rows": Json }; Returns: number
@@ -1279,6 +1320,11 @@ isOneToOne: true
                            },
 "list_discord_destination_settings":
 { Args: Record<PropertyKey, never>; Returns: Json
+                           },
+"list_group_summaries":
+{ Args: Record<PropertyKey, never>; Returns: {
+              "daily": (number)[],"id": string,"member_count": number,"members_heard": number,"on_air": (string)[],"public": boolean,"spots": number
+            }[]
                            },
 "list_ingest_health":
 { Args: Record<PropertyKey, never>; Returns: {
@@ -1345,6 +1391,9 @@ isOneToOne: true
 "new_api_token":
 { Args: Record<PropertyKey, never>; Returns: string
                            },
+"new_group_slug":
+{ Args: Record<PropertyKey, never>; Returns: string
+                           },
 "normalize_group_callsigns":
 { Args: { "p_calls": (string)[] }; Returns: Json
                            },
@@ -1384,6 +1433,9 @@ isOneToOne: true
                            },
 "prune_push_devices":
 { Args: { "p_endpoints": (string)[] }; Returns: number
+                           },
+"public_group_statistics":
+{ Args: { "p_period": string,"p_slug": string }; Returns: Json
                            },
 "push_clip":
 { Args: { "p_max": number,"p_text": string }; Returns: string
