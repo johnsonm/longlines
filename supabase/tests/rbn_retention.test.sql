@@ -1,11 +1,12 @@
 -- pgTAP: rbn_spots retention (20261011000005, 20261012000010,
--- 20261017004020). A day older than seven is dropped only when every 10-minute
--- slice is archived with the database's count and the callsign rollups have
--- recorded it, or it is older than 14 days. A late row on a retired day is
--- deleted, never archived again.
+-- 20261017004020, 20261019000100). A day older than seven is dropped only when
+-- every 10-minute slice is archived with the database's count and the callsign
+-- rollups have recorded it, or it is older than 14 days; the latter is recorded
+-- in callsign_rollup_failures once, when the partition goes. A late row on a
+-- retired day is deleted, never archived again.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(24);
+select plan(28);
 
 create or replace function pg_temp.d(p_offset int) returns date language sql as $$
   select (now() at time zone 'utc')::date + p_offset;
@@ -33,6 +34,7 @@ $$;
 delete from rbn_spots;
 delete from archive_log;
 delete from callsign_rollup_days;
+delete from callsign_rollup_failures;
 
 -- Day -9: archived with matching counts.          -> dropped
 -- Day -10: one slice logged with the wrong count.  -> kept, that log row deleted
@@ -91,6 +93,10 @@ select ok(not exists (select 1 from archive_log where source = 'rbn' and slice_s
   'a mismatched slice of a day not rolled up still loses its log row');
 select ok(pg_temp.partition(-15) is null, 'an archived day older than 14 days is dropped without a rollup');
 select is((select count(*) from rbn_spots where callsign = 'J1')::int, 0, 'its rows are gone');
+select ok((select last_error like '%retired%' from callsign_rollup_failures where day = pg_temp.d(-15)),
+  'a day retired without its rollup is recorded in callsign_rollup_failures');
+select ok(not exists (select 1 from callsign_rollup_failures where day = pg_temp.d(-9)),
+  'a day retired with its rollup is not');
 select ok(not has_function_privilege('authenticated', 'public.retire_rbn_day(date)', 'execute')
           and not has_function_privilege('authenticated', 'public.rbn_day_archived(date)', 'execute')
           and not has_function_privilege('authenticated', 'public.rbn_day_slices(date)', 'execute'),
@@ -131,6 +137,8 @@ select ingest_rbn_spots(jsonb_build_array(
 select pg_temp.archive_day(-20);
 select maintain_rbn_spots();
 select ok(pg_temp.partition(-20) is null, 'day -20 is retired');
+select is((select attempts from callsign_rollup_failures where day = pg_temp.d(-20)), 1,
+  'retiring the partition of a day without its rollup records one failure');
 select ingest_rbn_spots(jsonb_build_array(
   pg_temp.spot(pg_temp.at(-20, '10:03'), 'L3'), pg_temp.spot(pg_temp.at(-20, '15:00'), 'L4')));
 select is((select count(*) from partitions.rbn_spots_default where callsign in ('L3', 'L4'))::int, 2,
@@ -138,6 +146,8 @@ select is((select count(*) from partitions.rbn_spots_default where callsign in (
 select is(rbn_day_archived(pg_temp.d(-20)), true, 'a retired day with late rows reports archived');
 select maintain_rbn_spots();
 select is((select count(*) from rbn_spots where callsign like 'L%')::int, 0, 'the late rows are deleted');
+select is((select attempts from callsign_rollup_failures where day = pg_temp.d(-20)), 1,
+  'deleting late rows of a day retired earlier records nothing more');
 select results_eq(
   format($$select count(*)::int, sum(row_count)::int, count(object_path)::int from archive_log
            where source = 'rbn' and slice_start >= %L and slice_start < %L$$,

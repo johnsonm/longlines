@@ -629,11 +629,15 @@ watched station was on the air.
 
 About 1.5 million rows and 350 MB a day; seven days (2.5-3 GB) stay in the database. A day is
 retired once the callsign rollups have recorded it (`callsign_rollup_days`, normally at 02:25 UTC the next day)
-or once it is 14 days old. `select pg_size_pretty(pg_total_relation_size('rbn_spots'));` shows the total;
+or once it is 14 days old; a day retired at 14 days without its rollup gets a `callsign_rollup_failures`
+row and shows as `rbn_retired` in `callsign_rollup_status` ("Callsign rollups" below).
+`select pg_size_pretty(pg_total_relation_size('rbn_spots'));` shows the total;
 `select tableoid::regclass, count(*) from rbn_spots group by 1 order by 1;` shows rows per day.
 A line more than seven days late lands in the default partition. If its day was already retired,
 retention deletes it the next night (warning `rbn retention: <day> was retired; deleting its late
-rows`) and keeps the day's archive as it is; APRS-IS does the same.
+rows`), keeps the day's archive as it is and records nothing; APRS-IS does the same. The rollups
+still see the day as retired meanwhile (`rbn_day_retired`: some slice of the day is logged with
+more rows than the database holds), so a late line never lets a retired day be rolled up as whole.
 
 ## Rotating the relay secret
 
@@ -1004,20 +1008,85 @@ select pg_size_pretty(pg_total_relation_size('callsign_activity'));
 ## Is it keeping up?
 
 ```sql
-select max(day) from callsign_rollup_days;   -- yesterday, once 03:35 UTC has passed
-select d::date as missing
-from generate_series((select min(day) from callsign_rollup_days), (now() at time zone 'utc')::date - 1, interval '1 day') d
-where d::date not in (select day from callsign_rollup_days);
+select * from callsign_rollup_status where status <> 'done' order by day;
 ```
 
-A missing day failed in the hourly job (Postgres logs: `callsign rollup of ... failed`).
-`select * from backfill_callsign_rollups(1);` retries it and shows the error. The two refusals:
+One row per UTC day since the first spot (`first_rollup_day()`: the earlier of the first marker and
+the first non-RBN `raw_spots` row), through the latest day a rollup may take (two hours after it ends). No
+rows means every day is done. Otherwise:
 
-- `no cty.dat loaded`: run `import-cty` (see "Countries (cty.dat)").
-- `the RBN spots of ... were retired`: the day failed for 14 days and retention dropped its RBN
-  rows. They are only in the archive now. `select rollup_callsign_day('<day>', true);` rolls up the
-  other sources and marks the day, accepting that its RBN spots are missing from every profile.
-  Until then the day is retried, and warned about, every hour.
+- `pending`: no marker and no recorded failure. Yesterday enters the view at 02:00 UTC and is
+  pending until the 02:25 run; an older
+  pending day means the hourly job has not reached it yet (a backlog clears at two days an hour)
+  or its runs are being cancelled (below). `select * from backfill_callsign_rollups(1);` rolls it
+  up now and shows any error.
+- `failed`: the hourly job tried it `attempts` times; `last_error` and `last_failed_at` say why
+  and when. The row goes away when the day succeeds. The usual causes:
+  - `no cty.dat loaded`: run `import-cty` (see "Countries (cty.dat)").
+  - anything else: `select * from backfill_callsign_rollups(1);` retries the oldest unrolled day
+    and returns the error. A statement-timeout cancel is the one failure the handler cannot
+    catch: it rolls back the whole run, leaves no failures row, and the day stays `pending`.
+- `rbn_retired`: the day has no marker and retention dropped its RBN rows (`rbn_day_retired`: some
+  slice of the day is logged in the archive with more rows than the database holds, the per-slice
+  test retention's `rbn_day_archived` uses; late lines in the default partition do not hide it). Retention gives up waiting at 14 days; the day's failures row
+  says `RBN rows retired before the roll-up ran`, then the hourly refusal `the RBN spots of ...
+  were retired` every hour. The RBN spots are in the archive only.
+  `select rollup_callsign_day('<day>', true);` rolls up the other sources, marks the day
+  `done_without_rbn` and clears its failures row, accepting that its RBN spots are missing from
+  every profile; its RBN rows can still reach `callsign_days` through "Rebuilding a day from the
+  archive".
+- `done_without_rbn`: the roll-up counted fewer RBN spots than the archive logged for the day: the
+  whole day after `(day, true)`, or a late line or two of a retired day. Days rolled up with
+  `(day, true)` before the column existed were marked by the migration when their
+  `callsign_activity` day rows were still there, and by the fill otherwise.
+  Permanent for `callsign_activity` and the running totals.
+- `fill_failed`: rolled up, but its `callsign_days` fill keeps failing (`last_error` starts with
+  `callsign_days fill:`). The one expected cause is a retired day, not `without_rbn`, whose
+  `callsign_activity` day rows were compacted into month rows before the fill reached it (`only
+  the archive has it`): build it with "Rebuilding a day from the archive".
+- `done`: rolled up whole. A `done` day whose `days_filled_at` is null has no `callsign_days` rows
+  yet (see "Filling callsign_days for older days").
+
+Every day's attempts, including the retention record, also raise a Postgres warning
+(`callsign rollup of ... failed`, `callsign_days fill of ... failed`, `rbn retention: ... retired
+without its callsign rollup`), but the view is the record; `cron.job_run_details` shows the run as succeeded either way.
+
+## Pushing the callsign_days migration
+
+`20261019000100` alters `callsign_rollup_days`, and the hourly job holds row locks on it while it
+runs, so the migration starts with `select set_config('lock_timeout', '10s', true)` and fails
+rather than queue with the whole transaction open. The setting is transaction-scoped, which is how
+`supabase db push` applies a migration; applied by hand with psql, wrap the file in `begin;` /
+`commit;`, or the setting ends with its own statement. A timeout fails the push: run `supabase db
+push` again away from :25 (an RBN day takes about a minute).
+
+## Filling callsign_days for older days
+
+Days rolled up before `callsign_days` existed (2026-10-11 to the day before the migration was
+pushed) have `days_filled_at` null in `callsign_rollup_days`. The hourly job fills them two days a
+run, oldest first, in every run that rolled no day up (23 of 24; the 02:25 run rolls up yesterday
+instead), so a week of history is done within a day of the push. It never does both in one run: a
+statement-timeout cancel is not caught and would undo everything the run did. To see it, or to go faster, run it by hand (an RBN day takes about a minute):
+
+```sql
+select * from backfill_callsign_days(3);   -- repeat until it returns no rows
+select day, spots, days_filled_at from callsign_rollup_status where status like 'done%' and days_filled_at is null;
+```
+
+Each row is a day with its spot count and `exact`. The POTA, SOTAwatch, DX Cluster and WWFF rows
+are always exact: `raw_spots` is never pruned. `exact` is about the RBN row: true when the day's
+RBN rows were still in the database and it was built from them; false when they were already
+retired (or held fewer than the roll-up counted) and it came from `callsign_activity` instead,
+with `spots` and `bands` exact but `modes` holding at most `cw`. Only the CW bucket maps back to a
+mode: RBN reports no FM, and the SSB, FT8/FT4 and Other buckets hold several modes, so RTTY is
+missing. That is the case for 2026-10-11 and every later day retention had already dropped (eight
+days old at 03:35 UTC) when the fill reached it; the `exact` column of `backfill_callsign_days`
+shows which. The hourly job discards `exact`, so run the backfill by hand right after the push if
+you want the list; an approximate RBN row can be made exact only
+from the archive (below). A row with an `error` was undone, recorded in `callsign_rollup_failures`
+(status `fill_failed`) and retried on the next call or hour; a retired day whose
+`callsign_activity` day rows were compacted is refused every time (`only the archive has it`) and
+needs the archive.
 
 ## Size
 
@@ -1025,11 +1094,106 @@ A missing day failed in the hourly job (Postgres logs: `callsign rollup of ... f
 source, band and mode bucket per day, folded into month rows after 35 days. Check it with
 `select grain, count(*), pg_size_pretty(pg_total_relation_size('callsign_activity')) from callsign_activity group by 1;`.
 
+`callsign_days` is never compacted: one row per station and source per day, about 150 bytes with
+its primary key, so a few MB a day. Check it with
+`select count(*), min(day), max(day), pg_size_pretty(pg_total_relation_size('callsign_days')) from callsign_days;`
+and, per day, `select day, source, count(*) from callsign_days group by 1, 2 order by 1, 2;`.
+
 ## Rolling a day up again
 
 Not supported: references, days on the air and variants are running totals, so a second pass
-would count the day twice. A day's rollup can only be redone by rebuilding every table from the
-archive.
+would count the day twice. A day's `callsign_activity`, `callsign_reach`, `callsign_references`,
+`callsign_seen` and `callsign_variants` cannot be redone. The one table that can be filled late
+is `callsign_days`, from the archive, below.
+
+## Rebuilding a day from the archive
+
+For a day whose RBN rows are in the archive only (`rbn_retired`, `done_without_rbn`, filled
+approximately, or `fill_failed` because its day rows were compacted), `callsign_days` can be built
+offline from the day's Parquet slices and inserted.
+This is a recipe, not code in the repository. It needs DuckDB on an operator's machine, the
+read-only B2 key from "Reading the archive" (never the worker's `writeFiles` key), and a
+service-role database connection. Nothing else changes: `callsign_activity` and the running
+totals stay as they are.
+
+1. In DuckDB, aggregate the day per source, callsign as spotted, mode and band. Slices are cut
+   on `spot_time`, so a folder's day is the spot's UTC day, and the archive holds what reached the
+   database within two hours of the slice, so this counts the same spots the roll-up would have.
+   RBN rows have no `source` field; the other sources' rows do.
+
+   Slices archived before 2026-10-14 are still gzipped NDJSON in the old layout,
+   `<source>/YYYY/MM/DD/HHMM.ndjson.gz`, until the one-off migration rewrites them. The Parquet
+   glob below does not match them, so for such a day it silently returns nothing; read them with
+   `read_json_auto`. The example day, 2026-10-11, is one (DX Cluster starts on 2026-10-12 and WWFF
+   has no NDJSON slices; DuckDB refuses a path that matches no file, so list only the sources with
+   files that day):
+
+   ```sql
+   install httpfs; load httpfs;
+   create secret (type s3, key_id '<keyID>', secret '<applicationKey>',
+                  endpoint 's3.<region>.backblazeb2.com', region '<region>', url_style 'path');
+   copy (
+     select 'rbn' as source, callsign, mode, band, count(*) as n
+     from read_json_auto('s3://<bucket>/rbn/2026/10/11/*.ndjson.gz')
+     group by all
+     union all
+     select source, callsign, mode, band, count(*)
+     from read_json_auto(['s3://<bucket>/pota/2026/10/11/*.ndjson.gz',
+                          's3://<bucket>/sotawatch/2026/10/11/*.ndjson.gz'], union_by_name = true)
+     group by all
+   ) to '2026-10-11.csv' (header);
+   ```
+
+   From 2026-10-14 the slices are Parquet in Hive-style day folders, so `year`, `month` and `day`
+   filter the files; files written before WWFF shipped lack its columns, hence `union_by_name`.
+   For example, 2026-10-15:
+
+   ```sql
+   copy (
+     select 'rbn' as source, callsign, mode, band, count(*) as n
+     from read_parquet('s3://<bucket>/rbn/*/*/*/*.parquet', hive_partitioning = true)
+     where year = 2026 and month = 10 and day = 15
+     group by all
+     union all
+     select source, callsign, mode, band, count(*)
+     from read_parquet(['s3://<bucket>/pota/*/*/*/*.parquet', 's3://<bucket>/sotawatch/*/*/*/*.parquet',
+                        's3://<bucket>/dxcluster/*/*/*/*.parquet', 's3://<bucket>/wwff/*/*/*/*.parquet'],
+                       hive_partitioning = true, union_by_name = true)
+     where year = 2026 and month = 10 and day = 15
+     group by all
+   ) to '2026-10-15.csv' (header);
+   ```
+
+2. In Postgres, load the file and insert (here 2026-10-11). Base calls come from `base_callsign()`
+   here, never from DuckDB, and the arrays are sorted, distinct and without nulls, as the roll-up
+   writes them:
+
+   ```sql
+   create temp table day_rows (source text, callsign text, mode text, band text, n int);
+   \copy day_rows from '2026-10-11.csv' csv header
+   insert into callsign_days (base, day, source, spots, modes, bands)
+   select base_callsign(callsign), date '2026-10-11', source, sum(n)::int,
+          coalesce(array_agg(distinct mode order by mode) filter (where mode is not null), '{}'),
+          coalesce(array_agg(distinct band order by band) filter (where band is not null), '{}')
+   from day_rows
+   group by 1, 3
+   on conflict (base, day, source) do nothing;
+   ```
+
+   `on conflict do nothing` keeps whatever rows the day already has, so for a `done_without_rbn`
+   day this adds only the missing RBN rows. The roll-up's own insert does the same, so a rebuilt
+   row survives a later roll-up; still, for an `rbn_retired` day run `select
+   rollup_callsign_day('<day>', true);` first, so its other tables are filled and its POTA,
+   SOTAwatch, DX Cluster and WWFF rows come from the roll-up rather than the archive. To replace an
+   approximate RBN row, delete it in the same transaction first (`delete from callsign_days where
+   day = '2026-10-11' and source = 'rbn';` nothing references it); the other sources' rows are
+   exact already. A `fill_failed` day has no rows at all: insert the whole day and, in the same
+   transaction, `update callsign_rollup_days set days_filled_at = now() where day = '2026-10-11';`
+   so the hourly fill stops retrying it and compaction may fold its day rows (`days_filled_at`
+   says only that the rows are there, not that they were exact), and `delete from
+   callsign_rollup_failures where day = '2026-10-11';`, since nothing else clears that row once
+   the fill stops running. The marker's `spots` stays null: only the fill sets it for such a day.
+   Otherwise leave `callsign_rollup_days` alone.
 
 # Licenses (FCC)
 

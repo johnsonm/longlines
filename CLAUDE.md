@@ -412,6 +412,13 @@ its Copy section is the copy source for the Discord editor.
 - `rollup_callsign_day` runs exactly once per completed UTC day (its marker goes in first):
   references, seen and variants are running totals. Never delete a marker to re-roll a day. It
   refuses a day it cannot roll up whole (no cty.dat, RBN rows already retired) rather than mark it.
+  Retired is `rbn_day_retired` (some slice of the day logged with more rows than the database
+  holds, the per-slice test `rbn_day_archived` uses), shared by the roll-up, `fill_callsign_days`,
+  `maintain_rbn_spots` and the status view; never decide "retired" from the partition's existence
+  or from zero rows, since a late line would mask a retired day. `without_rbn` means RBN spots
+  counted < RBN rows archived, the archive total read before the pass. The first day is
+  `first_rollup_day()` (the earlier of the first marker and the first `raw_spots` row with
+  `source <> 'rbn'`); never `min(spot_time)` over `spot_stream` while either exists.
 - The rollups run in their own hourly cron job (`rollup-callsign-days`), never inside
   `maintain_rbn_spots`, so a slow rollup cannot hold partition locks or undo retention.
 - Group a day by `callsign`/`spotter` before calling `base_callsign()` or `cty_lookup()`; the
@@ -422,6 +429,30 @@ its Copy section is the copy source for the Discord editor.
   `reindex index rbn_spots_base_callsign_time_idx` (Postgres never rebuilds an expression index when
   its function changes), fixes any `hidden_callsigns` row its check would now reject and calls
   `rebase_callsign_group_members()`, since `callsign_group_members` stores base calls.
+- `callsign_days` (base, UTC day, source: spots, sorted `modes[]` and `bands[]`) is day grain
+  forever and never compacted; heard role only; it stores the canonical modes `modes.ts` wrote
+  (readers group `usb`/`lsb`; no SQL mode grouping function until a consumer exists). It is filled
+  by `rollup_callsign_day` in the marker's transaction, with `on conflict do nothing` so a row
+  rebuilt from the archive wins; `fill_callsign_days` / `backfill_callsign_days` only fill days
+  rolled up before it existed: every source but RBN exactly from `spot_stream`, the RBN row from
+  `callsign_activity` (only the CW bucket maps back to a mode) when the day is retired or the fresh
+  RBN count is below what the roll-up counted, and a retired day (not `without_rbn`) whose day rows
+  were compacted into month rows is refused. `compact_callsign_rollups` keeps a day's rows until
+  `callsign_rollup_days.days_filled_at` is set.
+- A failed day goes through `record_callsign_rollup_failure` into `callsign_rollup_failures`,
+  never only a `raise warning`; `rollup_callsign_day` deletes the row itself after its marker, so a
+  manual `(day, true)` clears it. `maintain_rbn_spots` records a day it retires without a marker
+  the same way, only when the day did not already read as retired and the archive logged RBN rows
+  for it (state, not partition existence), decided before any drop: never scan `rbn_spots` under
+  a drop's lock.
+  `callsign_rollup_status` is the operator's view (order: `fill_failed`, `done_without_rbn`, `done`,
+  `rbn_retired`, `failed`, `pending`). All of it is service-role only.
+- `backfill_callsign_rollups(p_max_days)` keeps its return shape `(rollup_day, spots, error)`:
+  `seed.sql`, `scripts/smoke-test.sql` and pgTAP call it. The fill's rows stay out of it, and it
+  runs the fill only when its day loop rolled nothing up, and the fill attempts at most twice
+  `p_max_days` days, so a run makes a bounded number of day passes (a statement-timeout cancel is not caught and would undo the run). The cron body stays
+  `select count(*) from backfill_callsign_rollups(2)` (raising would roll back the successful
+  days).
 
 ## Profile rules
 

@@ -890,13 +890,19 @@ flowchart LR
   C[pg_cron :25 hourly] -- "backfill_callsign_rollups(2)" --> D[rollup_callsign_day]
   D -- "one pass per day" --> V
   D --> T[(callsign_activity, callsign_reach, callsign_references, callsign_seen, callsign_variants)]
+  D --> Y[(callsign_days)]
   D -- marker --> K[(callsign_rollup_days)]
+  C -- "a day failed" --> F[(callsign_rollup_failures)]
   K -- "rolled up: may retire" --> M[maintain_rbn_spots 03:35 UTC]
+  M -- "retired at 14 days without a marker" --> F
+  K --> S[callsign_rollup_status view]
+  F --> S
 ```
 
 Callsign profiles cover every day since Long Lines started, but `rbn_spots` keeps only seven. The
-rollups keep per-station counts and breakdowns forever, never per-spotter rows (spec
-`docs/superpowers/specs/2026-10-12-callsign-lookup-design.md`).
+rollups keep per-station counts and breakdowns forever, never per-spotter rows (specs
+`docs/superpowers/specs/2026-10-12-callsign-lookup-design.md` and
+`docs/superpowers/specs/2026-10-19-callsign-days-design.md`).
 
 - **`spot_stream`.** One row shape for every source: `source`, `spot_time`, `callsign`,
   `base_callsign`, `spotter`, `spotter_base`, `frequency_khz`, `band`, `mode`, `mode_bucket`,
@@ -915,25 +921,90 @@ rollups keep per-station counts and breakdowns forever, never per-spotter rows (
   and `callsign_variants` (base, spelling: spots, last day). Role `heard` is the station spotted;
   role `spotter` is the station spotting others. Self-spots count as heard but not as spotter
   or reach. Countries come from `cty_lookup`, once per distinct spotter.
+- **`callsign_days`.** One row per base callsign, UTC day and source: `spots`, and the distinct
+  `modes` and `bands` heard as sorted `text[]` (a spot with a null mode or band counts in `spots`
+  and adds nothing to the arrays). Heard role only; spotters stay in `callsign_activity`. Modes are
+  the canonical values `_shared/modes.ts` stored (`usb` and `lsb` stay as spelled; a reader that
+  wants one SSB figure groups them, and there is no SQL grouping function until a consumer needs
+  one), so a new mode needs no schema change. Day grain forever: `compact_callsign_rollups()`
+  never touches it. Primary key `(base, day, source)` and no other index; both target queries
+  ("every day X was active", "X per day this year by source") are prefix scans of it. About 150 B
+  a row, one per (base, source) a day, so no partitioning.
 - **Exactly once.** `rollup_callsign_day(day)` inserts the day's `callsign_rollup_days` marker
   first and does nothing when it is already there: references, seen and variants are running
-  totals and would double. A day is rolled up from two hours after it ends
-  (`last_rollup_day()`); a spot that arrives after that is not counted.
+  totals and would double. `callsign_days` is filled by one more data-modifying CTE of the same
+  statement, from the same grouped pass (every grouped row is a heard row, so summing it by base
+  and source counts each spot once), so it inherits exactly once; its insert keeps a row already
+  there (a day rebuilt from the archive before it was marked). The marker also records what the
+  day counted (`spots`), whether the archive holds RBN rows of the day the roll-up did not count
+  (`without_rbn`: RBN spots counted < RBN rows archived, the whole day after `(day, true)` or a
+  late line or two of a retired day; the archive's total is read before the pass, so a slice
+  logged during it cannot set the flag) and when its `callsign_days` rows were written
+  (`days_filled_at`). Right after the marker, in the same transaction, the day's
+  `callsign_rollup_failures` row is deleted.
+- **Limits.** A day is rolled up from two hours after it ends (`last_rollup_day()`), covering the
+  relay's ~50 min buffer; a spot that arrives after that is not counted anywhere. An upstream edit
+  of a spot (same `source_spot_id`, new `content_hash`) is a new `raw_spots` row and counts again,
+  as on the Stats page; a re-poll of an unchanged spot inserts nothing.
 - **Whole days or none.** A day is refused, and retried on the next run, while no cty.dat is
   loaded (its reach would stay empty) or once its RBN rows were archived and retired (retention
-  stops waiting at 14 days). `rollup_callsign_day(day, true)` rolls up such a day without RBN when
-  an operator accepts the gap.
+  stops waiting at 14 days). Retired is `rbn_day_retired(day)`: some RBN slice of the day is
+  logged in `archive_log` with more rows than `rbn_spots` holds for it (the per-slice test
+  `rbn_day_archived` uses, as index range probes per logged slice). Only retention removes rows, so late lines in the
+  default partition cannot hide a retired day unless they refill every logged slice, and a day the
+  archive has nothing for is not retired. `rollup_callsign_day(day,
+  true)` rolls up such a day without RBN when an operator accepts the gap, marking it
+  `without_rbn`.
 - **One pass.** A day is grouped once by call, spotter, band, mode, hour and reference; base calls
   and countries are resolved per distinct call afterwards. A synthetic 1.5M-row RBN day takes about
   13 s locally.
 - **Hourly.** The `rollup-callsign-days` cron job runs `backfill_callsign_rollups(2)` at 25 past
-  every hour: at most two days without a marker, oldest first, each in its own subtransaction,
-  then it folds day rows older than 35 days into month rows (`compact_callsign_rollups`). A
-  failed day is a warning, does not count toward the two, and is retried next hour. Yesterday is
-  rolled up at 02:25 UTC, ahead of RBN retention at 03:35. The job is separate from
-  `maintain_rbn_spots()` on purpose: a slow or cancelled rollup never holds that job's partition
-  locks or undoes its retention, and retention still retires an RBN day 14 days old without its
-  rollup.
+  every hour: at most two days without a marker, oldest first, each in its own subtransaction;
+  only when it rolled none up, `backfill_callsign_days` for at most two days (below), so a run
+  never makes more than two day passes (a statement-timeout cancel is not caught and would undo
+  the whole run); then it folds day rows older than 35 days into month rows
+  (`compact_callsign_rollups`). A failed day does not count toward the two
+  and is retried next hour. Yesterday is rolled up at 02:25 UTC, ahead of RBN retention at 03:35.
+  The job is separate from `maintain_rbn_spots()` on purpose: a slow or cancelled rollup never
+  holds that job's partition locks or undoes its retention, and retention still retires an RBN
+  day 14 days old without its rollup. The first day to consider is `first_rollup_day()`: the
+  earlier of the first marker and the first `raw_spots` row with `source <> 'rbn'`, both cheap, so a spot day before the
+  first marker is still rolled up; `spot_stream` is scanned for it only while there is neither,
+  since `rbn_spots` has no leading `spot_time` index.
+- **Filling history.** Days rolled up before `callsign_days` existed have `days_filled_at` null.
+  `fill_callsign_days(day)` (locking the marker row, so two fills cannot both insert) reads the
+  day once from `spot_stream`, grouped by call, source, mode and band. Every source but RBN is
+  inserted from that pass, exact: `raw_spots` is never pruned. The RBN row is too while the day is
+  not retired and the pass holds at least the RBN spots the roll-up counted (`callsign_activity`'s
+  RBN heard day rows), late rows included. Otherwise (retired, or fewer than counted) the RBN row
+  comes from those day rows: `spots` and `bands` exact, `modes` at most `cw`. Only the CW bucket
+  maps back to a mode: RBN reports no FM, and the SSB, FT8/FT4 and Other buckets hold several
+  modes. A day is refused (only the archive has it) when it is retired, not `without_rbn`, has no
+  day rows left and has RBN heard month rows for its month: compacted before the fill. The fill
+  also sets `without_rbn` for a day rolled up with `(day, true)` before the column existed (the
+  migration set it already where the day rows were still there) and deletes the day's failures
+  row. `backfill_callsign_days(n)` runs it oldest first, each day in its own subtransaction, from
+  hourly runs that rolled no day up (23 of 24), before compaction, and
+  records a failure as `callsign_days fill: ...`; `compact_callsign_rollups` keeps a day's
+  `callsign_activity` and `callsign_reach` rows until `days_filled_at` is set, so the approximate
+  source cannot vanish first. New days are filled by the roll-up itself and never take this path.
+- **Status.** A day that fails in the hourly job lands in `callsign_rollup_failures` (`attempts`,
+  first and last failure, `last_error`) through `record_callsign_rollup_failure`, written in the
+  exception handler after the day's subtransaction rolled back. `rollup_callsign_day` deletes the
+  row when the day succeeds, from the job or by hand (`(day, true)` included). `maintain_rbn_spots()`
+  records a day it retires at 14 days without a marker the same way (`RBN rows retired before the
+  roll-up ran`), when the day did not already read as retired and the archive logged RBN rows for
+  the day, both decided before any partition is dropped (its state, not whether a partition existed: a day that only ever
+  lived in the default partition is recorded too), so the gap is visible within hours instead of
+  a warning in the logs; deleting late rows of a day retired earlier records nothing. `callsign_rollup_status` is one row per UTC day from
+  `first_rollup_day()` to `last_rollup_day()`, with `status` decided in this order: `fill_failed`
+  (marker, `days_filled_at` null, a failures row), `done_without_rbn`, `done`, `rbn_retired` (no
+  marker and `rbn_day_retired`, the test `rollup_callsign_day` and the fill use), `failed`,
+  `pending`; yesterday enters the view at 02:00 UTC and is `pending` until the 02:25 run.
+  `rbn_retired` wins over `failed` because such a day also gains a failures row every
+  hour from the refusal. The cron body stays `select count(*) from backfill_callsign_rollups(2)`:
+  raising from it would roll back the successful days, so the failures table is the signal.
+  Service-role only, like the tables.
 
 # Licenses (FCC)
 
