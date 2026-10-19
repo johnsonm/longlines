@@ -646,6 +646,39 @@ describe("callsign groups", () => {
     await expect(api.saveGroup({ name: "RARS", callsigns: [] })).rejects.toThrow("You already have a group with that name.");
   });
 
+  it("saveGroup passes the sharing keys when given", async () => {
+    fake.rpcs.set("save_callsign_group", { data: "g1" });
+    await api.saveGroup({ id: "g1", name: "RARS", callsigns: [], public: true, show_callsigns: false });
+    expect(fake.client.rpc).toHaveBeenCalledWith("save_callsign_group", {
+      payload: { id: "g1", name: "RARS", callsigns: [], public: true, show_callsigns: false },
+    });
+  });
+
+  it("listGroupSummaries keeps a group not built yet as null figures", async () => {
+    fake.rpcs.set("list_group_summaries", {
+      data: [
+        { id: "g1", public: true, spots: "10082", members_heard: 19, member_count: 24, daily: [1, 2], on_air: ["W4ABC"] },
+        { id: "g2", public: false, spots: null, members_heard: null, member_count: null, daily: null, on_air: [] },
+      ],
+    });
+    expect(await api.listGroupSummaries()).toEqual([
+      { id: "g1", public: true, spots: 10082, members_heard: 19, member_count: 24, daily: [1, 2], on_air: ["W4ABC"] },
+      { id: "g2", public: false, spots: null, members_heard: null, member_count: null, daily: null, on_air: [] },
+    ]);
+    fake.rpcs.set("list_group_summaries", { error: boom });
+    await expect(api.listGroupSummaries()).rejects.toThrow("boom");
+  });
+
+  it("loadGroupStatistics asks for one group and period", async () => {
+    fake.rpcs.set("get_group_statistics", { data: { period: "7d", group: { id: "g1" } } });
+    expect(await api.loadGroupStatistics("g1", "7d")).toEqual({ period: "7d", group: { id: "g1" } });
+    expect(fake.client.rpc).toHaveBeenCalledWith("get_group_statistics", { p_id: "g1", p_period: "7d" });
+    fake.rpcs.set("get_group_statistics", { data: null });
+    await expect(api.loadGroupStatistics("g1", "7d")).rejects.toThrow("Couldn't load the statistics.");
+    fake.rpcs.set("get_group_statistics", { error: { message: "Group not found." } });
+    await expect(api.loadGroupStatistics("g1", "30d")).rejects.toThrow("Group not found.");
+  });
+
   it("deleteGroup goes through its RPC", async () => {
     await api.deleteGroup("g1");
     expect(fake.client.rpc).toHaveBeenCalledWith("delete_callsign_group", { p_id: "g1" });

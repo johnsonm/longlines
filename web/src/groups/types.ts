@@ -26,6 +26,8 @@ export interface GroupInput {
   id?: string;
   name: string;
   callsigns: string[];
+  public?: boolean; // left out, save_callsign_group keeps the stored value
+  show_callsigns?: boolean;
 }
 
 /** What normalize_group_callsigns returns: base calls to store, and values that aren't callsigns. */
