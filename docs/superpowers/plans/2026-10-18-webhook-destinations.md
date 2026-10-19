@@ -6,6 +6,9 @@ Revision 1, 2026-10-18. Brad approved the plan of 2026-10-17 (six decisions) bef
 work merged; this revision re-plans it against main at `710098f` (Discord PRs #215 to #217 merged).
 Revision 2, same day: the review's findings (attempted rows, empty pairs, spaced pause count,
 header order, existing pgTAP suites, Source catalog in PR 2, CLAUDE.md and copy fixes).
+Revision 3, same day, from PR 2's review: the masked URL hides the last non-empty segment (a
+trailing slash kept); a pause makes the destination's whole queue visible so the sweep drops rows
+in backoff too; the default pause is null in PR 2 and PR 3 carries a migration that makes it 20.
 
 **Goal:** Give webhook destinations the editor **Page 7 of Brad's design canvas** draws: a card
 with Edit and Duplicate, a full-page editor (Endpoint with Replace URL, signing secret and extra
@@ -59,7 +62,7 @@ Each part runs in a fresh Claude Code session in its own worktree. Stacked branc
 | --- | --- | --- | --- | --- |
 | 0 | Task 0 | The spec, this plan, one line in the sender spec's 9A | `webhook-spec` | PR 1 → main |
 | 1 | Tasks 1 to 6 | Migration `20261018000300`, pgTAP, sender TypeScript (incl. `run.ts`), send-test, docs, generated types, the Source catalog | `webhook-schema` (from `webhook-spec`) | PR 2 → `webhook-spec`, retargeted to main |
-| 2 | Tasks 7 to 11 | `api.ts`, model, list cards, editor, dialog, preview, CLAUDE.md | `webhook-ui` (from `webhook-schema`) | PR 3 → `webhook-schema`, retargeted to main |
+| 2 | Tasks 7 to 11 | `api.ts`, model, list cards, editor, dialog, preview, CLAUDE.md, the pause-default migration | `webhook-ui` (from `webhook-schema`) | PR 3 → `webhook-schema`, retargeted to main |
 
 PR 2 is safe to merge alone: it deploys the sender, which sends today's body until Brad pushes the
 migration; after the push receivers get the new body. PR 3 needs PR 2's migration on hosted.
@@ -87,7 +90,8 @@ migration; after the push receivers get the new body. PR 3 needs PR 2's migratio
 2. After PR 2 merges (the sender redeploys itself through Fly): `supabase db push`, then
    `supabase functions deploy send-test` and `supabase functions deploy api`.
 3. Tell anyone with a webhook about the body change (`docs/WEBHOOKS.md`, "Changed 2026-10").
-4. After PR 3 merges: Vercel builds main; no new env.
+4. After PR 3 merges: `supabase db push` (the pause default, one statement), and Vercel builds
+   main; no new env.
 
 ## Global Constraints
 
@@ -173,43 +177,45 @@ built up over Tasks 1 to 4, each with its tests.
 **Files:** the migration (sections 1 and 2); `supabase/tests/webhook_destinations.test.sql` (new);
 `supabase/tests/destinations.test.sql`; `supabase/tests/advisor.test.sql`.
 
-- [ ] Write the failing tests first in `webhook_destinations.test.sql` (include
+- [x] Write the failing tests first in `webhook_destinations.test.sql` (include
   `helpers/users.psql`; `pg_temp.as_user`): a new webhook gets a settings row equal to
   `webhook_default_settings()`; an existing-style row backfilled by the migration's statement has
   all 14 fields, batch 10, `day`, pause null; `secret_rotated_at` is set on create and moves on
   `rotate_signing_secret`; `url_display` for `https://logger.example.org/hook/abc123?k=v` is
-  `https://logger.example.org/hook/••••••`, for `https://example.org/` stays
+  `https://logger.example.org/hook/••••••`, for `https://hooks.zapier.com/hooks/catch/123456/abcdef/`
+  is `https://hooks.zapier.com/hooks/catch/123456/••••••/` (the last non-empty segment, the
+  trailing slash kept), for `https://example.org/` stays
   `https://example.org/`; `authenticated` can select `auto_disabled_at` but not
   `secret_rotated_at`; RLS on `webhook_destination_settings` with no client privileges.
-- [ ] `alter table destinations add column secret_rotated_at timestamptz`, backfill from
+- [x] `alter table destinations add column secret_rotated_at timestamptz`, backfill from
   `created_at` for webhooks; trigger `destinations_secret_rotated_at` (before insert, `when
   (new.type = 'webhook' and new.secret_rotated_at is null)`). `add column auto_disabled_at
   timestamptz`; `grant select (auto_disabled_at) on destinations to authenticated`. `add column
   pause_failures int not null default 0, add column pause_failure_at timestamptz` (no grant).
-- [ ] `destination_url_display(p_type, p_url)` from `20261014000100` with the webhook branch
+- [x] `destination_url_display(p_type, p_url)` from `20261014000100` with the webhook branch
   masking the last path segment; `update destinations set url_display = ... where type =
   'webhook'`. `rotate_signing_secret` from `20261006000002` plus the stamp (keep its grants:
   `create or replace`).
-- [ ] `webhook_fields()`, `webhook_fields_valid(text[])`, `destination_batch_full(text)`,
+- [x] `webhook_fields()`, `webhook_fields_valid(text[])`, `destination_batch_full(text)`,
   `webhook_claim_max(int)`, `webhook_retry_max_attempts(text)`,
   `webhook_retries_exhausted(text, int)`, `webhook_retry_delay(text, int)` (spec, Delivery
   policy), `webhook_pause_spacing()` (30 s), all immutable, `search_path = ''`.
-- [ ] `webhook_destination_settings` with the spec's columns and checks; `webhook_default_settings()`;
+- [x] `webhook_destination_settings` with the spec's columns and checks; `webhook_default_settings()`;
   trigger function `webhook_destination_settings_default()` and trigger
   `destinations_webhook_settings`; the backfill with the decision 10 overrides.
-- [ ] `check_webhook_setting_keys(jsonb)`, `validate_webhook_fields(text[])`,
+- [x] `check_webhook_setting_keys(jsonb)`, `validate_webhook_fields(text[])`,
   `validate_webhook_settings(webhook_destination_settings)` with the spec's Errors.
-- [ ] Update `destinations.test.sql` (its webhook `url_display` assertion; it creates 51
+- [x] Update `destinations.test.sql` (its webhook `url_display` assertion; it creates 51
   webhooks, so re-read every assertion that could see the new settings row, columns or masking)
   and the advisor lists.
-- [ ] `supabase db reset && supabase test db`.
+- [x] `supabase db reset && supabase test db`.
 - [ ] Commit `Webhook destinations: settings, masked URL and secret rotation time`.
 
 ### Task 2: Extra headers in Vault
 
 **Files:** the migration (section 3); `webhook_destinations.test.sql`.
 
-- [ ] Tests first: saving two headers creates two Vault rows whose decrypted values match;
+- [x] Tests first: saving two headers creates two Vault rows whose decrypted values match;
   `webhook_header_names` returns names only, in order; saving the same names without values keeps
   the secret ids; a new value replaces the secret (the old Vault row is gone); reordering keeps
   ids; a renamed header without a value raises "Give the {name} header a value."; an 11th raises
@@ -219,12 +225,12 @@ built up over Tasks 1 to 4, each with its tests.
   characters raises the length message; `[]` removes all and their Vault rows; deleting the
   destination as its owner (`delete from destinations` under `as_user`) and deleting the auth user
   both remove the Vault rows; `authenticated` has no privilege on the table.
-- [ ] `webhook_header_name_valid(text)`; table `webhook_destination_headers` (spec, Schema); RLS on,
+- [x] `webhook_header_name_valid(text)`; table `webhook_destination_headers` (spec, Schema); RLS on,
   revokes; the deferrable unique on position and the unique index on `lower(name)`.
-- [ ] Trigger function `webhook_destination_headers_drop_secret()` (`security definer`,
+- [x] Trigger function `webhook_destination_headers_drop_secret()` (`security definer`,
   `search_path = ''`, deletes `old.secret_id` from `vault.secrets`), triggers after delete and
   after update of `secret_id`.
-- [ ] `webhook_header_names(uuid)`, `webhook_header_values(uuid)`,
+- [x] `webhook_header_names(uuid)`, `webhook_header_values(uuid)`,
   `set_webhook_headers(uuid, jsonb)` as the spec's Extra headers section describes: validate the
   whole list, then delete, update, insert.
 - [ ] Commit `Webhook destinations: extra headers stored in Vault`.
@@ -234,7 +240,7 @@ built up over Tasks 1 to 4, each with its tests.
 **Files:** the migration (sections 4, 6 to 8); `webhook_destinations.test.sql`;
 `management_api.test.sql`; `advisor.test.sql`; `scripts/smoke-test.sql`.
 
-- [ ] Tests first, rendering: the default 11 pairs in order for `push_sample_spot()`; camel keys
+- [x] Tests first, rendering: the default 11 pairs in order for `push_sample_spot()`; camel keys
   (`placeName`, `frequencyKhz`); `mhz` gives key `frequency_mhz` and `14.062`, `hz` gives
   `frequency_hz` and `14062000`, kHz `10123.900` renders `10123.9`; `iso_utc` gives
   `2026-10-17T17:42:09Z` and `unix_seconds` gives `1792258929` for that time; a DX Cluster spot
@@ -245,7 +251,7 @@ built up over Tasks 1 to 4, each with its tests.
   `webhook_request_body` is the single body with batch 0 and `{"spots": [item]}` otherwise;
   fields `[reference]` with `omit` on a DX Cluster spot gives pairs `[]` (not null), object `{}`
   and a body with `"spot": {}`.
-- [ ] Tests first, RPCs: `save_webhook_destination` creates (secret returned once, `whsec_` and 48
+- [x] Tests first, RPCs: `save_webhook_destination` creates (secret returned once, `whsec_` and 48
   hex characters), refuses a blank URL with "Use an https URL.", updates without returning a
   secret, keeps the URL on null or blank, merges settings key by key, raises "Unknown setting x."
   and each validation message, name clash message, another user's id is "Destination not found.";
@@ -261,15 +267,15 @@ built up over Tasks 1 to 4, each with its tests.
   `api_destination_json` of a webhook has `webhook` with names only; `update_destination(id, null,
   null, true)` on an auto-disabled webhook clears `auto_disabled_at` and `pause_failure_at` and
   zeroes `consecutive_failures` and `pause_failures` but leaves health.
-- [ ] `webhook_field_key`, `webhook_field_value`, `webhook_spot_fields`, `webhook_spot_object`,
+- [x] `webhook_field_key`, `webhook_field_value`, `webhook_spot_fields`, `webhook_spot_object`,
   `webhook_request_body` (spec, Rendering).
-- [ ] `save_webhook_destination`, `get_webhook_destination`, `list_webhook_destination_settings`,
+- [x] `save_webhook_destination`, `get_webhook_destination`, `list_webhook_destination_settings`,
   `preview_webhook_request` (`authenticated`), `webhook_test_delivery` (service role).
-- [ ] `update_destination` from `20261016000400` plus the resume rule; `duplicate_destination` from
+- [x] `update_destination` from `20261016000400` plus the resume rule; `duplicate_destination` from
   `20261018000100` plus the webhook branch and no type check; `api_destination_json` from
   `20261018000100` plus `webhook`.
-- [ ] Grants at the end of the file; advisor lists.
-- [ ] `scripts/smoke-test.sql`: a webhook block after Discord's, asserting trigger
+- [x] Grants at the end of the file; advisor lists.
+- [x] `scripts/smoke-test.sql`: a webhook block after Discord's, asserting trigger
   `destinations_webhook_settings` exists, that `webhook_spot_fields(jsonb_populate_record(null::
   webhook_destination_settings, webhook_default_settings()), push_sample_spot())` gives the 11
   default keys in order, and that `webhook_request_body` of it has `delivery_id`, `connection` and
@@ -285,8 +291,8 @@ built up over Tasks 1 to 4, each with its tests.
 `discord_destinations`, `push_destinations`, `push_devices`, `dxcluster`, `wwff`, `rbn`,
 `subscriptions`, `subscription_rules` (and `destinations`, Task 1).
 
-- [ ] Audit the existing suites first. After the migration a new webhook gets `three_10m`, batch
-  0 (5 a claim) and pause 20, so a test that meant "a generic destination" can change meaning.
+- [x] Audit the existing suites first. After the migration a new webhook gets `three_10m`, batch
+  0 (5 a claim) and (from PR 3) pause 20, so a test that meant "a generic destination" can change meaning.
   Where it means generic, pin today's behaviour in its transaction (`update
   webhook_destination_settings set retry_policy = 'day', pause_after_failures = null`); where it
   claims more than 5 rows from one webhook, either expect the cap (it is now the behaviour) or set
@@ -297,30 +303,32 @@ built up over Tasks 1 to 4, each with its tests.
   in a row (exhausted under `three_10m`), and its `fair`/`fair2`, budget and `big` sections;
   `claim_expiry.test.sql`'s webhooks (it claims exactly 5). Run each suite before and after and
   account for every changed assertion in the commit message.
-- [ ] Tests first, claim: a claimed webhook row's destination jsonb has `webhook.batch_seconds` and
+- [x] Tests first, claim: a claimed webhook row's destination jsonb has `webhook.batch_seconds` and
   `webhook.headers` with values, its spot has `webhook_fields` (the pairs) and
   `webhook_connection` (the subscription's name); Discord and push rows are unchanged; with batch
   10 a 3 s old row is held and a 12 s old one is claimed, 50 young rows are claimed at once, 49 are
   held; Discord still releases at 10 (`destination_batch_full`); with batch 0 a webhook with 12
   ready rows is handed 5, and with batch 30 (old enough) up to the budget; webhooks have no claim
   interval (two claims 1 s apart both hand rows).
-- [ ] Tests first, failures: `three_10m` rows get vt +60, +180, +360 on failures 1 to 3 (check
+- [x] Tests first, failures: `three_10m` rows get vt +60, +180, +360 on failures 1 to 3 (check
   `pgmq.q_deliveries_queue.vt` against `now()`) whatever `p_delay_seconds` says; after the fourth
   failure the vt is now and the next claim drops the row with `dropped_at`; `none` drops after one
   failure; `day` follows 30, 60, 120, 300, 900, 1800, 1800; a Discord or push row still gets
   `p_delay_seconds`; an exhausted row past the sweep's batch of 500 is not claimed (`ready`);
   `mark_deliveries_sent` resets `consecutive_failures` as before.
-- [ ] Tests first, pause: with pause 3, three failures less than 30 s apart (`pause_failure_at`
+- [x] Tests first, pause: with pause 3, three failures less than 30 s apart (`pause_failure_at`
   stays) count once while `consecutive_failures` counts three; three failures with
   `pause_failure_at` moved back 31 s each time set `enabled = false` and `auto_disabled_at`, and
   health follows `consecutive_failures` as today (`ok` at 3, `failing` from 5), never `paused`; a success between counted failures restarts the count at 1 (`last_success_at >
   pause_failure_at`); the next claim's unwanted sweep drops the queued rows **with** `dropped_at`
-  while `auto_disabled_at` is set, and a destination disabled by hand still drops them without it;
-  pause null never counts.
-- [ ] `mark_deliveries_failed` from `20261006000010` (grants kept by `create or replace`):
+  while `auto_disabled_at` is set, including the row that just failed and a row in retry backoff
+  at pause time (the pause makes the whole queue visible), so none is queued after resume; a
+  destination disabled by hand still drops them without it; pause null never counts.
+- [x] `mark_deliveries_failed` from `20261006000010` (grants kept by `create or replace`):
   deliveries, then destinations with the spaced pause count, then per-message vt from `unnest(
-  p_delivery_ids, p_msg_ids)` (spec, Delivery policy).
-- [ ] `claim_deliveries` from `20261018000100`, keeping everything, with only: the unwanted sweep
+  p_delivery_ids, p_msg_ids)`, then vt 0 for every queued row of a destination the pause turned
+  off (spec, Delivery policy, step 4).
+- [x] `claim_deliveries` from `20261018000100`, keeping everything, with only: the unwanted sweep
   (0a) sets `dropped_at = v_now` for rows of a destination with `auto_disabled_at` set; `ready` also selects
   `dest.type` and leaves out `webhook_retries_exhausted(ws.retry_policy, d.attempts)` rows (left
   join `webhook_destination_settings ws`); the 0b sweep drops those rows too; `held` joins both
@@ -329,7 +337,7 @@ built up over Tasks 1 to 4, each with its tests.
   defaults, `{"webhook": {"batch_seconds", "headers": webhook_header_values(id)}}`), a join to
   `subscriptions` for the name, and the two spot keys. Update the function's header comment with
   the additions.
-- [ ] `supabase db reset && supabase test db`; `scripts/smoke-test.sql`; `supabase db lint`;
+- [x] `supabase db reset && supabase test db`; `scripts/smoke-test.sql`; `supabase db lint`;
   `SENDER_TEST_DATABASE_URL="$DB_URL" deno test -P sender/__tests__/db.test.ts`.
 - [ ] Commit `Webhook delivery policy in SQL: grouping, per-claim cap, retry policies and pause`.
 
@@ -340,7 +348,7 @@ built up over Tasks 1 to 4, each with its tests.
 `supabase/functions/_shared/__tests__/delivery_format.test.ts`, `delivery_send.test.ts`,
 `handlers_test_delivery.test.ts`, `handlers_api.test.ts`; `sender/__tests__/sender.test.ts`.
 
-- [ ] Tests first, `delivery_format.test.ts`: `webhookRequests` with batch 0 gives one
+- [x] Tests first, `delivery_format.test.ts`: `webhookRequests` with batch 0 gives one
   `{delivery_id, connection, spot}` per delivery and `JSON.stringify` writes the spot's keys in the
   pairs' order; batch 30 with 120 deliveries gives `{spots}` requests of 50, 50 and 20 with counts;
   a missing `destination.webhook` or one row without `webhook_fields` gives the legacy body, whose
@@ -348,28 +356,28 @@ built up over Tasks 1 to 4, each with its tests.
   gives `"spot":{}`, not the legacy body; `webhook_fields: null` is legacy and does not throw; `extraHeaderAllowed` refuses every
   reserved name in both cases and `x-longlines-*`, `proxy-*`; `webhookExtraHeaders` drops a value
   with a control character.
-- [ ] Tests first, `delivery_send.test.ts` (a local `Deno.serve` receiver, `allowInsecure`): the
+- [x] Tests first, `delivery_send.test.ts` (a local `Deno.serve` receiver, `allowInsecure`): the
   receiver sees the headers in the spec's order (fixed five, then `X-LongLines-Test`, then the
   extras by position; read the raw request), the fixed five unchanged even when an extra header
   tries `Content-Type`, `X-LongLines-Test: true` only on a test delivery, a valid signature over the
   exact body, five requests for five deliveries at batch 0 with `sent` 5; a 500 on the third
   returns `sent` 2, `attempted` 3 and `status` 500; a grouped 500 on the second of three requests
   returns `attempted` 100; a 204 returns `status` 204; the legacy path still works.
-- [ ] Tests first, `delivery_run.test.ts`: five one-spot deliveries with a 500 on the first call
+- [x] Tests first, `delivery_run.test.ts`: five one-spot deliveries with a 500 on the first call
   `mark_deliveries_failed` with one delivery id and leave four untouched (`unattempted` 4);
   Discord and push results without `attempted` mark the whole rest, as today; a 429 still
   throttles every unsent row.
-- [ ] Tests first, `handlers_test_delivery.test.ts` (`fake_supabase`): a webhook test calls
+- [x] Tests first, `handlers_test_delivery.test.ts` (`fake_supabase`): a webhook test calls
   `webhook_test_delivery` with the spot id, sends with `test: true`, answers `{ok: true, status}`,
   or 502 `{error, status}`; null data gives the 404 messages; an RPC error gives 500.
   `handlers_api.test.ts`: `POST /destinations/{id}/test` passes `status` through.
   `sender/__tests__/sender.test.ts`: a claim with the new keys reaches the receiver in the new
   shape (keep the legacy case).
-- [ ] `types.ts`, `format.ts`, `send.ts`, `run.ts`, `test_delivery.ts` per the spec's Sender
+- [x] `types.ts`, `format.ts`, `send.ts`, `run.ts`, `test_delivery.ts` per the spec's Sender
   section. Remove
   `sampleSpot` and its tests; comment `backoffSeconds` (SQL's schedule wins for webhooks) and
   `webhookPayloads` (legacy, goes once the migration is hosted).
-- [ ] `deno task fmt && deno task lint && deno task check && deno task coverage` (three roots, no
+- [x] `deno task fmt && deno task lint && deno task check && deno task coverage` (three roots, no
   unloaded module).
 - [ ] Commit `Webhook sender: page 7 body in picked order, extra headers, test marker and status`.
 
@@ -379,7 +387,7 @@ built up over Tasks 1 to 4, each with its tests.
 `web/src/lib/database.types.ts`, `web/src/sources/sources.ts`, `web/src/sources/SourceDetailPage.tsx`
 (+ tests).
 
-- [ ] `docs/WEBHOOKS.md` rewritten: request headers (the fixed five, extra headers,
+- [x] `docs/WEBHOOKS.md` rewritten: request headers (the fixed five, extra headers,
   `X-LongLines-Test`), both bodies (the spec's examples), the field table with keys per style and
   unit, values as stored, missing values, ordering, the grouping window and the 50-spot cap, one
   request per spot sustaining about 50 a minute and the head-of-line cost of a slow receiver,
@@ -388,9 +396,9 @@ built up over Tasks 1 to 4, each with its tests.
   minutes; the waiting spots are dropped) and how to resume, Send test, signature verification (the Express example
   parses both shapes), rotating, address rules, and a "Changed 2026-10" section showing the old
   `{deliveries}` body and how to migrate.
-- [ ] `docs/API.md`: the `webhook` object, `POST /destinations/{id}/test` returning `status`, PATCH
+- [x] `docs/API.md`: the `webhook` object, `POST /destinations/{id}/test` returning `status`, PATCH
   `"enabled": true` resuming a paused webhook, a webhook created by the API getting defaults.
-- [ ] `docs/ARCHITECTURE.md` Delivery section: webhook rendering in SQL, Vault headers, the retry
+- [x] `docs/ARCHITECTURE.md` Delivery section: webhook rendering in SQL, Vault headers, the retry
   policy in `mark_deliveries_failed`. `CLAUDE.md`:
   - Delivery rules: `mark_deliveries_failed` takes SQL's delay for webhooks; the attempts
     predicate shared by the sweep and `ready`; pause is `enabled = false` with `auto_disabled_at`,
@@ -404,7 +412,7 @@ built up over Tasks 1 to 4, each with its tests.
     `connection` (the connection's name)".
   - Source catalog rules: the Schema and Example cards describe the delivered spot as the webhook
     field catalog with its default keys (`COMMON_FIELDS` in `webhook_fields()` order).
-- [ ] `sources.ts` and `SourceDetailPage` (spec, Web, Sources; moved here from PR 3 so
+- [x] `sources.ts` and `SourceDetailPage` (spec, Web, Sources; moved here from PR 3 so
   `/sources/:id` changes with the delivered spot): `COMMON_FIELDS` becomes the catalog in
   `webhook_fields()` order with default keys and types; per-source wording for `source`,
   `reference`, `place_name`, `state` and `url`; each `example` is that source's default `spot`
@@ -439,8 +447,14 @@ built up over Tasks 1 to 4, each with its tests.
   helpers (`addHeader`, `removeHeader`, `headerInput`: saved rows send no value unless typed),
   `webhookCardLine(count, batchSeconds)`. Reuse `sendTestBlocker` from `discordModel.ts` (move it
   to `fieldList.ts` or a shared module if both import it).
+- [ ] A migration (next free number after `20261018000300`) that `create or replace`s
+  `webhook_default_settings()` with pause 20 (spec, decision 10), a pgTAP case in
+  `webhook_destinations.test.sql` (and `management_api.test.sql`'s API-created webhook) updated
+  to 20, and `docs/WEBHOOKS.md`'s "off by default for now" changed to "on by default for new
+  destinations".
 - [ ] `webhookModel.test.ts` (node): `DEFAULT_WEBHOOK_SETTINGS` equals the jsonb in
-  `webhook_default_settings()` read from the migration file, as `discordModel.test.ts` does;
+  `webhook_default_settings()` read from the latest migration that defines it (the pause-default
+  migration above), as `discordModel.test.ts` does;
   `webhookKey` for every field, style and unit equals the spec's key table; card lines, including
   "Webhook · 1 field" and "Webhook · 1 field · grouped every 30 seconds"; header input rules;
   `dirty`.

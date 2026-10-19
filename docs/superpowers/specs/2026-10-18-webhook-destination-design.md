@@ -52,7 +52,10 @@ editor whose pure model is pinned to SQL's defaults by a test.
    `destinations.health = 'paused'`, so pausing does not. When a webhook's
    `pause_after_failures` is set (20 when the switch is on, null when off) and its pause count
    reaches it, `mark_deliveries_failed` sets `enabled = false` and stamps a new column
-   `destinations.auto_disabled_at`. The matcher then makes no new deliveries and the claim's
+   `destinations.auto_disabled_at`. The matcher then makes no new deliveries, the same call makes
+   every queued row of the destination visible (vt 0, rows waiting out a retry delay included,
+   *amended 2026-10-18 in PR 2's review*: the sweep sees only visible rows, so a row in backoff
+   would otherwise survive a quick resume), and the claim's
    unwanted sweep drops the queued ones as for any disabled destination, except that it sets
    `dropped_at` on them while `auto_disabled_at` is set: those spots are lost, not unwanted. Health
    keeps its normal rules (it is `failing` from the fifth failure on). Turning Enabled back on (the
@@ -103,7 +106,10 @@ editor whose pure model is pinned to SQL's defaults by a test.
     10 seconds (today's body is already a list per claim), the `day` retry policy (today's 24
     hours) and pause off (today nothing pauses). A silent cut to 10 minutes of retries or a new
     pause could lose spots for a receiver that worked yesterday. New webhooks get the canvas's
-    defaults. *Decided 2026-10-18.*
+    defaults, except that `webhook_default_settings()` keeps the pause null in PR 2 and PR 3's
+    migration makes it 20 (*amended 2026-10-18 in PR 2's review*): between the hosted push and the
+    web deploy the old app can neither show a paused webhook nor turn one back on, so a webhook
+    made through the old dialog must not turn itself off. *Decided 2026-10-18.*
 11. **SQL renders every value** (`webhook_spot_fields`). jsonb does not keep key order, so the
     claim hands the sender the spot as ordered `[{key, value}]` pairs, and the sender builds the
     object in that order. The preview builds its text with `json` (not `jsonb`), which keeps the
@@ -210,9 +216,11 @@ change.
 - `alter table destinations add column pause_failures int not null default 0, add column
   pause_failure_at timestamptz` (decision 4's spaced count; not in the client column grant).
 - `destination_url_display(p_type, p_url)`, same signature: a webhook's display is scheme, host,
-  port and path without the query, with the last path segment replaced by `••••••` when it is not
-  empty (`https://logger.example.org/hook/••••••`, `https://example.org/••••••`,
-  `https://example.org/`). Existing webhook rows are backfilled from `url`.
+  port and path without the query, with the last non-empty path segment replaced by `••••••` and
+  a trailing slash kept (`https://logger.example.org/hook/••••••`, `https://example.org/••••••`,
+  `https://hooks.zapier.com/hooks/catch/123456/••••••/`, and `https://example.org/` for a bare
+  root; *amended 2026-10-18 in PR 2's review*: a Zapier catch hook ends in a slash, and masking only
+  a non-empty last segment showed its token). Existing webhook rows are backfilled from `url`.
 - `rotate_signing_secret(p_destination_id)`, same signature, also sets `secret_rotated_at = now()`.
 - `update_destination(p_id, p_name, p_url, p_enabled)`, same signature, from its
   `20261016000400` body plus: when `p_enabled` is true and `auto_disabled_at` is set,
@@ -241,10 +249,11 @@ change.
   or 1 to 100; the editor sets 20 or null). RLS on, no policies, no client grants.
 - `webhook_default_settings()`: fields `id, time, callsign, frequency, mode, band, source,
   reference, place_name, state, spotter`; `snake`; `iso_utc`; `khz`; `omit`; batch 0;
-  `three_10m`; pause 20.
+  `three_10m`; pause null in PR 2, 20 from PR 3's migration (decision 10).
 - Trigger `destinations_webhook_settings` (after insert, `when (new.type = 'webhook')`) inserts the
   defaults. The migration backfills existing webhooks with the defaults overridden by every field,
-  batch 10, `day` and pause null (decision 10).
+  batch 10, `day` and pause null (decision 10), as `webhook_legacy_settings()` (a function so
+  pgTAP can pin the backfill's settings).
 - `check_webhook_setting_keys(p_settings jsonb)` raises "Settings must be an object." and "Unknown
   setting {key}."; `validate_webhook_fields(p_fields text[])` and
   `validate_webhook_settings(p_settings webhook_destination_settings)` raise the Errors in Copy.
@@ -266,7 +275,10 @@ change.
   (revoked from public), because a client's `delete from destinations` cascades here.
 - `webhook_header_names(p_destination_id uuid) returns jsonb`: `[{name}]` by position.
 - `webhook_header_values(p_destination_id uuid) returns jsonb`: `[{name, value}]` by position from
-  `vault.decrypted_secrets`. Called only from the claim, the test RPC and duplicate.
+  `vault.decrypted_secrets`. Called only from the claim and the test RPC; duplicate joins
+  `vault.decrypted_secrets` itself.
+- `webhook_header_secret(p_value text) returns uuid`: the one `vault.create_secret` call (name and
+  description as in Extra headers), used by `set_webhook_headers` and `duplicate_destination`.
 - `set_webhook_headers(p_destination_id uuid, p_headers jsonb)`: see Extra headers.
 
 **Rendering** (see Rendering)
@@ -496,13 +508,17 @@ throttled or rate-limited row may wait that long without failing).
 3. Each message, from `unnest(p_delivery_ids, p_msg_ids)` joined to its delivery, destination and
    webhook settings: vt `0` when `webhook_retries_exhausted(policy, attempts)`, else
    `webhook_retry_delay(policy, attempts)` for a webhook with settings, else `p_delay_seconds`.
+4. Each destination in the call with `auto_disabled_at` set and `enabled` false: every queued
+   message of it (pending or failed) gets vt `0`, after step 3, so the next claim's unwanted sweep
+   drops them all.
 
 `claim_deliveries`' expiry sweep (0b) drops a row when it is past its age (as now) or
 `webhook_retries_exhausted(ws.retry_policy, d.attempts)`; `ready` leaves out the same rows.
 
 **Pause.** Decision 4. The unwanted sweep (0a) drops a disabled destination's queue without
 `dropped_at` (not a loss: someone turned it off), except while `auto_disabled_at` is set, when it
-sets `dropped_at = now()` (the pause lost those spots). Re-enabling does not bring them back.
+sets `dropped_at = now()` (the pause lost those spots). Step 4 above makes the whole queue visible
+first, so re-enabling does not bring any of them back.
 `mark_deliveries_sent` does not change.
 
 ## Sender
@@ -524,7 +540,9 @@ Files: `_shared/delivery/types.ts`, `format.ts`, `send.ts`, `run.ts`,
   commented as `LEGACY_PUSH_SETTINGS` is); with `batch_seconds` 0, one request per delivery; else
   chunks of `WEBHOOK_SPOTS_PER_REQUEST` (50) as `{spots}`. `webhookSpot` also strips
   `webhook_fields` and `webhook_connection` from a legacy spot. `WEBHOOK_RESERVED_HEADERS`,
-  `extraHeaderAllowed(name)` and `webhookExtraHeaders(destination)` mirror SQL's rules.
+  `extraHeaderAllowed(name)` (the name pattern and the denylist) and
+  `webhookExtraHeaders(destination)` (also drops a repeated name, ignoring case) mirror SQL's
+  rules.
   `sampleSpot` goes: every test spot now comes from SQL. `backoffSeconds` stays for Discord and
   push, with a comment that SQL's schedule wins for webhooks.
 - **send.ts.** `sendWebhook` iterates `webhookRequests`, signs each body, builds the headers as
@@ -532,9 +550,14 @@ Files: `_shared/delivery/types.ts`, `format.ts`, `send.ts`, `run.ts`,
   `X-LongLines-Signature`), then `X-LongLines-Test: true` when the deliveries are a test, then the
   allowed extra headers, and counts `sent += request.count`. `SendResult` gains `status?: number`,
   the last HTTP status received, and `attempted?: number`, the rows up to and including the last
-  request made (on a failure, `sent` plus the failed request's count). The timeout, redirect
+  request made (on a failure, `sent` plus the failed request's count). A failure before any
+  request (no URL, an unsafe or unresolvable URL, no signing secret) reports `attempted` as the
+  first request's count, as if that request had failed, so `consecutive_failures` and health
+  still move and the other rows wait for the claim's `p_vt`. The timeout, redirect
   refusal, address pinning and 429 handling are unchanged, and it still stops at the first failed
-  request.
+  request. The headers go to `pinnedPost` as ordered `[name, value]` pairs
+  (`pinned_http.ts` takes pairs or an object), since an object would move an integer-like extra
+  header name such as `1` ahead of the fixed five.
 - **run.ts.** On a failure that is not a 429, `mark_deliveries_failed` gets only
   `batch.slice(sent, attempted ?? batch.length)`; the rows after `attempted` are counted in a new
   `DestinationResult.unattempted` (not failed) and left for the claim's `p_vt` (decision 14). A 429 still
@@ -641,6 +664,9 @@ Files: `_shared/delivery/types.ts`, `format.ts`, `send.ts`, `run.ts`,
    wording. **Merging deploys the sender.** Brad then runs `supabase db push` and deploys
    `send-test` and `api`, in that order, and tells webhook users about the body change.
 3. **Web** (branch `webhook-ui`, stacked on `webhook-schema`), once PR 2's migration is on hosted.
+   It carries one small migration that makes `webhook_default_settings()`'s pause 20 (decision
+   10), so the pause default and the editor that shows and undoes a pause ship together; Brad
+   runs `supabase db push` for it when PR 3 merges.
    It amends the push and Discord specs' card meta Copy (decision 17) and ends with a CLAUDE.md "Webhook rules" section and this spec marked shipped.
 
 ## Verification

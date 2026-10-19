@@ -42,25 +42,45 @@ describe("SOURCES catalog fields", () => {
     expect(SOURCES.filter((s) => s.volume === "high").map((s) => s.id).sort()).toEqual(["aprs", "rbn"]);
   });
 
-  it("gives every live source but APRS-IS a schema whose fields match its example", () => {
+  // webhook_fields() order with the default snake_case keys and kHz (docs/WEBHOOKS.md).
+  const CATALOG = [
+    "id", "time", "callsign", "frequency_khz", "mode", "band", "source", "reference", "place_name", "state",
+    "spotter", "country", "url", "comment",
+  ];
+  // webhook_default_settings()'s fields, sent with missing values left out.
+  const DEFAULT_KEYS = CATALOG.slice(0, 11);
+
+  it("gives every live source but APRS-IS the webhook field catalog and its default spot", () => {
     for (const s of live) {
       if (s.id === "aprs") {
         expect(s.schema).toBeNull();
         expect(s.example).toBeNull();
         continue;
       }
-      expect(s.schema, s.id).not.toBeNull();
-      expect(s.schema!.map((f) => f.name)).toEqual(Object.keys(s.example!).filter((k) => s.schema!.some((f) => f.name === k)));
+      expect(s.schema!.map((f) => f.name), s.id).toEqual(CATALOG);
+      expect(s.schema!.every((f) => f.description !== ""), s.id).toBe(true);
+      const keys = Object.keys(s.example!);
+      // The default fields in order, less the ones this source has no value for.
+      expect(keys, s.id).toEqual(DEFAULT_KEYS.filter((k) => keys.includes(k)));
+      const missing = DEFAULT_KEYS.filter((k) => !keys.includes(k));
+      for (const k of missing) {
+        expect(s.schema!.find((f) => f.name === k)!.description, `${s.id} ${k}`).toMatch(/^No value on /);
+      }
       expect(s.example!.source).toBe(s.id);
+      expect(s.example!.time, s.id).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/);
+      expect(Object.values(s.example!).includes(null), s.id).toBe(false);
     }
   });
 
-  it("lists the source's own reference fields after the common ones", () => {
-    const names = (id: string) => findLiveSource(id)!.schema!.map((f) => f.name);
-    expect(names("pota").slice(-3)).toEqual(["pota_reference", "pota_park_name", "pota_location"]);
-    expect(names("sotawatch").at(-1)).toBe("sota_summit_ref");
-    expect(names("wwff").slice(-2)).toEqual(["wwff_reference", "wwff_reference_name"]);
-    expect(names("rbn").at(-1)).toBe("comment");
+  it("fills the reference fields per source", () => {
+    const field = (id: string, name: string) => findLiveSource(id)!.schema!.find((f) => f.name === name)!.description;
+    expect(field("pota", "reference")).toBe("Park reference.");
+    expect(field("sotawatch", "reference")).toBe("Summit reference.");
+    expect(field("wwff", "place_name")).toBe("Reference name.");
+    expect(field("pota", "state")).toMatch(/^The park's state or province/);
+    expect(field("rbn", "reference")).toBe("No value on RBN spots, so the key is left out.");
+    expect(findLiveSource("pota")!.example).toMatchObject({ reference: "US-2763", state: "NC" });
+    expect(findLiveSource("dxcluster")!.example).not.toHaveProperty("reference");
   });
 
   it("rewords RBN's spotter and marks DX Cluster's mode as derived", () => {

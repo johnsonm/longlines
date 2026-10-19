@@ -3,11 +3,12 @@
 -- 20261015000400 rate_aware_claim, 20261015001400 sender_cleanup,
 -- 20261016000100 claim_drops_unwanted, 20261016000300 throttle_cap,
 -- 20261016000400 push_destinations_v2 for the enabled sweep, 20261018000100
--- discord_destinations for the batch hold).
+-- discord_destinations for the batch hold, 20261018000300 webhook_destinations
+-- for the webhook hold, per-claim cap and retry policies).
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(119);
+select plan(133);
 select pgmq.purge_queue('spot_events');
 select pgmq.purge_queue('deliveries_queue');
 
@@ -50,7 +51,11 @@ select is((select last_error from deliveries), 'HTTP 500', 'failure records the 
 select is((select status from deliveries), 'failed', 'failure marks the delivery failed');
 select is((select consecutive_failures from destinations), 1, 'failure increments destination failures');
 select is((select health from destinations), 'ok', 'one failure does not mark the destination failing');
-select ok((select vt > now() + interval '200 seconds' from pgmq.q_deliveries_queue), 'message is delayed by the backoff');
+-- A webhook's delay is its retry policy's (20261018000300; a new webhook
+-- retries up to 3 times over 10 minutes, 60 s after the first failure), not
+-- the 300 the sender passed; Discord's p_delay_seconds is pinned below.
+select ok((select vt between now() + interval '55 seconds' and clock_timestamp() + interval '60 seconds'
+           from pgmq.q_deliveries_queue), 'a webhook message is delayed by its retry policy, not p_delay_seconds');
 
 select mark_deliveries_failed(array[(select delivery_id from claimed)], array[(select msg_id from claimed)], 'HTTP 500', 30) from generate_series(1, 4);
 select is((select consecutive_failures from destinations), 5, 'five failures counted');
@@ -492,6 +497,93 @@ select is((select count(*) from pgmq.q_deliveries_queue where (message ->> 'deli
   0::bigint, 'and its message is archived');
 update destinations set enabled = true where id = (select id from dd);
 select is((select count(*) from pg_temp.queue((select id from dd), 'dis-c2-', 1, now())), 1::bigint, 'enabled again: a new delivery queues');
+
+-- ---------------------------------------------------------------------------
+-- Webhooks (20261018000300): the batch hold, the per-claim cap, no claim
+-- interval, and the retry policies in mark_deliveries_failed
+-- ---------------------------------------------------------------------------
+-- Seconds until p_id's queued message is visible again, rounded; fail marks it failed and returns that.
+create function pg_temp.vt_secs(p_id bigint) returns numeric language sql as $$
+  select round(extract(epoch from q.vt - clock_timestamp())) from pgmq.q_deliveries_queue q
+  where (q.message ->> 'delivery_id')::bigint = p_id;
+$$;
+create function pg_temp.fail(p_id bigint, p_delay int) returns numeric language sql as $$
+  select mark_deliveries_failed(array[p_id], array(select q.msg_id from pgmq.q_deliveries_queue q
+                                                   where (q.message ->> 'delivery_id')::bigint = p_id), 'HTTP 500', p_delay);
+  select pg_temp.vt_secs(p_id);
+$$;
+update webhook_destination_settings set pause_after_failures = null where destination_id = (select id from dw);
+
+select pg_temp.reset_queue();
+update webhook_destination_settings set batch_seconds = 10 where destination_id = (select id from dw);
+create temp table wh as select unnest(pg_temp.queue((select id from dw), 'wh-', 3, now())) as id;
+update deliveries set created_at = clock_timestamp() - interval '3 seconds' where id in (select id from wh);
+select is((select count(*) from claim_deliveries(200, 60)), 0::bigint, 'a webhook with a 10-second window holds spots 3 seconds old');
+update deliveries set created_at = clock_timestamp() - interval '12 seconds' where id = (select min(id) from wh);
+select is((select count(*) from claim_deliveries(200, 60)), 3::bigint, 'once the oldest is 12 seconds old all three go');
+select pg_temp.reset_queue();
+select pg_temp.queue((select id from dw), 'wh49-', 49, now());
+update deliveries set created_at = clock_timestamp();
+select is((select count(*) from claim_deliveries(200, 60)), 0::bigint, '49 fresh spots are held');
+select pg_temp.queue((select id from dw), 'wh50-', 1, now());
+update deliveries set created_at = clock_timestamp();
+select is((select count(*) from claim_deliveries(200, 60)), 50::bigint,
+  '50 fresh spots, one full request, go at once (destination_batch_full)');
+
+select pg_temp.reset_queue();
+update webhook_destination_settings set batch_seconds = 0 where destination_id = (select id from dw);
+select pg_temp.queue((select id from dw), 'cap-', 12, now());
+select is((select count(*) from claim_deliveries(200, 60)), 5::bigint, 'one request per spot: five of twelve ready a claim');
+select is((select count(*) from claim_deliveries(200, 60)), 5::bigint, 'and no claim interval: the next claim at once takes five more');
+select pg_temp.reset_queue();
+update webhook_destination_settings set batch_seconds = 30 where destination_id = (select id from dw);
+select pg_temp.queue((select id from dw), 'cap30-', 12, now());
+update deliveries set created_at = clock_timestamp() - interval '31 seconds';
+select is((select count(*) from claim_deliveries(200, 60)), 12::bigint, 'grouped: every ready spot, up to the bucket');
+
+select pg_temp.reset_queue();
+update webhook_destination_settings set batch_seconds = 0, retry_policy = 'three_10m' where destination_id = (select id from dw);
+create temp table rt as select unnest(pg_temp.queue((select id from dw), 'rt-', 1, now())) as id;
+select is((select array_agg(pg_temp.fail((select id from rt), 999) order by n) from generate_series(1, 4) n),
+  array[60, 180, 360, 0]::numeric[], 'three_10m: 60, 180 and 360 seconds whatever the sender asks, then visible at once');
+select count(*) from claim_deliveries(200, 60);
+select results_eq($$ select status, attempts, dropped_at is not null from deliveries where id = (select id from rt) $$,
+  $$ values ('dropped'::text, 4, true) $$, 'after the fourth failure the next claim''s sweep drops it with dropped_at');
+
+select pg_temp.reset_queue();
+update webhook_destination_settings set retry_policy = 'none' where destination_id = (select id from dw);
+create temp table rn as select unnest(pg_temp.queue((select id from dw), 'rn-', 1, now())) as id;
+select pg_temp.fail((select id from rn), 999);
+select count(*) from claim_deliveries(200, 60);
+select results_eq($$ select status, attempts, dropped_at is not null from deliveries where id = (select id from rn) $$,
+  $$ values ('dropped'::text, 1, true) $$, 'none: dropped by the next claim after one failure');
+
+select pg_temp.reset_queue();
+update webhook_destination_settings set retry_policy = 'day' where destination_id = (select id from dw);
+create temp table rd as select unnest(pg_temp.queue((select id from dw), 'rd-', 1, now())) as id;
+select is((select array_agg(pg_temp.fail((select id from rd), 999) order by n) from generate_series(1, 7) n),
+  array[30, 60, 120, 300, 900, 1800, 1800]::numeric[], 'day: 30 s, 1, 2, 5 and 15 minutes, then every 30 minutes');
+
+select pg_temp.reset_queue();
+create temp table rdd as select unnest(pg_temp.queue((select id from dd), 'rdd-', 1, now())) as id;
+create temp table rdp as select unnest(pg_temp.queue((select id from dp), 'rdp-', 1, now())) as id;
+select is(array[pg_temp.fail((select id from rdd), 300), pg_temp.fail((select id from rdp), 45)], array[300, 45]::numeric[],
+  'Discord and push rows still wait p_delay_seconds');
+
+-- Only the rows that were in a request count an attempt (decision 14): the
+-- sender marks failed the first of five one-spot requests; the other four
+-- come back when the claim's p_vt lapses and are claimed again.
+select pg_temp.reset_queue();
+update webhook_destination_settings set retry_policy = 'none' where destination_id = (select id from dw);
+select pg_temp.queue((select id from dw), 'att-', 5, now());
+create temp table att as select * from claim_deliveries(200, 60);
+select mark_deliveries_failed(array(select delivery_id from att order by delivery_id limit 1),
+                              array(select msg_id from att order by delivery_id limit 1), 'HTTP 500', 30);
+update pgmq.q_deliveries_queue set vt = clock_timestamp() - interval '1 second';
+update destinations set claim_tokens = 0, claim_tokens_at = clock_timestamp() - interval '1 minute' where id = (select id from dw);
+select is((select count(*) from claim_deliveries(200, 60)), 4::bigint, 'the four unattempted rows are claimed again');
+select results_eq($$ select status, dropped_at is not null, count(*) from deliveries group by 1, 2 order by 1 $$,
+  $$ values ('dropped'::text, true, 1::bigint), ('pending', false, 4) $$, 'and only the attempted one is dropped');
 
 select * from finish();
 rollback;

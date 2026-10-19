@@ -76,12 +76,12 @@ Names are unique per account across every type, ignoring case. A name already in
 | Method | Path | Body | Returns |
 |---|---|---|---|
 | GET | `/destinations` | | All your destinations. |
-| POST | `/destinations` | `{"type": "discord" or "webhook", "name", "url"}`, or `{"type": "push", "name"}` | The destination. A webhook also gets `signing_secret`, shown only here. A new push destination has the default notification settings and no devices. |
+| POST | `/destinations` | `{"type": "discord" or "webhook", "name", "url"}`, or `{"type": "push", "name"}` | The destination. A webhook also gets `signing_secret`, shown only here, and the default payload and delivery settings. A new push destination has the default notification settings and no devices. |
 | GET | `/destinations/{id}` | | The destination. |
-| PATCH | `/destinations/{id}` | `{"name"?, "url"?, "enabled"?}` | The destination. The type can't change, and a push destination takes no `url`. A new `url` clears `failing` health and the failure count. `"enabled": false` stops new spots going to it and drops the ones already queued; connections that use it keep their other destinations. |
+| PATCH | `/destinations/{id}` | `{"name"?, "url"?, "enabled"?}` | The destination. The type can't change, and a push destination takes no `url`. A new `url` clears `failing` health and the failure count. `"enabled": false` stops new spots going to it and drops the ones already queued; connections that use it keep their other destinations. `"enabled": true` on a webhook that paused itself after repeated failures resumes it and starts its failure counts again. |
 | DELETE | `/destinations/{id}` | | `{"deleted": true}`, or `409` while a connection uses it. |
 | POST | `/destinations/{id}/rotate-secret` | | `{"signing_secret"}`, for webhooks. The old secret stops working. |
-| POST | `/destinations/{id}/test` | | `{"ok": true}` once a sample spot is delivered (for push, to at least one of its devices, with the notification text its saved fields build; for Discord, as the message its saved settings build, marked as a test), or `502` with the destination's error. |
+| POST | `/destinations/{id}/test` | | `{"ok": true}` once a sample spot is delivered (for push, to at least one of its devices, with the notification text its saved fields build; for Discord, as the message its saved settings build, marked as a test; for a webhook, as the body its saved settings build, with its extra headers and `X-LongLines-Test: true`), or `502` with `{"error"}`. A webhook's answer also has `status`, the HTTP status the receiver answered (`{"ok": true, "status": 204}`, or `{"error": "Webhook HTTP 500", "status": 500}`); a request that got no answer has none. |
 
 A destination looks like this:
 
@@ -135,6 +135,31 @@ to group the spots of that window into one message:
 ```
 
 The API does not change these settings; the web app's editor does.
+
+A webhook also has `webhook`: its payload and delivery settings as the web app's editor sets them
+(see [WEBHOOKS.md](WEBHOOKS.md)). `fields` is an ordered list from `id`, `time`, `callsign`,
+`frequency`, `mode`, `band`, `source`, `reference`, `place_name`, `state`, `spotter`, `country`,
+`url` and `comment`. `key_style` is `snake` or `camel`, `time_format` `iso_utc` or
+`unix_seconds`, `frequency_unit` `khz`, `mhz` or `hz`, and `missing_values` `omit` or `null`.
+`batch_seconds` is 0 for one request per spot, or 10, 30 or 60 to group spots into one request.
+`retry_policy` is `none`, `three_10m` or `day`, and `pause_after_failures` is the number of failed
+requests that turns the destination off, or null for never. `headers` lists the extra headers'
+names only; their values are never returned. `auto_disabled_at` is set while the destination is
+paused after repeated failures:
+
+```json
+"webhook": {
+  "fields": ["id", "time", "callsign", "frequency", "mode", "band", "source", "reference",
+             "place_name", "state", "spotter"],
+  "key_style": "snake", "time_format": "iso_utc", "frequency_unit": "khz",
+  "missing_values": "omit", "batch_seconds": 0, "retry_policy": "three_10m",
+  "pause_after_failures": 20,
+  "headers": [{"name": "Authorization"}],
+  "secret_rotated_at": "2026-10-06T14:02:11Z", "auto_disabled_at": null
+}
+```
+
+The API does not change these settings or the headers; the web app's editor does.
 
 ## Connections
 

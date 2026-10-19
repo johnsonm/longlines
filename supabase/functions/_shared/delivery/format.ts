@@ -1,4 +1,5 @@
-// Pure formatting for Discord, webhook and push deliveries, plus the retry schedule.
+// Pure formatting for Discord, webhook and push deliveries, plus the Discord and
+// push retry schedule.
 
 import type {
   DeliveryDestination,
@@ -10,7 +11,9 @@ import type {
   PendingDelivery,
   PushNotification,
   PushSettings,
-  WebhookPayload,
+  WebhookHeader,
+  WebhookItem,
+  WebhookRequest,
 } from "./types.ts";
 
 export const DISCORD_EMBEDS_PER_MESSAGE = 10; // Discord's per-message limit
@@ -217,7 +220,10 @@ export function discordMessages(
   return discordBatches(spots, destination).map((b) => b.message);
 }
 
-/** The spot as docs/WEBHOOKS.md documents it: without the push and Discord fields SQL adds. */
+/**
+ * The legacy body's spot: the stored columns without the push, Discord and
+ * webhook fields SQL adds.
+ */
 export function webhookSpot(spot: DeliverySpot): DeliverySpot {
   const {
     push_title: _title,
@@ -233,20 +239,131 @@ export function webhookSpot(spot: DeliverySpot): DeliverySpot {
     discord_url: _discordUrl,
     discord_line: _line,
     discord_suppress_embeds: _suppress,
+    webhook_fields: _fields,
+    webhook_connection: _connection,
     ...rest
   } = spot;
   return rest;
 }
 
-export function webhookPayloads(deliveries: readonly PendingDelivery[]): WebhookPayload[] {
+/**
+ * Today's `{deliveries}` body, 50 spots a request. Transitional, like
+ * LEGACY_PUSH_SETTINGS: it runs only for rows claimed without the webhook keys
+ * (before migration 20261018000300 is on hosted), so the sender and the
+ * migration ship in either order. Once the migration is pushed every webhook
+ * row carries them, and this can go.
+ */
+export function webhookPayloads(deliveries: readonly PendingDelivery[]): WebhookRequest[] {
   return chunk(deliveries, WEBHOOK_SPOTS_PER_REQUEST).map((batch) => ({
-    deliveries: batch.map((d) => ({
-      delivery_id: d.delivery_id,
-      // Webhook receivers know a subscription as a connection.
-      connection_id: d.subscription_id,
-      spot: webhookSpot(d.spot),
-    })),
+    body: {
+      deliveries: batch.map((d) => ({
+        delivery_id: d.delivery_id,
+        // Webhook receivers know a subscription as a connection.
+        connection_id: d.subscription_id,
+        spot: webhookSpot(d.spot),
+      })),
+    },
+    count: batch.length,
   }));
+}
+
+/** A row SQL rendered for a webhook (it carries the ordered pairs, possibly none). */
+function isRendered(delivery: PendingDelivery): boolean {
+  return Array.isArray(delivery.spot.webhook_fields);
+}
+
+/**
+ * One delivered spot as SQL rendered it. The spot object is built from the
+ * pairs in order: every key is a non-numeric string, so JSON.stringify writes
+ * them in the destination's picked order. Never formats, converts or names a
+ * value.
+ */
+export function webhookItem(delivery: PendingDelivery): WebhookItem {
+  return {
+    delivery_id: delivery.delivery_id,
+    connection: delivery.spot.webhook_connection ?? "",
+    spot: Object.fromEntries(
+      (delivery.spot.webhook_fields ?? []).map((f) => [f.key, f.value]),
+    ),
+  };
+}
+
+/**
+ * The requests for one destination's run. With the destination's settings and
+ * every row rendered: one request per delivery when batch_seconds is 0, else
+ * `{spots}` of up to WEBHOOK_SPOTS_PER_REQUEST. Otherwise (a claim from before
+ * the migration) the legacy body. How many rows a run holds, and when a
+ * grouped destination's rows go, is SQL's (the claim's cap and hold).
+ */
+export function webhookRequests(
+  destination: Pick<DeliveryDestination, "webhook">,
+  deliveries: readonly PendingDelivery[],
+): WebhookRequest[] {
+  const settings = destination.webhook;
+  if (!settings || !deliveries.every(isRendered)) return webhookPayloads(deliveries);
+  if (settings.batch_seconds === 0) {
+    return deliveries.map((d) => ({ body: webhookItem(d), count: 1 }));
+  }
+  return chunk(deliveries, WEBHOOK_SPOTS_PER_REQUEST).map((batch) => ({
+    body: { spots: batch.map(webhookItem) },
+    count: batch.length,
+  }));
+}
+
+/**
+ * Header names an extra header may never take, ignoring case; names starting
+ * with WEBHOOK_RESERVED_HEADER_PREFIXES are refused too. The same list is in
+ * SQL (webhook_header_name_valid); change both together.
+ */
+export const WEBHOOK_RESERVED_HEADERS: ReadonlySet<string> = new Set([
+  "accept",
+  "connection",
+  "content-encoding",
+  "content-length",
+  "content-type",
+  "expect",
+  "host",
+  "keep-alive",
+  "te",
+  "trailer",
+  "transfer-encoding",
+  "upgrade",
+  "user-agent",
+]);
+export const WEBHOOK_RESERVED_HEADER_PREFIXES: readonly string[] = ["proxy-", "x-longlines-"];
+const HEADER_NAME = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/;
+/** 1 to 1,024 printable ASCII characters, space to `~`. */
+const HEADER_VALUE = /^[\x20-\x7e]{1,1024}$/;
+
+/** True when an extra header may use this name (SQL's webhook_header_name_valid). */
+export function extraHeaderAllowed(name: string): boolean {
+  if (!HEADER_NAME.test(name)) return false;
+  const lower = name.toLowerCase();
+  return !WEBHOOK_RESERVED_HEADERS.has(lower) &&
+    !WEBHOOK_RESERVED_HEADER_PREFIXES.some((prefix) => lower.startsWith(prefix));
+}
+
+/**
+ * The destination's extra headers, in position order, without any SQL should
+ * already have refused: a reserved or malformed name, a repeated name, or a
+ * value outside printable ASCII. Defence in depth: a line break in a value
+ * would otherwise split the request.
+ */
+export function webhookExtraHeaders(
+  destination: Pick<DeliveryDestination, "webhook">,
+): WebhookHeader[] {
+  const seen = new Set<string>();
+  const out: WebhookHeader[] = [];
+  for (const header of destination.webhook?.headers ?? []) {
+    if (typeof header?.name !== "string" || typeof header.value !== "string") continue;
+    const lower = header.name.toLowerCase();
+    if (!extraHeaderAllowed(header.name) || !HEADER_VALUE.test(header.value) || seen.has(lower)) {
+      continue;
+    }
+    seen.add(lower);
+    out.push({ name: header.name, value: header.value });
+  }
+  return out;
 }
 
 /**
@@ -356,35 +473,13 @@ export function pushPayload(notification: PushNotification): string {
   return JSON.stringify(notification);
 }
 
-/** Seconds to wait before retrying after the given (1-based) failed attempt. */
+/**
+ * Seconds to wait before retrying after the given (1-based) failed attempt,
+ * passed to mark_deliveries_failed for Discord and push. For a webhook SQL's
+ * schedule (webhook_retry_delay, the destination's retry policy) wins and this
+ * is ignored.
+ */
 export function backoffSeconds(attempt: number): number {
   const steps = [30, 60, 120, 300, 900];
   return steps[Math.max(attempt, 1) - 1] ?? 1800;
-}
-
-/**
- * The sample spot used by "Send test" for webhooks. Clearly labeled so nobody
- * chases it. A push or Discord test's spot comes from SQL (push_test_delivery,
- * discord_test_delivery), rendered with the destination's settings.
- */
-export function sampleSpot(destination: DeliveryDestination): DeliverySpot {
-  return {
-    id: 0,
-    source: "pota",
-    spot_time: new Date().toISOString(),
-    callsign: "N0CALL",
-    base_callsign: "N0CALL",
-    spotter: "LONGLINES",
-    frequency_khz: 14062,
-    band: "20m",
-    mode: "cw",
-    mode_family: "cw",
-    comment: `Test spot from Long Lines for "${destination.name}". Not a real activation.`,
-    pota_reference: "US-0000",
-    pota_park_name: "Test Park",
-    pota_location: "US-TEST",
-    sota_summit_ref: null,
-    wwff_reference: null,
-    wwff_reference_name: null,
-  };
 }

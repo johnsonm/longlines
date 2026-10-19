@@ -1,4 +1,4 @@
-import { assertEquals, assertStringIncludes } from "@std/assert";
+import { assertEquals } from "@std/assert";
 import type { SendResult } from "../delivery/send.ts";
 import type { DeliveryDestination, PendingDelivery } from "../delivery/types.ts";
 import { handleSendTest } from "../handlers/test_delivery.ts";
@@ -6,8 +6,7 @@ import { fakeSupabase, type FakeSupabaseOptions } from "./fake_supabase.ts";
 
 const NOW = new Date("2026-10-05T14:00:00Z");
 const USER = { data: { user: { id: "u1" } } };
-// A webhook: the one type whose test spot is the TypeScript sample (push and
-// Discord tests come from SQL, below).
+// A webhook; every type's test spot comes from SQL (webhook_test_delivery here).
 const DEST: DeliveryDestination = {
   id: "00000000-0000-4000-8000-0000000000d1",
   type: "webhook",
@@ -16,6 +15,31 @@ const DEST: DeliveryDestination = {
   signing_secret: "whsec_x",
   health: "ok",
   consecutive_failures: 0,
+};
+
+const WEBHOOK_TEST = {
+  webhook: { batch_seconds: 0, headers: [{ name: "Authorization", value: "Bearer abc" }] },
+  spot: {
+    id: 0,
+    source: "pota",
+    spot_time: NOW.toISOString(),
+    callsign: "N0CALL",
+    base_callsign: "N0CALL",
+    spotter: "LONGLINES",
+    frequency_khz: 14062,
+    band: "20m",
+    mode: "cw",
+    mode_family: "cw",
+    comment: "Test spot from Long Lines. Not a real activation.",
+    pota_reference: "US-0000",
+    pota_park_name: "Test Park",
+    pota_location: "US-TEST",
+    sota_summit_ref: null,
+    wwff_reference: null,
+    wwff_reference_name: null,
+    webhook_connection: "Test",
+    webhook_fields: [{ key: "id", value: 0 }, { key: "callsign", value: "N0CALL" }],
+  },
 };
 
 function post(body: unknown, token: string | null = "jwt"): Request {
@@ -35,6 +59,7 @@ async function run(
   const { client, calls } = fakeSupabase({
     getUser: USER,
     from: { destinations: { data: DEST } },
+    rpc: { webhook_test_delivery: { data: WEBHOOK_TEST } },
     ...options,
   });
   const sent: Array<{ destination: DeliveryDestination; batch: readonly PendingDelivery[] }> = [];
@@ -84,7 +109,7 @@ Deno.test("handleSendTest only loads destinations the caller owns", async () => 
   ]]);
   assertEquals(sent.length, 1);
   assertEquals(sent[0]!.batch[0]!.created_at, NOW.toISOString());
-  assertStringIncludes(sent[0]!.batch[0]!.spot.comment, "Shack");
+  assertEquals(sent[0]!.batch[0]!.test, true);
 });
 
 Deno.test("handleSendTest reports lookup errors and missing destinations", async () => {
@@ -258,7 +283,7 @@ Deno.test("handleSendTest prunes and records devices after a push test", async (
 Deno.test("handleSendTest leaves other destinations' devices alone", async () => {
   const { calls } = await run(post({ destination_id: "00000000-0000-4000-8000-0000000000d1" }));
   assertEquals(calls.from.map((f) => f.table), ["destinations"]);
-  assertEquals(calls.rpc, []);
+  assertEquals(calls.rpc.map((c) => c.fn), ["webhook_test_delivery"]);
 });
 
 const DISCORD: DeliveryDestination = {
@@ -362,11 +387,64 @@ Deno.test("handleSendTest reports a Discord lookup error and an unknown spot", a
   assertEquals(noSettings.body, { error: "Destination not found." });
 });
 
-Deno.test("handleSendTest sends a webhook the sample spot without asking SQL", async () => {
-  const { sent, calls } = await run(
-    post({ destination_id: "00000000-0000-4000-8000-0000000000d1" }),
+Deno.test("handleSendTest sends a webhook the body SQL rendered, marked as a test", async () => {
+  const { res, body, sent, calls } = await run(
+    post({ destination_id: "00000000-0000-4000-8000-0000000000d1", spot_id: 42 }),
+    {},
+    { ok: true, sent: 1, attempted: 1, status: 204 },
   );
-  assertEquals(calls.rpc, []);
-  assertEquals(sent[0]!.destination.discord, undefined);
-  assertEquals(sent[0]!.batch[0]!.spot.callsign, "N0CALL");
+  assertEquals(calls.rpc, [{
+    fn: "webhook_test_delivery",
+    args: { p_destination_id: "00000000-0000-4000-8000-0000000000d1", p_spot_id: 42 },
+  }]);
+  assertEquals(sent[0]!.destination.webhook, WEBHOOK_TEST.webhook);
+  assertEquals(sent[0]!.batch[0]!.spot, WEBHOOK_TEST.spot);
+  assertEquals(sent[0]!.batch[0]!.test, true);
+  assertEquals(sent[0]!.batch[0]!.delivery_id, 0);
+  assertEquals(res.status, 200);
+  assertEquals(body, { ok: true, status: 204 });
+});
+
+Deno.test("handleSendTest answers a failed webhook test with the receiver's status", async () => {
+  const failed = await run(post({ destination_id: "00000000-0000-4000-8000-0000000000d1" }), {}, {
+    ok: false,
+    sent: 0,
+    attempted: 1,
+    status: 500,
+    error: "Webhook HTTP 500",
+  });
+  assertEquals(failed.res.status, 502);
+  assertEquals(failed.body, { error: "Webhook HTTP 500", status: 500 });
+  // A request that never got a status has none.
+  const unreached = await run(
+    post({ destination_id: "00000000-0000-4000-8000-0000000000d1" }),
+    {},
+    {
+      ok: false,
+      sent: 0,
+      attempted: 1,
+      error: "Webhook request failed: refused",
+    },
+  );
+  assertEquals(unreached.body, { error: "Webhook request failed: refused" });
+});
+
+Deno.test("handleSendTest reports a webhook lookup error and an unknown spot", async () => {
+  const failed = await run(post({ destination_id: "00000000-0000-4000-8000-0000000000d1" }), {
+    rpc: { webhook_test_delivery: { error: { message: "x" } } },
+  });
+  assertEquals(failed.res.status, 500);
+  assertEquals(failed.body, { error: "Couldn't load that destination." });
+  assertEquals(failed.sent, []);
+  const missing = await run(
+    post({ destination_id: "00000000-0000-4000-8000-0000000000d1", spot_id: 7 }),
+    { rpc: { webhook_test_delivery: { data: null } } },
+  );
+  assertEquals(missing.res.status, 404);
+  assertEquals(missing.body, { error: "Spot not found." });
+  const notWebhook = await run(post({ destination_id: "00000000-0000-4000-8000-0000000000d1" }), {
+    rpc: { webhook_test_delivery: { data: null } },
+  });
+  assertEquals(notWebhook.body, { error: "Destination not found." });
+  assertEquals(notWebhook.sent, []);
 });

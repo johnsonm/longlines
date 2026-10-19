@@ -3,14 +3,14 @@
 // destination's test goes to its member devices with the notification text
 // built from its saved fields, and a Discord destination's message is rendered
 // from its saved settings, for the sample spot or the spot the editor previews
-// (spot_id). SQL builds all of that (push_test_delivery, discord_test_delivery);
-// this only sends it. Webhooks get the TypeScript sample spot.
+// (spot_id). A webhook's body is rendered from its saved settings the same way,
+// with its extra headers. SQL builds all of that (push_test_delivery,
+// discord_test_delivery, webhook_test_delivery); this only sends it.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isUuid } from "../api/routes.ts";
 import { userFromRequest } from "../auth.ts";
 import { json, preflightResponse } from "../cors.ts";
-import { sampleSpot } from "../delivery/format.ts";
 import { pushBookkeeping, type SendResult } from "../delivery/send.ts";
 import type {
   DeliveryDestination,
@@ -19,6 +19,7 @@ import type {
   PendingDelivery,
   PushDevice,
   PushSettings,
+  WebhookSettings,
 } from "../delivery/types.ts";
 
 export interface SendTestDeps {
@@ -72,6 +73,48 @@ interface DiscordTest {
   spot: DeliverySpot;
 }
 
+/** What webhook_test_delivery returns: the batch window, the header values and the rendered spot. */
+interface WebhookTest {
+  webhook: WebhookSettings;
+  spot: DeliverySpot;
+}
+
+/** The SQL test RPC per destination type and how its result fills the destination. */
+const TEST_RPCS: Record<
+  DeliveryDestination["type"],
+  { rpc: string; apply: (destination: DeliveryDestination, found: unknown) => DeliverySpot }
+> = {
+  // Its unblocked members, its settings and the spot rendered by SQL, as claim_deliveries would.
+  push: {
+    rpc: "push_test_delivery",
+    apply: (destination, found) => {
+      const test = found as PushTest;
+      destination.devices = test.devices;
+      destination.push = test.push;
+      destination.quiet_now = test.quiet_now;
+      return test.spot;
+    },
+  },
+  // Its settings and the spot rendered by SQL with the test marker, as claim_deliveries would.
+  discord: {
+    rpc: "discord_test_delivery",
+    apply: (destination, found) => {
+      const test = found as DiscordTest;
+      destination.discord = test.discord;
+      return test.spot;
+    },
+  },
+  // Its window, header values and the spot's pairs with connection "Test".
+  webhook: {
+    rpc: "webhook_test_delivery",
+    apply: (destination, found) => {
+      const test = found as WebhookTest;
+      destination.webhook = test.webhook;
+      return test.spot;
+    },
+  },
+};
+
 /** Null from a test RPC: the spot is unknown, or (with no spot asked for) the destination. */
 function notFound(spotId: number | null): Response {
   // A missing settings row (which the triggers rule out) also reads as null; the
@@ -80,8 +123,8 @@ function notFound(spotId: number | null): Response {
 }
 
 /**
- * Sends the sample spot (or, for push and Discord, raw_spots row `spotId`) to one of the
- * user's destinations. Shared with the management API's
+ * Sends SQL's sample spot (or raw_spots row `spotId`), rendered with the destination's
+ * settings, to one of the user's destinations. Shared with the management API's
  * POST /v1/destinations/{id}/test, which never passes a spot (the sample).
  */
 export async function sendTestTo(
@@ -107,38 +150,14 @@ export async function sendTestTo(
   if (!data) return json({ error: "Destination not found." }, 404);
 
   const destination = data as DeliveryDestination;
-  let spot = sampleSpot(destination);
-  if (destination.type === "push") {
-    // Its unblocked members, its settings and the spot rendered by SQL, as claim_deliveries would.
-    const test = await admin.rpc("push_test_delivery", {
-      p_destination_id: destination.id,
-      p_spot_id: spotId,
-    });
-    if (test.error) {
-      console.error(`send-test: push_test_delivery failed: ${test.error.message}`);
-      return json({ error: "Couldn't load that destination." }, 500);
-    }
-    const found = test.data as PushTest | null;
-    if (!found) return notFound(spotId);
-    destination.devices = found.devices;
-    destination.push = found.push;
-    destination.quiet_now = found.quiet_now;
-    spot = found.spot;
-  } else if (destination.type === "discord") {
-    // Its settings and the spot rendered by SQL with the test marker, as claim_deliveries would.
-    const test = await admin.rpc("discord_test_delivery", {
-      p_destination_id: destination.id,
-      p_spot_id: spotId,
-    });
-    if (test.error) {
-      console.error(`send-test: discord_test_delivery failed: ${test.error.message}`);
-      return json({ error: "Couldn't load that destination." }, 500);
-    }
-    const found = test.data as DiscordTest | null;
-    if (!found) return notFound(spotId);
-    destination.discord = found.discord;
-    spot = found.spot;
+  const { rpc, apply } = TEST_RPCS[destination.type];
+  const test = await admin.rpc(rpc, { p_destination_id: destination.id, p_spot_id: spotId });
+  if (test.error) {
+    console.error(`send-test: ${rpc} failed: ${test.error.message}`);
+    return json({ error: "Couldn't load that destination." }, 500);
   }
+  if (!test.data) return notFound(spotId);
+  const spot = apply(destination, test.data);
   const delivery: PendingDelivery = {
     msg_id: 0,
     delivery_id: 0,
@@ -147,6 +166,7 @@ export async function sendTestTo(
     created_at: now.toISOString(),
     destination,
     spot,
+    test: true,
   };
   const result = await send(destination, [delivery]);
   for (const [fn, args] of pushBookkeeping(result)) {
@@ -154,5 +174,9 @@ export async function sendTestTo(
     if (rpcError) console.error(`send-test: ${fn} failed: ${rpcError.message}`);
   }
 
-  return result.ok ? json({ ok: true }) : json({ error: result.error ?? "Delivery failed." }, 502);
+  // A webhook's answer carries the receiver's HTTP status when it got one.
+  const status = result.status === undefined ? {} : { status: result.status };
+  return result.ok
+    ? json({ ok: true, ...status })
+    : json({ error: result.error ?? "Delivery failed.", ...status }, 502);
 }

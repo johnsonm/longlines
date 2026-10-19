@@ -125,6 +125,23 @@ begin
             public.push_sample_spot()) ->> 'discord_title') = 'N0CALL · 14.062 MHz · CW',
     'discord_spot_fields should render the default card title';
 
+  -- Webhook destinations: a trigger gives each its settings, and SQL renders the spot as ordered pairs.
+  assert exists (select 1 from pg_trigger where tgname = 'destinations_webhook_settings'),
+    'destinations_webhook_settings should be installed';
+  assert (select array_agg(t.p ->> 'key' order by t.ord)
+          from jsonb_array_elements(public.webhook_spot_fields(
+                 jsonb_populate_record(null::webhook_destination_settings, public.webhook_default_settings()),
+                 public.push_sample_spot())) with ordinality as t(p, ord))
+         = array['id', 'time', 'callsign', 'frequency_khz', 'mode', 'band', 'source', 'reference', 'place_name',
+                 'state', 'spotter'],
+    'webhook_spot_fields should render the eleven default keys in order';
+  assert (select array_agg(t.k order by t.ord)
+          from json_object_keys(public.webhook_request_body(
+                 jsonb_populate_record(null::webhook_destination_settings, public.webhook_default_settings()),
+                 0, 'Smoke', public.push_sample_spot())) with ordinality as t(k, ord))
+         = array['delivery_id', 'connection', 'spot'],
+    'webhook_request_body should be {delivery_id, connection, spot}';
+
   -- Callsign rollups: the stream reads every source and a backfill marks the smoke spots' days
   -- (a seeded database may have rolled them up already).
   assert exists (select 1 from spot_stream where source = 'rbn' and callsign = 'SM0KE')

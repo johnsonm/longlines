@@ -43,13 +43,16 @@ function request(
   });
 }
 
-async function run(req: Request, options: FakeSupabaseOptions = {}) {
+async function run(
+  req: Request,
+  options: FakeSupabaseOptions = {},
+  result: SendResult = { ok: true, sent: 1 },
+) {
   const { client, calls } = fakeSupabase({
     ...options,
     rpc: { authenticate_api_request: { data: [WRITE] }, ...options.rpc },
   });
   const sent: DeliveryDestination[] = [];
-  const result: SendResult = { ok: true, sent: 1 };
   const res = await handleApi(req, {
     db: () => client,
     send: (destination) => {
@@ -173,15 +176,39 @@ Deno.test("handleApi reports a failed token lookup as a server error", async () 
   assertEquals([res.status, body], [500, { error: SERVER_ERROR }]);
 });
 
+const WEBHOOK_TEST = {
+  webhook: { batch_seconds: 0, headers: [] },
+  spot: { id: 0, webhook_connection: "Test", webhook_fields: [{ key: "id", value: 0 }] },
+};
+
 Deno.test("handleApi sends a test to the token owner's destination", async () => {
-  const { res, body, calls, sent } = await run(request("POST", `/api/v1/destinations/${ID}/test`), {
-    from: { destinations: { data: DEST } },
-  });
-  assertEquals([res.status, body], [200, { ok: true }]);
+  const { res, body, calls, sent } = await run(
+    request("POST", `/api/v1/destinations/${ID}/test`),
+    {
+      from: { destinations: { data: DEST } },
+      rpc: { webhook_test_delivery: { data: WEBHOOK_TEST } },
+    },
+    { ok: true, sent: 1, attempted: 1, status: 204 },
+  );
+  assertEquals([res.status, body], [200, { ok: true, status: 204 }]);
   assertEquals(sent.map((d) => d.id), [ID]);
   assertEquals(calls.from[0]?.ops.filter(([op]) => op === "eq"), [
     ["eq", ["id", ID]],
     ["eq", ["user_id", "u1"]],
   ]);
-  assertEquals(calls.rpc.map((c) => c.fn), ["authenticate_api_request"]);
+  assertEquals(calls.rpc.map((c) => c.fn), ["authenticate_api_request", "webhook_test_delivery"]);
+  // The API never picks a spot: the sample.
+  assertEquals(calls.rpc[1]?.args, { p_destination_id: ID, p_spot_id: null });
+});
+
+Deno.test("handleApi passes a failed test's receiver status through with 502", async () => {
+  const { res, body } = await run(
+    request("POST", `/api/v1/destinations/${ID}/test`),
+    {
+      from: { destinations: { data: DEST } },
+      rpc: { webhook_test_delivery: { data: WEBHOOK_TEST } },
+    },
+    { ok: false, sent: 0, attempted: 1, status: 500, error: "Webhook HTTP 500" },
+  );
+  assertEquals([res.status, body], [502, { error: "Webhook HTTP 500", status: 500 }]);
 });

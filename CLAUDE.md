@@ -99,7 +99,9 @@ deploys automatically.
   `rotate_signing_secret`, `save_subscription`, `delete_subscription`). Direct insert/update is
   revoked on purpose; the only direct client write is `subscriptions.enabled`.
 - `destinations.url` and `signing_secret` are excluded from the column grant. Never add them to a
-  view or RPC result except the one-time return from `create_destination`/`rotate_signing_secret`.
+  view or RPC result except the one-time return from `create_destination`/`rotate_signing_secret`
+  (and `save_webhook_destination` when it creates). `duplicate_destination` copies a webhook's
+  secret to the new row without returning it.
 - `recent_spots` is the only client view over `raw_spots`; keep `raw_payload` out of it. It and
   `ingest_health` are invoker views with no client grants; clients read them through the definer
   RPCs `list_recent_spots` / `list_ingest_health`. Never make a view `security_invoker = false`
@@ -166,8 +168,12 @@ deploys automatically.
   paused and throttled destinations, and expires old rows (`dropped_at`) before claiming; its knobs
   are `destination_budget`, `destination_claim_interval` (a schedule in `claim_due_at`, claimable
   half an interval early, so poll-aligned claims average one per interval),
-  `destination_claim_max`, `destination_throttle_seconds` and
-  `destination_max_age`, plus the Discord batch hold (`discord_destination_settings.batch_seconds`).
+  `destination_claim_max`, `destination_throttle_seconds`,
+  `destination_max_age`, `destination_batch_full(type)` (Discord 10, webhook 50),
+  `webhook_claim_max(batch_seconds)` (5 for one request per spot, the webhook's per-claim cap),
+  `webhook_retry_delay`, `webhook_retry_max_attempts`, `webhook_retries_exhausted` and
+  `webhook_pause_spacing`, plus the Discord and webhook batch hold (`batch_seconds` in
+  `discord_destination_settings` / `webhook_destination_settings`).
   Never cap, order, age-check or expire deliveries in TypeScript; `DISCORD_MESSAGES_PER_RUN` is a
   safety net the budget and the claim interval keep unreachable. The claim's signature and result columns stay as they are: new
   policy is a column or a knob function, never an argument.
@@ -183,7 +189,29 @@ deploys automatically.
   touches `consecutive_failures`. Never delay or drop a message outside those RPCs: the claim's
   expiry sweep is the only thing that drops a delivery. `ready` in `claim_deliveries` applies the
   sweep's age predicate too, so a row past its age is never claimed when more than the sweep's
-  batch expire at once; change the two together.
+  batch expire at once; change the two together. The same goes for a webhook row whose attempts
+  are used up: the sweep and `ready` share `webhook_retries_exhausted`.
+- Retries for webhooks are SQL's: `mark_deliveries_failed` sets a webhook row's vt from its
+  destination's `retry_policy` (`webhook_retry_delay`), ignoring `p_delay_seconds` (TypeScript's
+  `backoffSeconds`, still used for Discord and push), and an exhausted row gets vt now so the next
+  sweep drops it. Only rows that were in a request count an attempt: `sendWebhook` reports
+  `SendResult.attempted` and `run.ts` marks failed only `batch.slice(sent, attempted)`; the rest
+  wait out the claim's `p_vt` (`DestinationResult.unattempted`).
+- A webhook pauses itself, never through `health`: when its `pause_after_failures` is set,
+  `mark_deliveries_failed` counts failures toward it at most once per `webhook_pause_spacing()`
+  (`pause_failures`, `pause_failure_at`; a success since restarts the count) and on reaching it
+  sets `enabled = false` and `auto_disabled_at`, and makes every queued row of it visible (vt 0,
+  rows in retry backoff included). While `auto_disabled_at` is set the claim's unwanted sweep drops
+  the queue with `dropped_at`, so nothing is left to deliver on resume; `update_destination`
+  turning it on clears it. `webhook_default_settings()` keeps the pause null until the web editor
+  ships, since the old app can neither show nor undo a pause.
+- The webhook body is rendered in SQL (`webhook_spot_fields`, ordered `[{key, value}]` pairs in
+  the claim's `spot.webhook_fields`); `format.ts` only builds the object in that order and never
+  formats, converts or names a value. A row without the keys gets the legacy `{deliveries}` body
+  (`webhookPayloads`), which goes once the migration is hosted. Extra header values live in Vault
+  and leave it only in `claim_deliveries`, `webhook_test_delivery` and `duplicate_destination`.
+  The reserved header list is in `webhook_header_name_valid` and `WEBHOOK_RESERVED_HEADERS`
+  (`format.ts`); change both together.
 - Nothing in the app sets `destinations.health = 'paused'`; it is an operator tool, and the claim
   drops a paused destination's queued rows as unwanted, like `enabled = false`. To hold a queue
   and resume it, set `throttled_until`.
@@ -255,8 +283,10 @@ its Copy section is the copy source for the Discord editor.
 - Rates come only from the stats snapshot's `hourly` series through `useStats()` (`rates.ts`);
   never poll the snapshot or add a rates RPC. A new source with rates needs a key in
   `refresh_stats_snapshot_at`'s `daily`/`hourly`, the `StatsPayload` type and its pgTAP test.
-- The Schema and Example spot cards describe the delivered spot (`DeliverySpot`, `docs/WEBHOOKS.md`).
-  A field added to the delivered spot goes in `COMMON_FIELDS` (or a source's own fields) too.
+- The Schema and Example spot cards describe the delivered spot as the webhook field catalog
+  with its default keys (`docs/WEBHOOKS.md`): `COMMON_FIELDS` follows `webhook_fields()` order with
+  snake_case keys, and each source's `example` is its default `spot` object. A field added to the
+  catalog goes in `COMMON_FIELDS` too.
 
 ## Testing
 
@@ -458,7 +488,8 @@ its Copy section is the copy source for the Discord editor.
 
 - Users and API clients call a subscription a **connection**: web copy, web routes (`/connections`;
   `/subscriptions/*` redirects), management API paths (`/v1/connections`), API JSON
-  (`connection_count` on groups, through `api_group_json`), the webhook body's `connection_id`, and
+  (`connection_count` on groups, through `api_group_json`), the webhook body's `connection` (the
+  connection's name), and
   SQL error messages a client can see ("Connection not found."). Tables, columns, RPCs, api_call
   operation names, TypeScript identifiers and file names stay "subscription". Never show the word
   "subscription" to a user; the browser's push subscription is a different thing and keeps its name.

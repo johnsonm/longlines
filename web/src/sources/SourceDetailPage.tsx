@@ -174,7 +174,7 @@ export function SourceDetailPage({ prefs, subs }: { prefs: TimePrefs; subs: Subs
                   </Table>
                 </Box>
                 <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                  Fields for other programs are present and null.
+                  Keys and units shown are the defaults. Each webhook destination picks its fields, key style, time format and frequency unit.
                 </Typography>
               </ChartCard>
             )}

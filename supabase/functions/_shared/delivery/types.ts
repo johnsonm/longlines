@@ -46,6 +46,36 @@ export interface DeliverySpot {
   discord_url?: string | null;
   discord_line?: string;
   discord_suppress_embeds?: boolean;
+  /**
+   * Webhook only, from SQL (webhook_spot_fields): the destination's picked
+   * fields as ordered key/value pairs, keys and values rendered by SQL. The
+   * sender only builds the spot object from them, in order. `[]` is valid (no
+   * picked field had a value) and gives `"spot": {}`. Absent on rows claimed
+   * before migration 20261018000300, which get the legacy body (webhookRequests).
+   */
+  webhook_fields?: WebhookField[];
+  /** Webhook only, from SQL: the name of the connection that matched. */
+  webhook_connection?: string;
+}
+
+/** One rendered spot field of a webhook body, in the destination's order. */
+export interface WebhookField {
+  key: string;
+  value: string | number | null;
+}
+
+/** An extra header a webhook destination sends, its value from Vault. */
+export interface WebhookHeader {
+  name: string;
+  value: string;
+}
+
+/** A webhook destination's settings as claim_deliveries hands them over. */
+export interface WebhookSettings {
+  /** 0 (one request per spot), 10, 30 or 60: the claim's hold window. */
+  batch_seconds: number;
+  /** In position order. */
+  headers: WebhookHeader[];
 }
 
 /** A browser push subscription. The endpoint and keys are capability secrets. */
@@ -108,6 +138,8 @@ export interface DeliveryDestination {
   quiet_now?: boolean;
   /** Discord only: its settings. Absent on rows claimed before the migration. */
   discord?: DiscordSettings;
+  /** Webhook only: its settings. Absent on rows claimed before the migration. */
+  webhook?: WebhookSettings;
 }
 
 export interface PendingDelivery {
@@ -118,6 +150,8 @@ export interface PendingDelivery {
   created_at: string;
   destination: DeliveryDestination;
   spot: DeliverySpot;
+  /** Set only by Send test (sendTestTo): a webhook request then carries X-LongLines-Test. */
+  test?: boolean;
 }
 
 export interface DiscordEmbedField {
@@ -145,8 +179,28 @@ export interface DiscordMessage {
   allowed_mentions: { parse: never[] };
 }
 
-export interface WebhookPayload {
+/**
+ * The body before migration 20261018000300 (docs/WEBHOOKS.md, "Changed
+ * 2026-10"), sent only for rows claimed without the webhook keys.
+ */
+export interface LegacyWebhookPayload {
   deliveries: Array<{ delivery_id: number; connection_id: string; spot: DeliverySpot }>;
+}
+
+/** One delivered spot: a single body, or one item of a grouped body's `spots`. */
+export interface WebhookItem {
+  delivery_id: number;
+  /** The connection's name. */
+  connection: string;
+  spot: Record<string, string | number | null>;
+}
+
+export type WebhookBody = WebhookItem | { spots: WebhookItem[] } | LegacyWebhookPayload;
+
+/** One request and how many deliveries it carries, so the sender counts `sent` by spots. */
+export interface WebhookRequest {
+  body: WebhookBody;
+  count: number;
 }
 
 export interface PushAction {

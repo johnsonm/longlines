@@ -2,7 +2,10 @@ export type Volume = "standard" | "high";
 export type StatsKey = "pota" | "sota" | "wwff" | "rbn" | "dx" | "aprs";
 export type MarkColor = "primary" | "secondary" | "warning" | "success" | "default";
 
-/** One field of the delivered spot, as a webhook receives it (docs/WEBHOOKS.md). */
+/**
+ * One field of the delivered spot as a webhook receives it with the default
+ * settings (docs/WEBHOOKS.md): `name` is the snake_case key, kHz for frequency.
+ */
 export interface SchemaField {
   name: string;
   type: string;
@@ -45,30 +48,40 @@ export interface SourceInfo {
   example: Record<string, unknown> | null;
 }
 
+/**
+ * The webhook field catalog in webhook_fields() order, with the default
+ * (snake_case, kHz) keys. Per-source wording fills `source` and, where a
+ * source has no value, `reference`, `place_name`, `state` and `url`.
+ */
 const COMMON_FIELDS: SchemaField[] = [
   { name: "id", type: "integer", description: "Unique id Long Lines assigns to the spot.", derived: true },
-  { name: "source", type: "string", description: "", derived: false }, // filled per source
-  { name: "spot_time", type: "datetime", description: "When the source reported the spot, in UTC.", derived: false },
+  { name: "time", type: "string", description: "When the source reported the spot: ISO 8601 in UTC, whole seconds. Or Unix seconds.", derived: false },
   { name: "callsign", type: "string", description: "Callsign that was spotted, as spotted.", derived: false },
-  { name: "base_callsign", type: "string", description: "The call without prefixes or suffixes; profiles are keyed on it.", derived: true },
-  { name: "spotter", type: "string", description: "Callsign of the person who posted the spot.", derived: false },
-  { name: "frequency_khz", type: "number", description: "Frequency in kHz.", derived: false },
-  { name: "band", type: "string", description: "Amateur band, worked out from the frequency.", derived: true },
+  { name: "frequency_khz", type: "number", description: "Frequency in kHz. MHz or Hz change the key to frequency_mhz or frequency_hz.", derived: false },
   { name: "mode", type: "string", description: "Operating mode as the spotter entered it, lower case.", derived: false },
-  { name: "mode_family", type: "string", description: "cw, phone or digital, worked out from the mode.", derived: true },
-  { name: "comment", type: "string", description: "Free text from the spotter.", derived: false },
+  { name: "band", type: "string", description: "Amateur band, worked out from the frequency.", derived: true },
+  { name: "source", type: "string", description: "", derived: false }, // filled per source
+  { name: "reference", type: "string", description: "", derived: false }, // filled per source
+  { name: "place_name", type: "string", description: "", derived: false }, // filled per source
+  { name: "state", type: "string", description: "", derived: true }, // filled per source
+  { name: "spotter", type: "string", description: "Callsign of the person who posted the spot.", derived: false },
+  { name: "country", type: "string", description: "The callsign's country, as cty.dat names it. Not sent by default.", derived: true },
+  { name: "url", type: "string", description: "", derived: true }, // filled per source
+  { name: "comment", type: "string", description: "Free text from the spotter. Not sent by default.", derived: false },
 ];
 
-/** The delivered spot's fields for one source: the common ones with per-source wording, then its own. */
-function deliveredSchema(id: string, overrides: Record<string, Partial<SchemaField>> = {}, own: SchemaField[] = []): SchemaField[] {
-  return [
-    ...COMMON_FIELDS.map((f) => ({
-      ...f,
-      ...(f.name === "source" ? { description: `Always "${id}" for this source.` } : {}),
-      ...overrides[f.name],
-    })),
-    ...own,
-  ];
+/** The wording for a field this source never has a value for. */
+function noValue(label: string): Partial<SchemaField> {
+  return { description: `No value on ${label} spots, so the key is left out.` };
+}
+
+/** The delivered spot's fields for one source: the catalog with per-source wording. */
+function deliveredSchema(id: string, overrides: Record<string, Partial<SchemaField>>): SchemaField[] {
+  return COMMON_FIELDS.map((f) => ({
+    ...f,
+    ...(f.name === "source" ? { description: `Always "${id}" for this source.` } : {}),
+    ...overrides[f.name],
+  }));
 }
 
 export const SOURCES: SourceInfo[] = [
@@ -86,15 +99,15 @@ export const SOURCES: SourceInfo[] = [
       "Stats: POTA activity by state, most spotted parks and summits",
       "Connection filters: Bands, Modes, Callsigns, Callsign groups, Park, summit, or location contains",
     ],
-    schema: deliveredSchema("pota", {}, [
-      { name: "pota_reference", type: "string", description: "Park reference.", derived: false },
-      { name: "pota_park_name", type: "string", description: "Park name.", derived: false },
-      { name: "pota_location", type: "string", description: "Park locations as POTA lists them, comma separated.", derived: false },
-    ]),
+    schema: deliveredSchema("pota", {
+      reference: { description: "Park reference." },
+      place_name: { description: "Park name." },
+      state: { description: "The park's state or province, from its location after the dash (US-NC is NC); several joined by /." },
+      url: { description: "The park's page on pota.app. Not sent by default." },
+    }),
     example: {
-      id: 58161241, source: "pota", spot_time: "2026-10-14T14:30:05+00:00", callsign: "KK4PWJ", base_callsign: "KK4PWJ",
-      spotter: "K3XYZ", frequency_khz: 14062.0, band: "20m", mode: "cw", mode_family: "cw", comment: "Strong signal",
-      pota_reference: "US-2763", pota_park_name: "Falls Lake SRA", pota_location: "US-NC", sota_summit_ref: null, wwff_reference: null, wwff_reference_name: null,
+      id: 58161241, time: "2026-10-14T14:30:05Z", callsign: "KK4PWJ", frequency_khz: 14062, mode: "cw", band: "20m",
+      source: "pota", reference: "US-2763", place_name: "Falls Lake SRA", state: "NC", spotter: "K3XYZ",
     },
   },
   {
@@ -111,13 +124,15 @@ export const SOURCES: SourceInfo[] = [
       "Stats: top SOTA associations, most spotted parks and summits",
       "Connection filters: Bands, Modes, Callsigns, Callsign groups, Park, summit, or location contains",
     ],
-    schema: deliveredSchema("sotawatch", {}, [
-      { name: "sota_summit_ref", type: "string", description: "Summit reference.", derived: false },
-    ]),
+    schema: deliveredSchema("sotawatch", {
+      reference: { description: "Summit reference." },
+      place_name: noValue("SOTA"),
+      state: noValue("SOTA"),
+      url: { description: "The summit's page on summits.sota.org.uk. Not sent by default." },
+    }),
     example: {
-      id: 58161302, source: "sotawatch", spot_time: "2026-10-14T14:31:40+00:00", callsign: "KK4PWJ/P", base_callsign: "KK4PWJ",
-      spotter: "KK4PWJ", frequency_khz: 14062.0, band: "20m", mode: "cw", mode_family: "cw", comment: "QRV now",
-      pota_reference: null, pota_park_name: null, pota_location: null, sota_summit_ref: "W4C/CM-001", wwff_reference: null, wwff_reference_name: null,
+      id: 58161302, time: "2026-10-14T14:31:40Z", callsign: "KK4PWJ/P", frequency_khz: 14062, mode: "cw", band: "20m",
+      source: "sotawatch", reference: "W4C/CM-001", spotter: "KK4PWJ",
     },
   },
   {
@@ -137,12 +152,15 @@ export const SOURCES: SourceInfo[] = [
     schema: deliveredSchema("rbn", {
       spotter: { description: "Callsign of the skimmer that heard the signal." },
       mode: { description: "CW or RTTY, as the skimmer decoded it." },
-      comment: { description: "Signal strength and speed as the skimmer reported them." },
+      reference: noValue("RBN"),
+      place_name: noValue("RBN"),
+      state: noValue("RBN"),
+      url: noValue("RBN"),
+      comment: { description: "Signal strength and speed as the skimmer reported them. Not sent by default." },
     }),
     example: {
-      id: 58161377, source: "rbn", spot_time: "2026-10-14T14:30:12+00:00", callsign: "KK4PWJ", base_callsign: "KK4PWJ",
-      spotter: "W3LPL", frequency_khz: 14062.0, band: "20m", mode: "cw", mode_family: "cw", comment: "18 dB 24 WPM CQ",
-      pota_reference: null, pota_park_name: null, pota_location: null, sota_summit_ref: null, wwff_reference: null, wwff_reference_name: null,
+      id: 58161377, time: "2026-10-14T14:30:12Z", callsign: "KK4PWJ", frequency_khz: 14062, mode: "cw", band: "20m",
+      source: "rbn", spotter: "W3LPL",
     },
   },
   {
@@ -159,11 +177,16 @@ export const SOURCES: SourceInfo[] = [
       "Connection filters: Bands, Modes, Callsigns, Callsign groups",
       "Not in Stats",
     ],
-    schema: deliveredSchema("dxcluster", { mode: { description: "From the comment, else the band plan.", derived: true } }),
+    schema: deliveredSchema("dxcluster", {
+      mode: { description: "From the comment, else the band plan.", derived: true },
+      reference: noValue("DX Cluster"),
+      place_name: noValue("DX Cluster"),
+      state: noValue("DX Cluster"),
+      url: noValue("DX Cluster"),
+    }),
     example: {
-      id: 58161420, source: "dxcluster", spot_time: "2026-10-14T14:32:00+00:00", callsign: "KK4PWJ", base_callsign: "KK4PWJ",
-      spotter: "K3XYZ", frequency_khz: 14025.0, band: "20m", mode: "cw", mode_family: "cw", comment: "CQ CQ",
-      pota_reference: null, pota_park_name: null, pota_location: null, sota_summit_ref: null, wwff_reference: null, wwff_reference_name: null,
+      id: 58161420, time: "2026-10-14T14:32:00Z", callsign: "KK4PWJ", frequency_khz: 14025, mode: "cw", band: "20m",
+      source: "dxcluster", spotter: "K3XYZ",
     },
   },
   {
@@ -193,14 +216,15 @@ export const SOURCES: SourceInfo[] = [
       "Stats: top WWFF programs, most spotted parks, summits and WWFF references",
       "Connection filters: Bands, Modes, Callsigns, Callsign groups, Park, summit, or location contains",
     ],
-    schema: deliveredSchema("wwff", {}, [
-      { name: "wwff_reference", type: "string", description: "WWFF reference.", derived: false },
-      { name: "wwff_reference_name", type: "string", description: "Reference name.", derived: false },
-    ]),
+    schema: deliveredSchema("wwff", {
+      reference: { description: "WWFF reference." },
+      place_name: { description: "Reference name." },
+      state: noValue("WWFF"),
+      url: { description: "The reference's entry in the WWFF directory. Not sent by default." },
+    }),
     example: {
-      id: 58161488, source: "wwff", spot_time: "2026-10-14T14:33:20+00:00", callsign: "KK4PWJ", base_callsign: "KK4PWJ",
-      spotter: "K3XYZ", frequency_khz: 14244.0, band: "20m", mode: "ssb", mode_family: "phone", comment: "",
-      pota_reference: null, pota_park_name: null, pota_location: null, sota_summit_ref: null, wwff_reference: "KFF-5268", wwff_reference_name: "T.M. Goodwin",
+      id: 58161488, time: "2026-10-14T14:33:20Z", callsign: "KK4PWJ", frequency_khz: 14244, mode: "ssb", band: "20m",
+      source: "wwff", reference: "KFF-5268", place_name: "T.M. Goodwin", spotter: "K3XYZ",
     },
   },
 ];

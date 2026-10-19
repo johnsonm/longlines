@@ -237,6 +237,46 @@ Deno.test("startSender claims, sends to a local webhook, acks in one call and re
   assertEquals(logs.some((m) => m.startsWith("queue depth 3, expired in the last hour 1;")), true);
 });
 
+Deno.test("startSender sends a migrated claim's rows in the new body, one request per spot", async () => {
+  const hook = receiver();
+  const d = dest("d1", {
+    url: hook.url,
+    webhook: { batch_seconds: 0, headers: [{ name: "X-Api-Key", value: "k1" }] },
+  });
+  const rendered = (id: number): PendingDelivery => {
+    const r = row(id, d);
+    r.spot = {
+      ...r.spot,
+      webhook_connection: "Parks",
+      webhook_fields: [{ key: "callsign", value: "W1AW" }, { key: "id", value: id }],
+    };
+    return r;
+  };
+  const claims = [[rendered(1), rendered(2)]];
+  const db = fakeDb(({ fn }) =>
+    fn === "claim_deliveries" ? { data: claims.shift() ?? [] } : undefined
+  );
+  const clock = fakeClock(T0);
+  const sender = startSender(config(), {
+    db: db.db,
+    send: (destination, deliveries, now) =>
+      sendToDestination(destination, deliveries, { allowInsecure: true, now }),
+  }, { hostname: "127.0.0.1", log: () => {}, now: clock.now, sleep: clock.sleep });
+
+  await waitFor("the ack", () => db.of("mark_deliveries_sent").length === 1);
+  assertEquals(db.of("mark_deliveries_sent")[0]!.args.p_delivery_ids, [1, 2]);
+  assertEquals(hook.requests.map((r) => r.body), [
+    { delivery_id: 1, connection: "Parks", spot: { callsign: "W1AW", id: 1 } },
+    { delivery_id: 2, connection: "Parks", spot: { callsign: "W1AW", id: 2 } },
+  ]);
+  assertEquals(hook.requests[0]!.headers.get("x-api-key"), "k1");
+  assertEquals(hook.requests[0]!.headers.has("x-longlines-test"), false);
+
+  await sender.shutdown();
+  await sender.done;
+  await hook.server.shutdown();
+});
+
 Deno.test("startSender claims again at once after a full batch", async () => {
   const d = dest("d1");
   const claims = [[row(1, d)], [row(2, d)], [row(3, d)]];

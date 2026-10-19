@@ -334,7 +334,7 @@ Deno.test("sendWebhook signs the body and sets the Long Lines headers", async ()
       const result = await sendWebhook(d, [delivery(1, d), delivery(2, d)], {
         allowInsecure: true,
       });
-      assertEquals(result, { ok: true, sent: 2 });
+      assertEquals(result, { ok: true, sent: 2, attempted: 2, status: 200 });
       const s = seen as unknown as { headers: Headers; body: string };
       assertEquals(s.headers.get("content-type"), "application/json");
       assertMatch(s.headers.get("user-agent") ?? "", /^LongLines\/0\.2/);
@@ -473,7 +473,8 @@ Deno.test("sendWebhook refuses an unsafe destination before connecting", async (
 interface Post {
   url: string;
   address: string;
-  headers: Record<string, string>;
+  headers: Array<[string, string]>;
+  body: string;
 }
 
 /** A pinnedPost stand-in that records where each request would connect. */
@@ -482,7 +483,12 @@ function recordingPost(
   answer: (address: string) => number | Error = () => 200,
 ): typeof pinnedPost {
   return (url, address, init) => {
-    posts.push({ url: url.href, address, headers: { ...init.headers } });
+    const headers = Array.isArray(init.headers)
+      ? (init.headers as ReadonlyArray<readonly [string, string]>).map((
+        [n, v],
+      ): [string, string] => [n, v])
+      : Object.entries(init.headers);
+    posts.push({ url: url.href, address, headers, body: String(init.body) });
     const result = answer(address);
     if (result instanceof Error) return Promise.reject(result);
     return Promise.resolve({ status: result, headers: new Headers() });
@@ -502,13 +508,13 @@ Deno.test("sendWebhook connects to the address it checked and resolves the name 
     resolver,
     webhookPost: recordingPost(posts),
   });
-  assertEquals(result, { ok: true, sent: 60 });
+  assertEquals(result, { ok: true, sent: 60, attempted: 60, status: 200 });
   assertEquals(lookups, 1);
   assertEquals(posts.map((p) => [p.url, p.address]), [
     ["https://hooks.example.com/spots?k=1", "93.184.216.34"],
     ["https://hooks.example.com/spots?k=1", "93.184.216.34"],
   ]);
-  assertEquals(Object.keys(posts[0]!.headers).sort(), [
+  assertEquals(posts[0]!.headers.map(([name]) => name).sort(), [
     "Accept",
     "Content-Type",
     "User-Agent",
@@ -527,6 +533,7 @@ Deno.test("sendWebhook refuses a name that resolves to a private address before 
   assertEquals(result, {
     ok: false,
     sent: 0,
+    attempted: 1,
     error: "rebind.example.com resolves to a private address",
   });
   assertEquals(posts, []);
@@ -539,7 +546,7 @@ Deno.test("sendWebhook uses an IP literal as its own address without resolving",
     resolver: () => Promise.reject(new Error("must not resolve")),
     webhookPost: recordingPost(posts),
   });
-  assertEquals(result, { ok: true, sent: 1 });
+  assertEquals(result, { ok: true, sent: 1, attempted: 1, status: 200 });
   assertEquals(posts.map((p) => p.address), ["2606:2800:220:1::1"]);
 });
 
@@ -554,7 +561,7 @@ Deno.test("sendWebhook tries the next checked address only when connecting fails
     a === "192.0.2.1" ? new PinnedConnectError("Connection refused") : 200;
   assertEquals(
     await sendWebhook(d, batch, { resolver, webhookPost: recordingPost(posts, refusedFirst) }),
-    { ok: true, sent: 60 },
+    { ok: true, sent: 60, attempted: 60, status: 200 },
   );
   assertEquals(posts.map((p) => p.address), ["192.0.2.1", "192.0.2.2", "192.0.2.2"]);
 
@@ -563,7 +570,7 @@ Deno.test("sendWebhook tries the next checked address only when connecting fails
   const refused = () => new PinnedConnectError("Connection refused");
   assertEquals(
     await sendWebhook(d, batch, { resolver, webhookPost: recordingPost(all, refused) }),
-    { ok: false, sent: 0, error: "Webhook request failed: Connection refused" },
+    { ok: false, sent: 0, attempted: 50, error: "Webhook request failed: Connection refused" },
   );
   assertEquals(all.map((p) => p.address), ["192.0.2.1", "192.0.2.2", "192.0.2.3"]);
 
@@ -572,7 +579,12 @@ Deno.test("sendWebhook tries the next checked address only when connecting fails
   const timedOut = () => new Error("timed out after 10000 ms");
   assertEquals(
     await sendWebhook(d, batch, { resolver, webhookPost: recordingPost(once, timedOut) }),
-    { ok: false, sent: 0, error: "Webhook request failed: timed out after 10000 ms" },
+    {
+      ok: false,
+      sent: 0,
+      attempted: 50,
+      error: "Webhook request failed: timed out after 10000 ms",
+    },
   );
   assertEquals(once.map((p) => p.address), ["192.0.2.1"]);
 });
@@ -587,7 +599,7 @@ Deno.test("sendWebhook with allowInsecure connects to a name itself, trying both
       allowInsecure: true,
       webhookPost: recordingPost(posts, v4Refused),
     }),
-    { ok: true, sent: 1 },
+    { ok: true, sent: 1, attempted: 1, status: 204 },
   );
   const named = dest("http://receiver.test:9999/spots", "webhook");
   await sendWebhook(named, [delivery(1, named)], {
@@ -603,6 +615,7 @@ Deno.test("sendWebhook with allowInsecure reports a URL it cannot parse", async 
   assertEquals(await sendWebhook(d, [delivery(1, d)], { allowInsecure: true }), {
     ok: false,
     sent: 0,
+    attempted: 1,
     error: "Use an https URL.",
   });
 });
@@ -615,6 +628,199 @@ Deno.test("sendWebhook reports a refused connection to a local receiver", async 
   const result = await sendWebhook(d, [delivery(1, d)], { allowInsecure: true });
   assertEquals(result.ok, false);
   assertMatch(result.error ?? "", /^Webhook request failed: /);
+});
+
+// --- webhook bodies rendered by SQL -------------------------------------
+
+/** A webhook destination as the migrated claim hands it over. */
+function webhookDest(
+  url: string,
+  batch_seconds: number,
+  headers: Array<{ name: string; value: string }> = [],
+): DeliveryDestination {
+  return { ...dest(url, "webhook"), webhook: { batch_seconds, headers } };
+}
+
+/** A delivery carrying SQL's ordered pairs and the connection's name. */
+function renderedWebhook(id: number, destination: DeliveryDestination): PendingDelivery {
+  const d = delivery(id, destination);
+  d.spot = {
+    ...d.spot,
+    webhook_connection: "Parks",
+    webhook_fields: [
+      { key: "id", value: id },
+      { key: "time", value: "2026-10-05T14:32:08Z" },
+      { key: "callsign", value: "KK4PWJ" },
+      { key: "frequency_khz", value: 14062 },
+    ],
+  };
+  return d;
+}
+
+/**
+ * A receiver on a bare TCP socket, so a test sees the request head exactly as
+ * sent (Deno.serve's Headers reorders). Answers each request with `statuses`
+ * in turn (then 204).
+ */
+async function withRawServer(
+  statuses: number[],
+  fn: (base: string, requests: Array<{ head: string[]; body: string }>) => Promise<void>,
+): Promise<void> {
+  const listener = Deno.listen({ hostname: "127.0.0.1", port: 0 });
+  const requests: Array<{ head: string[]; body: string }> = [];
+  const serving = (async () => {
+    for await (const conn of listener) {
+      let text = "";
+      const buf = new Uint8Array(65536);
+      for (;;) {
+        const n = await conn.read(buf);
+        if (n === null) break;
+        text += new TextDecoder().decode(buf.subarray(0, n));
+        const end = text.indexOf("\r\n\r\n");
+        if (end < 0) continue;
+        const length = Number(/\r\ncontent-length: *(\d+)/i.exec(text)?.[1] ?? 0);
+        if (text.length >= end + 4 + length) break;
+      }
+      const end = text.indexOf("\r\n\r\n");
+      requests.push({ head: text.slice(0, end).split("\r\n"), body: text.slice(end + 4) });
+      const status = statuses[requests.length - 1] ?? 204;
+      await conn.write(
+        new TextEncoder().encode(
+          `HTTP/1.1 ${status} X\r\nContent-Length: 0\r\nConnection: close\r\n\r\n`,
+        ),
+      );
+      conn.close();
+    }
+  })();
+  try {
+    await fn(`http://127.0.0.1:${(listener.addr as Deno.NetAddr).port}`, requests);
+  } finally {
+    listener.close();
+    await serving.catch(() => {});
+  }
+}
+
+const headerNames = (head: string[]) => head.slice(1).map((line) => line.split(":")[0]);
+
+Deno.test("sendWebhook sends the headers in order: Host, the fixed five, the test marker, the extras", async () => {
+  await withRawServer([204], async (base, requests) => {
+    const d = webhookDest(`${base}/hook/abc`, 0, [
+      { name: "Authorization", value: "Bearer abc" },
+      { name: "Content-Type", value: "text/plain" },
+      { name: "X-Api-Key", value: "k1" },
+    ]);
+    const test = { ...renderedWebhook(1, d), test: true };
+    const result = await sendWebhook(d, [test], { allowInsecure: true });
+    assertEquals(result, { ok: true, sent: 1, attempted: 1, status: 204 });
+    const [request] = requests;
+    assertEquals(request?.head[0], "POST /hook/abc HTTP/1.1");
+    assertEquals(headerNames(request!.head), [
+      "Host",
+      "Accept",
+      "Content-Type",
+      "User-Agent",
+      "X-LongLines-Timestamp",
+      "X-LongLines-Signature",
+      "X-LongLines-Test",
+      "Authorization",
+      "X-Api-Key",
+      "Content-Length",
+      "Connection",
+    ]);
+    assertEquals(request!.head.includes("Content-Type: application/json"), true);
+    assertEquals(request!.head.includes("Content-Type: text/plain"), false);
+    assertEquals(request!.head.includes("X-LongLines-Test: true"), true);
+    assertEquals(request!.head.includes("Authorization: Bearer abc"), true);
+    const ts = Number(/^X-LongLines-Timestamp: (\d+)$/m.exec(request!.head.join("\n"))?.[1]);
+    assertEquals(
+      request!.head.includes(
+        `X-LongLines-Signature: ${await signWebhookBody("whsec_testsecret", ts, request!.body)}`,
+      ),
+      true,
+    );
+    assertEquals(
+      request!.body,
+      '{"delivery_id":1,"connection":"Parks","spot":{"id":1,"time":"2026-10-05T14:32:08Z",' +
+        '"callsign":"KK4PWJ","frequency_khz":14062}}',
+    );
+  });
+});
+
+Deno.test("sendWebhook leaves out the test marker on a real delivery", async () => {
+  await withRawServer([204], async (base, requests) => {
+    const d = webhookDest(`${base}/hook`, 0);
+    await sendWebhook(d, [renderedWebhook(1, d)], { allowInsecure: true });
+    assertEquals(headerNames(requests[0]!.head).includes("X-LongLines-Test"), false);
+  });
+});
+
+Deno.test("sendWebhook sends one request per spot at batch 0 and stops at the first failure", async () => {
+  await withRawServer([204, 204, 500], async (base, requests) => {
+    const d = webhookDest(`${base}/hook`, 0);
+    const batch = [1, 2, 3, 4, 5].map((id) => renderedWebhook(id, d));
+    const result = await sendWebhook(d, batch, { allowInsecure: true });
+    assertEquals(result, {
+      ok: false,
+      sent: 2,
+      attempted: 3,
+      status: 500,
+      error: "Webhook HTTP 500",
+    });
+    assertEquals(requests.map((r) => JSON.parse(r.body).delivery_id), [1, 2, 3]);
+  });
+  await withRawServer([], async (base, requests) => {
+    const d = webhookDest(`${base}/hook`, 0);
+    const batch = [1, 2, 3, 4, 5].map((id) => renderedWebhook(id, d));
+    assertEquals(await sendWebhook(d, batch, { allowInsecure: true }), {
+      ok: true,
+      sent: 5,
+      attempted: 5,
+      status: 204,
+    });
+    assertEquals(requests.length, 5);
+  });
+});
+
+Deno.test("sendWebhook groups into spots lists of 50 and counts a failed group as attempted", async () => {
+  await withRawServer([204, 500], async (base, requests) => {
+    const d = webhookDest(`${base}/hook`, 30);
+    const batch = Array.from({ length: 120 }, (_, i) => renderedWebhook(i + 1, d));
+    const result = await sendWebhook(d, batch, { allowInsecure: true });
+    assertEquals(result, {
+      ok: false,
+      sent: 50,
+      attempted: 100,
+      status: 500,
+      error: "Webhook HTTP 500",
+    });
+    assertEquals(requests.map((r) => JSON.parse(r.body).spots.length), [50, 50]);
+  });
+});
+
+Deno.test("sendWebhook reports the status of a 429 with the throttle", async () => {
+  await withRawServer([429], async (base) => {
+    const d = webhookDest(`${base}/hook`, 0);
+    const result = await sendWebhook(d, [renderedWebhook(1, d)], { allowInsecure: true });
+    assertEquals(result.status, 429);
+    assertEquals(result.retryAfterSeconds, null);
+    assertEquals(result.attempted, 1);
+  });
+});
+
+Deno.test("sendWebhook reports the last status received when a later request fails to connect", async () => {
+  const d = webhookDest("https://hooks.example.com/hook", 0);
+  let n = 0;
+  const result = await sendWebhook(d, [renderedWebhook(1, d), renderedWebhook(2, d)], {
+    resolver: () => Promise.resolve(["93.184.216.34"]),
+    webhookPost: recordingPost([], () => (++n === 1 ? 202 : new Error("reset"))),
+  });
+  assertEquals(result, {
+    ok: false,
+    sent: 1,
+    attempted: 2,
+    status: 202,
+    error: "Webhook request failed: reset",
+  });
 });
 
 // --- push ---------------------------------------------------------------
@@ -1107,7 +1313,12 @@ Deno.test("sendToDestination picks the sender by type", async () => {
     const options = { allowInsecure: true, vapid: await vapid() };
     assertEquals((await sendToDestination(p, [delivery(1, p)], options)).ok, true);
     const w = dest(`${base}/200/hook`, "webhook");
-    assertEquals(await sendToDestination(w, [delivery(1, w)], options), { ok: true, sent: 1 });
+    assertEquals(await sendToDestination(w, [delivery(1, w)], options), {
+      ok: true,
+      sent: 1,
+      attempted: 1,
+      status: 200,
+    });
     const c = dest(`${base}/204/api/webhooks/1/abc`, "discord");
     assertEquals(await sendToDestination(c, [delivery(1, c)], options), { ok: true, sent: 1 });
     assertEquals(requests.map((r) => r.path), ["/201/a", "/200/hook", "/204/api/webhooks/1/abc"]);
