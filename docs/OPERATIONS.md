@@ -153,8 +153,8 @@ Nothing consumes the queue in Phase 1, so `queue_length` grows with `total_messa
 
 Authentication → URL configuration:
 
-- Site URL: `https://app.longlines.io`
-- Redirect URLs: `https://app.longlines.io`, `https://app.longlines.io/set-password`
+- Site URL: `https://longlines.io`
+- Redirect URLs: `https://longlines.io`, `https://longlines.io/set-password`
   (add `http://localhost:5173` and `http://localhost:5173/set-password` for local
   development against the hosted project)
 
@@ -519,15 +519,15 @@ Create a Vercel project from the GitHub repo with these settings:
 - `VAPID_PUBLIC_KEY` (set by hand, production and preview): the public half of
   the push pair ("Push notifications" above). It is public by design and ships
   in the bundle; without it push is unsupported in the app.
-- Domain: `app.longlines.io`
+- Domain: `longlines.io`
 
 `web/vercel.json` rewrites every path to `index.html` so client-side routes
 load directly. Nothing else is host-specific; `npm run build` produces a plain
 static site in `web/dist`.
 
 After the first deploy, make sure Supabase Auth → URL configuration lists
-`https://app.longlines.io` as the Site URL and includes
-`https://app.longlines.io/set-password` in the redirect URLs, or confirmation
+`https://longlines.io` as the Site URL and includes
+`https://longlines.io/set-password` in the redirect URLs, or confirmation
 and reset links will not land in the app.
 
 ## Regenerating database types

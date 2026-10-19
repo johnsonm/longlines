@@ -422,7 +422,7 @@ describe("discord", () => {
   it("previewDiscordMessage sends the settings and the spot, and returns SQL's keys", async () => {
     const preview = {
       discord_style: "card", discord_title: "KK4PWJ · 14.062 MHz · CW", discord_description: "POTA · US-2763", discord_grid: [{ name: "Band", value: "20m" }],
-      discord_footer: "POTA · 17:42 UTC", discord_color: 5763719, discord_url: "https://app.longlines.io/call/KK4PWJ",
+      discord_footer: "POTA · 17:42 UTC", discord_color: 5763719, discord_url: "https://longlines.io/call/KK4PWJ",
       discord_line: "**KK4PWJ** · 14.062 MHz", discord_suppress_embeds: false,
     };
     fake.rpcs.set("preview_discord_message", { data: preview });

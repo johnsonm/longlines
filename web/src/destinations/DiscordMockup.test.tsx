@@ -5,7 +5,7 @@ import type { DiscordPreview } from "../lib/api";
 import { DiscordMockup } from "./DiscordMockup";
 import { colorHex, todayAt } from "./discordMarkdown";
 
-const PROFILE = "https://app.longlines.io/call/N0CALL";
+const PROFILE = "https://longlines.io/call/N0CALL";
 const NOW = new Date(2026, 9, 18, 13, 42);
 
 const CARD: DiscordPreview = {
@@ -45,9 +45,9 @@ const LINKED: DiscordPreview = {
   discord_grid: [{ name: "Band", value: "20m" }, { name: "Spotter", value: "W1AW" }],
   discord_footer: "POTA · 17:42 UTC",
   discord_color: 3066993,
-  discord_url: "https://app.longlines.io/call/K1ABC",
+  discord_url: "https://longlines.io/call/K1ABC",
   discord_line:
-    "**[K1ABC/\\*\\*](https://app.longlines.io/call/K1ABC)** · 14.062 MHz · CW · POTA · US-2763 · 1\\. \\[Park\\]\\(https://evil.example\\) \\<\\#123\\>",
+    "**[K1ABC/\\*\\*](https://longlines.io/call/K1ABC)** · 14.062 MHz · CW · POTA · US-2763 · 1\\. \\[Park\\]\\(https://evil.example\\) \\<\\#123\\>",
   discord_suppress_embeds: false,
 };
 
@@ -139,14 +139,14 @@ describe("DiscordMockup", () => {
   it("keeps escaped text inside the title and plain-line profile links", () => {
     const { unmount } = renderPage(<DiscordMockup preview={LINKED} now={NOW} />);
     const title = figure().getByRole("link", { name: "K1ABC/** · 14.062 MHz · CW" });
-    expect(title).toHaveAttribute("href", "https://app.longlines.io/call/K1ABC");
+    expect(title).toHaveAttribute("href", "https://longlines.io/call/K1ABC");
     expect(figure().getByText("POTA · US-2763 · 1. [Park](https://evil.example) <#123> · NC")).toBeInTheDocument();
     expect(figure().getAllByRole("link")).toHaveLength(1);
     unmount();
     renderPage(<DiscordMockup preview={{ ...LINKED, discord_style: "plain" }} now={NOW} />);
     const line = screen.getByTestId("discord-line");
     const link = within(line).getByRole("link", { name: "K1ABC/**" });
-    expect(link).toHaveAttribute("href", "https://app.longlines.io/call/K1ABC");
+    expect(link).toHaveAttribute("href", "https://longlines.io/call/K1ABC");
     expect(within(line).getAllByRole("link")).toHaveLength(1);
     expect(line.textContent).toBe("K1ABC/** · 14.062 MHz · CW · POTA · US-2763 · 1. [Park](https://evil.example) <#123>");
   });

@@ -231,8 +231,8 @@ function renderedDelivery(id: number, destination: DeliveryDestination): Pending
       discord_grid: [{ name: "Band", value: "20m" }],
       discord_footer: "POTA · 14:32 UTC",
       discord_color: 3066993,
-      discord_url: "https://app.longlines.io/call/KK4PWJ",
-      discord_line: `**[KK4PWJ](https://app.longlines.io/call/KK4PWJ)** #${id}`,
+      discord_url: "https://longlines.io/call/KK4PWJ",
+      discord_line: `**[KK4PWJ](https://longlines.io/call/KK4PWJ)** #${id}`,
       discord_suppress_embeds: destination.discord?.style === "plain",
     },
   };
@@ -313,7 +313,7 @@ Deno.test("sendDiscord posts plain lines as content with flags and counts sent b
       assertEquals(first.content.split("\n").length, 10);
       assertEquals(
         first.content.split("\n")[0],
-        "**[KK4PWJ](https://app.longlines.io/call/KK4PWJ)** #1",
+        "**[KK4PWJ](https://longlines.io/call/KK4PWJ)** #1",
       );
       assertEquals(first.flags, 4);
       assertEquals(first.allowed_mentions, { parse: [] });
