@@ -125,8 +125,8 @@ select is((select to_jsonb(s) - 'destination_id' from webhook_destination_settin
 select is((select j from defaults),
   '{"fields": ["id", "time", "callsign", "frequency", "mode", "band", "source", "reference", "place_name", "state", "spotter"],
     "key_style": "snake", "time_format": "iso_utc", "frequency_unit": "khz", "missing_values": "omit", "batch_seconds": 0,
-    "retry_policy": "three_10m", "pause_after_failures": null}'::jsonb,
-  'the defaults are the canvas''s, except the pause, off until the editor ships');
+    "retry_policy": "three_10m", "pause_after_failures": 20}'::jsonb,
+  'the defaults are the canvas''s, with the pause at 20 since the editor shipped (20261018000400)');
 select is(webhook_legacy_settings(),
   (select j from defaults) || jsonb_build_object('fields', to_jsonb(webhook_fields()), 'batch_seconds', 10,
                                                  'retry_policy', 'day', 'pause_after_failures', null),

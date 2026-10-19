@@ -30,7 +30,7 @@ beforeEach(() => {
     Promise.resolve(source === "pota" ? [spot(1, "pota", 1), spot(2, "pota", 30)] : source === "sotawatch" ? [spot(3, "sotawatch", 5)] : []),
   );
   vi.mocked(previewDiscordMessage).mockReset().mockResolvedValue(PREVIEW);
-  vi.mocked(sendTest).mockReset().mockResolvedValue();
+  vi.mocked(sendTest).mockReset().mockResolvedValue({ status: null });
 });
 
 interface Opts {

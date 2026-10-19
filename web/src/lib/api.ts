@@ -30,6 +30,7 @@ export type Destination = Pick<
   | "last_error"
   | "last_error_at"
   | "created_at"
+  | "auto_disabled_at"
 >;
 export type Subscription = Row<"subscriptions">;
 export type SubscriptionLink = Tables["subscription_destinations"]["Row"];
@@ -40,16 +41,19 @@ export type ApiToken = Omit<Tables["api_tokens"]["Row"], "token_hash">;
 export type ApiTokenScope = "read" | "write";
 
 export const DESTINATION_COLUMNS =
-  "id, user_id, type, name, enabled, url_display, health, consecutive_failures, last_success_at, last_error, last_error_at, created_at";
+  "id, user_id, type, name, enabled, url_display, health, consecutive_failures, last_success_at, last_error, last_error_at, created_at, auto_disabled_at";
 
 export const API_TOKEN_COLUMNS =
   "id, user_id, name, scope, token_prefix, lifetime_days, expires_at, created_at, rotated_at, last_used_at";
 
 export class ApiError extends Error {
   code: string | undefined;
-  constructor(message: string, code?: string) {
+  /** A webhook receiver's HTTP status, from send-test's 502 body when the receiver answered with a non-2xx. */
+  receiverStatus: number | undefined;
+  constructor(message: string, code?: string, receiverStatus?: number) {
     super(message);
     this.code = code;
+    this.receiverStatus = receiverStatus;
   }
 }
 
@@ -69,7 +73,10 @@ function withNulls<F extends keyof Functions>(
 
 // ---- Edge Functions ---------------------------------------------------------
 
-/** Fetch an Edge Function; a non-2xx body's `error` becomes the ApiError message and the status its code. */
+/**
+ * Fetch an Edge Function; a non-2xx body's `error` becomes the ApiError message and the status its code.
+ * A numeric `status` in the body (send-test's webhook receiver) is kept as `receiverStatus`.
+ */
 async function fetchFunction<T>(path: string, init: RequestInit): Promise<T> {
   let response: Response;
   try {
@@ -77,8 +84,11 @@ async function fetchFunction<T>(path: string, init: RequestInit): Promise<T> {
   } catch {
     throw new ApiError("Couldn't reach Long Lines. Check your connection and try again.");
   }
-  const data = (await response.json().catch(() => ({}))) as { error?: string } & T;
-  if (!response.ok) throw new ApiError(data.error || `Request failed (HTTP ${response.status}).`, String(response.status));
+  const data = (await response.json().catch(() => ({}))) as { error?: string; status?: unknown } & T;
+  if (!response.ok) {
+    const receiver = typeof data.status === "number" ? data.status : undefined;
+    throw new ApiError(data.error || `Request failed (HTTP ${response.status}).`, String(response.status), receiver);
+  }
   return data;
 }
 
@@ -111,10 +121,16 @@ async function accessToken(): Promise<string> {
   return data.session.access_token;
 }
 
+/** What a successful send-test answers: a webhook's receiver status, null for Discord and push. */
+export interface SendTestResult {
+  status: number | null;
+}
+
 /** Sends the sample spot, or raw_spots row `spotId`, to a destination with its saved settings. */
-export async function sendTest(destinationId: string, spotId?: number | null): Promise<void> {
+export async function sendTest(destinationId: string, spotId?: number | null): Promise<SendTestResult> {
   const body = { destination_id: destinationId, ...(spotId === undefined || spotId === null ? {} : { spot_id: spotId }) };
-  await callFunction<{ ok: true }>("send-test", body, await accessToken());
+  const data = await callFunction<{ ok: true; status?: number }>("send-test", body, await accessToken());
+  return { status: typeof data.status === "number" ? data.status : null };
 }
 
 export async function deleteAccount(): Promise<void> {
@@ -204,23 +220,6 @@ export async function loadDestinations(): Promise<Destination[]> {
   const { data, error } = await supabase.from("destinations").select(DESTINATION_COLUMNS).order("created_at");
   if (error) fail(error, "Couldn't load destinations.");
   return data;
-}
-
-export interface CreatedDestination {
-  id: string;
-  type: string;
-  name: string;
-  url_display: string;
-  signing_secret: string | null;
-}
-
-/** A Discord or webhook destination from its URL; a push destination has none (`null`). */
-export async function createDestination(type: DestinationType, name: string, url: string | null): Promise<CreatedDestination> {
-  const { data, error } = await supabase.rpc("create_destination", withNulls<"create_destination">({ p_type: type, p_name: name, p_url: url }));
-  if (error) fail(error, "Couldn't add the destination.");
-  const row = data[0];
-  if (!row) throw new ApiError("Couldn't add the destination.");
-  return row;
 }
 
 export async function rotateSigningSecret(destinationId: string): Promise<string> {
@@ -392,7 +391,7 @@ export async function getPushDestination(id: string): Promise<PushDestination> {
   return data as unknown as PushDestination;
 }
 
-/** Copies a push or Discord destination (settings, and devices or the URL) as "Copy of {name}", disabled. Returns the new id. */
+/** Copies a destination of any type (settings, and devices, or the URL, secret and headers) as "Copy of {name}", disabled. Returns the new id. */
 export async function duplicateDestination(id: string): Promise<string> {
   const { data, error } = await supabase.rpc("duplicate_destination", { p_id: id });
   if (error) fail(error, "Couldn't duplicate the destination.");
@@ -527,6 +526,135 @@ export async function previewDiscordMessage(settings: DiscordSettings, spotId: n
   if (!data) throw new ApiError("Couldn't load the preview.");
   // jsonb in the generated types; its nine keys are fixed by discord_spot_fields().
   return data as unknown as DiscordPreview;
+}
+
+// ---- Webhooks --------------------------------------------------------------
+//
+// A webhook's settings live in webhook_destination_settings and its extra
+// headers in webhook_destination_headers (values in Vault); clients read
+// neither table. The URL and header values go in through
+// saveWebhookDestination and never come back: get_webhook_destination returns
+// the masked URL and header names only, and the signing secret comes back once,
+// from the create (here) or rotateSigningSecret.
+
+/** The fields a webhook spot can carry, in webhook_fields()'s order. */
+export type WebhookField =
+  | "id" | "time" | "callsign" | "frequency" | "mode" | "band" | "source" | "reference" | "place_name" | "state" | "spotter"
+  | "country" | "url" | "comment";
+
+/** A webhook destination's settings row, as SQL stores it (webhook_destination_settings). */
+export interface WebhookSettings {
+  /** 1 to 14, each once, in the order the spot carries them. */
+  fields: WebhookField[];
+  key_style: "snake" | "camel";
+  time_format: "iso_utc" | "unix_seconds";
+  frequency_unit: "khz" | "mhz" | "hz";
+  missing_values: "omit" | "null";
+  /** 0 (one request per spot), 10, 30 or 60. */
+  batch_seconds: number;
+  retry_policy: "none" | "three_10m" | "day";
+  /** Failed requests that turn the destination off (the editor sets 20), or null for never. */
+  pause_after_failures: number | null;
+}
+
+/**
+ * One extra header as saved, in position order. A missing or empty `value`
+ * keeps the stored value of the header with that name (ignoring case); a new
+ * or renamed header needs one.
+ */
+export interface WebhookHeaderInput {
+  name: string;
+  value?: string;
+}
+
+/** What the editor saves: without `id` it creates the destination; a null `url` keeps the stored one, null `headers` the stored headers. */
+export interface WebhookDestinationInput {
+  id?: string;
+  name: string;
+  /** Null keeps what is stored; true on a paused destination resumes it. */
+  enabled: boolean | null;
+  url: string | null;
+  settings: WebhookSettings;
+  headers: WebhookHeaderInput[] | null;
+}
+
+/** What the editor loads (get_webhook_destination): never the URL, the secret or a header value. */
+export interface WebhookDestination {
+  id: string;
+  name: string;
+  enabled: boolean;
+  url_display: string;
+  settings: WebhookSettings;
+  headers: { name: string }[];
+  secret_rotated_at: string | null;
+  /** Set while the destination is paused after repeated failures. */
+  auto_disabled_at: string | null;
+}
+
+/** saveWebhookDestination's result: the signing secret only when it created the destination, shown once. */
+export interface SavedWebhookDestination {
+  id: string;
+  signingSecret: string | null;
+}
+
+/** One row of list_webhook_destination_settings, for the list cards' type line. */
+export interface WebhookSettingsSummary {
+  destination_id: string;
+  field_count: number;
+  batch_seconds: number;
+}
+
+/** Creates (no id) or updates a webhook's name, enabled, URL (null keeps it), settings and headers (null keeps them). */
+export async function saveWebhookDestination(input: WebhookDestinationInput): Promise<SavedWebhookDestination> {
+  const settings: Json = { ...input.settings };
+  const headers: Json | null = input.headers === null
+    ? null
+    : input.headers.map((h) => (h.value === undefined ? { name: h.name } : { name: h.name, value: h.value }));
+  const { data, error } = await supabase.rpc("save_webhook_destination", withNulls<"save_webhook_destination">({
+    p_id: input.id ?? null, p_name: input.name, p_enabled: input.enabled, p_url: input.url, p_settings: settings, p_headers: headers,
+  }));
+  if (error) fail(error, "Couldn't save the destination.");
+  const row = data[0];
+  if (!row) throw new ApiError("Couldn't save the destination.");
+  // The generated type says string; SQL returns null on an update.
+  return { id: row.id, signingSecret: (row.signing_secret as string | null) ?? null };
+}
+
+export async function getWebhookDestination(id: string): Promise<WebhookDestination> {
+  const { data, error } = await supabase.rpc("get_webhook_destination", { p_id: id });
+  if (error) fail(error, "Couldn't load the destination.");
+  // jsonb in the generated types; its shape is fixed by get_webhook_destination().
+  return data as unknown as WebhookDestination;
+}
+
+/** The field count and window of each of the caller's webhooks. */
+export async function listWebhookDestinationSettings(): Promise<WebhookSettingsSummary[]> {
+  const { data, error } = await supabase.rpc("list_webhook_destination_settings");
+  if (error) fail(error, "Couldn't load destinations.");
+  // jsonb array in the generated types; its shape is fixed by list_webhook_destination_settings().
+  return (data ?? []) as unknown as WebhookSettingsSummary[];
+}
+
+/**
+ * The request body SQL would send with `settings`, for the sample spot or
+ * raw_spots row `spotId`, naming a connection of `destinationId` when it has
+ * one. SQL builds it as json, so the parsed object keeps the picked key order
+ * (no key is integer-like); the editor pretty-prints it as is.
+ */
+export async function previewWebhookRequest(
+  settings: WebhookSettings,
+  spotId: number | null,
+  destinationId: string | null,
+): Promise<unknown> {
+  const p_settings: Json = { ...settings };
+  const { data, error } = await supabase.rpc("preview_webhook_request", {
+    p_settings,
+    ...(spotId === null ? {} : { p_spot_id: spotId }),
+    ...(destinationId === null ? {} : { p_destination_id: destinationId }),
+  });
+  if (error) fail(error, "Couldn't load the preview.");
+  if (data === null || data === undefined) throw new ApiError("Couldn't load the preview.");
+  return data;
 }
 
 // ---- API tokens ------------------------------------------------------------

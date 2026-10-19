@@ -3,26 +3,25 @@ import { screen, waitFor, within } from "@testing-library/react";
 import { renderPage } from "../test/render";
 import { setMobile } from "../test/media";
 import {
-  createDestination, deleteDestination, duplicateDestination, listDiscordDestinationSettings, listPushDevices, rotateSigningSecret, sendTest,
+  deleteDestination, duplicateDestination, listDiscordDestinationSettings, listPushDevices, listWebhookDestinationSettings, sendTest,
   type Destination, type PushDevice, type SubscriptionWithLinks,
 } from "../lib/api";
 import { cardMeta } from "./cardMeta";
 import { DestinationsPage } from "./DestinationsPage";
 
 vi.mock("../lib/api", () => ({
-  createDestination: vi.fn(),
   deleteDestination: vi.fn(),
   duplicateDestination: vi.fn(),
   listDiscordDestinationSettings: vi.fn(),
   listPushDevices: vi.fn(),
-  rotateSigningSecret: vi.fn(),
+  listWebhookDestinationSettings: vi.fn(),
   sendTest: vi.fn(),
 }));
 
 function dest(id: string, overrides: Partial<Destination> = {}): Destination {
   return {
     id, user_id: "u1", type: "webhook", name: `Dest ${id}`, enabled: true, url_display: "https://example.com/…", health: "ok",
-    consecutive_failures: 0, last_success_at: null, last_error: null, last_error_at: null, created_at: "2026-10-01T00:00:00Z",
+    consecutive_failures: 0, last_success_at: null, last_error: null, last_error_at: null, created_at: "2026-10-01T00:00:00Z", auto_disabled_at: null,
     ...overrides,
   };
 }
@@ -38,11 +37,12 @@ const sub = (id: string, destinations: string[]) => ({ id, destinations }) as Su
 const ago = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
 
 beforeEach(() => {
-  for (const fn of [createDestination, deleteDestination, duplicateDestination, listDiscordDestinationSettings, listPushDevices, rotateSigningSecret, sendTest]) {
+  for (const fn of [deleteDestination, duplicateDestination, listDiscordDestinationSettings, listPushDevices, listWebhookDestinationSettings, sendTest]) {
     vi.mocked(fn).mockReset();
   }
   vi.mocked(listPushDevices).mockResolvedValue([]);
   vi.mocked(listDiscordDestinationSettings).mockResolvedValue([]);
+  vi.mocked(listWebhookDestinationSettings).mockResolvedValue([]);
 });
 
 function render(dests: Destination[], subs: SubscriptionWithLinks[] = [], loading = false) {
@@ -56,14 +56,14 @@ function render(dests: Destination[], subs: SubscriptionWithLinks[] = [], loadin
 describe("cardMeta", () => {
   const now = new Date("2026-10-17T12:00:00Z");
 
-  it("joins usage and the last delivery", () => {
-    expect(cardMeta(dest("a"), 0, now)).toBe("not used by any connection · Never used");
-    expect(cardMeta(dest("a", { last_success_at: "2026-10-17T11:57:00Z" }), 1, now)).toBe("used by 1 connection · Last delivery 3 minutes ago");
+  it("joins usage and the last delivery, capitalized for every type (webhook spec, decision 17)", () => {
+    expect(cardMeta(dest("a"), 0, now)).toBe("Not used by any connection · Never used");
+    expect(cardMeta(dest("a", { last_success_at: "2026-10-17T11:57:00Z" }), 1, now)).toBe("Used by 1 connection · Last delivery 3 minutes ago");
     expect(cardMeta(dest("a", { last_success_at: "2026-10-17T09:00:00Z", last_error_at: "2026-10-17T11:00:00Z" }), 2, now))
-      .toBe("used by 2 connections · Last delivery failed 1 hour ago");
+      .toBe("Used by 2 connections · Last delivery failed 1 hour ago");
     expect(cardMeta(dest("a", { last_success_at: "2026-10-17T11:00:00Z", last_error_at: "2026-10-16T11:00:00Z" }), 2, now))
-      .toBe("used by 2 connections · Last delivery 1 hour ago");
-    expect(cardMeta(dest("a", { last_error_at: "2026-10-15T12:00:00Z" }), 0, now)).toBe("not used by any connection · Last delivery failed 2 days ago");
+      .toBe("Used by 2 connections · Last delivery 1 hour ago");
+    expect(cardMeta(dest("a", { last_error_at: "2026-10-15T12:00:00Z" }), 0, now)).toBe("Not used by any connection · Last delivery failed 2 days ago");
   });
 });
 
@@ -74,6 +74,7 @@ describe("DestinationsPage", () => {
     expect(screen.getByText("No destinations yet.")).toBeInTheDocument();
     expect(listPushDevices).not.toHaveBeenCalled();
     expect(listDiscordDestinationSettings).not.toHaveBeenCalled();
+    expect(listWebhookDestinationSettings).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: "Add your first destination" }));
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
   });
@@ -99,13 +100,56 @@ describe("DestinationsPage", () => {
     expect(screen.getByText("Discord channel")).toBeInTheDocument();
     expect(screen.getAllByText("Webhook")).toHaveLength(2);
     expect(screen.getByText("discord.com/api/webhooks/1234…")).toBeInTheDocument();
-    expect(screen.getByText("used by 2 connections · Last delivery failed 2 hours ago")).toBeInTheDocument();
-    expect(screen.getByText("not used by any connection · Last delivery 3 minutes ago")).toBeInTheDocument();
-    expect(screen.getByText("used by 1 connection · Never used")).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: "Rotate secret" })).toHaveLength(2);
-    // Only the Discord card has an editor among these; webhooks have none yet.
-    expect(screen.getAllByRole("button", { name: /^Edit / })).toHaveLength(1);
-    expect(screen.getAllByRole("button", { name: /^Duplicate / })).toHaveLength(1);
+    expect(screen.getByText("Used by 2 connections · Last delivery failed 2 hours ago")).toBeInTheDocument();
+    expect(screen.getByText("Not used by any connection · Last delivery 3 minutes ago")).toBeInTheDocument();
+    expect(screen.getByText("Used by 1 connection · Never used")).toBeInTheDocument();
+    // Every type has an editor now; Rotate moved into the webhook editor.
+    expect(screen.queryByRole("button", { name: "Rotate secret" })).not.toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /^Edit / })).toHaveLength(3);
+    expect(screen.getAllByRole("button", { name: /^Duplicate / })).toHaveLength(3);
+  });
+
+  it("shows each webhook card's field count and window from one settings list, and Paused while auto-disabled", async () => {
+    vi.mocked(listWebhookDestinationSettings).mockResolvedValue([
+      { destination_id: "w1", field_count: 11, batch_seconds: 0 },
+      { destination_id: "w2", field_count: 1, batch_seconds: 30 },
+    ]);
+    const { user } = render([
+      dest("w1", { name: "Logger" }),
+      dest("w2", { name: "Batch", health: "failing", enabled: false, auto_disabled_at: ago(14) }),
+      dest("w3", { name: "New" }),
+      dest("d1", { type: "discord" }),
+    ]);
+    expect(await screen.findByText("Webhook · 11 fields")).toBeInTheDocument();
+    expect(screen.getByText("Webhook · 1 field · grouped every 30 seconds")).toBeInTheDocument();
+    // A card the list doesn't cover keeps the type name.
+    expect(screen.getByText("Webhook")).toBeInTheDocument();
+    expect(listWebhookDestinationSettings).toHaveBeenCalledTimes(1);
+    expect(listDiscordDestinationSettings).toHaveBeenCalledTimes(1);
+    expect(listPushDevices).not.toHaveBeenCalled();
+    // The pause wins over failing health.
+    expect(screen.getByText("Paused")).toBeInTheDocument();
+    expect(screen.getAllByText("Healthy")).toHaveLength(3);
+    expect(screen.getByRole("button", { name: "Edit Logger" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Duplicate Logger" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Edit Batch" }));
+    expect(screen.getByTestId("location")).toHaveTextContent("/destinations/w2");
+  });
+
+  it("keeps the type name when the webhook settings fail to load", async () => {
+    vi.mocked(listWebhookDestinationSettings).mockRejectedValue(new Error("Sign in again."));
+    const { app } = render([dest("w1")]);
+    await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Sign in again."));
+    expect(screen.getByText("Webhook")).toBeInTheDocument();
+  });
+
+  it("duplicates a webhook into its editor", async () => {
+    vi.mocked(duplicateDestination).mockResolvedValue("w9");
+    const { user, app } = render([dest("w1", { name: "Logger" })]);
+    await user.click(screen.getByRole("button", { name: "Duplicate Logger" }));
+    expect(duplicateDestination).toHaveBeenCalledWith("w1");
+    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/destinations/w9"));
+    expect(app.notify).toHaveBeenCalledWith("Duplicated Logger");
   });
 
   it("shows each Discord card's style and field count from one settings list", async () => {
@@ -123,9 +167,8 @@ describe("DestinationsPage", () => {
     expect(screen.getByText("Discord channel")).toBeInTheDocument();
     expect(listDiscordDestinationSettings).toHaveBeenCalledTimes(1);
     expect(listPushDevices).not.toHaveBeenCalled();
-    expect(screen.getAllByRole("button", { name: /^Edit / })).toHaveLength(3);
-    expect(screen.getAllByRole("button", { name: /^Duplicate / })).toHaveLength(3);
-    expect(screen.getAllByRole("button", { name: "Rotate secret" })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: /^Edit / })).toHaveLength(4);
+    expect(screen.getAllByRole("button", { name: /^Duplicate / })).toHaveLength(4);
     await user.click(screen.getByRole("button", { name: "Edit Club" }));
     expect(screen.getByTestId("location")).toHaveTextContent("/destinations/d1");
   });
@@ -147,7 +190,7 @@ describe("DestinationsPage", () => {
   });
 
   it("shows the failing alert with a Send test action", async () => {
-    vi.mocked(sendTest).mockResolvedValue(undefined);
+    vi.mocked(sendTest).mockResolvedValue({ status: null });
     const { user, app } = render(
       [dest("a", { health: "failing", consecutive_failures: 4, last_error: "HTTP 500", last_error_at: ago(1) })],
       [sub("s1", ["a"]), sub("s2", ["a"])],
@@ -160,6 +203,14 @@ describe("DestinationsPage", () => {
     await user.click(within(alert).getByRole("button", { name: "Send test" }));
     expect(sendTest).toHaveBeenCalledWith("a");
     await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Test spot sent to Dest a"));
+  });
+
+  it("explains a disabled Delete in the singular", async () => {
+    const { user } = render([dest("a")], [sub("s1", ["a"])]);
+    const button = screen.getByRole("button", { name: "Delete Dest a" });
+    expect(button).toBeDisabled();
+    await user.hover(button.parentElement!);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Used by 1 connection. Remove it from them first.");
   });
 
   it("disables Delete for a used destination and explains why", async () => {
@@ -192,7 +243,6 @@ describe("DestinationsPage", () => {
     expect(screen.getByText("No devices yet")).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: /^Edit / })).toHaveLength(3);
     expect(screen.getAllByRole("button", { name: /^Duplicate / })).toHaveLength(3);
-    expect(screen.queryByRole("button", { name: "Rotate secret" })).not.toBeInTheDocument();
 
     const alert = screen.getByRole("alert");
     expect(within(alert).getByText("Laptop cannot receive notifications")).toBeInTheDocument();
@@ -253,12 +303,27 @@ describe("DestinationsPage", () => {
     expect(screen.getByRole("button", { name: "Delete Dest a" })).toHaveClass("MuiButton-fullWidth");
   });
 
-  it("sends a test", async () => {
-    vi.mocked(sendTest).mockResolvedValue(undefined);
+  it("sends a test and toasts a webhook receiver's status", async () => {
+    vi.mocked(sendTest).mockResolvedValue({ status: 204 });
     const { user, app } = render([dest("a")]);
     await user.click(screen.getByRole("button", { name: "Send test" }));
     expect(sendTest).toHaveBeenCalledWith("a");
-    await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Test spot sent to Dest a"));
+    await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Dest a answered HTTP 204."));
+  });
+
+  it("toasts a receiver's non-2xx status with the destination's name", async () => {
+    vi.mocked(sendTest).mockRejectedValue(Object.assign(new Error("Webhook HTTP 500"), { code: "502", receiverStatus: 500 }));
+    const { user, app } = render([dest("a")]);
+    await user.click(screen.getByRole("button", { name: "Send test" }));
+    await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Dest a answered HTTP 500."));
+    expect(app.notify).not.toHaveBeenCalledWith("Webhook HTTP 500");
+  });
+
+  it("sends a test without a status", async () => {
+    vi.mocked(sendTest).mockResolvedValue({ status: null });
+    const { user, app } = render([dest("d", { type: "discord" })]);
+    await user.click(screen.getByRole("button", { name: "Send test" }));
+    await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Test spot sent to Dest d"));
   });
 
   it("reports action errors", async () => {
@@ -266,22 +331,6 @@ describe("DestinationsPage", () => {
     const { user, app } = render([dest("a")]);
     await user.click(screen.getByRole("button", { name: "Send test" }));
     await waitFor(() => expect(app.notify).toHaveBeenCalledWith("HTTP 404"));
-  });
-
-  it("rotates a webhook secret and shows it once", async () => {
-    vi.mocked(rotateSigningSecret).mockResolvedValue("whsec_rotated");
-    const { user } = render([dest("a")]);
-    await user.click(screen.getByRole("button", { name: "Rotate secret" }));
-    const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByText("Signing secret for Dest a")).toBeInTheDocument();
-    expect(within(dialog).getByLabelText("Signing secret")).toHaveValue("whsec_rotated");
-    await user.click(within(dialog).getByLabelText("Signing secret"));
-    // Only Done closes it: the secret can't be shown again.
-    await user.keyboard("{Escape}");
-    await user.click(document.querySelector(".MuiBackdrop-root:not(.MuiBackdrop-invisible)")!);
-    expect(screen.getByLabelText("Signing secret")).toHaveValue("whsec_rotated");
-    await user.click(within(dialog).getByRole("button", { name: "Done" }));
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 
   it("deletes an unused destination", async () => {
@@ -293,59 +342,22 @@ describe("DestinationsPage", () => {
     expect(reload).toHaveBeenCalled();
   });
 
-  it("adds a webhook destination and shows its signing secret", async () => {
-    vi.mocked(createDestination).mockResolvedValue({ id: "n", type: "webhook", name: "Hook", url_display: "x", signing_secret: "whsec_1" });
-    const { user, app, reload } = render([]);
-    await user.click(screen.getByRole("button", { name: "Add destination" }));
-    const dialog = await screen.findByRole("dialog");
-    await user.click(within(dialog).getByRole("radio", { name: /^Webhook/ }));
-    await user.click(within(dialog).getByRole("button", { name: "Continue" }));
-    const add = within(dialog).getByRole("button", { name: "Add destination" });
-    expect(add).toBeDisabled();
-    await user.type(within(dialog).getByLabelText("Name"), "Hook");
-    await user.type(within(dialog).getByLabelText("Endpoint URL"), " https://example.com/spots ");
-    await user.click(add);
-    expect(createDestination).toHaveBeenCalledWith("webhook", "Hook", "https://example.com/spots");
-    expect(await screen.findByText("Signing secret for Hook")).toBeInTheDocument();
-    expect(app.notify).toHaveBeenCalledWith("Added Hook");
-    await waitFor(() => expect(reload).toHaveBeenCalled());
-  });
-
-  it("names a webhook destination after its type when left blank", async () => {
-    vi.mocked(createDestination).mockResolvedValue({ id: "n", type: "webhook", name: "Webhook", url_display: "x", signing_secret: null });
-    const { user, app } = render([]);
-    await user.click(screen.getByRole("button", { name: "Add destination" }));
-    const dialog = await screen.findByRole("dialog");
-    await user.click(within(dialog).getByRole("radio", { name: /^Webhook/ }));
-    await user.click(within(dialog).getByRole("button", { name: "Continue" }));
-    await user.type(within(dialog).getByLabelText("Endpoint URL"), "https://example.com/spots");
-    await user.click(within(dialog).getByRole("button", { name: "Add destination" }));
-    expect(createDestination).toHaveBeenCalledWith("webhook", "Webhook", "https://example.com/spots");
-    await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Added Webhook"));
-    expect(screen.queryByText(/Signing secret for/)).not.toBeInTheDocument();
-  });
-
   it("opens the Discord editor from the add dialog", async () => {
     const { user } = render([]);
     await user.click(screen.getByRole("button", { name: "Add destination" }));
     const dialog = await screen.findByRole("dialog");
     await user.click(within(dialog).getByRole("button", { name: "Continue" }));
-    expect(createDestination).not.toHaveBeenCalled();
     expect(screen.getByTestId("location")).toHaveAttribute("data-search", "?type=discord");
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 
-  it("shows create errors in the dialog and can be cancelled", async () => {
-    vi.mocked(createDestination).mockRejectedValue(new Error("Use an https URL."));
+  it("opens the webhook editor from the add dialog", async () => {
     const { user } = render([]);
     await user.click(screen.getByRole("button", { name: "Add destination" }));
     const dialog = await screen.findByRole("dialog");
     await user.click(within(dialog).getByRole("radio", { name: /^Webhook/ }));
     await user.click(within(dialog).getByRole("button", { name: "Continue" }));
-    await user.type(within(dialog).getByLabelText("Endpoint URL"), "http://nope");
-    await user.click(within(dialog).getByRole("button", { name: "Add destination" }));
-    expect(await within(dialog).findByText("Use an https URL.")).toBeInTheDocument();
-    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(screen.getByTestId("location")).toHaveAttribute("data-search", "?type=webhook");
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 });

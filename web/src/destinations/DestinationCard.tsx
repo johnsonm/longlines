@@ -1,8 +1,9 @@
 import { Box, Button, Card, CardActions, CardContent, Chip, Divider, Paper, Stack, Tooltip, Typography } from "@mui/material";
-import type { Destination, DiscordSettingsSummary, PushDevice } from "../lib/api";
+import type { Destination, DiscordSettingsSummary, PushDevice, WebhookSettingsSummary } from "../lib/api";
 import { cardMeta } from "./cardMeta";
 import { discordCardLine } from "./discordModel";
 import { HealthChip } from "./HealthChip";
+import { webhookCardLine } from "./webhookModel";
 import { typeLabel } from "./types";
 
 interface Props {
@@ -13,28 +14,33 @@ interface Props {
   devices: PushDevice[];
   /** For a Discord destination: its style and field count, from the page's one listDiscordDestinationSettings call; null until loaded. */
   discord: DiscordSettingsSummary | null;
+  /** For a webhook: its field count and window, from the page's one listWebhookDestinationSettings call; null until loaded. */
+  webhook: WebhookSettingsSummary | null;
   busy: boolean;
   mobile: boolean;
   onSendTest: () => void;
-  onRotateSecret: () => void;
   onEdit: () => void;
   onDuplicate: () => void;
   onDelete: () => void;
 }
 
-export function DestinationCard({ dest, usedBy, devices, discord, busy, mobile, onSendTest, onRotateSecret, onEdit, onDuplicate, onDelete }: Props) {
+export function DestinationCard({ dest, usedBy, devices, discord, webhook, busy, mobile, onSendTest, onEdit, onDuplicate, onDelete }: Props) {
   const push = dest.type === "push";
-  const editable = push || dest.type === "discord";
-  const typeLine = dest.type === "discord" && discord ? discordCardLine(discord.style, discord.field_count) : typeLabel(dest.type);
+  const editable = push || dest.type === "discord" || dest.type === "webhook";
+  const typeLine = dest.type === "discord" && discord
+    ? discordCardLine(discord.style, discord.field_count)
+    : dest.type === "webhook" && webhook
+    ? webhookCardLine(webhook.field_count, webhook.batch_seconds)
+    : typeLabel(dest.type);
   const blocked = devices.filter((d) => d.blocked_at !== null).length;
-  const deleteTip = usedBy > 0 ? `Used by ${usedBy} connections. Remove it from them first.` : "Delete";
+  const deleteTip = usedBy > 0 ? `Used by ${usedBy} connection${usedBy === 1 ? "" : "s"}. Remove it from them first.` : "Delete";
 
   return (
     <Card variant="outlined" sx={{ height: "100%", display: "flex", flexDirection: "column" }}>
       <CardContent sx={{ flexGrow: 1 }}>
         <Stack direction="row" spacing={1} useFlexGap sx={{ alignItems: "center", flexWrap: "wrap", mb: 0.5 }}>
           <Typography variant="h6" component="h2" sx={{ minWidth: 0, overflowWrap: "anywhere" }}>{dest.name}</Typography>
-          <HealthChip health={dest.health} blocked={push ? blocked : 0} />
+          <HealthChip health={dest.health} blocked={push ? blocked : 0} paused={Boolean(dest.auto_disabled_at)} />
         </Stack>
         <Typography color="text.secondary" gutterBottom>{typeLine}</Typography>
         {push ? (
@@ -61,7 +67,6 @@ export function DestinationCard({ dest, usedBy, devices, discord, busy, mobile, 
       <Divider />
       <CardActions sx={{ flexWrap: "wrap", gap: 1, px: 2, py: 1.5, flexDirection: mobile ? "column" : "row", alignItems: mobile ? "stretch" : "center" }}>
         <Button size="small" variant="outlined" disabled={busy} onClick={onSendTest}>Send test</Button>
-        {dest.type === "webhook" && <Button size="small" disabled={busy} onClick={onRotateSecret}>Rotate secret</Button>}
         {editable && <Button size="small" aria-label={`Edit ${dest.name}`} disabled={busy} onClick={onEdit}>Edit</Button>}
         {editable && <Button size="small" aria-label={`Duplicate ${dest.name}`} disabled={busy} onClick={onDuplicate}>Duplicate</Button>}
         <Tooltip title={deleteTip}>

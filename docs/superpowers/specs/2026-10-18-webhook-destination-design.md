@@ -1,8 +1,8 @@
 # Webhook destination editor: design
 
-Date: 2026-10-18. Status: **decisions proposed 2026-10-18 from Brad's approved plan of
-2026-10-17. Brad's six decisions (1, 3, 5, 6, 7 and 8 below) are accepted; the rest adapt that plan
-to main as it stands after the Discord work (#215 to #217) and wait for review in the spec PR.**
+Date: 2026-10-18. Status: **shipped** (PR 2 the schema and sender, PR 3 the web editor). The
+decisions were proposed 2026-10-18 from Brad's approved plan of 2026-10-17; Brad's six (1, 3, 5,
+6, 7 and 8 below) were accepted, and the rest were reviewed in the spec PR.
 If the design changes during a PR, update this file in that PR.
 
 Source: page 7 of Brad's design canvas, artboards `WebhookList-Desktop` ("Destinations with
@@ -619,7 +619,13 @@ Files: `_shared/delivery/types.ts`, `format.ts`, `send.ts`, `run.ts`,
 - **Rotate.** Rotate calls `rotate_signing_secret` at once, whatever the form holds (it is not
   part of the save). The rotated dialog opens; Done closes it and stays on the editor with the
   form's unsaved state kept, and the secret line reads "Rotated 1 minute ago" (`timeAgo`'s floor)
-  from the rotation time the page sets locally, without a reload.
+  from the rotation time the page sets locally, without a reload. Save, Cancel and Rotate block
+  each other while either request runs: a save leaves the page, which would lose a rotated secret
+  before its dialog opened.
+- **Enabled on save.** On a saved destination the editor sends Enabled only when the switch differs
+  from what it loaded, else null (keep). `update_destination` reads Enabled on as a resume
+  (decision 4), so a pause that lands while the editor is open is never cleared by a save that did
+  not touch the switch. A new destination always sends it.
 - **FieldPicker.** The generic `FieldPicker` gains two optional props, never a fork: `keyOf(id)`
   (a monospace secondary on each row, the key name) and `addAs: "select" | "chips"` (chips are
   "+ {label}" under the heading Not included). Push and Discord keep the select. With every field
@@ -636,7 +642,9 @@ Files: `_shared/delivery/types.ts`, `format.ts`, `send.ts`, `run.ts`,
 - **List.** `DestinationCard`: webhooks are editable and duplicable, the Rotate secret button goes,
   the type line comes from `list_webhook_destination_settings` (one call when any webhook exists),
   and `HealthChip` shows Paused when `auto_disabled_at` is set. `cardMeta` and the Delete tooltip as
-  decision 17. Send test on a webhook card toasts the status.
+  decision 17. Send test on a webhook card toasts the status, 2xx or not: send-test's 502 body
+  carries the receiver's `status`, which `api.ts` keeps on the `ApiError` (`receiverStatus`). A
+  failure without a status (no connection, a refused address) toasts the error.
 - **api.ts.** Types `WebhookField`, `WebhookSettings`, `WebhookHeaderInput {name, value?}`,
   `WebhookDestination`, `WebhookDestinationInput`, `WebhookSettingsSummary`; functions
   `saveWebhookDestination` (returns `{id, signingSecret}`), `getWebhookDestination`,
@@ -724,7 +732,7 @@ not listed comes from the Discord spec's Copy.
 - Actions: Send test · Edit · Duplicate · Delete. Delete tooltip: Used by {N} connection. Remove it
   from them first. | Used by {N} connections. Remove it from them first.
 - Toasts: Added {name} · Saved changes · Duplicated {name} · {name} answered HTTP {status}.
-  *(added, a webhook's Send test)*
+  *(added, a webhook's Send test, whatever the status; a failure with no status toasts the error)*
 
 **Webhook destination editor**
 - Breadcrumb: Destinations › New destination | {name}

@@ -4,13 +4,14 @@ import AddIcon from "@mui/icons-material/Add";
 import { useNavigate } from "react-router";
 import { PageTitle } from "../layout/PageTitle";
 import {
-  deleteDestination, duplicateDestination, listDiscordDestinationSettings, listPushDevices, rotateSigningSecret, sendTest,
-  type CreatedDestination, type Destination, type DiscordSettingsSummary, type PushDevice, type SubscriptionWithLinks,
+  deleteDestination, duplicateDestination, listDiscordDestinationSettings, listPushDevices, listWebhookDestinationSettings, sendTest,
+  type Destination, type DiscordSettingsSummary, type PushDevice, type SubscriptionWithLinks, type WebhookSettingsSummary,
 } from "../lib/api";
 import { currentEndpoint } from "../pwa/push";
 import { errorText, useNotify } from "../app/hooks";
 import { DestinationCard } from "./DestinationCard";
-import { DestinationDialog, SecretDialog } from "./DestinationDialog";
+import { DestinationDialog } from "./DestinationDialog";
+import { answeredStatus } from "./webhookModel";
 
 interface Props {
   dests: Destination[];
@@ -30,7 +31,6 @@ export function DestinationsPage({ dests, subs, loading, reload }: Props) {
   const navigate = useNavigate();
   const mobile = useMediaQuery(useTheme().breakpoints.down("sm"));
   const [open, setOpen] = useState(false);
-  const [secret, setSecret] = useState<{ value: string; name: string } | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [devices, setDevices] = useState<PushDevice[]>([]);
   const usedBy = (id: string) => subs.filter((s) => s.destinations.includes(id)).length;
@@ -76,8 +76,30 @@ export function DestinationsPage({ dests, subs, loading, reload }: Props) {
     };
   }, [discordIds, notify]);
 
+  // And one for every webhook card's type line.
+  const [webhooks, setWebhooks] = useState<WebhookSettingsSummary[]>([]);
+  const webhookIds = useMemo(() => dests.filter((d) => d.type === "webhook").map((d) => d.id).join(","), [dests]);
+  useEffect(() => {
+    if (!webhookIds) {
+      setWebhooks([]);
+      return;
+    }
+    let active = true;
+    listWebhookDestinationSettings()
+      .then((list) => {
+        if (active) setWebhooks(list);
+      })
+      .catch((err: unknown) => {
+        if (active) notify(errorText(err, "Couldn't load your webhook settings."));
+      });
+    return () => {
+      active = false;
+    };
+  }, [webhookIds, notify]);
+
   const membersOf = (id: string) => devices.filter((d) => d.destination_ids.includes(id));
   const summaryOf = (id: string) => discord.find((s) => s.destination_id === id) ?? null;
+  const webhookOf = (id: string) => webhooks.find((s) => s.destination_id === id) ?? null;
 
   const openDialog = () => {
     setOpen(true);
@@ -85,13 +107,6 @@ export function DestinationsPage({ dests, subs, loading, reload }: Props) {
 
   const closeDialog = () => {
     setOpen(false);
-  };
-
-  const onCreated = async (d: CreatedDestination) => {
-    setOpen(false);
-    if (d.signing_secret) setSecret({ value: d.signing_secret, name: d.name });
-    notify(`Added ${d.name}`);
-    await reload();
   };
 
   const run = async (id: string, action: () => Promise<void>) => {
@@ -107,8 +122,16 @@ export function DestinationsPage({ dests, subs, loading, reload }: Props) {
 
   const test = (d: Destination) =>
     void run(d.id, async () => {
-      await sendTest(d.id);
-      notify(`Test spot sent to ${d.name}`);
+      let status: number | null;
+      try {
+        ({ status } = await sendTest(d.id));
+      } catch (err) {
+        // A receiver that answered non-2xx still answered: the toast names the destination and its status.
+        status = answeredStatus(err);
+        if (status === null) throw err;
+      }
+      // A webhook's receiver answers with a status, 2xx or not (webhook spec, Copy: Toasts).
+      notify(status === null ? `Test spot sent to ${d.name}` : `${d.name} answered HTTP ${status}.`);
     });
 
   // Page 5's blocked alert: one per blocked device that some push destination still sends to.
@@ -157,12 +180,9 @@ export function DestinationsPage({ dests, subs, loading, reload }: Props) {
           {dests.map((d) => (
             <Grid key={d.id} size={{ xs: 12, md: 6 }}>
               <DestinationCard
-                dest={d} usedBy={usedBy(d.id)} devices={membersOf(d.id)} discord={summaryOf(d.id)} busy={busyId === d.id} mobile={mobile}
+                dest={d} usedBy={usedBy(d.id)} devices={membersOf(d.id)} discord={summaryOf(d.id)} webhook={webhookOf(d.id)}
+                busy={busyId === d.id} mobile={mobile}
                 onSendTest={() => test(d)}
-                onRotateSecret={() => void run(d.id, async () => {
-                  const value = await rotateSigningSecret(d.id);
-                  setSecret({ value, name: d.name });
-                })}
                 onEdit={() => void navigate(`/destinations/${d.id}`)}
                 onDuplicate={() => void run(d.id, async () => {
                   const id = await duplicateDestination(d.id);
@@ -180,11 +200,7 @@ export function DestinationsPage({ dests, subs, loading, reload }: Props) {
           ))}
         </Grid>
       )}
-      <DestinationDialog open={open} onClose={closeDialog} onCreated={(d) => void onCreated(d)} />
-      <SecretDialog
-        secret={secret?.value ?? null} name={secret?.name ?? ""}
-        onClose={() => setSecret(null)}
-      />
+      <DestinationDialog open={open} onClose={closeDialog} />
     </Stack>
   );
 }
