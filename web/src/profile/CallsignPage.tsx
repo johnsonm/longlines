@@ -252,7 +252,7 @@ const REFERENCE_COLUMNS: GridColDef[] = [
   { field: "reference", headerName: "Reference", width: 110, sortable: false },
   { field: "name", headerName: "Name", flex: 1, minWidth: 120, sortable: false },
   { field: "program", headerName: "Program", width: 80, sortable: false },
-  { field: "activations", headerName: "Days", type: "number", width: 70, sortable: false },
+  { field: "activations", headerName: "Visits", type: "number", width: 70, sortable: false },
   { field: "last", headerName: "Last", width: 110, sortable: false },
 ];
 
@@ -290,7 +290,7 @@ function Heard({ profile, heard, prefs }: { profile: CallsignProfile; heard: Hea
           <Kpi label="Heard from" value={plural(heard.countries, "country", "countries")} detail={plural(heard.continents, "continent", "continents")} />
         </Grid>
         <Grid size={{ xs: 6, md: 3 }}>
-          <Kpi label="Days at parks/summits/WWFF" value={fmt(totalActivations(heard.activations))} detail={activationsDetail(heard.activations)} />
+          <Kpi label="Park/summit/WWFF visits" value={fmt(totalActivations(heard.activations))} detail={activationsDetail(heard.activations)} />
         </Grid>
       </Grid>
 
@@ -370,11 +370,11 @@ function Heard({ profile, heard, prefs }: { profile: CallsignProfile; heard: Hea
       </Grid>
 
       {heard.references.length > 0 && (
-        <ChartCard title="Where they've been spotted" subheader="Parks, summits and WWFF references, most recent first">
+        <ChartCard title="Where they've been spotted" subheader="Parks, summits and WWFF references, most recent first. A visit is one reference on one UTC day.">
           <Grid container spacing={3}>
             {hasMap && (
               <Grid size={{ xs: 12, md: 6 }}>
-                <UsStateMap values={states} unit="days spotted" />
+                <UsStateMap values={states} unit="visits" />
               </Grid>
             )}
             <Grid size={{ xs: 12, md: hasMap ? 6 : 12 }}>
@@ -393,7 +393,7 @@ function Heard({ profile, heard, prefs }: { profile: CallsignProfile; heard: Hea
         <Grid container spacing={2}>
           {heard.reach.length > 0 && (
             <Grid size={{ xs: 12, md: 6 }}>
-              <ChartCard title="Heard from" subheader="Countries the spotters and skimmers who heard this station are in">
+              <ChartCard title="Heard from" subheader="Countries of the spotters and skimmers who heard this station. Self-spots don't count.">
                 <List dense disablePadding>
                   {heard.reach.slice(0, 10).map((r) => (
                     <ListItem

@@ -178,7 +178,9 @@ the window is now all time is marked (changed).
   - Spots ("All time" (changed))
   - Days on the air
   - Heard from ("N countries" (changed), detail "N continents")
-  - Activations ("3 parks, 2 summits")
+  - Park/summit/WWFF visits (changed 2026-10-19; "3 parks, 2 summits, 1 WWFF reference"). A visit
+    is one reference on one UTC day, so a day at three parks is three visits; these are spots, not
+    confirmed activations.
 - **License:** "From the FCC Universal Licensing System. Refreshed weekly." Rows: Name, Class,
   Status, Granted, Expires, State.
 - **Activity (changed):** "Spots per month, since Long Lines started". A second chart is titled
@@ -186,9 +188,11 @@ the window is now all time is marked (changed).
 - **When they're on the air (changed):** "Spots by hour of day (UTC). Useful for knowing when to
   listen."
 - **Bands:** "All sources". **Modes:** "Share of spots".
-- **Where they've activated (changed):** "Parks and summits". Columns: Reference, Name, Program,
-  Times, Last. Map legend: "activations".
-- **Heard from (new):** "Countries the spotters and skimmers who heard this station are in".
+- **Where they've been spotted (changed 2026-10-19):** "Parks, summits and WWFF references, most
+  recent first. A visit is one reference on one UTC day." Columns: Reference, Name, Program,
+  Visits, Last; the ten most recent references. Map legend: "visits".
+- **Heard from (changed 2026-10-19):** "Countries of the spotters and skimmers who heard this
+  station. Self-spots don't count." Its spots therefore add up to less than the Spots KPI.
 - **Hunting (new):** "Spots this station posted for other activators".
 - **Heard by (changed):** "Spotters and skimmers that picked up this station in the last 7 days".
   Columns: Spotter, Spots, Best SNR, Top band. The Location column is dropped.

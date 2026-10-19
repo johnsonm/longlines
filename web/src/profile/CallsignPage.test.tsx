@@ -216,8 +216,9 @@ describe("CallsignPage profile", () => {
     }
     // The KPI and the card share the name.
     expect(screen.getAllByText("Heard from")).toHaveLength(2);
+    expect(screen.getByText("Countries of the spotters and skimmers who heard this station. Self-spots don't count.")).toBeInTheDocument();
     expect(screen.getByText("Spots per month, since Long Lines started")).toBeInTheDocument();
-    expect(screen.getByRole("img", { name: "Map of days spotted by state" })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Map of visits by state" })).toBeInTheDocument();
     expect(screen.getByText("Pisgah National Forest")).toBeInTheDocument();
     expect(screen.getByText("T.M. Goodwin")).toBeInTheDocument();
     expect(screen.getByText("Germany")).toBeInTheDocument();
@@ -235,20 +236,20 @@ describe("CallsignPage profile", () => {
     });
     renderAt("/call/KK4PWJ");
     expect(screen.getByText("Where they've been spotted")).toBeInTheDocument();
-    expect(screen.queryByRole("img", { name: "Map of days spotted by state" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: "Map of visits by state" })).not.toBeInTheDocument();
     for (const title of ["Hunting", "Heard by", "Recent spots"]) expect(screen.queryByText(title)).not.toBeInTheDocument();
     expect(screen.getAllByText("Heard from")).toHaveLength(1);
   });
 
-  it("lists only the ten most recent parks and summits, as days spotted", () => {
+  it("lists only the ten most recent parks and summits, as visits", () => {
     const references = Array.from({ length: 12 }, (_, i) => ({
       reference: `US-${1000 + i}`, name: `Park ${i}`, program: "POTA", location: "US-NC", activations: 1, spots: 4, lastDay: "2026-10-12",
     }));
     profileIs({ ...FULL, heard: { ...HEARD, references } });
     renderAt("/call/KK4PWJ");
-    expect(screen.getByText("Days at parks/summits/WWFF")).toBeInTheDocument();
-    expect(screen.getByText("Parks, summits and WWFF references, most recent first")).toBeInTheDocument();
-    expect(screen.getByRole("columnheader", { name: "Days" })).toBeInTheDocument();
+    expect(screen.getByText("Park/summit/WWFF visits")).toBeInTheDocument();
+    expect(screen.getByText("Parks, summits and WWFF references, most recent first. A visit is one reference on one UTC day.")).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Visits" })).toBeInTheDocument();
     expect(screen.getByText("US-1009")).toBeInTheDocument();
     expect(screen.queryByText("US-1010")).not.toBeInTheDocument();
   });
