@@ -10,7 +10,8 @@ import {
   pushPayload,
   pushSettingsOf,
   pushSkipped,
-  webhookPayloads,
+  webhookExtraHeaders,
+  webhookRequests,
 } from "./format.ts";
 import {
   assertSafeDestinationUrl,
@@ -65,6 +66,15 @@ export interface SendResult {
   expiredEndpoints?: string[];
   /** Push only. */
   deviceResults?: PushDeviceResults;
+  /** Webhook only: the last HTTP status received, absent when no request got one. */
+  status?: number;
+  /**
+   * Webhook only: the deliveries up to and including the last request made
+   * (on a failure, `sent` plus the failed request's count). Only these count
+   * an attempt; the rest are left for the claim's visibility timeout. Absent
+   * means the whole batch, as Discord and push report.
+   */
+  attempted?: number;
 }
 
 /**
@@ -224,42 +234,72 @@ async function webhookTarget(
   return { url, addresses: addresses.slice(0, WEBHOOK_MAX_ADDRESSES) };
 }
 
+/**
+ * Sends each of the run's requests (webhookRequests: SQL's rendered body, or
+ * the legacy one), one after another, stopping at the first that fails.
+ * Headers go out as Host, the fixed five, X-LongLines-Test on a test, then the
+ * destination's extra headers in position order (webhookExtraHeaders; none
+ * can replace a fixed one). A failure before any request (an unsafe URL, no
+ * signing secret) counts as the first request failing, so the destination's
+ * health still moves.
+ */
 export async function sendWebhook(
   destination: DeliveryDestination,
   deliveries: readonly PendingDelivery[],
   options: SendOptions = {},
 ): Promise<SendResult> {
-  if (destination.url === null) return { ok: false, sent: 0, error: NO_URL };
+  const requests = webhookRequests(destination, deliveries);
+  const firstCount = requests[0]?.count ?? 0;
+  if (destination.url === null) {
+    return { ok: false, sent: 0, attempted: firstCount, error: NO_URL };
+  }
   let target: { url: URL; addresses: string[] };
   try {
     target = await webhookTarget(destination.url, options);
   } catch (error) {
-    return { ok: false, sent: 0, error: errorMessage(error) };
+    return { ok: false, sent: 0, attempted: firstCount, error: errorMessage(error) };
   }
   if (!destination.signing_secret) {
-    return { ok: false, sent: 0, error: "Webhook destination has no signing secret" };
+    return {
+      ok: false,
+      sent: 0,
+      attempted: firstCount,
+      error: "Webhook destination has no signing secret",
+    };
   }
   const post = options.webhookPost ?? pinnedPost;
+  const test = deliveries.some((d) => d.test === true);
+  const extra = webhookExtraHeaders(destination).map((h): [string, string] => [h.name, h.value]);
 
   let sent = 0;
+  let status: number | undefined;
   // Index of the address that last connected; a refused one moves to the next.
   let at = 0;
-  for (const payload of webhookPayloads(deliveries)) {
-    const body = JSON.stringify(payload);
+  for (const request of requests) {
+    const attempted = sent + request.count;
+    const failed = (error: string, more: Partial<SendResult> = {}): SendResult => {
+      const result: SendResult = { ok: false, sent, attempted, error, ...more };
+      if (status !== undefined) result.status = status;
+      return result;
+    };
+    const body = JSON.stringify(request.body);
     const timestamp = Math.floor(Date.now() / 1000);
     const signature = await signWebhookBody(destination.signing_secret, timestamp, body);
+    const headers: Array<[string, string]> = [
+      ["Accept", "*/*"],
+      ["Content-Type", "application/json"],
+      ["User-Agent", USER_AGENT],
+      ["X-LongLines-Timestamp", String(timestamp)],
+      ["X-LongLines-Signature", signature],
+    ];
+    if (test) headers.push(["X-LongLines-Test", "true"]);
+    headers.push(...extra);
     let response: PinnedResponse;
     try {
       for (;;) {
         try {
           response = await post(target.url, target.addresses[at]!, {
-            headers: {
-              "Accept": "*/*",
-              "Content-Type": "application/json",
-              "User-Agent": USER_AGENT,
-              "X-LongLines-Timestamp": String(timestamp),
-              "X-LongLines-Signature": signature,
-            },
+            headers,
             body,
             timeoutMs: WEBHOOK_TIMEOUT_MS,
             allowInsecure: options.allowInsecure,
@@ -274,30 +314,28 @@ export async function sendWebhook(
         }
       }
     } catch (error) {
-      return { ok: false, sent, error: `Webhook request failed: ${errorMessage(error)}` };
+      return failed(`Webhook request failed: ${errorMessage(error)}`);
     }
+    status = response.status;
     if (response.status >= 300 && response.status < 400) {
-      return {
-        ok: false,
-        sent,
-        error: `Webhook redirected (HTTP ${response.status}); redirects are not followed`,
-      };
+      return failed(
+        `Webhook redirected (HTTP ${response.status}); redirects are not followed`,
+      );
     }
     if (response.status === 429) {
       // Alive, just too fast: the destination is throttled, never failed.
-      return {
-        ok: false,
-        sent,
-        error: "Webhook HTTP 429 (rate limited)",
+      return failed("Webhook HTTP 429 (rate limited)", {
         retryAfterSeconds: retryAfterSeconds(response.headers.get("retry-after")),
-      };
+      });
     }
     if (response.status < 200 || response.status >= 300) {
-      return { ok: false, sent, error: `Webhook HTTP ${response.status}` };
+      return failed(`Webhook HTTP ${response.status}`);
     }
-    sent += payload.deliveries.length;
+    sent += request.count;
   }
-  return { ok: true, sent };
+  const result: SendResult = { ok: true, sent, attempted: sent };
+  if (status !== undefined) result.status = status;
+  return result;
 }
 
 /** Send with the function that matches the destination's type. */

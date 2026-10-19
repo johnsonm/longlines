@@ -8,8 +8,16 @@
 // One request per connection (Connection: close); the response body is read
 // only as far as its framing says, capped, and discarded.
 
+/**
+ * Request headers, written in order after Host. Pairs keep their order
+ * whatever the names; an object would move an integer-like name first.
+ */
+export type PinnedHeaders =
+  | Readonly<Record<string, string>>
+  | ReadonlyArray<readonly [string, string]>;
+
 export interface PinnedPostInit {
-  headers: Readonly<Record<string, string>>;
+  headers: PinnedHeaders;
   body: Uint8Array | string;
   timeoutMs: number;
   signal?: AbortSignal;
@@ -209,9 +217,12 @@ async function drainBody(reader: Reader, response: PinnedResponse): Promise<void
   await skip(budget); // until close or the cap
 }
 
-function requestHead(url: URL, headers: Readonly<Record<string, string>>, length: number): string {
+function requestHead(url: URL, headers: PinnedHeaders, length: number): string {
   const lines = [`POST ${url.pathname || "/"}${url.search} HTTP/1.1`, `Host: ${url.host}`];
-  for (const [name, value] of Object.entries(headers)) {
+  const pairs = Array.isArray(headers)
+    ? headers as ReadonlyArray<readonly [string, string]>
+    : Object.entries(headers);
+  for (const [name, value] of pairs) {
     if (!TOKEN.test(name)) throw new Error(`invalid request header name ${JSON.stringify(name)}`);
     if (/[\r\n\0]/.test(value)) throw new Error(`invalid value for request header ${name}`);
     if (RESERVED_HEADERS.includes(name.toLowerCase())) {

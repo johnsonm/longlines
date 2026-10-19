@@ -523,8 +523,8 @@ select results_eq(format($$ select x ->> 'name', (x ->> 'enabled')::boolean, x -
   'a Discord copy has the settings and the masked URL, named "Copy of", and starts disabled');
 select is((get_discord_destination((select id from copy2)) ->> 'name'), 'Copy of Card chat (2)', 'a second copy takes the next free name');
 select lives_ok(format('select duplicate_destination(%L)', (select id from phone)), 'push destinations still duplicate');
-select throws_ok(format('select duplicate_destination(%L)', (select id from hook)), 'P0001',
-  'Only push and Discord destinations can be duplicated.', 'a webhook is not duplicated');
+select lives_ok(format('select duplicate_destination(%L)', (select id from hook)),
+  'a webhook duplicates too (20261018000300)');
 reset role;
 select is((select url from destinations where id = (select id from copy1)), 'https://discord.com/api/webhooks/6/f',
   'the copy posts to the same channel');

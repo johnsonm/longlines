@@ -28,7 +28,9 @@ select set_eq(
         'rename_push_device', 'report_push_device_blocked', 'save_push_destination', 'get_push_destination',
         'duplicate_destination', 'preview_push_notification',
         'save_discord_destination', 'get_discord_destination', 'list_discord_destination_settings',
-        'preview_discord_message'],
+        'preview_discord_message',
+        'save_webhook_destination', 'get_webhook_destination', 'list_webhook_destination_settings',
+        'preview_webhook_request'],
   'authenticated may execute only the client RPCs');
 
 select set_eq(

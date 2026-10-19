@@ -9,22 +9,30 @@ import {
   discordMessages,
   embedChars,
   embedForSpot,
+  extraHeaderAllowed,
   LEGACY_PUSH_SETTINGS,
   pushNotifications,
   pushPayload,
   pushSettingsOf,
   pushSkipped,
-  sampleSpot,
   sourceLabel,
+  WEBHOOK_RESERVED_HEADERS,
+  WEBHOOK_SPOTS_PER_REQUEST,
+  webhookExtraHeaders,
+  webhookItem,
   webhookPayloads,
+  webhookRequests,
   webhookSpot,
 } from "../delivery/format.ts";
 import { MAX_PUSH_PLAINTEXT_BYTES } from "../delivery/webpush.ts";
 import type {
   DeliverySpot,
   DiscordSettings,
+  LegacyWebhookPayload,
   PendingDelivery,
   PushSettings,
+  WebhookField,
+  WebhookItem,
 } from "../delivery/types.ts";
 
 const spot: DeliverySpot = {
@@ -345,11 +353,14 @@ Deno.test("every Discord message carries allowed_mentions with nothing to parse"
   assertEquals(all.every((m) => JSON.stringify(m.allowed_mentions) === '{"parse":[]}'), true);
 });
 
+const legacy = (body: unknown) => body as LegacyWebhookPayload;
+
 Deno.test("webhookPayloads carry delivery and connection ids with the normalized spot, 50 per request", () => {
   const ds = Array.from({ length: 51 }, (_, i) => delivery(i + 1));
   const payloads = webhookPayloads(ds);
-  assertEquals(payloads.map((p) => p.deliveries.length), [50, 1]);
-  const first = payloads[0]?.deliveries[0];
+  assertEquals(payloads.map((p) => legacy(p.body).deliveries.length), [50, 1]);
+  assertEquals(payloads.map((p) => p.count), [50, 1]);
+  const first = legacy(payloads[0]?.body).deliveries[0];
   assertEquals(first?.delivery_id, 1);
   assertEquals(first?.connection_id, "11111111-1111-1111-1111-111111111111");
   assertEquals(first?.spot.callsign, "KK4PWJ");
@@ -385,7 +396,7 @@ Deno.test("webhookPayloads leaves out the push-only fields SQL adds", () => {
     push_source_url: null,
   };
   const [payload] = webhookPayloads([delivery(1, pushedSpot)]);
-  assertEquals(payload?.deliveries[0]?.spot, spot);
+  assertEquals(legacy(payload?.body).deliveries[0]?.spot, spot);
   assertEquals(webhookSpot(spot), spot);
 });
 
@@ -586,8 +597,150 @@ Deno.test("a worst-case push payload stays under 3,000 bytes with both buttons",
   assertEquals(JSON.parse(pushPayload(notifications[0]!)), notifications[0]);
 });
 
-Deno.test("sampleSpot is the labeled test spot for Discord and webhooks", () => {
-  const s = sampleSpot({ ...delivery(1).destination, name: "Phone" });
-  assertEquals([s.callsign, s.base_callsign, s.pota_reference], ["N0CALL", "N0CALL", "US-0000"]);
-  assertEquals(s.comment.includes('"Phone"'), true);
+// A spot as claim_deliveries hands it to a webhook: SQL's ordered pairs and the connection's name.
+const PAIRS: WebhookField[] = [
+  { key: "time", value: "2026-10-05T14:32:08Z" },
+  { key: "id", value: 42 },
+  { key: "callsign", value: "KK4PWJ" },
+  { key: "frequency_khz", value: 14062 },
+  { key: "reference", value: "US-2763" },
+  { key: "place_name", value: null },
+];
+
+function rendered_(
+  id: number,
+  fields: WebhookField[] | null | "absent" = PAIRS,
+): PendingDelivery {
+  const d = delivery(id, {
+    ...spot,
+    id,
+    webhook_connection: "POTA states I still need",
+    ...(fields === "absent" ? {} : { webhook_fields: fields as WebhookField[] }),
+  });
+  d.destination = { ...d.destination, webhook: { batch_seconds: 0, headers: [] } };
+  return d;
+}
+
+const withBatch = (batch_seconds: number) => ({ webhook: { batch_seconds, headers: [] } });
+
+Deno.test("webhookRequests sends one item per delivery at batch 0, keys in SQL's order", () => {
+  const ds = [rendered_(1), rendered_(2)];
+  const requests = webhookRequests(withBatch(0), ds);
+  assertEquals(requests.map((r) => r.count), [1, 1]);
+  const item = requests[0]?.body as WebhookItem;
+  assertEquals(item, {
+    delivery_id: 1,
+    connection: "POTA states I still need",
+    spot: {
+      time: "2026-10-05T14:32:08Z",
+      id: 42,
+      callsign: "KK4PWJ",
+      frequency_khz: 14062,
+      reference: "US-2763",
+      place_name: null,
+    },
+  });
+  assertEquals(
+    JSON.stringify(item),
+    '{"delivery_id":1,"connection":"POTA states I still need","spot":' +
+      '{"time":"2026-10-05T14:32:08Z","id":42,"callsign":"KK4PWJ","frequency_khz":14062,' +
+      '"reference":"US-2763","place_name":null}}',
+  );
+});
+
+Deno.test("webhookRequests groups up to 50 spots a request when the destination has a window", () => {
+  const ds = Array.from({ length: 120 }, (_, i) => rendered_(i + 1));
+  const requests = webhookRequests(withBatch(30), ds);
+  assertEquals(requests.map((r) => r.count), [50, 50, 20]);
+  assertEquals(WEBHOOK_SPOTS_PER_REQUEST, 50);
+  const body = requests[2]?.body as { spots: WebhookItem[] };
+  assertEquals(body.spots.length, 20);
+  assertEquals(body.spots[0], webhookItem(ds[100]!));
+  assertEquals(Object.keys(body), ["spots"]);
+});
+
+Deno.test("webhookRequests falls back to the legacy body without settings or with an unrendered row", () => {
+  const ds = [rendered_(1), rendered_(2)];
+  const noSettings = webhookRequests({}, ds);
+  assertEquals(noSettings.map((r) => r.count), [2]);
+  const spots = legacy(noSettings[0]?.body).deliveries.map((d) => d.spot);
+  for (const s of spots) {
+    for (const key of Object.keys(s)) {
+      assertEquals(/^(webhook|push|discord)_/.test(key), false, key);
+    }
+  }
+  // One row claimed without the keys (an old claim) makes the whole run legacy.
+  const mixed = webhookRequests(withBatch(0), [rendered_(1), rendered_(2, "absent")]);
+  assertEquals(mixed.length, 1);
+  assertEquals(legacy(mixed[0]?.body).deliveries.length, 2);
+});
+
+Deno.test("webhookRequests treats null pairs as legacy and [] as an empty spot", () => {
+  const nulls = webhookRequests(withBatch(0), [rendered_(1, null)]);
+  assertEquals(legacy(nulls[0]?.body).deliveries[0]?.delivery_id, 1);
+  const empty = webhookRequests(withBatch(0), [rendered_(1, [])]);
+  assertEquals(
+    JSON.stringify(empty[0]?.body),
+    '{"delivery_id":1,"connection":"POTA states I still need","spot":{}}',
+  );
+});
+
+Deno.test("webhookItem sends an empty connection when SQL gave none", () => {
+  const d = rendered_(7);
+  delete d.spot.webhook_connection;
+  assertEquals(webhookItem(d).connection, "");
+});
+
+Deno.test("webhookRequests of no deliveries is no request", () => {
+  assertEquals(webhookRequests(withBatch(10), []), []);
+});
+
+Deno.test("extraHeaderAllowed refuses every reserved name in any case, the prefixes and bad names", () => {
+  for (const name of WEBHOOK_RESERVED_HEADERS) {
+    assertEquals(extraHeaderAllowed(name), false, name);
+    assertEquals(extraHeaderAllowed(name.toUpperCase()), false, name);
+  }
+  for (
+    const name of [
+      "X-LongLines-Test",
+      "x-longlines-anything",
+      "Proxy-Authorization",
+      "proxy-foo",
+      "",
+      "-lead",
+      "Has Space",
+      "Bad:Colon",
+      "Line\r\nBreak",
+      "a".repeat(65),
+    ]
+  ) {
+    assertEquals(extraHeaderAllowed(name), false, name);
+  }
+  for (const name of ["Authorization", "X-Api-Key", "x_token.v2", "a".repeat(64), "1"]) {
+    assertEquals(extraHeaderAllowed(name), true, name);
+  }
+});
+
+Deno.test("webhookExtraHeaders keeps order and drops refused names, bad values and repeats", () => {
+  const headers = webhookExtraHeaders({
+    webhook: {
+      batch_seconds: 0,
+      headers: [
+        { name: "Authorization", value: "Bearer abc" },
+        { name: "Content-Type", value: "text/plain" },
+        { name: "X-Evil", value: "a\r\nX-Injected: 1" },
+        { name: "X-Accent", value: "caf\u00e9" },
+        { name: "X-Empty", value: "" },
+        { name: "X-Long", value: "a".repeat(1025) },
+        { name: "authorization", value: "again" },
+        { name: "X-Api-Key", value: "k ~!" },
+        { name: 5, value: "x" } as unknown as { name: string; value: string },
+      ],
+    },
+  });
+  assertEquals(headers, [
+    { name: "Authorization", value: "Bearer abc" },
+    { name: "X-Api-Key", value: "k ~!" },
+  ]);
+  assertEquals(webhookExtraHeaders({}), []);
 });

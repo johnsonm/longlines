@@ -130,6 +130,7 @@ Deno.test("runDeliveryBatch claims with the defaults, or the options given", asy
     failed: 0,
     throttled: 0,
     skipped_paused: 0,
+    unattempted: 0,
     errors: [],
     destinations: [],
   });
@@ -176,6 +177,7 @@ Deno.test("runDeliveryBatch groups by destination in claim order and acks every 
       failed: 0,
       throttled: 0,
       skipped_paused: 0,
+      unattempted: 0,
     },
     {
       id: "b",
@@ -186,6 +188,7 @@ Deno.test("runDeliveryBatch groups by destination in claim order and acks every 
       failed: 0,
       throttled: 0,
       skipped_paused: 0,
+      unattempted: 0,
     },
   ]);
 });
@@ -397,6 +400,76 @@ Deno.test("runDeliveryBatch acks the sent part and fails the rest of a partial b
     "mark_deliveries_sent",
     "mark_deliveries_failed",
   ]);
+});
+
+Deno.test("runDeliveryBatch marks only a webhook's attempted rows failed and leaves the rest", async () => {
+  const a = dest("a");
+  const rows = [1, 2, 3, 4, 5].map((id) => row(id, a));
+  // One request per spot, a 500 on the first: only that row was in a request.
+  const { result, calls } = await run(
+    rows,
+    () =>
+      Promise.resolve({ ok: false, sent: 0, attempted: 1, status: 500, error: "Webhook HTTP 500" }),
+  );
+  assertEquals(calls.slice(1), [{
+    fn: "mark_deliveries_failed",
+    args: {
+      p_delivery_ids: [1],
+      p_msg_ids: [10],
+      p_error: "Webhook HTTP 500",
+      p_delay_seconds: backoffSeconds(1),
+    },
+  }]);
+  assertEquals([result.failed, result.unattempted, result.sent], [1, 4, 0]);
+  assertEquals(result.destinations[0]?.unattempted, 4);
+  assertEquals(result.destinations[0]?.failed, 1);
+});
+
+Deno.test("runDeliveryBatch acks a webhook's sent rows and fails only the failed request's", async () => {
+  const a = dest("a");
+  const rows = [1, 2, 3, 4, 5].map((id) => row(id, a));
+  const { result, calls } = await run(
+    rows,
+    () => Promise.resolve({ ok: false, sent: 2, attempted: 3, error: "Webhook HTTP 500" }),
+  );
+  assertEquals(calls.slice(1).map((c) => [c.fn, c.args.p_delivery_ids]), [
+    ["mark_deliveries_sent", [1, 2]],
+    ["mark_deliveries_failed", [3]],
+  ]);
+  assertEquals([result.sent, result.failed, result.unattempted], [2, 1, 2]);
+});
+
+Deno.test("runDeliveryBatch makes no failure call when nothing was attempted", async () => {
+  const a = dest("a");
+  const { result, calls } = await run(
+    [row(1, a), row(2, a)],
+    () => Promise.resolve({ ok: false, sent: 0, attempted: 0, error: "nothing" }),
+  );
+  assertEquals(calls.map((c) => c.fn), ["claim_deliveries"]);
+  assertEquals([result.failed, result.unattempted], [0, 2]);
+  assertEquals(result.destinations[0]?.error, "nothing");
+});
+
+Deno.test("runDeliveryBatch still throttles every unsent row on a webhook 429", async () => {
+  const a = dest("a");
+  const rows = [1, 2, 3].map((id) => row(id, a));
+  const { result, calls } = await run(
+    rows,
+    () =>
+      Promise.resolve({
+        ok: false,
+        sent: 1,
+        attempted: 2,
+        status: 429,
+        error: "Webhook HTTP 429 (rate limited)",
+        retryAfterSeconds: null,
+      }),
+  );
+  assertEquals(calls[2], {
+    fn: "throttle_destination",
+    args: { p_destination_id: "a", p_msg_ids: [20, 30], p_seconds: null },
+  });
+  assertEquals([result.throttled, result.unattempted], [2, 0]);
 });
 
 Deno.test("runDeliveryBatch skips paused destinations so their messages reappear later", async () => {

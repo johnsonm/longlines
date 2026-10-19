@@ -2,7 +2,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(65);
+select plan(67);
 
 -- ---------------------------------------------------------------------------
 -- Tokens
@@ -193,10 +193,23 @@ select is((select d -> 'discord' from jsonb_array_elements(pg_temp.call('list_de
     "link_preview": "hidden", "title_fields": ["callsign", "frequency", "mode"], "batch_seconds": 0,
     "detail_fields": ["source", "reference", "place_name", "state"], "show_field_names": false}'::jsonb,
   'a Discord destination shows its settings');
-select results_eq($$ select d ->> 'type', d ? 'discord', d ? 'push' from jsonb_array_elements(pg_temp.call('list_destinations')) d
-                     order by d ->> 'name' $$,
-  $$ values ('discord'::text, true, false), ('push', false, true), ('webhook', false, false), ('push', false, true) $$,
-  'only Discord destinations carry discord');
+select results_eq($$ select d ->> 'type', d ? 'discord', d ? 'push', d ? 'webhook'
+                     from jsonb_array_elements(pg_temp.call('list_destinations')) d order by d ->> 'name' $$,
+  $$ values ('discord'::text, true, false, false), ('push', false, true, false), ('webhook', false, false, true),
+            ('push', false, true, false) $$,
+  'only Discord destinations carry discord, and only webhooks webhook');
+-- Webhooks (20261018000300) show their settings, header names and times, read only.
+select is((select d -> 'webhook' from jsonb_array_elements(pg_temp.call('list_destinations')) d where d ->> 'name' = 'Hook'),
+  '{"fields": ["id", "time", "callsign", "frequency", "mode", "band", "source", "reference", "place_name", "state", "spotter"],
+    "key_style": "snake", "time_format": "iso_utc", "frequency_unit": "khz", "missing_values": "omit", "batch_seconds": 0,
+    "retry_policy": "three_10m", "pause_after_failures": null, "headers": [], "auto_disabled_at": null}'::jsonb
+  || jsonb_build_object('secret_rotated_at', now()),
+  'a webhook created through the API gets the defaults and shows them');
+update destinations set enabled = false, auto_disabled_at = now() - interval '1 hour', pause_failures = 20
+  where id = (select id from dest);
+select is((select (j -> 'enabled')::boolean and j #> '{webhook,auto_disabled_at}' = 'null'::jsonb
+           from pg_temp.call('update_destination', jsonb_build_object('id', (select id from dest), 'enabled', true)) j),
+  true, 'PATCH with "enabled": true resumes a paused webhook');
 select is(pg_temp.call('update_destination', jsonb_build_object('id', (select j ->> 'id' from pushed), 'enabled', false)) -> 'enabled',
   'false'::jsonb, 'PATCH turns a destination off');
 select is(pg_temp.call('update_destination', jsonb_build_object('id', (select j ->> 'id' from pushed), 'name', 'Phone')) -> 'enabled',

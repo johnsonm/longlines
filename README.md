@@ -74,7 +74,8 @@ predicate, so what you see while editing a subscription is exactly what will be 
 
 **Deliver.** The sender (`sender/`, one Fly.io machine) polls the queue every few seconds as a
 restricted database role and sends what `claim_deliveries()` hands it: Discord as embeds,
-webhooks as signed JSON with an HMAC-SHA256 header, push as encrypted notifications. The claim
+webhooks as JSON signed with an HMAC-SHA256 header, with the fields, key style and grouping each
+destination picks, push as encrypted notifications. The claim
 decides everything: newest spots first, a per-minute budget per destination, throttled and paused
 destinations skipped, and deliveries older than their limit (24 hours; 15 minutes for push)
 dropped. Every outcome goes back through an RPC so delivery rows, queue messages and destination

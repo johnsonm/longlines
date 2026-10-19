@@ -1,10 +1,11 @@
 -- pgTAP: claim_deliveries never hands out an expired row, even past the
 -- expiry sweep's 500 a call, and drops a destination paused by hand as
--- unwanted (20261017001010_claim_skips_expired).
+-- unwanted (20261017001010_claim_skips_expired), and never hands out a webhook
+-- row whose retry policy's attempts are used up (20261018000300).
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(9);
+select plan(13);
 select pgmq.purge_queue('spot_events');
 select pgmq.purge_queue('deliveries_queue');
 delete from deliveries;
@@ -69,6 +70,34 @@ select results_eq($$ select status, dropped_at from deliveries where destination
 select is((select count(*) from pgmq.q_deliveries_queue q
            join deliveries d on d.id = (q.message ->> 'delivery_id')::bigint
            where d.destination_id = (select id from held)), 0::bigint, 'and their messages archived');
+
+-- A webhook row whose retry policy's attempts are used up (20261018000300) is
+-- swept with dropped_at, and `ready` leaves out the ones past the sweep's 500.
+create temp table tried as select id from create_destination('webhook', 'Tried', 'https://tried.example.com/spots');
+reset role;
+update webhook_destination_settings set retry_policy = 'none' where destination_id = (select id from tried);
+insert into subscription_destinations (subscription_id, destination_id) values ((select id from subscriptions), (select id from tried));
+-- Five untried rows, then 600 tried once, all fresh; the tried rows have the
+-- higher ids, so they rank first.
+with ins as (
+  insert into deliveries (subscription_id, destination_id, spot_id, attempts, status)
+  select (select id from subscriptions), (select id from tried), s.id,
+         case when s.n <= 5 then 0 else 1 end, case when s.n <= 5 then 'pending' else 'failed' end
+  from spots s where s.n <= 605 order by s.n
+  returning id
+)
+select pgmq.send_batch('deliveries_queue', (select array_agg(jsonb_build_object('delivery_id', ins.id) order by ins.id) from ins));
+update destinations set claim_tokens = 0, claim_tokens_at = now() - interval '1 minute' where id = (select id from tried);
+create temp table tried_claim as select * from claim_deliveries(200, 60);
+select results_eq($$ select attempts, count(*) from tried_claim group by 1 $$, $$ values (0, 5::bigint) $$,
+  'only the five untried rows are claimed, although 100 used-up rows are still queued past the sweep''s 500');
+select results_eq($$ select status, dropped_at is not null, count(*) from deliveries
+                     where destination_id = (select id from tried) and attempts = 1 group by 1, 2 order by 1 $$,
+  $$ values ('dropped', true, 500::bigint), ('failed', false, 100::bigint) $$,
+  'the sweep dropped 500 used-up rows as a loss and left 100 for the next call');
+select is((select count(*) from claim_deliveries(200, 60)), 0::bigint, 'the next call claims nothing');
+select is((select count(*) from deliveries where destination_id = (select id from tried) and status = 'dropped'), 600::bigint,
+  'and its sweep drops the remaining 100');
 
 select * from finish();
 rollback;

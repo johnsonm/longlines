@@ -445,14 +445,14 @@ isOneToOne: false
                   ]
                 },"destinations": {
                   Row: {
-                    "claim_due_at": string,"claim_tokens": number,"claim_tokens_at": string,"consecutive_failures": number,"created_at": string,"enabled": boolean,"health": string,"id": string,"last_error": string | null,"last_error_at": string | null,"last_success_at": string | null,"name": string,"signing_secret": string | null,"throttle_level": number,"throttled_until": string | null,"type": string,"url": string | null,"url_display": string,"user_id": string,"api_destination_json": Json | null
+                    "auto_disabled_at": string | null,"claim_due_at": string,"claim_tokens": number,"claim_tokens_at": string,"consecutive_failures": number,"created_at": string,"enabled": boolean,"health": string,"id": string,"last_error": string | null,"last_error_at": string | null,"last_success_at": string | null,"name": string,"pause_failure_at": string | null,"pause_failures": number,"secret_rotated_at": string | null,"signing_secret": string | null,"throttle_level": number,"throttled_until": string | null,"type": string,"url": string | null,"url_display": string,"user_id": string,"api_destination_json": Json | null
                   }
                   ComputedFields: "api_destination_json"
                   Insert: {
-                    "claim_due_at"?: string,"claim_tokens"?: number,"claim_tokens_at"?: string,"consecutive_failures"?: number,"created_at"?: string,"enabled"?: boolean,"health"?: string,"id"?: string,"last_error"?: string | null,"last_error_at"?: string | null,"last_success_at"?: string | null,"name": string,"signing_secret"?: string | null,"throttle_level"?: number,"throttled_until"?: string | null,"type": string,"url"?: string | null,"url_display": string,"user_id": string
+                    "auto_disabled_at"?: string | null,"claim_due_at"?: string,"claim_tokens"?: number,"claim_tokens_at"?: string,"consecutive_failures"?: number,"created_at"?: string,"enabled"?: boolean,"health"?: string,"id"?: string,"last_error"?: string | null,"last_error_at"?: string | null,"last_success_at"?: string | null,"name": string,"pause_failure_at"?: string | null,"pause_failures"?: number,"secret_rotated_at"?: string | null,"signing_secret"?: string | null,"throttle_level"?: number,"throttled_until"?: string | null,"type": string,"url"?: string | null,"url_display": string,"user_id": string
                   }
                   Update: {
-                    "claim_due_at"?: string,"claim_tokens"?: number,"claim_tokens_at"?: string,"consecutive_failures"?: number,"created_at"?: string,"enabled"?: boolean,"health"?: string,"id"?: string,"last_error"?: string | null,"last_error_at"?: string | null,"last_success_at"?: string | null,"name"?: string,"signing_secret"?: string | null,"throttle_level"?: number,"throttled_until"?: string | null,"type"?: string,"url"?: string | null,"url_display"?: string,"user_id"?: string
+                    "auto_disabled_at"?: string | null,"claim_due_at"?: string,"claim_tokens"?: number,"claim_tokens_at"?: string,"consecutive_failures"?: number,"created_at"?: string,"enabled"?: boolean,"health"?: string,"id"?: string,"last_error"?: string | null,"last_error_at"?: string | null,"last_success_at"?: string | null,"name"?: string,"pause_failure_at"?: string | null,"pause_failures"?: number,"secret_rotated_at"?: string | null,"signing_secret"?: string | null,"throttle_level"?: number,"throttled_until"?: string | null,"type"?: string,"url"?: string | null,"url_display"?: string,"user_id"?: string
                   }
                   Relationships: [
                     
@@ -863,6 +863,46 @@ isOneToOne: false
                   Relationships: [
                     
                   ]
+                },"webhook_destination_headers": {
+                  Row: {
+                    "destination_id": string,"id": string,"name": string,"position": number,"secret_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "destination_id": string,"id"?: string,"name": string,"position": number,"secret_id": string
+                  }
+                  Update: {
+                    "destination_id"?: string,"id"?: string,"name"?: string,"position"?: number,"secret_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "webhook_destination_headers_destination_id_fkey"
+      columns: ["destination_id"]
+isOneToOne: false
+      referencedRelation: "destinations"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"webhook_destination_settings": {
+                  Row: {
+                    "batch_seconds": number,"destination_id": string,"fields": (string)[],"frequency_unit": string,"key_style": string,"missing_values": string,"pause_after_failures": number | null,"retry_policy": string,"time_format": string,"validate_webhook_settings": undefined | null
+                  }
+                  ComputedFields: "validate_webhook_settings"
+                  Insert: {
+                    "batch_seconds": number,"destination_id": string,"fields": (string)[],"frequency_unit": string,"key_style": string,"missing_values": string,"pause_after_failures"?: number | null,"retry_policy": string,"time_format": string
+                  }
+                  Update: {
+                    "batch_seconds"?: number,"destination_id"?: string,"fields"?: (string)[],"frequency_unit"?: string,"key_style"?: string,"missing_values"?: string,"pause_after_failures"?: number | null,"retry_policy"?: string,"time_format"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "webhook_destination_settings_destination_id_fkey"
+      columns: ["destination_id"]
+isOneToOne: true
+      referencedRelation: "destinations"
+      referencedColumns: ["id"]
+    }
+                  ]
                 }
           }
           Views: {
@@ -992,6 +1032,9 @@ isOneToOne: false
 "check_discord_setting_keys":
 { Args: { "p_settings": Json }; Returns: undefined
                            },
+"check_webhook_setting_keys":
+{ Args: { "p_settings": Json }; Returns: undefined
+                           },
 "claim_deliveries":
 { Args: { "p_limit"?: number,"p_vt"?: number }; Returns: {
               "attempts": number,"created_at": string,"delivery_id": number,"destination": Json,"msg_id": number,"spot": Json,"subscription_id": string
@@ -1040,6 +1083,9 @@ isOneToOne: false
                            },
 "delivery_spot_json":
 { Args: { "r": Omit<Database["public"]['Tables']["raw_spots"]['Row'], Database["public"]['Tables']["raw_spots"]['ComputedFields']> }; Returns: Json
+                           },
+"destination_batch_full":
+{ Args: { "p_type": string }; Returns: number
                            },
 "destination_budget":
 { Args: { "p_type": string }; Returns: {
@@ -1145,6 +1191,9 @@ isOneToOne: false
 "get_push_destination":
 { Args: { "p_id": string }; Returns: Json
                            },
+"get_webhook_destination":
+{ Args: { "p_id": string }; Returns: Json
+                           },
 "group_matches":
 { Args: { "p_base": string,"p_group_ids": (string)[] }; Returns: boolean
                            },
@@ -1217,6 +1266,9 @@ isOneToOne: false
         isOneToOne: false
         isSetofReturn: true
       } },
+"list_webhook_destination_settings":
+{ Args: Record<PropertyKey, never>; Returns: Json
+                           },
 "load_cty":
 { Args: { "p_entities": Json,"p_prefixes": Json,"p_version": string }; Returns: undefined
                            },
@@ -1274,6 +1326,9 @@ isOneToOne: false
 { Args: { "filter": Json }; Returns: {
               "count": number,"spots": Json,"station_count": number,"window_size": number
             }[]
+                           },
+"preview_webhook_request":
+{ Args: { "p_destination_id"?: string,"p_settings": Json,"p_spot_id"?: number }; Returns: Json
                            },
 "prune_callsign_lookups":
 { Args: Record<PropertyKey, never>; Returns: undefined
@@ -1417,6 +1472,14 @@ isOneToOne: false
 "save_subscription":
 { Args: { "payload": Json }; Returns: string
                            },
+"save_webhook_destination":
+{ Args: { "p_enabled": boolean,"p_headers": Json,"p_id": string,"p_name": string,"p_settings": Json,"p_url": string }; Returns: {
+              "id": string,"signing_secret": string
+            }[]
+                           },
+"set_webhook_headers":
+{ Args: { "p_destination_id": string,"p_headers": Json }; Returns: undefined
+                           },
 "source_matches":
 { Args: { "p_source": string,"p_sources": (string)[] }; Returns: boolean
                            },
@@ -1456,8 +1519,71 @@ isOneToOne: false
 "validate_push_fields":
 { Args: { "p_fields": (string)[],"p_what": string }; Returns: undefined
                            },
+"validate_webhook_fields":
+{ Args: { "p_fields": (string)[] }; Returns: undefined
+                           },
+"validate_webhook_settings":
+{ Args: { "p_settings": Omit<Database["public"]['Tables']["webhook_destination_settings"]['Row'], Database["public"]['Tables']["webhook_destination_settings"]['ComputedFields']> }; Returns: undefined
+                           },
 "watched_among":
 { Args: { "p_callsigns": (string)[],"p_source": string }; Returns: string[]
+                           },
+"webhook_claim_max":
+{ Args: { "p_batch_seconds": number }; Returns: number
+                           },
+"webhook_default_settings":
+{ Args: Record<PropertyKey, never>; Returns: Json
+                           },
+"webhook_field_key":
+{ Args: { "p_field": string,"p_frequency_unit": string,"p_key_style": string }; Returns: string
+                           },
+"webhook_field_value":
+{ Args: { "p_field": string,"p_frequency_unit": string,"p_spot": Json,"p_time_format": string }; Returns: Json
+                           },
+"webhook_fields":
+{ Args: Record<PropertyKey, never>; Returns: (string)[]
+                           },
+"webhook_fields_valid":
+{ Args: { "p_fields": (string)[] }; Returns: boolean
+                           },
+"webhook_header_name_valid":
+{ Args: { "p_name": string }; Returns: boolean
+                           },
+"webhook_header_names":
+{ Args: { "p_destination_id": string }; Returns: Json
+                           },
+"webhook_header_secret":
+{ Args: { "p_value": string }; Returns: string
+                           },
+"webhook_header_values":
+{ Args: { "p_destination_id": string }; Returns: Json
+                           },
+"webhook_legacy_settings":
+{ Args: Record<PropertyKey, never>; Returns: Json
+                           },
+"webhook_pause_spacing":
+{ Args: Record<PropertyKey, never>; Returns: string
+                           },
+"webhook_request_body":
+{ Args: { "p_connection": string,"p_delivery_id": number,"p_settings": Omit<Database["public"]['Tables']["webhook_destination_settings"]['Row'], Database["public"]['Tables']["webhook_destination_settings"]['ComputedFields']>,"p_spot": Json }; Returns: Json
+                           },
+"webhook_retries_exhausted":
+{ Args: { "p_attempts": number,"p_policy": string }; Returns: boolean
+                           },
+"webhook_retry_delay":
+{ Args: { "p_attempt": number,"p_policy": string }; Returns: number
+                           },
+"webhook_retry_max_attempts":
+{ Args: { "p_policy": string }; Returns: number
+                           },
+"webhook_spot_fields":
+{ Args: { "p_settings": Omit<Database["public"]['Tables']["webhook_destination_settings"]['Row'], Database["public"]['Tables']["webhook_destination_settings"]['ComputedFields']>,"p_spot": Json }; Returns: Json
+                           },
+"webhook_spot_object":
+{ Args: { "p_settings": Omit<Database["public"]['Tables']["webhook_destination_settings"]['Row'], Database["public"]['Tables']["webhook_destination_settings"]['ComputedFields']>,"p_spot": Json }; Returns: Json
+                           },
+"webhook_test_delivery":
+{ Args: { "p_destination_id": string,"p_spot_id"?: number }; Returns: Json
                            }
           }
           Enums: {

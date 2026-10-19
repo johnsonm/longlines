@@ -82,6 +82,12 @@ export interface DestinationResult {
   /** Rows handed back to SQL with `throttle_destination` (a 429 or the Discord cap). */
   throttled: number;
   skipped_paused: number;
+  /**
+   * Rows after a webhook's failed request, never sent and not counted as an
+   * attempt: left alone, they reappear when the claim's visibility timeout
+   * lapses (SendResult.attempted).
+   */
+  unattempted: number;
   error?: string;
 }
 
@@ -91,6 +97,7 @@ export interface DeliveryBatchResult {
   failed: number;
   throttled: number;
   skipped_paused: number;
+  unattempted: number;
   /** Bookkeeping RPCs that failed; the cycle still completes. */
   errors: string[];
   destinations: DestinationResult[];
@@ -120,6 +127,7 @@ export async function runDeliveryBatch(
     failed: 0,
     throttled: 0,
     skipped_paused: 0,
+    unattempted: 0,
     errors: [],
     destinations: [],
   };
@@ -189,6 +197,7 @@ export async function runDeliveryBatch(
       failed: 0,
       throttled: 0,
       skipped_paused: 0,
+      unattempted: 0,
     };
     result.destinations.push(per);
     if (sent === null) {
@@ -212,17 +221,27 @@ export async function runDeliveryBatch(
       per.throttled = rest.length;
       result.throttled += rest.length;
     } else {
-      const attempt = Math.max(...rest.map((r) => r.attempts)) + 1;
+      // Only the rows that were in a request count an attempt (a webhook's
+      // `attempted`); the rest are left for the claim's visibility timeout.
+      const attempted = Math.min(Math.max(sent.attempted ?? batch.length, sent.sent), batch.length);
+      const failedRows = batch.slice(sent.sent, attempted);
+      const skipped = batch.length - attempted;
+      per.unattempted = skipped;
+      result.unattempted += skipped;
       const error = sent.error ?? "unknown error";
-      await bookkeep("mark_deliveries_failed", {
-        p_delivery_ids: rest.map((r) => r.delivery_id),
-        p_msg_ids: rest.map((r) => r.msg_id),
-        p_error: error,
-        p_delay_seconds: backoffSeconds(attempt),
-      });
-      per.failed = rest.length;
       per.error = error;
-      result.failed += rest.length;
+      if (failedRows.length > 0) {
+        const attempt = Math.max(...failedRows.map((r) => r.attempts)) + 1;
+        // Discord and push wait backoffSeconds; SQL's retry policy wins for a webhook.
+        await bookkeep("mark_deliveries_failed", {
+          p_delivery_ids: failedRows.map((r) => r.delivery_id),
+          p_msg_ids: failedRows.map((r) => r.msg_id),
+          p_error: error,
+          p_delay_seconds: backoffSeconds(attempt),
+        });
+        per.failed = failedRows.length;
+        result.failed += failedRows.length;
+      }
       console.error(`deliver: ${destination.type} "${destination.name}" failed: ${error}`);
     }
   }

@@ -75,14 +75,16 @@ describe("SourceDetailPage", () => {
 
   it("shows POTA's own fields, recent spots and last fetch", async () => {
     open("/sources/pota");
-    expect(screen.getByText("pota_park_name")).toBeInTheDocument();
+    expect(screen.getByText("place_name")).toBeInTheDocument();
     expect(screen.getAllByText("Derived").length).toBeGreaterThan(0);
-    expect(screen.getByText("Fields for other programs are present and null.")).toBeInTheDocument();
+    expect(
+      screen.getByText("Keys and units shown are the defaults. Each webhook destination picks its fields, key style, time format and frequency unit."),
+    ).toBeInTheDocument();
     expect(screen.queryByText("High volume source: a callsign filter is required")).not.toBeInTheDocument();
     expect(await screen.findByText("W1AW")).toBeInTheDocument();
     expect(loadRecentSpots).toHaveBeenCalledWith("pota");
     expect(await screen.findByText("Last fetch 20s ago, every 60s")).toBeInTheDocument();
-    expect(screen.getByText(/"pota_reference": "US-2763"/)).toBeInTheDocument();
+    expect(screen.getByText(/"reference": "US-2763"/)).toBeInTheDocument();
     expect(screen.getByText("Standard volume")).toBeInTheDocument();
     expect(screen.getByText("pota.app")).toBeInTheDocument(); // Run by > Website
   });

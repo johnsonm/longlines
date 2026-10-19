@@ -285,7 +285,10 @@ the Phase 2 plan, is `docs/superpowers/specs/2026-10-15-outbound-sender-design.m
   batch window (`discord_destination_settings.batch_seconds` 10, 30 or 60): while its oldest
   visible row is younger than the window and fewer than ten are waiting, none of its rows are
   claimed, debited, delayed or dropped, so a trickle waits at most the window and ten go at once
-  (see "Discord destinations" below). A Discord destination is also paced by
+  (see "Discord destinations" below). A webhook with a window (`webhook_destination_settings.batch_seconds`)
+  is held the same way, released at `destination_batch_full('webhook')` (50) ready rows, and a
+  webhook sending one request per spot takes at most `webhook_claim_max(0)` (5) spots a claim
+  (see "Webhook destinations" below). A Discord destination is also paced by
   `destination_claim_interval('discord')` (10 seconds) on a schedule: each claim moves
   `claim_due_at` on by 10 seconds from where it was (from now when that is past), and the claim
   leaves the destination out until half an interval before it is due. The sender claims only when
@@ -312,7 +315,9 @@ the Phase 2 plan, is `docs/superpowers/specs/2026-10-15-outbound-sender-design.m
   as the card embed or plain line SQL rendered, one spot per message without a batch window and
   ten with one (more, up to ten, only when a claim would otherwise need more than five messages),
   always with
-  `allowed_mentions: {parse: []}`; webhooks as signed JSON, fifty spots per request, 10 s timeout;
+  `allowed_mentions: {parse: []}`; webhooks as signed JSON in the shape and key order SQL
+  rendered, one request per spot or up to fifty grouped, 10 s timeout, stopping at the first
+  failed request;
   push as one encrypted notification per spot per member device, at most three spots a minute
   per destination from the budget, with the destination's urgency and TTL (see "Push
   destinations" below). Successes are acked in one `mark_deliveries_sent` per cycle, so write load
@@ -325,8 +330,10 @@ the Phase 2 plan, is `docs/superpowers/specs/2026-10-15-outbound-sender-design.m
   `consecutive_failures` is untouched; `mark_deliveries_sent` clears the throttle and decays the
   level by one per successful cycle, so one success after a storm does not drop straight back to
   the base delay. A 5xx, a timeout or a connection error is a failure as before:
-  `mark_deliveries_failed` backs the messages off (30 s to 30 m) and five in a row mark the
-  destination `failing`. A push device reported gone (404/410) is pruned, and a push destination
+  `mark_deliveries_failed` backs the messages off (30 s to 30 m for Discord and push; a webhook's
+  own retry policy, in SQL) and five in a row mark the destination `failing`. For a webhook only
+  the rows that were in the failed request are marked (`SendResult.attempted`); the rest reappear
+  after the visibility timeout without counting an attempt. A push device reported gone (404/410) is pruned, and a push destination
   with no deliverable device fails. A push destination in its quiet hours set to "Don't send" is
   acked without a request: not a failure, not retried.
 - **Health and the watchdog.** `/healthz` answers on Fly's private network: 200 while the last
@@ -362,9 +369,9 @@ the Phase 2 plan, is `docs/superpowers/specs/2026-10-15-outbound-sender-design.m
   `LONGLINES_ALLOW_INSECURE_DESTINATIONS` is honoured only with a local database host.
 
 `send-test` reuses the same formatting and sending code for one labeled test spot, from an Edge
-Function, which is why the VAPID pair also lives in function env. A webhook gets the TypeScript
-sample spot; push and Discord get the spot SQL rendered with the destination's settings
-(`push_test_delivery`, `discord_test_delivery`).
+Function, which is why the VAPID pair also lives in function env. Every type gets the spot SQL
+rendered with the destination's settings (`push_test_delivery`, `discord_test_delivery`,
+`webhook_test_delivery`).
 
 ## Push destinations
 
@@ -405,8 +412,8 @@ a tag per station (or per spot), the Open profile and Open on {Source} buttons, 
 and 15 minutes when a row claimed before the migration carries no `push`, and for a "Don't send"
 destination in quiet hours makes no request and reports the batch sent. The claim's expiry sweep
 uses the destination's TTL, and its unwanted sweep drops a disabled destination's queued rows as
-it does a disabled subscription's; the matcher creates none for it in the first place. Webhook
-payloads strip the `push_*` keys, so `docs/WEBHOOKS.md` is unchanged.
+it does a disabled subscription's; the matcher creates none for it in the first place. The legacy
+webhook body strips the `push_*` keys.
 
 ## Discord destinations
 
@@ -449,8 +456,47 @@ the next embed would pass Discord's 6,000 characters a message, so only cards of
 characters or more make a claim need a sixth message. `sendDiscord` counts `sent` by the spots each message
 carried. The batch window itself is the claim's hold above, so the sender never waits or delays
 anything. A row claimed without `discord` (before migration `20261018000100` is hosted) gets the
-old fixed embed, ten per message, so the sender and the migration ship in either order. Webhook
-payloads strip the `discord_*` keys.
+old fixed embed, ten per message, so the sender and the migration ship in either order. The
+legacy webhook body strips the `discord_*` keys.
+
+## Webhook destinations
+
+A webhook destination posts signed JSON to the user's own HTTPS URL and has its own row in
+`webhook_destination_settings` (canvas page 7; `docs/superpowers/specs/2026-10-18-webhook-destination-design.md`):
+an ordered pick of spot fields from `webhook_fields()` (spot id, time, callsign, frequency, mode,
+band, source, reference, place name, state, spotter, country, spot URL, comment), the key style,
+time format, frequency unit, what to send for a missing value, the batch window, the retry policy
+and the pause threshold. A trigger gives every new webhook the defaults
+(`webhook_default_settings()`). Up to ten extra headers live in `webhook_destination_headers`,
+each a name and a Supabase Vault secret id; the value leaves Vault only inside
+`claim_deliveries`, `webhook_test_delivery` and `duplicate_destination`, and clients and the API
+see names only.
+
+SQL renders every value: `webhook_spot_fields` turns the spot into ordered `[{key, value}]` pairs
+(jsonb objects do not keep key order), and the claim puts them in the spot jsonb as
+`webhook_fields`, with the connection's name as `webhook_connection`, and the window and header
+values in the destination jsonb as `webhook`. The editor's preview (`preview_webhook_request`,
+built with `json` so its text keeps the order) and Send test call the same renderer. `format.ts`
+(`webhookRequests`) builds each spot with `Object.fromEntries(pairs)`, so the keys go out in the
+picked order, and wraps it as `{delivery_id, connection, spot}`, one request per spot with no
+window or `{spots: [...]}` of up to 50 with one. `send.ts` signs each body and sends the fixed
+headers, `X-LongLines-Test` on a test, then the extra headers (`webhookExtraHeaders` drops any
+name on the reserved list or value outside printable ASCII, a second check after SQL's). A row
+claimed without the keys (before migration `20261018000300` is hosted) gets the legacy
+`{deliveries}` body, so the sender and the migration ship in either order.
+
+Policy is SQL's. The batch window is the claim's hold (released at 50 ready rows); one request
+per spot is capped at 5 a claim (`webhook_claim_max`), which bounds how long a slow receiver holds
+a worker. `mark_deliveries_failed` sets a webhook row's next try from its retry policy
+(`webhook_retry_delay`: `none` once, `three_10m` after 60, 180 and 360 s, `day` on the old
+schedule) and gives an exhausted row a visibility of now, so the next claim's expiry sweep drops
+it with `dropped_at` (`webhook_retries_exhausted`, which `ready` also applies). The sender marks
+only the rows whose request was made. With `pause_after_failures` set, failures count toward a
+pause at most once per `webhook_pause_spacing()` (30 s) and restart after a success; reaching it
+sets `enabled = false` and `auto_disabled_at` and makes the destination's whole queue visible
+(rows in retry backoff included), and the claim's unwanted sweep then drops all of it with
+`dropped_at`, so resuming delivers none of it. `update_destination` turning it back on clears the
+pause. The default threshold is null until the web editor ships (its migration makes it 20).
 
 # Phase 3: stats snapshot
 
