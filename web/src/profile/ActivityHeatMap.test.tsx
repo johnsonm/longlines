@@ -23,16 +23,19 @@ describe("ActivityHeatMap", () => {
     expect(screen.getByText("484 spots")).toBeInTheDocument();
     expect(screen.getByText("Oct 11, 2026")).toBeInTheDocument();
     expect(cells()).toHaveLength(365);
-    expect(screen.getByText("Spots per day: none, 1 to 49, 50 to 149, 150 to 299, 300 or more.")).toBeInTheDocument();
+    expect(screen.getByText("Spots per day, relative to this period: none, 1, 3, 30, 484.")).toBeInTheDocument();
   });
 
-  it("shades days by level and leaves empty days neutral", () => {
+  it("shades days relative to the period and leaves empty days neutral", () => {
     renderPage(<ActivityHeatMap callsign="KK4PWJ" calendar={calendar} />);
     const fills = [...cells()].map((c) => c.getAttribute("fill"));
-    // None, 1-49 (1 and 30 spots) and 300+ (484).
-    expect(new Set(fills).size).toBe(3);
-    expect(fills.at(-1)).toBe(fills.at(-3));
-    expect(fills.at(-2)).not.toBe(fills.at(-1));
+    // None plus one level each for 1, 3, 30 and 484 spots, the legend's five swatches.
+    expect(new Set(fills).size).toBe(5);
+    const legend = [...document.querySelectorAll("svg[aria-hidden] rect")].map((r) => r.getAttribute("fill"));
+    // 2026-10-12 (1 spot) is the quietest shade, 2026-10-11 (484) the darkest.
+    expect(fills.at(-1)).toBe(legend[1]);
+    expect(fills.at(-2)).toBe(legend[4]);
+    expect(fills[0]).toBe(legend[0]);
   });
 
   it("shows a day's count, date and sources on hover", async () => {
@@ -75,7 +78,7 @@ describe("ActivityHeatMap", () => {
     setMobile(true);
     renderPage(<ActivityHeatMap callsign="KK4PWJ" calendar={calendar} />);
     expect(screen.queryByRole("combobox", { name: "Period" })).not.toBeInTheDocument();
-    expect(screen.getByText("Spots per day: none, 1 to 49, 50 to 149, 150 to 299, 300 or more. Scroll sideways for earlier months."))
+    expect(screen.getByText("Spots per day, relative to this period: none, 1, 3, 30, 484. Scroll sideways for earlier months."))
       .toBeInTheDocument();
   });
 

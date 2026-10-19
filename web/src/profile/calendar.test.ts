@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  cellCount, cellDate, cellSources, gridLabel, heatGrid, heatLevel, periodDays, periodLabel, periodTitle,
+  cellCount, cellDate, cellSources, gridLabel, heatGrid, heatLegend, heatScale, periodDays, periodLabel, periodTitle,
 } from "./calendar";
 import { HEARD } from "./fixtures";
 import type { CalendarPeriod } from "./types";
@@ -9,8 +9,31 @@ const calendar = HEARD.calendar!;
 const [past, thisYear, lastYear] = calendar.periods as [CalendarPeriod, CalendarPeriod, CalendarPeriod];
 
 describe("profile calendar", () => {
-  it("levels spots by the legend's bounds", () => {
-    expect([0, 1, 49, 50, 149, 150, 299, 300, 5000].map(heatLevel)).toEqual([0, 1, 1, 2, 2, 3, 3, 4, 4]);
+  it("levels days by rank within the period, about a quarter each", () => {
+    const scale = heatScale([0, 0, 2, 4, 6, 8, 10, 12, 14, 16]);
+    expect([0, 2, 4, 6, 8, 10, 12, 14, 16].map(scale.level)).toEqual([0, 1, 1, 2, 2, 3, 3, 4, 4]);
+    expect(scale.ranges).toEqual([
+      { level: 1, min: 2, max: 4 }, { level: 2, min: 6, max: 8 }, { level: 3, min: 10, max: 12 }, { level: 4, min: 14, max: 16 },
+    ]);
+  });
+
+  it("shades a quiet call's busy days as dark as a loud call's", () => {
+    const quiet = heatScale([1, 1, 2, 3]);
+    const loud = heatScale([100, 100, 200, 300]);
+    expect([1, 2, 3].map(quiet.level)).toEqual([2, 3, 4]);
+    expect([100, 200, 300].map(loud.level)).toEqual([2, 3, 4]);
+  });
+
+  it("keeps equal counts on one level and the busiest day darkest", () => {
+    expect(heatScale([5, 5, 5]).ranges).toEqual([{ level: 4, min: 5, max: 5 }]);
+    expect(heatScale([1, 9]).ranges).toEqual([{ level: 2, min: 1, max: 1 }, { level: 4, min: 9, max: 9 }]);
+    expect(heatScale([0, 0]).ranges).toEqual([]);
+    expect(heatScale([]).level(3)).toBe(0);
+  });
+
+  it("states the period's ranges in the legend", () => {
+    expect(heatLegend(heatScale([1, 2, 3, 4, 5, 6, 7, 1200]))).toBe("Spots per day, relative to this period: none, 1 to 2, 3 to 4, 5 to 6, 7 to 1,200.");
+    expect(heatLegend(heatScale([]))).toBe("Spots per day, relative to this period: none.");
   });
 
   it("lays the past year out in week columns, Sunday on top", () => {

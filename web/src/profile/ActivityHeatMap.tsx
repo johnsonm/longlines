@@ -7,7 +7,7 @@ import { DataGrid, type GridColDef } from "@mui/x-data-grid";
 import { fmt } from "../stats/format";
 import { ChartCard, GRID } from "../stats/parts";
 import {
-  cellCount, cellDate, cellSources, gridLabel, HEAT_LEGEND, HEAT_LEVELS, heatGrid, heatLevel, periodDays, periodLabel, periodTitle,
+  cellCount, cellDate, cellSources, gridLabel, HEAT_LEVELS, heatGrid, heatLegend, heatScale, periodDays, periodLabel, periodTitle,
 } from "./calendar";
 import { dateLabel, plural } from "./format";
 import type { Calendar } from "./types";
@@ -49,10 +49,9 @@ export function ActivityHeatMap({ callsign, calendar }: { callsign: string; cale
   }, [period, table, mobile]);
 
   if (!period || !grid) return null;
-  const fill = (spots: number) => {
-    const level = heatLevel(spots);
-    return level === 0 ? theme.palette.action.hover : alpha(theme.palette.primary.main, OPACITY[level]!);
-  };
+  const scale = heatScale(grid.cells.map((c) => c.spots));
+  const fill = (level: number) =>
+    level === 0 ? theme.palette.action.hover : alpha(theme.palette.primary.main, OPACITY[level]!);
   const width = LEFT + grid.weeks * PITCH;
   const height = TOP + 7 * PITCH;
   const busiest = period.busiest;
@@ -116,7 +115,7 @@ export function ActivityHeatMap({ callsign, calendar }: { callsign: string; cale
                     </>
                   }
                 >
-                  <rect x={LEFT + c.col * PITCH} y={TOP + c.row * PITCH} width={CELL} height={CELL} rx={2} fill={fill(c.spots)} />
+                  <rect x={LEFT + c.col * PITCH} y={TOP + c.row * PITCH} width={CELL} height={CELL} rx={2} fill={fill(scale.level(c.spots))} />
                 </Tooltip>
               );
             })}
@@ -126,13 +125,13 @@ export function ActivityHeatMap({ callsign, calendar }: { callsign: string; cale
 
       <Stack direction="row" spacing={2} useFlexGap sx={{ justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", mt: 1.5 }}>
         <Typography variant="caption" color="text.secondary">
-          {HEAT_LEGEND}{mobile && !table ? " Scroll sideways for earlier months." : ""}
+          {heatLegend(scale)}{mobile && !table ? " Scroll sideways for earlier months." : ""}
         </Typography>
         <Stack direction="row" spacing={0.5} sx={{ alignItems: "center" }}>
           <Typography variant="caption" color="text.secondary">Less</Typography>
           <Box component="svg" viewBox="0 0 76 12" aria-hidden sx={{ width: 76, height: 12 }}>
-            {[0, ...HEAT_LEVELS].map((spots, level) => (
-              <rect key={level} x={level * 16} width={12} height={12} rx={2} fill={fill(spots)} />
+            {Array.from({ length: HEAT_LEVELS + 1 }, (_, level) => (
+              <rect key={level} x={level * 16} width={12} height={12} rx={2} fill={fill(level)} />
             ))}
           </Box>
           <Typography variant="caption" color="text.secondary">More</Typography>
