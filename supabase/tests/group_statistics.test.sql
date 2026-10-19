@@ -3,7 +3,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(33);
+select plan(58);
 
 -- ---------------------------------------------------------------------------
 -- Sharing columns and the save keys
@@ -128,6 +128,7 @@ select pg_temp.raw('dxcluster', 's8', now() - interval '1 minute', 'W4ABC', 7200
 
 create temp table s30 as select group_statistics((select id from club), '30d') as p;
 create temp table s7 as select group_statistics((select id from club), '7d') as p;
+grant all on s30, s7 to authenticated;
 
 select is((select array(select jsonb_object_keys(p) order by 1) from s30),
   array['bands', 'calendar', 'daily', 'generatedAt', 'kpis', 'memberCount', 'members', 'modes', 'period', 'places', 'top'],
@@ -184,6 +185,100 @@ select throws_ok(format('select group_statistics(%L, %L)', (select id from club)
 select is(group_statistics(gen_random_uuid(), '30d'), null, 'no group, no statistics');
 select ok(not has_function_privilege('authenticated', 'public.group_statistics(uuid, text)', 'execute'),
   'clients cannot call the builder');
+
+-- ---------------------------------------------------------------------------
+-- The cache and the RPCs
+-- ---------------------------------------------------------------------------
+
+delete from group_stats_cache;
+select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
+create temp table own as select get_group_statistics((select id from club), '30d') as p;
+grant all on own to authenticated;
+select is((select p - 'group' from own), (select p from s30), 'the owner gets the built payload');
+select is((select (p -> 'group') - 'id' from own),
+  '{"name": "Piedmont", "public": false, "show_callsigns": false, "public_slug": null, "member_count": 4,
+    "subscription_count": 0}'::jsonb,
+  'with the group''s header; its member count includes the hidden call, as the member editor does');
+reset role;
+select is((select count(*) from group_stats_cache where group_id = (select id from club)), 1::bigint, 'the build is cached');
+update group_stats_cache set payload = '{"cached": true}' where group_id = (select id from club);
+select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
+select is(get_group_statistics((select id from club), '30d') -> 'cached', 'true'::jsonb, 'a fresh cache row is served');
+reset role;
+update group_stats_cache set generated_at = now() - interval '61 minutes' where group_id = (select id from club);
+select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
+select ok(not get_group_statistics((select id from club), '30d') ? 'cached', 'an hour-old row is rebuilt');
+
+select save_callsign_group(jsonb_build_object('id', (select id from club), 'name', 'Piedmont club',
+  'callsigns', '["KK4PWJ","W4ABC","K4DEF","N4GHI"]'::jsonb));
+reset role;
+select is((select count(*) from group_stats_cache where group_id = (select id from club)), 1::bigint,
+  'a save that keeps the members keeps the cache');
+select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
+select save_callsign_group(jsonb_build_object('id', (select id from club), 'name', 'Piedmont',
+  'callsigns', '["KK4PWJ","W4ABC","N4GHI"]'::jsonb));
+reset role;
+select is((select count(*) from group_stats_cache where group_id = (select id from club)), 0::bigint,
+  'a member change clears the cache');
+
+select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
+select throws_ok(format('select get_group_statistics(%L, %L)', (select id from club), '1y'), 'P0001', 'Not a valid period.');
+select throws_ok(format('select get_group_statistics(%L, %L)', gen_random_uuid(), '30d'), 'P0001', 'Group not found.');
+create temp table summaries as select * from list_group_summaries();
+grant all on summaries to authenticated;
+select is((select count(*) from summaries), 3::bigint, 'the cards list each of the caller''s groups');
+select is((select (spots, members_heard, member_count, cardinality(daily), on_air) from summaries where id = (select id from club)),
+  (6::bigint, 2, 2, 30, array['W4ABC']), 'a card holds the 30-day figures and who is on the air, hidden calls left out');
+select is((select spots from summaries where id = (select id from club)),
+  (select (p -> 'kpis' ->> 'spots')::bigint from s30), 'the card''s spots are the statistics page''s');
+select pg_temp.as_user('22222222-2222-2222-2222-222222222222');
+select throws_ok(format('select get_group_statistics(%L, %L)', (select id from club), '30d'), 'P0001', 'Group not found.',
+  'another user cannot read the group''s statistics');
+select is((select count(*) from list_group_summaries()), 0::bigint, 'another user lists none of them');
+set local request.jwt.claims = '';
+select throws_ok($$ select * from list_group_summaries() $$, 'P0001', 'Not signed in.');
+reset role;
+
+-- The public page.
+select is(public_group_statistics('aaaaaaaaaa', '30d'), null, 'an unknown code gets nothing');
+select is(public_group_statistics('NOT-A-CODE', '30d'), null, 'a malformed code gets nothing');
+select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
+select save_callsign_group(jsonb_build_object('id', (select id from club), 'name', 'Piedmont',
+  'callsigns', '["KK4PWJ","W4ABC","K4DEF","N4GHI"]'::jsonb, 'public', true));
+reset role;
+create temp table pub as select public_slug as s from callsign_groups where id = (select id from club);
+grant all on pub to authenticated;
+create temp table hidden_page as select public_group_statistics((select s from pub), '30d') as p;
+select ok((select p ? 'kpis' and p ? 'calendar' and p ? 'bands' and not p ? 'top' and not p ? 'members' from hidden_page),
+  'without callsigns the page keeps the totals and charts and loses the top lists and members');
+select is((select p -> 'places' from hidden_page),
+  '[{"reference": "K-0817", "name": "Eno River State Park", "program": "POTA", "times": 2},
+    {"reference": "KFF-1234", "name": "Some Reserve", "program": "WWFF", "times": 1},
+    {"reference": "W4C/CM-001", "name": null, "program": "SOTA", "times": 1}]'::jsonb,
+  'places lose who activated them');
+select is((select count(*) from hidden_page, jsonb_path_query(p, 'strict $.**') v
+           where jsonb_typeof(v) = 'string' and v #>> '{}' in ('KK4PWJ', 'W4ABC', 'K4DEF', 'N4GHI')), 0::bigint,
+  'no member''s callsign is anywhere in the page');
+select is((select p -> 'group' from hidden_page), '{"name": "Piedmont", "member_count": 3, "show_callsigns": false}'::jsonb,
+  'the header has the name and the member count the figures use, nothing else');
+select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
+select save_callsign_group(jsonb_build_object('id', (select id from club), 'name', 'Piedmont',
+  'callsigns', '["KK4PWJ","W4ABC","K4DEF","N4GHI"]'::jsonb, 'show_callsigns', true));
+reset role;
+select is(public_group_statistics((select s from pub), '30d') - 'group', (select p from s30),
+  'with callsigns the page is the owner''s payload');
+select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
+select save_callsign_group(jsonb_build_object('id', (select id from club), 'name', 'Piedmont',
+  'callsigns', '["KK4PWJ","W4ABC","K4DEF","N4GHI"]'::jsonb, 'public', false));
+reset role;
+select is(public_group_statistics((select s from pub), '30d'), null, 'a page turned off gets nothing, at once');
+select ok(not has_function_privilege('authenticated', 'public.public_group_statistics(text, text)', 'execute')
+          and not has_function_privilege('anon', 'public.public_group_statistics(text, text)', 'execute')
+          and has_function_privilege('service_role', 'public.public_group_statistics(text, text)', 'execute'),
+  'only the service role reads public pages');
+select ok(not has_function_privilege('authenticated', 'public.cached_group_statistics(uuid, text)', 'execute')
+          and not has_function_privilege('authenticated', 'public.group_stats_redact(jsonb)', 'execute'),
+  'clients cannot call the cache or the redaction');
 
 select * from finish();
 rollback;

@@ -1,14 +1,16 @@
 -- pgTAP: deleting an auth user removes everything they own, even with a
 -- subscription still linked to a destination (the restrict FK must not block
--- the cascade), using a callsign group, holding an API token and a push destination with a device.
+-- the cascade), using a callsign group, holding an API token and a push destination with a device,
+-- and with a group's statistics cached.
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(10);
+select plan(11);
 
 select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
 create temp table d as select * from create_destination('discord', 'A discord', 'https://discord.com/api/webhooks/1/a');
 create temp table g as select save_callsign_group('{"name":"Club","callsigns":["W1AW"]}') as id;
+select get_group_statistics((select id from g), '30d');
 select save_subscription(jsonb_build_object('name', 'all', 'rules', jsonb_build_array(jsonb_build_array(jsonb_build_object('field', 'group', 'op', 'is', 'values', jsonb_build_array((select id from g))))), 'destinations', array[(select id from d)]));
 select id from create_api_token('Sync', 'write', null);
 select register_push_device('https://fcm.googleapis.com/fcm/send/a',
@@ -22,6 +24,7 @@ select is((select count(*) from subscriptions where user_id = '11111111-1111-111
 select is((select count(*) from destinations where user_id = '11111111-1111-1111-1111-111111111111'), 0::bigint, 'destinations removed');
 select is((select count(*) from callsign_groups where user_id = '11111111-1111-1111-1111-111111111111'), 0::bigint, 'callsign groups removed');
 select is((select count(*) from callsign_group_members where group_id = (select id from g)), 0::bigint, 'group members removed');
+select is((select count(*) from group_stats_cache where group_id = (select id from g)), 0::bigint, 'group statistics removed');
 select is((select count(*) from api_tokens where user_id = '11111111-1111-1111-1111-111111111111'), 0::bigint, 'API tokens removed');
 select is((select count(*) from push_devices where user_id = '11111111-1111-1111-1111-111111111111'), 0::bigint, 'push devices removed');
 select is((select count(*) from push_destination_devices where destination_id = :'push_id'), 0::bigint, 'push destination members removed');

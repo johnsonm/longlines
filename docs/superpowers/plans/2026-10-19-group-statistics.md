@@ -218,7 +218,7 @@ passes seeded or not).
 **Files:** the migration (section 3, grants last); `group_statistics.test.sql`;
 `supabase/tests/advisor.test.sql`; `supabase/tests/account_delete.test.sql`.
 
-- [ ] Failing tests first:
+- [x] Failing tests first:
   - `cached_group_statistics` returns the same `generatedAt` on a second call and a new one after
     the row is aged past an hour.
   - A member change deletes the rows.
@@ -233,14 +233,14 @@ passes seeded or not).
   - `group_stats_cache` has RLS on and no client privileges.
   - Deleting the account removes the cache rows.
   - The advisor lists are updated.
-- [ ] `cached_group_statistics` (one hour, advisory lock keyed on group and
+- [x] `cached_group_statistics` (one hour, advisory lock keyed on group and
   period, 2 s `lock_timeout`, as `20261013000310`), `group_stats_redact`, `get_group_statistics`,
   `list_group_summaries`, `public_group_statistics`.
-- [ ] Grants: revoke all from public, anon and authenticated on every new function. Grant execute
+- [x] Grants: revoke all from public, anon and authenticated on every new function. Grant execute
   on `get_group_statistics` and `list_group_summaries` to `authenticated`, and on
   `public_group_statistics` to `service_role`.
-- [ ] `supabase db reset && supabase test db`.
-- [ ] Commit `Group statistics: cache, owner and public RPCs`.
+- [x] `supabase db reset && supabase test db`.
+- [x] Commit `Group statistics: cache, owner and public RPCs`.
 
 ### Task 4: Smoke test, types and PR 2
 

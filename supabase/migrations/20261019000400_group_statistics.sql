@@ -507,3 +507,186 @@ $$;
 
 revoke all on function public.group_statistics_at(uuid, text, timestamptz) from public;
 revoke all on function public.group_statistics(uuid, text) from public;
+
+-- ---------------------------------------------------------------------------
+-- 3. The cache and the RPCs
+-- ---------------------------------------------------------------------------
+
+-- An hour-old payload is served as is ("Statistics refresh every hour");
+-- otherwise one request builds it while the others wait for it, as
+-- cached_callsign_profile (20261013000310) does: the wait is capped at 2 s,
+-- after which a waiter builds its own. Null when the group does not exist.
+create function public.cached_group_statistics(p_group_id uuid, p_period text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_lock_timeout text := current_setting('lock_timeout');
+  v_payload      jsonb;
+begin
+  for v_pass in 1..2 loop
+    select c.payload into v_payload
+    from group_stats_cache c
+    where c.group_id = p_group_id and c.period = p_period and c.generated_at > now() - interval '1 hour';
+    if found then
+      return v_payload;
+    end if;
+
+    exit when v_pass = 2;
+
+    -- Held until this request commits, after the upsert below. Each statement
+    -- takes a new snapshot, so the second pass sees what a builder committed.
+    perform set_config('lock_timeout', '2s', true);
+    begin
+      perform pg_advisory_xact_lock(hashtext('group_stats_cache'), hashtext(p_group_id::text || '/' || p_period));
+    exception when lock_not_available then
+      null;
+    end;
+    perform set_config('lock_timeout', v_lock_timeout, true);
+  end loop;
+
+  v_payload := public.group_statistics(p_group_id, p_period);
+  if v_payload is null then
+    return null;
+  end if;
+  insert into group_stats_cache (group_id, period, payload, generated_at)
+  values (p_group_id, p_period, v_payload, now())
+  on conflict (group_id, period) do update set payload = excluded.payload, generated_at = excluded.generated_at;
+  return v_payload;
+end;
+$$;
+
+-- A public page without callsigns ("Show each member's callsign" off): the
+-- top lists, the members table and who activated each place go. The web hides
+-- a section whose key is absent; it never filters callsigns itself.
+create function public.group_stats_redact(p jsonb)
+returns jsonb
+language sql
+immutable
+set search_path = ''
+as $$
+  select (p - 'top' - 'members') || jsonb_build_object('places', coalesce(
+    (select jsonb_agg(x.e - 'by' order by x.i) from jsonb_array_elements(p -> 'places') with ordinality as x(e, i)),
+    '[]'::jsonb));
+$$;
+
+-- The owner's statistics page: the cached payload plus the group's header and
+-- sharing settings. Callsigns always included.
+create function public.get_group_statistics(p_id uuid, p_period text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_user  uuid := auth.uid();
+  v_group jsonb;
+begin
+  if v_user is null then
+    raise exception 'Not signed in.';
+  end if;
+  if p_period is null or p_period not in ('7d', '30d') then
+    raise exception 'Not a valid period.';
+  end if;
+  select jsonb_build_object(
+           'id', g.id, 'name', g.name, 'public', g.public, 'show_callsigns', g.show_callsigns,
+           'public_slug', g.public_slug,
+           'member_count', (select count(*) from callsign_group_members m where m.group_id = g.id),
+           'subscription_count', (select count(*) from subscriptions s where s.user_id = v_user and g.id = any (s.group_ids)))
+  into v_group
+  from callsign_groups g
+  where g.id = p_id and g.user_id = v_user;
+  if v_group is null then
+    raise exception 'Group not found.';
+  end if;
+  return public.cached_group_statistics(p_id, p_period) || jsonb_build_object('group', v_group);
+end;
+$$;
+
+-- The landing cards: each of the caller's groups' last 30 days from the same
+-- cached payload as its statistics page, so the two agree, plus who is on the
+-- air now (members heard in the last 30 minutes, newest first), read live
+-- since it goes stale within minutes. Hidden calls are left out of both.
+create function public.list_group_summaries()
+returns table (id uuid, public boolean, spots bigint, members_heard int, member_count int, daily int[],
+               on_air text[])
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_user uuid := auth.uid();
+begin
+  if v_user is null then
+    raise exception 'Not signed in.';
+  end if;
+  return query
+  select g.id, g.public,
+         (s.p -> 'kpis' ->> 'spots')::bigint,
+         (s.p -> 'kpis' ->> 'membersHeard')::int,
+         (s.p ->> 'memberCount')::int,
+         array(select (e ->> 'spots')::int from jsonb_array_elements(s.p -> 'daily') with ordinality as x(e, i) order by x.i),
+         array(select a.base
+               from (select l.base_callsign as base, max(l.spot_time) as t
+                     from spot_stream l
+                     where l.base_callsign = any (array(
+                             select m.callsign from callsign_group_members m
+                             where m.group_id = g.id
+                               and not exists (select 1 from hidden_callsigns h where h.callsign = m.callsign)))
+                       and l.spot_time > now() - interval '30 minutes'
+                     group by l.base_callsign) a
+               order by a.t desc, a.base)
+  from callsign_groups g
+  cross join lateral (select public.cached_group_statistics(g.id, '30d') as p) s
+  where g.user_id = v_user
+  order by lower(g.name);
+end;
+$$;
+
+-- The public page, for the group-page Edge Function (service role). Null for
+-- a code that is malformed, unknown or not public, so a caller cannot tell
+-- them apart. The payload is redacted unless the owner shows callsigns, and
+-- the header carries only the name and the member count the figures use.
+create function public.public_group_statistics(p_slug text, p_period text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_id      uuid;
+  v_name    text;
+  v_show    boolean;
+  v_payload jsonb;
+begin
+  if p_slug is null or p_slug !~ '^[a-z2-7]{10}$' then
+    return null;
+  end if;
+  if p_period is null or p_period not in ('7d', '30d') then
+    raise exception 'Not a valid period.';
+  end if;
+  select g.id, g.name, g.show_callsigns into v_id, v_name, v_show
+  from callsign_groups g
+  where g.public_slug = p_slug and g.public;
+  if v_id is null then
+    return null;
+  end if;
+  v_payload := public.cached_group_statistics(v_id, p_period);
+  if not v_show then
+    v_payload := public.group_stats_redact(v_payload);
+  end if;
+  return v_payload || jsonb_build_object('group', jsonb_build_object(
+    'name', v_name, 'member_count', (v_payload ->> 'memberCount')::int, 'show_callsigns', v_show));
+end;
+$$;
+
+revoke all on function public.cached_group_statistics(uuid, text) from public;
+revoke all on function public.group_stats_redact(jsonb) from public;
+revoke all on function public.get_group_statistics(uuid, text) from public;
+revoke all on function public.list_group_summaries() from public;
+revoke all on function public.public_group_statistics(text, text) from public;
+grant execute on function public.get_group_statistics(uuid, text) to authenticated;
+grant execute on function public.list_group_summaries() to authenticated;
+grant execute on function public.public_group_statistics(text, text) to service_role;
