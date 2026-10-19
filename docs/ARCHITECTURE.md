@@ -1236,6 +1236,32 @@ flowchart LR
   come from SQL. If the list fails to load, the cards leave the group rule out, the editor's rule
   can't be edited, and a saved subscription keeps its groups.
 
+## Group statistics
+
+Page 10 of the design canvas; the design is
+`docs/superpowers/specs/2026-10-19-group-statistics-design.md`.
+
+- **Building.** `group_statistics_at(group, period, now)` (`20261019000400`) builds one payload for
+  the last 7 or 30 UTC days from the members `group_member_bases()` returns (hidden calls left
+  out): spots per member and day from `callsign_days` plus the live days from `spot_stream`, as the
+  profile's calendar does; bands and mode buckets from day-grain `callsign_activity`; activations
+  and places from `spot_stream`'s references; last heard from `callsign_seen`. It runs with
+  `plan_cache_mode = force_custom_plan` so the member array stays a constant to the planner (a
+  generic plan tested every row against the whole array: 0.8 s became 3.2 s for 1,000 busy
+  members).
+- **Caching.** `cached_group_statistics` keeps each (group, period) payload in `group_stats_cache`
+  for an hour, built single-flight under an advisory lock as `cached_callsign_profile` is. A row
+  also stores the roster it counted; a member change, a newly hidden call or a build that raced a
+  save makes it a miss. There is no cron job: nobody opening a group costs nothing.
+- **Reading.** The owner reads through `get_group_statistics` and the landing cards through
+  `list_group_summaries`, which reads the same cached 30-day payload (so card and page agree)
+  within a 3 s build budget and reads who is on the air live. The public reads `/g/<code>` through
+  the `group-page` Edge Function and `public_group_statistics` (service role), which returns null
+  for an unknown or private code and redacts callsigns unless the owner shows them.
+- **Sharing.** `callsign_groups.public`, `show_callsigns` and `public_slug` (10 base32
+  characters, made the first time the page goes public, kept after) are written only by
+  `save_callsign_group`. The management API cannot set them.
+
 ## Subscription builder
 
 A subscription is built as one source, a filter and zero or more destinations

@@ -42,7 +42,9 @@ export async function handleGroupPage(req: Request, deps: GroupPageDeps): Promis
   const params = new URL(req.url).searchParams;
   const slug = params.get("slug") ?? "";
   const period = params.get("period") ?? "30d";
-  if (!SLUG.test(slug) || !PERIODS.has(period)) return json({ error: PAGE_PRIVATE }, 404);
+  if (!SLUG.test(slug) || !PERIODS.has(period)) {
+    return json({ error: PAGE_PRIVATE }, 404, { "Cache-Control": "no-store" });
+  }
 
   if (!deps.key) {
     console.error("group-page: missing environment variable SUPABASE_SERVICE_ROLE_KEY");

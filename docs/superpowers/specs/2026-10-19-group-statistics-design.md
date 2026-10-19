@@ -1,7 +1,8 @@
 # Group statistics and public group pages: design
 
-Date: 2026-10-19. Status: approved (PR #228); PR 2, the schema, amends decisions 5, 8 and 18 and
-the Schema section, marked *(amended in PR 2)*. Decisions 1 and 2 were made by Brad on 2026-10-19.
+Date: 2026-10-19. Status: **shipped** (#228 spec, #229 schema, #230 owner pages, PR 4 the public
+page). PR 2 amends decisions 5, 8 and 18 and the Schema section, marked *(amended in PR 2)*; PR 3
+adds copy, marked *(added in PR 3)*. Decisions 1 and 2 were made by Brad on 2026-10-19.
 If the design changes during a PR, update this file in that PR.
 
 Source: page 10 of Brad's design canvas ("Groups with statistics (draft)"), artboards

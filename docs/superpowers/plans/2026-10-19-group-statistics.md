@@ -370,7 +370,7 @@ exactly like the pgTAP-pinned payload.
 `supabase/functions/_shared/handlers/group_page.ts`; `_shared/__tests__/group_page.test.ts`;
 `_shared/__tests__/function_config.test.ts`; `supabase/config.toml`.
 
-- [ ] Tests first, with `fake_supabase.ts`:
+- [x] Tests first, with `fake_supabase.ts`:
   - POST gets 405.
   - A malformed code or period gets 404 `{"error":"private"}`, with no rpc call.
   - The rate limit at 31 gets 429 with `Retry-After: 60`.
@@ -380,16 +380,16 @@ exactly like the pgTAP-pinned payload.
   - The default period is `30d`.
   - `function_config.test.ts` lists `group-page` as `verify_jwt = false`, and its import walk
     passes.
-- [ ] Implement, setting up the HMAC key and client IP header as `callsign-profile/index.ts` does.
-- [ ] `deno task fmt`, `lint`, `check`, `coverage`.
-- [ ] Commit `Group statistics: public group-page function`.
+- [x] Implement, setting up the HMAC key and client IP header as `callsign-profile/index.ts` does.
+- [x] `deno task fmt`, `lint`, `check`, `coverage`.
+- [x] Commit `Group statistics: public group-page function`.
 
 ### Task 11: `/g/:slug`, the private page and noindex
 
 **Files:** `web/src/App.tsx`; `web/src/lib/api.ts` (`loadPublicGroup`), `api.test.tsx`;
 `web/src/groups/PublicGroupPage.tsx`, `GroupPrivate.tsx` and tests; `web/vercel.json`.
 
-- [ ] Tests first:
+- [x] Tests first:
   - Signed out, it renders in `PublicShell`; signed in, in `AppShell`.
   - The header has the Copy's line, Share (`navigator.share` when present, else the clipboard and
     "Link copied"), the statistics and the footer note.
@@ -397,16 +397,16 @@ exactly like the pgTAP-pinned payload.
   - A `noindex` robots meta tag is present while mounted and removed on unmount.
   - A 404 shows the private page, with Sign in only when signed out.
   - `?period=7d` passes through.
-- [ ] `vercel.json`: `{"source": "/g/(.*)", "headers": [{"key": "X-Robots-Tag", "value":
+- [x] `vercel.json`: `{"source": "/g/(.*)", "headers": [{"key": "X-Robots-Tag", "value":
   "noindex"}]}` beside the existing header rules.
-- [ ] Gates.
-- [ ] Commit `Group statistics: public and private pages`.
+- [x] Gates.
+- [x] Commit `Group statistics: public and private pages`.
 
 ### Task 12: Docs, rules and PR 4
 
 **Files:** `CLAUDE.md`; `docs/ARCHITECTURE.md`; `docs/OPERATIONS.md`; the spec (status).
 
-- [ ] CLAUDE.md gets a "Group statistics rules" section:
+- [x] CLAUDE.md gets a "Group statistics rules" section:
   - The payload is pinned by `group_statistics.test.sql`; change the SQL, `stats/types.ts` and
     the test together.
   - Figures and redaction are SQL's.
@@ -417,11 +417,11 @@ exactly like the pgTAP-pinned payload.
   - `group-page` is `verify_jwt = false`, no-store and rate-limited with the profile's limiter.
   - `/g/*` is noindex.
   - The heat map has its own levels.
-- [ ] ARCHITECTURE: a "Group statistics" section after "Callsign groups". OPERATIONS: how to turn
+- [x] ARCHITECTURE: a "Group statistics" section after "Callsign groups". OPERATIONS: how to turn
   off a public page by hand (`update callsign_groups set public = false where public_slug = …`)
   and how to clear the cache.
-- [ ] The spec's status: shipped, with PR numbers.
-- [ ] All gates, then `npm run test:all`.
+- [x] The spec's status: shipped, with PR numbers.
+- [x] All gates, then `npm run test:all`.
 - [ ] Commit `Group statistics: rules and docs`, push, open PR 4 stacked on `group-stats-web`.
   Say that Brad deploys `group-page` before merging. Run /code-review and fix what it finds.
 

@@ -80,6 +80,7 @@ Deno.test("group-page refuses a malformed code or period without touching the da
     const { res, body, calls } = await run(get(query));
     assertEquals(res.status, 404, query);
     assertEquals(body, { error: PAGE_PRIVATE }, query);
+    assertEquals(res.headers.get("Cache-Control"), "no-store", query);
     assertEquals(calls.rpc, [], query);
   }
 });
