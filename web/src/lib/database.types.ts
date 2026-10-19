@@ -183,6 +183,20 @@ isOneToOne: false
                   Relationships: [
                     
                   ]
+                },"callsign_days": {
+                  Row: {
+                    "bands": (string)[],"base": string,"day": string,"modes": (string)[],"source": string,"spots": number
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "bands": (string)[],"base": string,"day": string,"modes": (string)[],"source": string,"spots": number
+                  }
+                  Update: {
+                    "bands"?: (string)[],"base"?: string,"day"?: string,"modes"?: (string)[],"source"?: string,"spots"?: number
+                  }
+                  Relationships: [
+                    
+                  ]
                 },"callsign_group_members": {
                   Row: {
                     "callsign": string,"group_id": string
@@ -275,14 +289,28 @@ isOneToOne: false
                   ]
                 },"callsign_rollup_days": {
                   Row: {
-                    "day": string,"rolled_at": string
+                    "day": string,"days_filled_at": string | null,"rolled_at": string,"spots": number | null,"without_rbn": boolean
                   }
                   ComputedFields: never
                   Insert: {
-                    "day": string,"rolled_at": string
+                    "day": string,"days_filled_at"?: string | null,"rolled_at": string,"spots"?: number | null,"without_rbn"?: boolean
                   }
                   Update: {
-                    "day"?: string,"rolled_at"?: string
+                    "day"?: string,"days_filled_at"?: string | null,"rolled_at"?: string,"spots"?: number | null,"without_rbn"?: boolean
+                  }
+                  Relationships: [
+                    
+                  ]
+                },"callsign_rollup_failures": {
+                  Row: {
+                    "attempts": number,"day": string,"first_failed_at": string,"last_error": string,"last_failed_at": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "attempts": number,"day": string,"first_failed_at": string,"last_error": string,"last_failed_at": string
+                  }
+                  Update: {
+                    "attempts"?: number,"day"?: string,"first_failed_at"?: string,"last_error"?: string,"last_failed_at"?: string
                   }
                   Relationships: [
                     
@@ -914,6 +942,14 @@ isOneToOne: true
                   Relationships: [
                     
                   ]
+                },"callsign_rollup_status": {
+                  Row: {
+                    "attempts": number | null,"day": string | null,"days_filled_at": string | null,"last_error": string | null,"last_failed_at": string | null,"rolled_at": string | null,"spots": number | null,"status": string | null
+                  }
+                  ComputedFields: never
+                  Relationships: [
+                    
+                  ]
                 },"ingest_health": {
                   Row: {
                     "consecutive_failures": number | null,"last_error": string | null,"last_run_at": string | null,"last_success_at": string | null,"seconds_since_last_success": number | null,"source": string | null,"spots_last_24h": number | null,"spots_last_hour": number | null,"total_spots_ingested": number | null
@@ -995,6 +1031,11 @@ isOneToOne: true
 "authenticate_api_request":
 { Args: { "p_token_hash": string }; Returns: {
               "requests": number,"scope": string,"token_id": string,"user_id": string
+            }[]
+                           },
+"backfill_callsign_days":
+{ Args: { "p_max_days"?: number }; Returns: {
+              "error": string,"exact": boolean,"fill_day": string,"spots": number
             }[]
                            },
 "backfill_callsign_rollups":
@@ -1181,6 +1222,14 @@ isOneToOne: true
                            },
 "fcc_license_staged_counts":
 { Args: Record<PropertyKey, never>; Returns: Json
+                           },
+"fill_callsign_days":
+{ Args: { "p_day": string }; Returns: {
+              "exact": boolean,"spots": number
+            }[]
+                           },
+"first_rollup_day":
+{ Args: Record<PropertyKey, never>; Returns: string
                            },
 "forget_sign_in_attempt":
 { Args: { "p_attempt_id": number }; Returns: undefined
@@ -1378,6 +1427,12 @@ isOneToOne: true
 "rbn_day_archived":
 { Args: { "p_day": string }; Returns: boolean
                            },
+"rbn_day_archived_rows":
+{ Args: { "p_day": string }; Returns: number
+                           },
+"rbn_day_retired":
+{ Args: { "p_day": string }; Returns: boolean
+                           },
 "rbn_day_slices":
 { Args: { "p_day": string }; Returns: {
               "archived_rows": number,"db_rows": number,"slice_start": string
@@ -1385,6 +1440,9 @@ isOneToOne: true
                            },
 "rebase_callsign_group_members":
 { Args: Record<PropertyKey, never>; Returns: undefined
+                           },
+"record_callsign_rollup_failure":
+{ Args: { "p_day": string,"p_error": string }; Returns: undefined
                            },
 "record_ingest_failure":
 { Args: { "p_error": string,"p_source": string }; Returns: undefined
