@@ -87,7 +87,7 @@ defaults by a test.
 11. **Duplicate works for Discord.** It copies the URL and the settings, starts disabled, and is
     named "Copy of {name}" by the rule push already uses. *Decided 2026-10-18.*
 12. **The plain line links the callsign.** The callsign is a masked link to its profile,
-    `[KK4PWJ](https://app.longlines.io/call/KK4PWJ)`, and "Link preview: Hidden" sends Discord's
+    `[KK4PWJ](https://longlines.io/call/KK4PWJ)`, and "Link preview: Hidden" sends Discord's
     SUPPRESS_EMBEDS flag (`flags: 4`) so the link does not expand. Without a link the Link preview
     control has nothing to act on. The card style never sends the flag, since it would hide the card.
     A call that is not letters, digits, `/` and `-` gets no link (Rendering). *Decided 2026-10-18.*
@@ -99,8 +99,9 @@ defaults by a test.
     starts "Test message from Long Lines · ". The marked line keeps the line's 190 characters: the
     line is rendered with the marker's 31 taken off its budget, so it never nears Discord's 2,000.
     *Decided 2026-10-18.*
-15. **Links are absolute** through one knob, `app_site_url()` = `https://app.longlines.io`
-    (the Site URL in `docs/OPERATIONS.md`). Push's tap URL is a path; Discord needs a full URL.
+15. **Links are absolute** through one knob, `app_site_url()` = `https://longlines.io`
+    (the Site URL in `docs/OPERATIONS.md`; the apex since 2026-10-19, `20261019000100`). Push's
+    tap URL is a path; Discord needs a full URL.
     *Decided 2026-10-18.*
 
 ## Schema (migration `20261018000100_discord_destinations.sql`)

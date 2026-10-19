@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { parseDiscordMarkdown } from "./discordMarkdown";
 
-const URL = "https://app.longlines.io/call/KK4PWJ";
+const URL = "https://longlines.io/call/KK4PWJ";
 
 describe("parseDiscordMarkdown", () => {
   it("leaves plain text alone", () => {
@@ -71,7 +71,7 @@ describe("parseDiscordMarkdown", () => {
   // Discord's link text ignores backslashes (simple-markdown's grammar):
   // only bracket pairs, non-brackets and a ']' that a later ']' closes.
   it("matches link text as Discord does, ignoring escapes", () => {
-    const profile = "https://app.longlines.io/call/K1ABC";
+    const profile = "https://longlines.io/call/K1ABC";
     expect(parseDiscordMarkdown(`**[K1ABC/\\[](${profile})**`)).toEqual([
       { kind: "bold", children: [{ kind: "text", text: `[K1ABC/[](${profile})` }] },
     ]);
@@ -120,7 +120,7 @@ describe("parseDiscordMarkdown", () => {
   });
 
   it("renders SQL's escaped link text inside the profile link", () => {
-    const profile = "https://app.longlines.io/call/K1ABC";
+    const profile = "https://longlines.io/call/K1ABC";
     expect(
       parseDiscordMarkdown(
         `**[K1ABC/\\*\\*](${profile})** · 14.062 MHz · CW · POTA · US-2763 · 1\\. \\[Park\\]\\(https://evil.example\\) \\<\\#123\\>`,

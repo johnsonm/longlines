@@ -22,7 +22,7 @@ const spot = (id: number, source: string, minutesAgo: number): RecentSpot => ({
 const PREVIEW: DiscordPreview = {
   discord_style: "card", discord_title: "N0CALL · 14.062 MHz · CW", discord_description: "POTA · US-0000 · Test Park",
   discord_grid: [{ name: "Band", value: "20m" }], discord_footer: "POTA, 17:42 UTC", discord_color: 0x3ba55c,
-  discord_url: "https://app.longlines.io/call/N0CALL", discord_line: "**N0CALL** · 14.062 MHz", discord_suppress_embeds: false,
+  discord_url: "https://longlines.io/call/N0CALL", discord_line: "**N0CALL** · 14.062 MHz", discord_suppress_embeds: false,
 };
 
 beforeEach(() => {

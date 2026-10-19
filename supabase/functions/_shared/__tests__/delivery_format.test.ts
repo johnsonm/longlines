@@ -161,9 +161,8 @@ const rendered = (id: number, more: Partial<DeliverySpot> = {}): DeliverySpot =>
   discord_grid: [{ name: "Band", value: "20m" }, { name: "Spotter", value: "W4ABC" }],
   discord_footer: "POTA · 14:32 UTC",
   discord_color: 3066993,
-  discord_url: "https://app.longlines.io/call/KK4PWJ",
-  discord_line:
-    "**[KK4PWJ](https://app.longlines.io/call/KK4PWJ)** · 14.062 MHz · CW · POTA · US-2763",
+  discord_url: "https://longlines.io/call/KK4PWJ",
+  discord_line: "**[KK4PWJ](https://longlines.io/call/KK4PWJ)** · 14.062 MHz · CW · POTA · US-2763",
   discord_suppress_embeds: false,
   ...more,
 });
@@ -172,7 +171,7 @@ Deno.test("cardEmbed shapes SQL's keys into the embed and adds nothing of its ow
   assertEquals(cardEmbed(rendered(1)), {
     title: "KK4PWJ · 14.062 MHz · CW",
     description: "POTA · US-2763 · Eno River State Park · NC",
-    url: "https://app.longlines.io/call/KK4PWJ",
+    url: "https://longlines.io/call/KK4PWJ",
     color: 3066993,
     fields: [
       { name: "Band", value: "20m", inline: true },

@@ -321,9 +321,8 @@ const DISCORD_TEST = {
     discord_grid: [{ name: "Band", value: "20m" }, { name: "Spotter", value: "LONGLINES" }],
     discord_footer: "Test message from Long Lines · POTA · 14:00 UTC",
     discord_color: 3066993,
-    discord_url: "https://app.longlines.io/call/N0CALL",
-    discord_line:
-      "Test message from Long Lines · **[N0CALL](https://app.longlines.io/call/N0CALL)**",
+    discord_url: "https://longlines.io/call/N0CALL",
+    discord_line: "Test message from Long Lines · **[N0CALL](https://longlines.io/call/N0CALL)**",
     discord_suppress_embeds: false,
   },
 };
