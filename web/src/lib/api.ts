@@ -813,7 +813,8 @@ export async function loadPublicGroup(slug: string, period: GroupPeriod): Promis
   try {
     return await fetchFunction<PublicGroupStatistics>(`group-page?${query.toString()}`, { headers: { apikey: SUPABASE_ANON_KEY } });
   } catch (err) {
-    if (err instanceof ApiError && err.code === "404") return null;
+    // Only the function's own answer means private; a gateway 404 (the function not deployed) is an outage.
+    if (err instanceof ApiError && err.code === "404" && err.message === "private") return null;
     throw err;
   }
 }

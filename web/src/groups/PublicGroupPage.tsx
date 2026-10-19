@@ -8,7 +8,8 @@ import { errorText, useNotify } from "../app/hooks";
 import { plural } from "../profile/format";
 import { GroupPrivate } from "./GroupPrivate";
 import { GroupStatistics } from "./GroupStatistics";
-import { parsePeriod, updatedAgo } from "./stats/model";
+import { shareLink } from "../lib/share";
+import { parsePeriod, publicUrl, updatedAgo } from "./stats/model";
 import type { GroupPeriod, PublicGroupStatistics } from "./stats/types";
 
 /**
@@ -35,7 +36,8 @@ export function PublicGroupPage({ slug }: { slug: string }) {
   // undefined while loading, null for a private or unknown page.
   const [stats, setStats] = useState<PublicGroupStatistics | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
-  const [now] = useState(() => new Date());
+  // "Updated N ago" counts from when each payload arrived, not from the first load.
+  const [now, setNow] = useState(() => new Date());
   const latest = useRef(0);
 
   useEffect(() => {
@@ -43,7 +45,9 @@ export function PublicGroupPage({ slug }: { slug: string }) {
     setError(null);
     loadPublicGroup(slug, period)
       .then((next) => {
-        if (request === latest.current) setStats(next);
+        if (request !== latest.current) return;
+        setStats(next);
+        setNow(new Date());
       })
       .catch((err: unknown) => {
         if (request === latest.current) setError(errorText(err, "This page is unavailable right now."));
@@ -65,23 +69,8 @@ export function PublicGroupPage({ slug }: { slug: string }) {
   if (stats === null) return <GroupPrivate />;
 
   const choosePeriod = (next: GroupPeriod) => setSearch(next === "30d" ? {} : { period: next }, { replace: true });
-  const url = `${window.location.origin}/g/${slug}`;
-  const share = async () => {
-    if (typeof navigator.share === "function") {
-      try {
-        await navigator.share({ title: `${stats.group.name} statistics`, url });
-      } catch {
-        // Dismissing the share sheet is not an error.
-      }
-      return;
-    }
-    try {
-      await navigator.clipboard.writeText(url);
-      notify("Link copied");
-    } catch {
-      notify("Couldn't copy the link.");
-    }
-  };
+  const share = () =>
+    shareLink({ title: `${stats.group.name} statistics`, url: publicUrl(window.location.origin, slug), copied: "Link copied", notify });
 
   return (
     <Stack spacing={3}>

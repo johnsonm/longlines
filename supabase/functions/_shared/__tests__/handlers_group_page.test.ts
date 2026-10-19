@@ -100,6 +100,7 @@ Deno.test("group-page shares the profile's rate limit", async () => {
   });
   assertEquals(res.status, 429);
   assertEquals(res.headers.get("Retry-After"), "60");
+  assertEquals(res.headers.get("Cache-Control"), "no-store");
   assertEquals(body, { error: TOO_MANY_LOOKUPS });
   assertEquals(calls.rpc.map((c) => c.fn), ["record_profile_lookup"]);
 });
@@ -111,6 +112,7 @@ Deno.test("group-page fails closed when the limit can't be read", async () => {
     });
     assertEquals(res.status, 500);
     assertEquals(body, { error: GROUP_PAGE_UNAVAILABLE });
+    assertEquals(res.headers.get("Cache-Control"), "no-store");
     assertEquals(calls.rpc.map((c) => c.fn), ["record_profile_lookup"]);
   }
 });

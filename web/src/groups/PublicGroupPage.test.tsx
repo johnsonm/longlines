@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { renderPage } from "../test/render";
 import { loadPublicGroup } from "../lib/api";
 import { PublicGroupPage } from "./PublicGroupPage";
@@ -55,6 +56,9 @@ describe("PublicGroupPage", () => {
     expect(await screen.findByRole("heading", { name: "This page is private" })).toBeInTheDocument();
     expect(screen.getByText("The statistics for this group are not public. If you own the group, sign in to see them.")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Sign in" })).toHaveAttribute("href", "/signin");
+    await userEvent.setup().click(screen.getByRole("link", { name: "Sign in" }));
+    // An owner lands on their groups after signing in, since this link stays private to them too.
+    expect(screen.getByTestId("location").dataset.state).toBe(JSON.stringify({ from: "/groups" }));
   });
 
   it("leaves Sign in off the private page when signed in", async () => {
@@ -62,6 +66,12 @@ describe("PublicGroupPage", () => {
     renderPage(<PublicGroupPage slug="7f3kq6xm2a" />, { route: "/g/7f3kq6xm2a" });
     await screen.findByRole("heading", { name: "This page is private" });
     expect(screen.queryByRole("link", { name: "Sign in" })).not.toBeInTheDocument();
+  });
+
+  it("counts Updated from when each payload arrived", async () => {
+    vi.mocked(loadPublicGroup).mockResolvedValue({ ...PAGE, generatedAt: new Date(Date.now() - 12 * 60_000).toISOString() });
+    renderPage(<PublicGroupPage slug="7f3kq6xm2a" />, { route: "/g/7f3kq6xm2a" });
+    expect(await screen.findByText(/· Updated 12 minutes ago$/)).toBeInTheDocument();
   });
 
   it("reports a failure", async () => {

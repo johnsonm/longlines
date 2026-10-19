@@ -147,6 +147,37 @@ export async function rateLimitKey(
   return await hmacSha256Hex(key, subject);
 }
 
+/**
+ * The per-client lookup limit, shared by callsign-profile and group-page so
+ * both count against one budget: null to go on, else the response to send.
+ * Anything but a count fails closed: a limit that cannot be read is not a
+ * pass. `headers` go on every response this returns.
+ */
+export async function lookupLimit(
+  req: Request,
+  db: SupabaseClient,
+  deps: Pick<ProfileDeps, "clientIpHeader" | "key">,
+  fn: string,
+  unavailable: string,
+  headers: Record<string, string> = {},
+): Promise<Response | null> {
+  if (!deps.key) {
+    console.error(`${fn}: missing environment variable SUPABASE_SERVICE_ROLE_KEY`);
+    return json({ error: unavailable }, 500, headers);
+  }
+  const client = await rateLimitKey(req, deps.clientIpHeader, deps.key, fn);
+  const lookups = await db.rpc("record_profile_lookup", { p_client: client });
+  if (lookups.error || typeof lookups.data !== "number") {
+    const why = lookups.error?.message ?? `unexpected result ${JSON.stringify(lookups.data)}`;
+    console.error(`${fn}: rate limit failed: ${why}`);
+    return json({ error: unavailable }, 500, headers);
+  }
+  if (lookups.data > MAX_LOOKUPS_PER_MINUTE) {
+    return json({ error: TOO_MANY_LOOKUPS }, 429, { ...headers, "Retry-After": "60" });
+  }
+  return null;
+}
+
 export async function handleProfile(req: Request, deps: ProfileDeps): Promise<Response> {
   const preflight = preflightResponse(req);
   if (preflight) return preflight;
@@ -155,22 +186,9 @@ export async function handleProfile(req: Request, deps: ProfileDeps): Promise<Re
   const callsign = parseCallsign(new URL(req.url).searchParams.get("callsign"));
   if (!callsign) return json({ error: INVALID_CALLSIGN }, 400);
 
-  if (!deps.key) {
-    console.error("callsign-profile: missing environment variable SUPABASE_SERVICE_ROLE_KEY");
-    return json({ error: LOOKUP_UNAVAILABLE }, 500);
-  }
-  const client = await rateLimitKey(req, deps.clientIpHeader, deps.key, "callsign-profile");
   const db = deps.db();
-  const lookups = await db.rpc("record_profile_lookup", { p_client: client });
-  // Anything but a count fails closed: a limit that cannot be read is not a pass.
-  if (lookups.error || typeof lookups.data !== "number") {
-    const why = lookups.error?.message ?? `unexpected result ${JSON.stringify(lookups.data)}`;
-    console.error(`callsign-profile: rate limit failed: ${why}`);
-    return json({ error: LOOKUP_UNAVAILABLE }, 500);
-  }
-  if (lookups.data > MAX_LOOKUPS_PER_MINUTE) {
-    return json({ error: TOO_MANY_LOOKUPS }, 429, { "Retry-After": "60" });
-  }
+  const limited = await lookupLimit(req, db, deps, "callsign-profile", LOOKUP_UNAVAILABLE);
+  if (limited) return limited;
 
   const profile = await db.rpc("cached_callsign_profile", { p_callsign: callsign });
   if (profile.error) {

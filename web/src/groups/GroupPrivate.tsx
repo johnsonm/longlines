@@ -11,12 +11,13 @@ export function GroupPrivate() {
       <Card variant="outlined" sx={{ maxWidth: 520, width: "100%" }}>
         <CardContent sx={{ px: 4, py: 5 }}>
           <Stack spacing={2} sx={{ alignItems: "center", textAlign: "center" }}>
-            <KeyIcon color="action" sx={{ fontSize: 48 }} />
+            <KeyIcon color="action" fontSize="large" />
             <Typography variant="h5" component="h1">This page is private</Typography>
             <Typography variant="body2" color="text.secondary">
               The statistics for this group are not public. If you own the group, sign in to see them.
             </Typography>
-            {!session && <Button variant="contained" component={RouterLink} to="/signin">Sign in</Button>}
+            {/* An owner lands on their groups: this link stays private to them too (spec, decision 11). */}
+            {!session && <Button variant="contained" component={RouterLink} to="/signin" state={{ from: "/groups" }}>Sign in</Button>}
           </Stack>
         </CardContent>
       </Card>

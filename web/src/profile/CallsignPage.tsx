@@ -14,6 +14,7 @@ import { errorText, useApp } from "../app/hooks";
 import { ApiError } from "../lib/api";
 import { SourcePickerDialog } from "../subscriptions/SourcePickerDialog";
 import type { TimePrefs } from "../lib/time";
+import { shareLink } from "../lib/share";
 import { PageTitle } from "../layout/PageTitle";
 import { SpotsTable } from "../sources/SpotsTable";
 import { sourceName } from "../sources/sources";
@@ -94,23 +95,7 @@ function Header({ profile, signedIn }: { profile: CallsignProfile; signedIn: boo
   const place = placeLabel(profile);
   const others = heard ? otherForms(heard, callsign) : [];
 
-  const share = async () => {
-    if (typeof navigator.share === "function") {
-      try {
-        await navigator.share({ title: `${callsign} on Long Lines`, url });
-        return;
-      } catch (err) {
-        // Closing the sheet is not a failure; anything else falls back to copying the link.
-        if (err instanceof DOMException && err.name === "AbortError") return;
-      }
-    }
-    try {
-      await navigator.clipboard.writeText(url);
-      notify("Link copied.");
-    } catch {
-      notify("Couldn't copy the link.");
-    }
-  };
+  const share = () => shareLink({ title: `${callsign} on Long Lines`, url, copied: "Link copied.", notify });
 
   const getAlerts = () => {
     if (!signedIn) void navigate("/signin", { state: { from: location.pathname } });

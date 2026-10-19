@@ -759,6 +759,11 @@ describe("loadPublicGroup", () => {
     expect(await api.loadPublicGroup("7f3kq6xm2a", "30d")).toBeNull();
   });
 
+  it("treats a gateway 404 as an outage, not a private page", async () => {
+    respond(404, { error: "Requested function was not found" });
+    await expect(api.loadPublicGroup("7f3kq6xm2a", "30d")).rejects.toMatchObject({ code: "404" });
+  });
+
   it("rejects with any other failure", async () => {
     respond(429, { error: "Too many lookups. Try again in a minute." });
     await expect(api.loadPublicGroup("7f3kq6xm2a", "30d")).rejects.toMatchObject({ code: "429" });
