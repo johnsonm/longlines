@@ -269,7 +269,7 @@ exactly like the pgTAP-pinned payload.
 **Files:** `web/src/lib/api.ts`, `api.test.tsx`; `web/src/groups/stats/types.ts`,
 `stats/model.ts`, `stats/model.test.ts`, `stats/fixtures.ts`; `web/src/groups/types.ts`.
 
-- [ ] Tests first:
+- [x] Tests first:
   - `listGroupSummaries`, `loadGroupStatistics(id, period)` and `saveGroup` with the sharing keys
     call the right RPCs with the right arguments.
   - Model:
@@ -280,16 +280,16 @@ exactly like the pgTAP-pinned payload.
     - the ago text ("2 min ago", "3 hours ago", "9 days ago")
     - the group heat level for 0, 1, 99, 100, 199, 200, 399, 400
     - the period from `?period=`
-- [ ] Implement. `GroupInput` gains optional `public` and `show_callsigns`.
-- [ ] `npm run coverage`, `build`, `lint`.
-- [ ] Commit `Group statistics web: api and model`.
+- [x] Implement. `GroupInput` gains optional `public` and `show_callsigns`.
+- [x] `npm run coverage`, `build`, `lint`.
+- [x] Commit `Group statistics web: api and model`.
 
 ### Task 6: Landing cards and New group
 
 **Files:** `web/src/groups/GroupsPage.tsx` and test; `NewGroupDialog.tsx` and test;
 `PublicConfirmDialog.tsx` and test.
 
-- [ ] Tests first:
+- [x] Tests first:
   - Cards show the Copy's meta, the chip, the figures, the sparkline's label and the on-air line
     (none, three, five).
   - Statistics and Settings link to `/groups/:id` and `/groups/:id/settings`.
@@ -299,17 +299,17 @@ exactly like the pgTAP-pinned payload.
   - Turning the switch on opens the confirm dialog: Keep private turns it off, and Make public
     keeps it on and sets `show_callsigns` from the checkbox.
   - The dialog's first bullet follows the checkbox.
-- [ ] Implement, with `SparkLineChart` from `@mui/x-charts`. The summaries merge into
+- [x] Implement, with `SparkLineChart` from `@mui/x-charts`. The summaries merge into
   `listGroups` by id.
-- [ ] Gates.
-- [ ] Commit `Group statistics web: landing cards and New group`.
+- [x] Gates.
+- [x] Commit `Group statistics web: landing cards and New group`.
 
 ### Task 7: Group page and the Statistics tab
 
 **Files:** `web/src/App.tsx` (routes, `Page` union); `web/src/groups/GroupPage.tsx` and test;
 `GroupStatistics.tsx` and test; `GroupHeatMap.tsx` and test.
 
-- [ ] Tests first:
+- [x] Tests first:
   - The routes resolve. An unknown id shows "Group not found." as an error.
   - The header has the breadcrumb, chip, meta, Get alerts and tabs. On phones there is no chip and
     no Get alerts.
@@ -321,19 +321,19 @@ exactly like the pgTAP-pinned payload.
   - Bands and Modes charts get the payload's series.
   - Places: phones drop By; the empty text.
   - A payload without `top`/`members` (redacted) hides those sections.
-- [ ] Implement:
+- [x] Implement:
   - `GroupStatistics` takes `{ stats, period, onPeriod }` and renders only what it is given.
   - `GroupHeatMap` uses `calendar.ts`'s `heatGrid`/cell helpers with its own level constant.
     Check whether the `heatmap-levels` work has landed on main first, and rebase if it has.
-- [ ] Gates.
-- [ ] Commit `Group statistics web: group page and Statistics tab`.
+- [x] Gates.
+- [x] Commit `Group statistics web: group page and Statistics tab`.
 
 ### Task 8: Settings tab and `MemberEditor`
 
 **Files:** `web/src/groups/GroupSettings.tsx` and test; `MemberEditor.tsx` and test (moved from
 `GroupDialog.test.tsx`); `GroupDialog.tsx` and its test deleted; `model.ts` as needed.
 
-- [ ] Tests first:
+- [x] Tests first:
   - The public card's states, on and off. On shows the link from `window.location.origin` plus
     `/g/{code}`, Copy link (the clipboard and the toast) and Open page.
   - The callsigns switch.
@@ -349,9 +349,9 @@ exactly like the pgTAP-pinned payload.
   - Used by lists the connections whose rules name the group (from `loadSubscriptions`), or the
     empty line.
   - Delete is disabled with the tooltip while used; otherwise it deletes and goes to `/groups`.
-- [ ] Implement; remove `GroupDialog`.
-- [ ] Gates.
-- [ ] Commit `Group statistics web: Settings tab`.
+- [x] Implement; remove `GroupDialog`.
+- [x] Gates.
+- [x] Commit `Group statistics web: Settings tab`.
 
 ### Task 9: PR 3
 

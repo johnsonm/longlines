@@ -433,6 +433,8 @@ Counts take the singular at 1 ("1 member", "used by 1 connection").
 - Card on-air line: {N} on the air now: {CALL}, {CALL}, {CALL} | Nobody on the air right now
   (more than three: the newest three, then "and {N} more" *(added)*)
 - Card actions: Statistics · Settings · Get alerts
+- A group whose figures aren't built yet (decision 18) shows the name, meta, chip and on-air line
+  without the figures *(added in PR 3)*.
 
 **New group dialog**
 - Title: New group
@@ -467,7 +469,8 @@ Counts take the singular at 1 ("1 member", "used by 1 connection").
   zero day)*
 - Legend: Club spots per day: none, 1 to 99, 100 to 199, 200 to 399, 400 or more. (phones add:
   Scroll sideways for earlier months.) · Less · More
-- Toggle: View as table | View as heat map *(added, the profile's)*
+- Toggle: View as table | View as heat map *(added, the profile's)* · table columns Day · Spots ·
+  Members on the air *(added in PR 3)*
 - Section: Who is most active
 - Top lists, heading then subheading:
   - Most spots · All modes and sources
@@ -477,6 +480,8 @@ Counts take the singular at 1 ("1 member", "used by 1 connection").
   - Digital · FT8 and FT4 spots heard
   - POTA activations · Parks activated
   - Empty list: Nobody yet *(added)*
+- Last heard under a minute: Just now *(added in PR 3)* · a search with no match: No members match
+  *(added in PR 3)*
 - Members card: Members · Ranked by spots heard in the period. {N} of {N} members were heard.
   · field Search members · columns # · Callsign · Spots · Days · Main mode · Last heard (phones
   drop Main mode) · ages "2 min ago", "3 hours ago", "9 days ago" · button Show all {N} members ·
@@ -500,13 +505,17 @@ Counts take the singular at 1 ("1 member", "used by 1 connection").
     hidden.
   - The link is not listed anywhere and search engines are asked not to index it. Turn this off
     and the link stops working right away.
-- Buttons: Cancel · Save changes · toast Saved changes (today's) · Link copied *(added)*
+- Buttons: Cancel · Save changes · toast Saved changes (today's) · Link copied *(added)* · Couldn't
+  copy the link. *(added in PR 3)* · a failed load: Couldn't load the group. *(added in PR 3)*
+- The link shows once the page is saved public; turning the switch on and saving makes it.
 - Name card: Name · Shown on the statistics page and in connection rules · field Name · helper as
   in the New group dialog
 - Members card: Members · {N} of 1,000 callsigns · tabs Type · Paste · Import CSV · field Paste
   callsigns · helper Separate with commas, spaces or new lines. · button Add callsigns · list
   heading Members · Remove all · field Search members · chips · +{N} more (Type and Import CSV
-  keep today's dialog copy)
+  keep today's dialog copy). The Paste tab is open first, as drawn. Forty chips show before
+  +{N} more, which shows the rest; search shows every match. Empty: No callsigns yet. Type, paste,
+  or import them above. *(amended in PR 3: today's said "on the left")*
 - Used by card: Used by · Connections that use this group in a rule · rows {connection name} with
   a source chip | Not used by any connection *(added)*
 - Delete card: Delete group · Removes the group and its public page. Remove it from connections

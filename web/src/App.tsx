@@ -20,6 +20,7 @@ import { WebhookDestinationPage } from "./destinations/WebhookDestinationPage";
 import { SubscriptionsPage } from "./subscriptions/SubscriptionsPage";
 import { SubscriptionEditorPage } from "./subscriptions/SubscriptionEditorPage";
 import { GroupsPage } from "./groups/GroupsPage";
+import { GroupPage } from "./groups/GroupPage";
 import { StatsPage } from "./stats/StatsPage";
 import { BandMapPage } from "./bandmap/BandMapPage";
 import { ApiTokensPage } from "./tokens/ApiTokensPage";
@@ -68,6 +69,8 @@ function Router() {
       <Route path="/connections/:id" element={<RequireAuth page="subscription" />} />
       <Route path="/subscriptions/*" element={<OldConnectionsPath />} />
       <Route path="/groups" element={<RequireAuth page="groups" />} />
+      <Route path="/groups/:id" element={<RequireAuth page="group" />} />
+      <Route path="/groups/:id/settings" element={<RequireAuth page="group-settings" />} />
       <Route path="/destinations" element={<RequireAuth page="destinations" />} />
       <Route path="/destinations/new" element={<RequireAuth page="destination-new" />} />
       <Route path="/destinations/:id" element={<RequireAuth page="destination" />} />
@@ -96,7 +99,7 @@ function PublicOnly({ children }: { children: ReactNode }) {
   return children;
 }
 
-type Page = "sources" | "source" | "band-map" | "subscriptions" | "subscription-new" | "subscription" | "groups" | "destinations" | "destination-new" | "destination" | "stats" | "lookup" | "call" | "account" | "api-tokens";
+type Page = "sources" | "source" | "band-map" | "subscriptions" | "subscription-new" | "subscription" | "groups" | "group" | "group-settings" | "destinations" | "destination-new" | "destination" | "stats" | "lookup" | "call" | "account" | "api-tokens";
 type PublicPage = "band-map" | "stats" | "lookup" | "call";
 
 // Signed-out visitors read profiles in UTC.
@@ -147,6 +150,12 @@ function ProfileError({ message }: { message: string }) {
       </Alert>
     </Box>
   );
+}
+
+/** A group's page takes its id as a prop, so its tests need no router params. */
+function GroupRoute({ tab }: { tab: "statistics" | "settings" }) {
+  const { id } = useParams();
+  return id ? <GroupPage key={id} id={id} tab={tab} /> : <Navigate to="/groups" replace />;
 }
 
 /** The editor takes its id or source as props, so its tests need no router params. */
@@ -214,6 +223,8 @@ function SignedIn({ page }: { page: Page }) {
         <SubscriptionRoute subs={subs} dests={dests} loading={loading} reload={reload} prefs={prefs} mobile={mobile} />
       )}
       {page === "groups" && <GroupsPage />}
+      {page === "group" && <GroupRoute tab="statistics" />}
+      {page === "group-settings" && <GroupRoute tab="settings" />}
       {page === "destinations" && <DestinationsPage dests={dests} subs={subs} loading={loading} reload={reload} />}
       {(page === "destination-new" || page === "destination") && (
         <DestinationRoute dests={dests} loading={loading} reload={reload} mobile={mobile} />
