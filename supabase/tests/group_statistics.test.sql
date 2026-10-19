@@ -3,7 +3,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(14);
+select plan(33);
 
 -- ---------------------------------------------------------------------------
 -- Sharing columns and the save keys
@@ -55,6 +55,135 @@ select ok((select bool_and(public.new_group_slug() ~ '^[a-z2-7]{10}$') from gene
 select ok(not has_function_privilege('authenticated', 'public.new_group_slug()', 'execute'),
   'clients cannot make codes');
 select table_privs_are('public', 'group_stats_cache', 'authenticated', '{}'::text[], 'clients have no access to the cache');
+
+-- ---------------------------------------------------------------------------
+-- The builder
+-- ---------------------------------------------------------------------------
+
+create or replace function pg_temp.d(p_offset int) returns date language sql as $$
+  select (now() at time zone 'utc')::date + p_offset;
+$$;
+create or replace function pg_temp.at(p_offset int, p_hms text) returns timestamptz language sql as $$
+  select ((pg_temp.d(p_offset))::text || ' ' || p_hms || '+00')::timestamptz;
+$$;
+create or replace function pg_temp.raw(
+  p_source text, p_id text, p_time timestamptz, p_call text, p_khz numeric, p_band text, p_mode text, p_family text,
+  p_pota text default null, p_park text default null, p_sota text default null, p_wwff text default null,
+  p_wwff_name text default null) returns void language sql as $$
+  insert into raw_spots (source, source_spot_id, content_hash, spot_time, callsign, spotter, frequency_khz, band,
+                         mode, mode_family, comment, pota_reference, pota_park_name, sota_summit_ref, wwff_reference,
+                         wwff_reference_name, raw_payload)
+  values (p_source, p_id, p_id, p_time, p_call, 'W1AW', p_khz, p_band, p_mode, p_family, '', p_pota, p_park, p_sota,
+          p_wwff, p_wwff_name, '{}');
+$$;
+
+delete from deliveries;
+delete from raw_spots;
+delete from rbn_spots;
+delete from callsign_activity;
+delete from callsign_reach;
+delete from callsign_references;
+delete from callsign_seen;
+delete from callsign_variants;
+delete from callsign_days;
+delete from callsign_rollup_days;
+delete from callsign_rollup_failures;
+delete from archive_log;
+delete from hidden_callsigns;
+delete from group_stats_cache;
+
+select load_cty('test',
+  '[{"prefix":"K","name":"United States","continent":"NA","cq_zone":5,"itu_zone":8,"lat":37.6,"lon":-91.87}]',
+  '[{"pattern":"K","exact":false,"entity":"K","continent":"NA","cq_zone":5,"itu_zone":8},
+    {"pattern":"W","exact":false,"entity":"K","continent":"NA","cq_zone":5,"itu_zone":8},
+    {"pattern":"N","exact":false,"entity":"K","continent":"NA","cq_zone":5,"itu_zone":8}]');
+
+-- Members KK4PWJ, W4ABC, K4DEF (never heard) and N4GHI (hidden).
+insert into hidden_callsigns (callsign) values ('N4GHI');
+select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
+create temp table club as
+  select save_callsign_group('{"name":"Piedmont","callsigns":["KK4PWJ","W4ABC","K4DEF","N4GHI"]}') as id;
+grant all on club to authenticated;
+reset role;
+
+-- Day -40 (rolled up; the previous 30 days): one DX Cluster spot of KK4PWJ.
+select pg_temp.raw('dxcluster', 's1', pg_temp.at(-40, '12:00:00'), 'KK4PWJ', 14025, '20m', 'cw', 'cw');
+-- Day -10 (rolled up): KK4PWJ/P activates K-0817 (two spots), W4ABC a summit, hidden N4GHI on DX Cluster.
+select pg_temp.raw('pota', 's2', pg_temp.at(-10, '10:00:00'), 'KK4PWJ/P', 14062, '20m', 'cw', 'cw', 'K-0817', 'Old Name');
+select pg_temp.raw('pota', 's3', pg_temp.at(-10, '10:30:00'), 'KK4PWJ/P', 14062, '20m', 'cw', 'cw', 'K-0817', 'Old Name');
+select pg_temp.raw('sotawatch', 's4', pg_temp.at(-10, '14:00:00'), 'W4ABC/P', 7185, '40m', 'ssb', 'phone',
+                   p_sota => 'W4C/CM-001');
+select pg_temp.raw('dxcluster', 's5', pg_temp.at(-10, '15:00:00'), 'N4GHI', 14030, '20m', 'cw', 'cw');
+select rollup_callsign_day(pg_temp.d(-40));
+select rollup_callsign_day(pg_temp.d(-10));
+-- A year ago and more: outside the heat map.
+insert into callsign_days (base, day, source, spots, modes, bands) values ('KK4PWJ', pg_temp.d(-400), 'pota', 50, '{cw}', '{20m}');
+-- Day -2 (live): KK4PWJ back at K-0817 on FT8 under the park's new name; W4ABC at a WWFF reserve on FM.
+select pg_temp.raw('pota', 's6', pg_temp.at(-2, '09:00:00'), 'KK4PWJ', 14074, '20m', 'ft8', 'digital',
+                   'K-0817', 'Eno River State Park');
+select pg_temp.raw('wwff', 's7', pg_temp.at(-2, '11:00:00'), 'W4ABC', 146520, '2m', 'fm', 'phone',
+                   p_wwff => 'KFF-1234', p_wwff_name => 'Some Reserve');
+-- Today (live): W4ABC on SSB.
+select pg_temp.raw('dxcluster', 's8', now() - interval '1 minute', 'W4ABC', 7200, '40m', 'ssb', 'phone');
+
+create temp table s30 as select group_statistics((select id from club), '30d') as p;
+create temp table s7 as select group_statistics((select id from club), '7d') as p;
+
+select is((select array(select jsonb_object_keys(p) order by 1) from s30),
+  array['bands', 'calendar', 'daily', 'generatedAt', 'kpis', 'memberCount', 'members', 'modes', 'period', 'places', 'top'],
+  'the payload has its keys');
+select is((select p -> 'kpis' from s30),
+  '{"spots": 6, "previousSpots": 1, "membersHeard": 2,
+    "activations": {"pota": 2, "sota": 1, "wwff": 1}, "places": {"parks": 2, "summits": 1}}'::jsonb,
+  '30 days: rolled-up and live spots, the previous period, activations per program and places');
+select is((select p -> 'kpis' from s7),
+  '{"spots": 3, "previousSpots": 3, "membersHeard": 2,
+    "activations": {"pota": 1, "sota": 0, "wwff": 1}, "places": {"parks": 2, "summits": 0}}'::jsonb,
+  '7 days: only the last week, and the week before it');
+select is((select (p ->> 'memberCount')::int from s30), 3, 'the hidden member is not counted');
+select ok((select p::text not like '%N4GHI%' from s30), 'the hidden member appears nowhere');
+select is((select jsonb_array_length(p -> 'daily') from s30), 30, 'daily holds every day of the period');
+select is((select sum((e ->> 'spots')::int) from s30, jsonb_array_elements(p -> 'daily') e), 6::bigint,
+  'daily adds up to the period''s spots');
+select is((select p -> 'daily' -> 0 ->> 'day' from s30), to_char(pg_temp.d(-29), 'YYYY-MM-DD'), 'daily starts 29 days ago');
+select is((select jsonb_agg(e - 'day') from s30, jsonb_array_elements(p -> 'calendar') e),
+  '[{"spots": 1, "members": 1}, {"spots": 3, "members": 2}, {"spots": 2, "members": 2}, {"spots": 1, "members": 1}]'::jsonb,
+  'the heat map holds the year''s days with spots, members on the air each day, and nothing older');
+select is((select p -> 'top' from s30),
+  '{"spots": [{"callsign": "KK4PWJ", "value": 3}, {"callsign": "W4ABC", "value": 3}],
+    "days": [{"callsign": "W4ABC", "value": 3}, {"callsign": "KK4PWJ", "value": 2}],
+    "cw": [{"callsign": "KK4PWJ", "value": 2}],
+    "ssb": [{"callsign": "W4ABC", "value": 2}],
+    "digital": [{"callsign": "KK4PWJ", "value": 1}],
+    "parks": [{"callsign": "KK4PWJ", "value": 1}]}'::jsonb,
+  'top lists rank by value then callsign and leave out members with none');
+select is((select jsonb_agg(e - 'lastHeard') from s30, jsonb_array_elements(p -> 'members') e),
+  '[{"callsign": "W4ABC", "spots": 3, "days": 3, "mainMode": "SSB"},
+    {"callsign": "KK4PWJ", "spots": 3, "days": 2, "mainMode": "CW"},
+    {"callsign": "K4DEF", "spots": 0, "days": 0, "mainMode": null}]'::jsonb,
+  'every member, ranked by spots then days, the unheard last');
+select is((select array(select e ->> 'lastHeard' from jsonb_array_elements(p -> 'members') e) from s30),
+  array[to_char((now() - interval '1 minute') at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+        to_char(pg_temp.at(-2, '09:00:00') at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+        null],
+  'last heard is the newest of callsign_seen and the live spots');
+select is((select jsonb_object_agg(e ->> 'band', e -> 'spots') filter (where (e ->> 'spots')::int > 0)
+           from s30, jsonb_array_elements(p -> 'bands') e),
+  '{"20m": 3, "40m": 2, "2m": 1}'::jsonb, 'bands from day rows and live spots');
+select is((select jsonb_array_length(p -> 'bands') from s30), 12, 'bands are the fixed twelve');
+select is((select p -> 'modes' from s30),
+  '[{"label": "CW", "spots": 2}, {"label": "SSB", "spots": 2}, {"label": "FT8/FT4", "spots": 1}, {"label": "FM", "spots": 1}]'::jsonb,
+  'modes in bucket order, empty buckets left out');
+select is((select p -> 'places' from s30),
+  '[{"reference": "K-0817", "name": "Eno River State Park", "program": "POTA", "times": 2, "by": ["KK4PWJ"]},
+    {"reference": "KFF-1234", "name": "Some Reserve", "program": "WWFF", "times": 1, "by": ["W4ABC"]},
+    {"reference": "W4C/CM-001", "name": null, "program": "SOTA", "times": 1, "by": ["W4ABC"]}]'::jsonb,
+  'places by activations, with the newest name and who activated them');
+select throws_ok(format('select group_statistics(%L, %L)', (select id from club), '90d'), 'P0001', 'Not a valid period.',
+  'only 7 and 30 days');
+select is(group_statistics(gen_random_uuid(), '30d'), null, 'no group, no statistics');
+select ok(not has_function_privilege('authenticated', 'public.group_statistics(uuid, text)', 'execute'),
+  'clients cannot call the builder');
 
 select * from finish();
 rollback;

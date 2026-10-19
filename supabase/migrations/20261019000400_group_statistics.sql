@@ -267,3 +267,243 @@ begin
   return v_result;
 end;
 $$;
+
+-- ---------------------------------------------------------------------------
+-- 2. The payload builder
+-- ---------------------------------------------------------------------------
+
+-- The whole statistics payload for one group and period (GroupStatistics in
+-- web/src/groups/stats/types.ts, pinned by group_statistics.test.sql). The
+-- clock is an argument so the test can pin it; group_statistics passes now().
+--
+-- Members are the group's base calls minus hidden_callsigns: a hidden call
+-- counts nowhere, not even in totals or "of N members". A period is the last 7
+-- or 30 UTC days ending today; "previous" is the same number of days before.
+--
+-- Each store is read once, filtered on the member bases (callsign_days,
+-- callsign_activity and callsign_seen lead with base; spot_stream through the
+-- base-callsign indexes):
+--   day_spots  spots per member per day, a year back: callsign_days for
+--              rolled-up days plus the live days, as callsign_profile's
+--              calendar does. Totals, days, the heat map and the sparkline.
+--   mix        spots per member, band and mode bucket in the period:
+--              day-grain callsign_activity (kept 35 days) plus the live days.
+--   refs       the period's spots with a reference (raw_spots' arm only), for
+--              activations, places and the parks list. An activation is one
+--              (member, program, reference, UTC day), as
+--              callsign_references.days counts them.
+create function public.group_statistics_at(p_group_id uuid, p_period text, p_now timestamptz)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_days      int := case p_period when '7d' then 7 when '30d' then 30 end;
+  v_today     date := (p_now at time zone 'utc')::date;
+  v_year      date := (p_now at time zone 'utc')::date - 364;
+  v_from      date;
+  v_prev      date;
+  v_live_from date;
+  v_bases     text[];
+begin
+  if v_days is null then
+    raise exception 'Not a valid period.';
+  end if;
+  if not exists (select 1 from callsign_groups g where g.id = p_group_id) then
+    return null;
+  end if;
+  v_from := v_today - (v_days - 1);
+  v_prev := v_from - v_days;
+
+  select coalesce(array_agg(m.callsign order by m.callsign), '{}') into v_bases
+  from callsign_group_members m
+  where m.group_id = p_group_id
+    and not exists (select 1 from hidden_callsigns h where h.callsign = m.callsign);
+
+  -- callsign_profile's live window: the oldest of the last 14 days without a
+  -- marker, never before the first marker. Today never has one.
+  select min(g.d)::date into v_live_from
+  from generate_series(greatest(v_today - 14, (select min(day) from callsign_rollup_days)), v_today,
+                       interval '1 day') as g(d)
+  where not exists (select 1 from callsign_rollup_days r where r.day = g.d::date);
+
+  return (
+    with live as materialized (
+      select s.base_callsign as base, (s.spot_time at time zone 'utc')::date as day, s.spot_time,
+             s.band, s.mode_bucket
+      from spot_stream s
+      where s.base_callsign = any (v_bases)
+        and s.spot_time >= v_live_from::timestamp at time zone 'utc'
+        and s.spot_time < (v_today + 1)::timestamp at time zone 'utc'
+        and not exists (select 1 from callsign_rollup_days d
+                        where d.day = (s.spot_time at time zone 'utc')::date)
+    ),
+    day_spots as (
+      select base, day, sum(n)::bigint as spots
+      from (
+        select d.base, d.day, d.spots::bigint as n
+        from callsign_days d
+        where d.base = any (v_bases) and d.day >= v_year and d.day <= v_today
+        union all
+        select l.base, l.day, count(*) from live l group by l.base, l.day
+      ) x
+      group by base, day
+    ),
+    mix as (
+      select base, band, mode_bucket, sum(n)::bigint as n
+      from (
+        select a.base, a.band, a.mode_bucket, a.spots::bigint as n
+        from callsign_activity a
+        where a.base = any (v_bases) and a.role = 'heard' and a.grain = 'day'
+          and a.period >= v_from and a.period <= v_today
+        union all
+        select l.base, l.band, l.mode_bucket, count(*) from live l where l.day >= v_from group by 1, 2, 3
+      ) x
+      group by base, band, mode_bucket
+    ),
+    refs as materialized (
+      select s.base_callsign as base, s.program, s.reference, (s.spot_time at time zone 'utc')::date as day,
+             s.reference_name, s.spot_time
+      from spot_stream s
+      where s.base_callsign = any (v_bases) and s.program is not null
+        and s.spot_time >= v_from::timestamp at time zone 'utc'
+        and s.spot_time < (v_today + 1)::timestamp at time zone 'utc'
+    ),
+    activations as (
+      select distinct base, program, reference, day from refs
+    ),
+    per_member as (
+      select b.base,
+             coalesce(sum(d.spots), 0)::bigint as spots,
+             count(d.day) filter (where d.spots > 0) as days
+      from unnest(v_bases) as b(base)
+      left join day_spots d on d.base = b.base and d.day >= v_from
+      group by b.base
+    ),
+    main_mode as (
+      select distinct on (base) base, mode_bucket
+      from (select base, mode_bucket, sum(n) as n from mix group by base, mode_bucket) x
+      order by base, n desc, array_position(array['CW', 'SSB', 'FT8/FT4', 'FM', 'Other'], mode_bucket)
+    ),
+    last_heard as (
+      select b.base, greatest(s.last_spot, (select max(l.spot_time) from live l where l.base = b.base)) as t
+      from unnest(v_bases) as b(base)
+      left join callsign_seen s on s.base = b.base
+    ),
+    kpis as (
+      select jsonb_build_object(
+        'spots', (select coalesce(sum(spots), 0)::bigint from day_spots where day >= v_from),
+        'previousSpots', (select coalesce(sum(spots), 0)::bigint from day_spots where day >= v_prev and day < v_from),
+        'membersHeard', (select count(*) from per_member where spots > 0),
+        'activations', (select jsonb_build_object(
+                          'pota', count(*) filter (where program = 'POTA'),
+                          'sota', count(*) filter (where program = 'SOTA'),
+                          'wwff', count(*) filter (where program = 'WWFF'))
+                        from activations),
+        'places', (select jsonb_build_object(
+                     'parks', count(distinct program || ':' || reference) filter (where program in ('POTA', 'WWFF')),
+                     'summits', count(distinct reference) filter (where program = 'SOTA'))
+                   from activations)) as v
+    ),
+    daily as (
+      select jsonb_agg(jsonb_build_object('day', to_char(g.d, 'YYYY-MM-DD'), 'spots', coalesce(x.n, 0))
+                       order by g.d) as v
+      from generate_series(v_from, v_today, interval '1 day') as g(d)
+      left join (select day, sum(spots)::bigint as n from day_spots group by day) x on x.day = g.d::date
+    ),
+    calendar as (
+      select coalesce(jsonb_agg(jsonb_build_object('day', to_char(c.day, 'YYYY-MM-DD'), 'spots', c.n,
+                                                   'members', c.m) order by c.day), '[]') as v
+      from (select day, sum(spots)::bigint as n, count(*) filter (where spots > 0) as m
+            from day_spots group by day having sum(spots) > 0) c
+    ),
+    top_rows as (
+      select 'spots' as list, base, spots as value from per_member
+      union all select 'days', base, days from per_member
+      union all select 'cw', base, sum(n)::bigint from mix where mode_bucket = 'CW' group by base
+      union all select 'ssb', base, sum(n)::bigint from mix where mode_bucket = 'SSB' group by base
+      union all select 'digital', base, sum(n)::bigint from mix where mode_bucket = 'FT8/FT4' group by base
+      union all select 'parks', base, count(distinct reference) from activations where program = 'POTA' group by base
+    ),
+    top_ranked as (
+      select list, base, value, row_number() over (partition by list order by value desc, base) as r
+      from top_rows
+      where value > 0
+    ),
+    top_json as (
+      select jsonb_object_agg(l.list, coalesce(
+               (select jsonb_agg(jsonb_build_object('callsign', t.base, 'value', t.value) order by t.r)
+                from top_ranked t where t.list = l.list and t.r <= 3), '[]')) as v
+      from unnest(array['spots', 'days', 'cw', 'ssb', 'digital', 'parks']) as l(list)
+    ),
+    members_json as (
+      select coalesce(jsonb_agg(jsonb_build_object(
+               'callsign', p.base, 'spots', p.spots, 'days', p.days, 'mainMode', mm.mode_bucket,
+               'lastHeard', to_char(lh.t at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'))
+             order by p.spots desc, p.days desc, p.base), '[]') as v
+      from per_member p
+      left join main_mode mm on mm.base = p.base
+      left join last_heard lh on lh.base = p.base
+    ),
+    -- callsign_profile's bands: fixed order, zero-filled, other bands left out.
+    bands as (
+      select jsonb_agg(jsonb_build_object(
+               'band', bo.band, 'spots', coalesce((select sum(m.n) from mix m where m.band = bo.band), 0)::bigint)
+             order by bo.ord) as v
+      from (values ('160m', 1), ('80m', 2), ('60m', 3), ('40m', 4), ('30m', 5), ('20m', 6),
+                   ('17m', 7), ('15m', 8), ('12m', 9), ('10m', 10), ('6m', 11), ('2m', 12)) as bo(band, ord)
+    ),
+    modes as (
+      select coalesce(jsonb_agg(jsonb_build_object('label', ml.label, 'spots', c.n) order by ml.ord), '[]') as v
+      from (values ('CW', 1), ('SSB', 2), ('FT8/FT4', 3), ('FM', 4), ('Other', 5)) as ml(label, ord)
+      join (select mode_bucket, sum(n)::bigint as n from mix group by mode_bucket) c on c.mode_bucket = ml.label
+      where c.n > 0
+    ),
+    places as (
+      select coalesce(jsonb_agg(jsonb_build_object(
+               'reference', p.reference, 'name', p.name, 'program', p.program, 'times', p.times,
+               'by', to_jsonb(p.by_calls))
+             order by p.times desc, p.reference), '[]') as v
+      from (
+        select a.program, a.reference, count(*) as times,
+               array_agg(distinct a.base order by a.base) as by_calls,
+               (select r.reference_name from refs r
+                where r.program = a.program and r.reference = a.reference and r.reference_name is not null
+                order by r.spot_time desc limit 1) as name
+        from activations a
+        group by a.program, a.reference
+        order by times desc, a.reference
+        limit 10
+      ) p
+    )
+    select jsonb_build_object(
+             'period', p_period,
+             'generatedAt', to_char(p_now at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+             'memberCount', cardinality(v_bases),
+             'kpis', kpis.v,
+             'daily', daily.v,
+             'calendar', calendar.v,
+             'top', top_json.v,
+             'members', members_json.v,
+             'bands', bands.v,
+             'modes', modes.v,
+             'places', places.v)
+    from kpis, daily, calendar, top_json, members_json, bands, modes, places
+  );
+end;
+$$;
+
+create function public.group_statistics(p_group_id uuid, p_period text)
+returns jsonb
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select public.group_statistics_at(p_group_id, p_period, now());
+$$;
+
+revoke all on function public.group_statistics_at(uuid, text, timestamptz) from public;
+revoke all on function public.group_statistics(uuid, text) from public;

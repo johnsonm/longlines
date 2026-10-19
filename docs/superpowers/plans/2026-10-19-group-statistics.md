@@ -174,14 +174,14 @@ passes seeded or not).
 - [x] `group_stats_cache` (spec, Cache table) is created here, ahead of `save_callsign_group`, so the
   save can clear it. Then `save_callsign_group` from `20261013000210` plus the two keys, the code
   on first public, and the cache delete when the member diff is non-empty.
-- [ ] `supabase db reset && supabase test db`.
-- [ ] Commit `Group statistics: public page columns and save keys`.
+- [x] `supabase db reset && supabase test db`.
+- [x] Commit `Group statistics: public page columns and save keys`.
 
 ### Task 2: The builder
 
 **Files:** the migration (section 2); `group_statistics.test.sql`.
 
-- [ ] Failing tests first, with a fixed clock. Stub `now()` by passing the day into an internal
+- [x] Failing tests first, with a fixed clock. Stub `now()` by passing the day into an internal
   `group_statistics_at(p_group_id, p_period, p_now)` and have `group_statistics` call it with
   `now()`, following `refresh_stats_snapshot_at`. Insert hand-made `callsign_days`,
   `callsign_activity`, `callsign_seen`, `callsign_rollup_days` and `raw_spots` rows for three
@@ -200,7 +200,7 @@ passes seeded or not).
   - `onAir`
   - the hidden member nowhere and not in `memberCount`
   - "Not a valid period." for `'90d'`
-- [ ] `group_statistics_at` and `group_statistics`, stable, definer, `search_path` pinned. Reads
+- [x] `group_statistics_at` and `group_statistics`, stable, definer, `search_path` pinned. Reads
   follow the spec's builder:
   - Members exclude `hidden_callsigns`.
   - `callsign_days` and `callsign_activity` are read by `base = any(v_bases)`.
@@ -209,9 +209,9 @@ passes seeded or not).
     CTE with an array.
   - References come from `spot_stream` for the period with `program is not null`.
   - `mode_bucket` labels are as stored; the web maps `FT8/FT4` to "FT8 and FT4".
-- [ ] `supabase db reset && supabase test db`; `explain analyze` on a 1,000-member seeded group,
+- [x] `supabase db reset && supabase test db`; `explain analyze` on a 1,000-member seeded group,
   timing noted for the PR.
-- [ ] Commit `Group statistics: the payload builder`.
+- [x] Commit `Group statistics: the payload builder`.
 
 ### Task 3: Cache, client RPCs, public RPC, redaction
 
