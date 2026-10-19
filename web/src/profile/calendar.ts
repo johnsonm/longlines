@@ -9,13 +9,6 @@ import type { Calendar, CalendarPeriod } from "./types";
 /** The shades after "none"; levels run 0 to HEAT_LEVELS. */
 export const HEAT_LEVELS = 4;
 
-export type HeatScale = {
-  /** 0 for no spots, else 1 to HEAT_LEVELS. */
-  level: (spots: number) => number;
-  /** Each shaded level's spots per day in the period, quietest first; a level no day has is left out. */
-  ranges: { level: number; min: number; max: number }[];
-};
-
 /**
  * Levels relative to the period's own days on the air, never fixed counts:
  * days are ranked by spots and each level holds about a quarter of them, so a
@@ -23,26 +16,15 @@ export type HeatScale = {
  * hundreds of times. A day's level is the quarter its rank ends in, so equal
  * counts share a level and the busiest day is always the darkest.
  */
-export function heatScale(spots: readonly number[]): HeatScale {
+export function heatScale(spots: readonly number[]): (spots: number) => number {
   const active = spots.filter((n) => n > 0).sort((a, b) => a - b);
   const levels = new Map<number, number>();
   active.forEach((n, i) => {
     // The last index holding n is its rank; a later equal count overwrites.
     levels.set(n, Math.ceil(((i + 1) / active.length) * HEAT_LEVELS));
   });
-  const ranges: HeatScale["ranges"] = [];
-  for (const [n, level] of levels) {
-    const last = ranges.at(-1);
-    if (last?.level === level) last.max = n;
-    else ranges.push({ level, min: n, max: n });
-  }
-  return { level: (n) => (n > 0 ? levels.get(n) ?? 0 : 0), ranges };
-}
-
-/** "Spots per day, relative to this period: none, 1, 2 to 5, 6 to 30, 31 to 484." */
-export function heatLegend(scale: HeatScale): string {
-  const ranges = scale.ranges.map(({ min, max }) => (min === max ? fmt(min) : `${fmt(min)} to ${fmt(max)}`));
-  return `Spots per day, relative to this period: ${["none", ...ranges].join(", ")}.`;
+  // 0 for no spots, else 1 to HEAT_LEVELS.
+  return (n) => (n > 0 ? levels.get(n) ?? 0 : 0);
 }
 
 export type HeatCell = {

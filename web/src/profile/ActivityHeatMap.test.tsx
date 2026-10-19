@@ -23,7 +23,7 @@ describe("ActivityHeatMap", () => {
     expect(screen.getByText("484 spots")).toBeInTheDocument();
     expect(screen.getByText("Oct 11, 2026")).toBeInTheDocument();
     expect(cells()).toHaveLength(365);
-    expect(screen.getByText("Spots per day, relative to this period: none, 1, 3, 30, 484.")).toBeInTheDocument();
+    expect(screen.queryByText(/Spots per day/)).not.toBeInTheDocument();
   });
 
   it("shades days relative to the period and leaves empty days neutral", () => {
@@ -78,7 +78,7 @@ describe("ActivityHeatMap", () => {
     setMobile(true);
     renderPage(<ActivityHeatMap callsign="KK4PWJ" calendar={calendar} />);
     expect(screen.queryByRole("combobox", { name: "Period" })).not.toBeInTheDocument();
-    expect(screen.getByText("Spots per day, relative to this period: none, 1, 3, 30, 484. Scroll sideways for earlier months."))
+    expect(screen.getByText("Scroll sideways for earlier months."))
       .toBeInTheDocument();
   });
 

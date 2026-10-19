@@ -7,7 +7,7 @@ import { DataGrid, type GridColDef } from "@mui/x-data-grid";
 import { fmt } from "../stats/format";
 import { ChartCard, GRID } from "../stats/parts";
 import {
-  cellCount, cellDate, cellSources, gridLabel, HEAT_LEVELS, heatGrid, heatLegend, heatScale, periodDays, periodLabel, periodTitle,
+  cellCount, cellDate, cellSources, gridLabel, HEAT_LEVELS, heatGrid, heatScale, periodDays, periodLabel, periodTitle,
 } from "./calendar";
 import { dateLabel, plural } from "./format";
 import type { Calendar } from "./types";
@@ -49,7 +49,7 @@ export function ActivityHeatMap({ callsign, calendar }: { callsign: string; cale
   }, [period, table, mobile]);
 
   if (!period || !grid) return null;
-  const scale = heatScale(grid.cells.map((c) => c.spots));
+  const level = heatScale(grid.cells.map((c) => c.spots));
   const fill = (level: number) =>
     level === 0 ? theme.palette.action.hover : alpha(theme.palette.primary.main, OPACITY[level]!);
   const width = LEFT + grid.weeks * PITCH;
@@ -115,7 +115,7 @@ export function ActivityHeatMap({ callsign, calendar }: { callsign: string; cale
                     </>
                   }
                 >
-                  <rect x={LEFT + c.col * PITCH} y={TOP + c.row * PITCH} width={CELL} height={CELL} rx={2} fill={fill(scale.level(c.spots))} />
+                  <rect x={LEFT + c.col * PITCH} y={TOP + c.row * PITCH} width={CELL} height={CELL} rx={2} fill={fill(level(c.spots))} />
                 </Tooltip>
               );
             })}
@@ -125,7 +125,7 @@ export function ActivityHeatMap({ callsign, calendar }: { callsign: string; cale
 
       <Stack direction="row" spacing={2} useFlexGap sx={{ justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", mt: 1.5 }}>
         <Typography variant="caption" color="text.secondary">
-          {heatLegend(scale)}{mobile && !table ? " Scroll sideways for earlier months." : ""}
+          {mobile && !table ? "Scroll sideways for earlier months." : ""}
         </Typography>
         <Stack direction="row" spacing={0.5} sx={{ alignItems: "center" }}>
           <Typography variant="caption" color="text.secondary">Less</Typography>

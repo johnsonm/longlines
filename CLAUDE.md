@@ -498,7 +498,7 @@ The delivery side (retries, pause, attempts, rendering, Vault) is in "Delivery r
   year since first heard) and their figures (days on the air, longest streak, busiest day) are
   SQL's; `web/src/profile/calendar.ts` only places days in week columns and words them. Shading is
   relative to the period shown (`heatScale`: days on the air ranked, about a quarter per level,
-  equal counts sharing one), never fixed spot counts, and the legend states that period's ranges.
+  equal counts sharing one), never fixed spot counts; the legend is Less/More swatches with no spot counts.
 - Live reads of `spot_stream` filter on `base_callsign` and `spot_time`, so `raw_spots` and the
   `rbn_spots` expression index both serve them. Group by spotter before calling `base_callsign()`
   or `cty_lookup()` on spotters.
