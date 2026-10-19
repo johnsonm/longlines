@@ -1,20 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import { renderPage } from "../test/render";
-import { deleteGroup, listGroups, loadSubscriptions, saveGroup, type SubscriptionWithLinks } from "../lib/api";
+import { setMobile } from "../test/media";
+import { listGroups, listGroupSummaries, loadSubscriptions, saveGroup, type SubscriptionWithLinks } from "../lib/api";
 import { GroupsPage } from "./GroupsPage";
+import type { GroupSummary } from "./stats/types";
 import type { CallsignGroup } from "./types";
 
 vi.mock("../lib/api", () => ({
-  deleteGroup: vi.fn(),
   listGroups: vi.fn(),
+  listGroupSummaries: vi.fn(),
   loadSubscriptions: vi.fn(),
   normalizeCallsigns: vi.fn(),
   saveGroup: vi.fn(),
 }));
 vi.mock("../stats/useStats", () => ({ useStats: () => ({ stats: null, loading: false, error: null }) }));
-
-const CALLS = ["AA4MS", "AB4RD", "K4SWL", "KD4AA", "KK4PWJ", "KN4QHW", "KO4YUF", "N4CPA", "N4DXX", "W4ABC", "W4KNX", "WB4SZK"];
 
 function group(id: string, overrides: Partial<CallsignGroup> = {}): CallsignGroup {
   return {
@@ -23,15 +23,24 @@ function group(id: string, overrides: Partial<CallsignGroup> = {}): CallsignGrou
   };
 }
 
+function summary(id: string, overrides: Partial<GroupSummary> = {}): GroupSummary {
+  return {
+    id, public: false, spots: 1386, members_heard: 7, member_count: 12, daily: Array.from({ length: 30 }, (_, i) => i), on_air: [],
+    ...overrides,
+  };
+}
+
 const sub = (name: string, group_ids: string[], op = "is") =>
   ({ id: name, name, group_ids, rules: [[{ field: "group", op, values: group_ids }]] }) as unknown as SubscriptionWithLinks;
 
 beforeEach(() => {
-  for (const fn of [deleteGroup, listGroups, loadSubscriptions, saveGroup]) vi.mocked(fn).mockReset();
+  for (const fn of [listGroups, listGroupSummaries, loadSubscriptions, saveGroup]) vi.mocked(fn).mockReset();
+  setMobile(false);
 });
 
-function render(groups: CallsignGroup[]) {
+function render(groups: CallsignGroup[], summaries: GroupSummary[] = groups.map((g) => summary(g.id))) {
   vi.mocked(listGroups).mockResolvedValue(groups);
+  vi.mocked(listGroupSummaries).mockResolvedValue(summaries);
   return renderPage(<GroupsPage />, { route: "/groups" });
 }
 
@@ -42,66 +51,89 @@ describe("GroupsPage", () => {
     const { user } = render([]);
     expect(screen.getByRole("progressbar")).toBeInTheDocument();
     expect(await screen.findByText("No groups yet.")).toBeInTheDocument();
-    expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
+    expect(screen.getByText(/See how the group is doing, share its statistics, and use it in connection rules\./)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Create your first group" }));
     expect(await screen.findByRole("dialog", { name: "New group" })).toBeInTheDocument();
   });
 
   it("reports a load failure", async () => {
-    vi.mocked(listGroups).mockRejectedValue(new Error("Not signed in."));
+    vi.mocked(listGroups).mockResolvedValue([]);
+    vi.mocked(listGroupSummaries).mockRejectedValue(new Error("Not signed in."));
     const { app } = renderPage(<GroupsPage />, { route: "/groups" });
     await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Not signed in."));
   });
 
-  it("shows ten members, +N more and the latest spot of a group on the air", async () => {
-    const spotTime = new Date(Date.now() - 2 * 60_000 - 5_000).toISOString();
-    render([group("a", {
-      name: "RARS members", callsigns: CALLS, member_count: 12, subscription_count: 1,
-      on_air: {
-        count: 1,
-        latest: { callsign: "KK4PWJ", frequency_khz: 14062, band: "20m", mode: "CW", source: "pota", reference: "US-2763", spot_time: spotTime },
-      },
-    })]);
-    const c = await screen.findByRole("heading", { name: "RARS members" }).then(() => card("RARS members"));
-    expect(within(c).getByText("12 callsigns · used by 1 connection")).toBeInTheDocument();
-    for (const call of CALLS.slice(0, 10)) expect(within(c).getByText(call)).toBeInTheDocument();
-    expect(within(c).queryByText("W4KNX")).not.toBeInTheDocument();
-    expect(within(c).getByText("+2 more")).toBeInTheDocument();
-    expect(within(c).getByText("1 on the air now")).toBeInTheDocument();
-    expect(within(c).getByText("KK4PWJ 14062.0 kHz CW")).toBeInTheDocument();
-    expect(within(c).getByText("20m · POTA · US-2763 · 2m ago")).toBeInTheDocument();
-    expect(within(c).getByRole("button", { name: "Delete RARS members" })).toBeDisabled();
+  it("shows a public group's last 30 days and who is on the air", async () => {
+    render(
+      [group("a", { name: "Piedmont ARC", member_count: 24, subscription_count: 2 })],
+      [summary("a", { public: true, spots: 10082, members_heard: 19, member_count: 24, on_air: ["W4ABC", "KK4PWJ", "N4GHI"] })],
+    );
+    const c = await screen.findByRole("heading", { name: "Piedmont ARC" }).then(() => card("Piedmont ARC"));
+    expect(within(c).getByText("24 members · used by 2 connections")).toBeInTheDocument();
+    expect(within(c).getByText("Public")).toBeInTheDocument();
+    expect(within(c).getByText("Last 30 days")).toBeInTheDocument();
+    expect(within(c).getByText("10,082 spots")).toBeInTheDocument();
+    expect(within(c).getByText("19 of 24 members heard")).toBeInTheDocument();
+    expect(within(c).getByRole("img", { name: "Spots per day, last 30 days" })).toBeInTheDocument();
+    expect(within(c).getByText(/^3 on the air now:/)).toHaveTextContent("3 on the air now: W4ABC, KK4PWJ, N4GHI");
+    expect(within(c).getByRole("link", { name: "N4GHI" })).toHaveAttribute("href", "/call/N4GHI");
+    expect(within(c).getByRole("link", { name: "Statistics" })).toHaveAttribute("href", "/groups/a");
+    expect(within(c).getByRole("link", { name: "Settings" })).toHaveAttribute("href", "/groups/a/settings");
   });
 
-  it("shows an unused group that is off the air", async () => {
-    render([group("a", { name: "Field Day crew", callsigns: ["AC4ZO", "KK4PWJ"], member_count: 2 }), group("b", { callsigns: [], member_count: 0 })]);
-    const c = await screen.findByRole("heading", { name: "Field Day crew" }).then(() => card("Field Day crew"));
-    expect(within(c).getByText("2 callsigns · used by 0 connections")).toBeInTheDocument();
-    expect(within(c).queryByText(/more$/)).not.toBeInTheDocument();
-    expect(within(c).queryByText(/on the air now/)).not.toBeInTheDocument();
-    expect(within(c).getByRole("button", { name: "Delete Field Day crew" })).toBeEnabled();
-    expect(within(card("Group b")).getByText("0 callsigns · used by 0 connections")).toBeInTheDocument();
+  it("shows a private group nobody is on, and one whose figures aren't built yet", async () => {
+    render(
+      [group("a", { name: "SOTA chasers", member_count: 12 }), group("b", { name: "New club" })],
+      [summary("a"), summary("b", { spots: null, members_heard: null, member_count: null, daily: null })],
+    );
+    const c = await screen.findByRole("heading", { name: "SOTA chasers" }).then(() => card("SOTA chasers"));
+    expect(within(c).getByText("12 members · not used by any connection")).toBeInTheDocument();
+    expect(within(c).getByText("Private")).toBeInTheDocument();
+    expect(within(c).getByText("Nobody on the air right now")).toBeInTheDocument();
+    const b = card("New club");
+    expect(within(b).queryByText("Last 30 days")).not.toBeInTheDocument();
+    expect(within(b).queryByRole("img")).not.toBeInTheDocument();
   });
 
-  it("deletes an unused group and reloads", async () => {
-    vi.mocked(deleteGroup).mockResolvedValue(undefined);
-    const { user, app } = render([group("a")]);
-    await user.click(await screen.findByRole("button", { name: "Delete Group a" }));
-    expect(deleteGroup).toHaveBeenCalledWith("a");
-    await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Deleted Group a"));
-    expect(listGroups).toHaveBeenCalledTimes(2);
+  it("shows the cards without figures when the summaries fail, and names more than three on the air", async () => {
+    vi.mocked(listGroups).mockResolvedValue([group("a", { name: "RARS" })]);
+    vi.mocked(listGroupSummaries).mockRejectedValueOnce(new Error("canceling statement due to statement timeout"));
+    const { app } = renderPage(<GroupsPage />, { route: "/groups" });
+    expect(await screen.findByRole("heading", { name: "RARS" })).toBeInTheDocument();
+    await waitFor(() => expect(app.notify).toHaveBeenCalledWith("canceling statement due to statement timeout"));
+    expect(screen.queryByText("Last 30 days")).not.toBeInTheDocument();
+    expect(screen.getByText("Nobody on the air right now")).toBeInTheDocument();
   });
 
-  it("reports a delete the server refuses", async () => {
-    vi.mocked(deleteGroup).mockRejectedValue(new Error("Remove it from its connections first."));
-    const { user, app } = render([group("a")]);
-    await user.click(await screen.findByRole("button", { name: "Delete Group a" }));
-    await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Remove it from its connections first."));
+  it("names three on the air and counts the rest", async () => {
+    render([group("a", { name: "RARS" })], [summary("a", { on_air: ["A1A", "B1B", "C1C", "D1D", "E1E"] })]);
+    expect(await screen.findByText(/^5 on the air now:/)).toHaveTextContent("5 on the air now: A1A, B1B, C1C and 2 more");
+  });
+
+  it("uses the shorter sentence and a full-width button on phones", async () => {
+    setMobile(true);
+    render([]);
+    await screen.findByText("No groups yet.");
+    expect(screen.getByText("A group is a named list of callsigns, like a club roster. See how the group is doing and share its statistics."))
+      .toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "New group" })).toHaveClass("MuiButton-fullWidth");
+  });
+
+  it("creates a group and opens its page", async () => {
+    vi.mocked(saveGroup).mockResolvedValue("n1");
+    const { user, app } = render([]);
+    await user.click(screen.getByRole("button", { name: "New group" }));
+    await user.type(await screen.findByRole("textbox", { name: "Name" }), "  Friends ");
+    await user.type(screen.getByRole("textbox", { name: "Callsigns" }), "w1aw, kk4pwj");
+    await user.click(screen.getByRole("button", { name: "Create group" }));
+    expect(saveGroup).toHaveBeenCalledWith({ name: "Friends", callsigns: ["w1aw", "kk4pwj"], public: false, show_callsigns: false });
+    await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Created Friends"));
+    expect(screen.getByTestId("location")).toHaveTextContent("/groups/n1");
   });
 
   describe("Get alerts", () => {
     it("asks for a source, then opens the editor on it with the group as the filter", async () => {
-      // A subscription that only leaves the group out doesn't count as alerts on it.
+      // A connection that only leaves the group out doesn't count as alerts on it.
       vi.mocked(loadSubscriptions).mockResolvedValue([sub("Other", ["z"]), sub("Not RARS", ["a"], "is_not")]);
       const { user } = render([group("a", { name: "RARS" })]);
       await user.click(await screen.findByRole("button", { name: "Get alerts" }));
@@ -140,33 +172,5 @@ describe("GroupsPage", () => {
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Get alerts" })).toBeEnabled();
     });
-  });
-
-  it("creates a group from the New group button", async () => {
-    vi.mocked(saveGroup).mockResolvedValue("n1");
-    const { user, app } = render([]);
-    await user.click(screen.getByRole("button", { name: "New group" }));
-    await user.type(await screen.findByRole("textbox", { name: "Group name" }), "  Friends ");
-    await user.click(screen.getByRole("button", { name: "Create group" }));
-    expect(saveGroup).toHaveBeenCalledWith({ name: "Friends", callsigns: [] });
-    await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Created Friends"));
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    expect(listGroups).toHaveBeenCalledTimes(2);
-  });
-
-  it("edits a group's whole list and closes on Cancel", async () => {
-    vi.mocked(saveGroup).mockResolvedValue("a");
-    const { user, app } = render([group("a", { name: "RARS", callsigns: ["AB4RD", "KK4PWJ"], member_count: 2 })]);
-    await user.click(await screen.findByRole("button", { name: "Edit" }));
-    const dialog = await screen.findByRole("dialog", { name: "Edit group" });
-    expect(within(dialog).getByRole("textbox", { name: "Group name" })).toHaveValue("RARS");
-    expect(within(dialog).getByText("2 callsigns")).toBeInTheDocument();
-    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-
-    await user.click(screen.getByRole("button", { name: "Edit" }));
-    await user.click(await screen.findByRole("button", { name: "Save changes" }));
-    expect(saveGroup).toHaveBeenCalledWith({ id: "a", name: "RARS", callsigns: ["AB4RD", "KK4PWJ"] });
-    await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Saved changes"));
   });
 });

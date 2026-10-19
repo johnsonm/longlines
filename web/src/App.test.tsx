@@ -54,6 +54,7 @@ vi.mock("./subscriptions/SubscriptionEditorPage", () => ({
   ),
 }));
 vi.mock("./groups/GroupsPage", () => ({ GroupsPage: () => <p>groups page</p> }));
+vi.mock("./groups/GroupPage", () => ({ GroupPage: ({ id, tab }: { id: string; tab: string }) => <p>group page {id} {tab}</p> }));
 vi.mock("./stats/StatsPage", () => ({ StatsPage: () => <p>stats page</p> }));
 vi.mock("./account/AccountPage", () => ({ AccountPage: () => <p>account page</p> }));
 vi.mock("./profile/LookupPage", () => ({ LookupPage: () => <p>lookup page</p> }));
@@ -222,6 +223,8 @@ describe("App routing", () => {
     ["/subscriptions/new?source=rbn&callsign=KK4PWJ", "subscription editor new rbn KK4PWJ"],
     ["/subscriptions/s1", "subscription editor s1 none any"],
     ["/groups", "groups page"],
+    ["/groups/g1", "group page g1 statistics"],
+    ["/groups/g1/settings", "group page g1 settings"],
     ["/account", "account page"],
   ])("renders %s", async (path, text) => {
     renderAt(path);

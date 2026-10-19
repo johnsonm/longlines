@@ -7,6 +7,7 @@ import type { LatestStats, StatsPayload } from "../stats/types";
 import type { CallsignProfile } from "../profile/types";
 import type { BandMapPayload } from "../bandmap/types";
 import type { CallsignGroup, GroupInput, NormalizedCallsigns } from "../groups/types";
+import type { GroupPeriod, GroupSummary, OwnerGroupStatistics } from "../groups/stats/types";
 import type { Rules } from "../subscriptions/model";
 
 type Tables = Database["public"]["Tables"];
@@ -774,12 +775,32 @@ export async function listGroups(): Promise<CallsignGroup[]> {
   }));
 }
 
-/** Creates the group without an id, otherwise replaces its name and whole member list. Returns the id. */
+/**
+ * Creates the group without an id, otherwise replaces its name and whole member list. Returns the id.
+ * `public` and `show_callsigns` are optional: left out, SQL keeps the stored values.
+ */
 export async function saveGroup(input: GroupInput): Promise<string> {
   const payload: Json = { ...input };
   const { data, error } = await supabase.rpc("save_callsign_group", { payload });
   if (error) fail(error, "Couldn't save the group.");
   return data;
+}
+
+/** The landing cards: each group's last 30 days and who is on the air (list_group_summaries). */
+export async function listGroupSummaries(): Promise<GroupSummary[]> {
+  const { data, error } = await supabase.rpc("list_group_summaries");
+  if (error) fail(error, "Couldn't load your groups.");
+  // The generated row types every column as non-null; a group not built yet has null figures.
+  return (data as unknown as GroupSummary[]).map((g) => ({ ...g, spots: g.spots === null ? null : Number(g.spots) }));
+}
+
+/** The owner's statistics page for one group and period (get_group_statistics). */
+export async function loadGroupStatistics(id: string, period: GroupPeriod): Promise<OwnerGroupStatistics> {
+  const { data, error } = await supabase.rpc("get_group_statistics", { p_id: id, p_period: period });
+  if (error) fail(error, "Couldn't load the statistics.");
+  if (data === null) throw new ApiError("Couldn't load the statistics.");
+  // jsonb in the generated types; its shape is pinned by supabase/tests/group_statistics.test.sql.
+  return data as unknown as OwnerGroupStatistics;
 }
 
 export async function deleteGroup(id: string): Promise<void> {
