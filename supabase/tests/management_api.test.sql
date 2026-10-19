@@ -1,8 +1,8 @@
--- pgTAP: API tokens and the management API's SQL (20261013000300).
+-- pgTAP: API tokens and the management API's SQL (20261013000300; group sharing keys 20261019000400).
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(67);
+select plan(68);
 
 -- ---------------------------------------------------------------------------
 -- Tokens
@@ -145,6 +145,12 @@ grant all on renamed to authenticated;
 select is((select g ->> 'name' from renamed), 'Club', 'a null group name counts as left out');
 select is((select g -> 'callsigns' from renamed), '["KN4XYZ", "W1AW"]'::jsonb,
   'the members in the same patch still change');
+-- The API does not share group pages (20261019000400): the sharing keys are dropped.
+create temp table shared as
+  select (pg_temp.call('create_group', '{"name": "Shared", "public": true, "show_callsigns": true}') ->> 'id')::uuid as id;
+select pg_temp.call('update_group', jsonb_build_object('id', (select id from shared), 'public', true));
+select is((select (public, show_callsigns, public_slug is null) from callsign_groups where id = (select id from shared)),
+  (false, false, true), 'the API cannot make a group page public');
 select throws_ok(format($$ select pg_temp.call('patch_subscription', '{"id": "%s", "body": {"quiet_minutes": 7}}') $$,
   (select id from sub)), 'quiet_minutes must be 0, 5, 10, 30 or 60.');
 select throws_ok(format($$ select pg_temp.call('patch_subscription', '{"id": "%s", "body": {"quiet_minutes": 3000000000}}') $$,

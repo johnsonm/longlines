@@ -158,7 +158,7 @@ passes seeded or not).
 **Files:** the migration (section 1); `supabase/tests/group_statistics.test.sql` (new);
 `supabase/tests/callsign_groups.test.sql`; `supabase/tests/management_api.test.sql`.
 
-- [ ] Failing tests first:
+- [x] Failing tests first:
   - A new group has `public = false`, `show_callsigns = false` and `public_slug` null.
   - Saving with `public: true` sets a code matching `^[a-z2-7]{10}$`.
   - Renaming, members changes and off-then-on keep the same code.
@@ -166,12 +166,12 @@ passes seeded or not).
   - `public: "yes"` raises "Not a valid setting."
   - An API `update_group` PATCH keeps the flags.
   - 1,000 calls to `new_group_slug()` give 1,000 distinct well-formed codes.
-- [ ] `alter table callsign_groups add column public …, show_callsigns …, public_slug …` (spec,
+- [x] `alter table callsign_groups add column public …, show_callsigns …, public_slug …` (spec,
   Schema).
-- [ ] `new_group_slug()`: `gen_random_bytes(10)`, each byte `& 31` into
+- [x] `new_group_slug()`: `gen_random_bytes(10)`, each byte `& 31` into
   `'abcdefghijklmnopqrstuvwxyz234567'` (`new_api_token()`'s masking). The caller loops on
   `unique_violation`.
-- [ ] `group_stats_cache` (spec, Cache table) is created here, ahead of `save_callsign_group`, so the
+- [x] `group_stats_cache` (spec, Cache table) is created here, ahead of `save_callsign_group`, so the
   save can clear it. Then `save_callsign_group` from `20261013000210` plus the two keys, the code
   on first public, and the cache delete when the member diff is non-empty.
 - [ ] `supabase db reset && supabase test db`.
