@@ -152,6 +152,16 @@ begin
   perform * from public.backfill_callsign_rollups();
   assert exists (select 1 from callsign_rollup_days where day = '2026-10-05'),
     'backfill_callsign_rollups should roll up the smoke spots'' first day';
+
+  -- Group statistics: the sharing columns, the service-role-only cache, and a code nobody has.
+  assert exists (select 1 from information_schema.columns
+                 where table_name = 'callsign_groups' and column_name in ('public', 'show_callsigns', 'public_slug')
+                 having count(*) = 3),
+    'callsign_groups should have the sharing columns';
+  assert (select relrowsecurity from pg_class where oid = 'public.group_stats_cache'::regclass),
+    'group_stats_cache should have row level security on';
+  assert public.public_group_statistics('zzzzzzzzzz', '30d') is null,
+    'public_group_statistics should return null for an unknown code';
 end $$;
 
 -- anon must not be able to read the tables.

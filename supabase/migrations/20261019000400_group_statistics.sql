@@ -292,12 +292,19 @@ $$;
 --              activations, places and the parks list. An activation is one
 --              (member, program, reference, UTC day), as
 --              callsign_references.days counts them.
+--
+-- plan_cache_mode: the member array must reach the planner as a constant, so
+-- `= any (v_bases)` is a hashed lookup and a base-callsign index probe. After
+-- five calls in a session plpgsql would otherwise switch to a generic plan,
+-- which tests every row against the whole array (0.8 s became 3.2 s for 1,000
+-- busy members on the seed).
 create function public.group_statistics_at(p_group_id uuid, p_period text, p_now timestamptz)
 returns jsonb
 language plpgsql
 stable
 security definer
 set search_path = public
+set plan_cache_mode = force_custom_plan
 as $$
 declare
   v_days      int := case p_period when '7d' then 7 when '30d' then 30 end;
@@ -387,10 +394,14 @@ begin
       from (select base, mode_bucket, sum(n) as n from mix group by base, mode_bucket) x
       order by base, n desc, array_position(array['CW', 'SSB', 'FT8/FT4', 'FM', 'Other'], mode_bucket)
     ),
+    live_last as (
+      select base, max(spot_time) as t from live group by base
+    ),
     last_heard as (
-      select b.base, greatest(s.last_spot, (select max(l.spot_time) from live l where l.base = b.base)) as t
+      select b.base, greatest(s.last_spot, ll.t) as t
       from unnest(v_bases) as b(base)
       left join callsign_seen s on s.base = b.base
+      left join live_last ll on ll.base = b.base
     ),
     kpis as (
       select jsonb_build_object(
@@ -461,21 +472,28 @@ begin
       join (select mode_bucket, sum(n)::bigint as n from mix group by mode_bucket) c on c.mode_bucket = ml.label
       where c.n > 0
     ),
+    -- Each reference's newest name in the period (SOTA summits have none).
+    place_names as (
+      select distinct on (program, reference) program, reference, reference_name as name
+      from refs
+      where reference_name is not null
+      order by program, reference, spot_time desc
+    ),
     places as (
       select coalesce(jsonb_agg(jsonb_build_object(
                'reference', p.reference, 'name', p.name, 'program', p.program, 'times', p.times,
                'by', to_jsonb(p.by_calls))
              order by p.times desc, p.reference), '[]') as v
       from (
-        select a.program, a.reference, count(*) as times,
-               array_agg(distinct a.base order by a.base) as by_calls,
-               (select r.reference_name from refs r
-                where r.program = a.program and r.reference = a.reference and r.reference_name is not null
-                order by r.spot_time desc limit 1) as name
-        from activations a
-        group by a.program, a.reference
-        order by times desc, a.reference
-        limit 10
+        select t.program, t.reference, t.times, t.by_calls, n.name
+        from (
+          select a.program, a.reference, count(*) as times, array_agg(distinct a.base order by a.base) as by_calls
+          from activations a
+          group by a.program, a.reference
+          order by times desc, a.reference
+          limit 10
+        ) t
+        left join place_names n on n.program = t.program and n.reference = t.reference
       ) p
     )
     select jsonb_build_object(

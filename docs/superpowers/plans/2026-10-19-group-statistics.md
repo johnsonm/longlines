@@ -90,7 +90,8 @@ Each part runs in a fresh Claude Code session in its own worktree. The branches 
 - Commit messages end with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 - Applied migrations are never edited. `save_callsign_group` is recreated from its latest
   definition (`20261013000210`) with `create or replace`, so its grants stay.
-  `list_callsign_groups`, `api_call`, `api_group_json` and `patch_callsign_group` do not change.
+  `list_callsign_groups`, `api_group_json` and `patch_callsign_group` do not change. `api_call`
+  is recreated from `20261016000600` only to drop the two sharing keys (spec, decision 8).
 - Behaviour goes in SQL: every figure, ranking, tie break, top-list length, the 10 places, period
   bounds, hidden calls, redaction, the code, cache freshness. The web formats numbers and ages and
   hides sections whose keys are absent. It never ranks, sums, filters callsigns for privacy or works
@@ -197,7 +198,6 @@ passes seeded or not).
   - `mainMode` labels
   - `bands` as twelve entries, `modes` in bucket order
   - `places` top 10 with `by`
-  - `onAir`
   - the hidden member nowhere and not in `memberCount`
   - "Not a valid period." for `'90d'`
 - [x] `group_statistics_at` and `group_statistics`, stable, definer, `search_path` pinned. Reads
@@ -246,11 +246,11 @@ passes seeded or not).
 
 **Files:** `scripts/smoke-test.sql`; `web/src/lib/database.types.ts`.
 
-- [ ] Smoke lines: the columns exist; `group_stats_cache` has RLS; `public_group_statistics('zzzzzzzzzz', '30d')`
+- [x] Smoke lines: the columns exist; `group_stats_cache` has RLS; `public_group_statistics('zzzzzzzzzz', '30d')`
   is null.
-- [ ] `supabase gen types typescript --local > web/src/lib/database.types.ts`. Run `cd web && npm
+- [x] `supabase gen types typescript --local > web/src/lib/database.types.ts`. Run `cd web && npm
   run build` to show the regeneration (which includes #223/#225's objects) breaks nothing.
-- [ ] All gates.
+- [x] All gates.
 - [ ] Commit `Group statistics: smoke test and generated types`, push, open PR 2 stacked on
   `group-stats-spec`. Run /code-review and fix what it finds.
 

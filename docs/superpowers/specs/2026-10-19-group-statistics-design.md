@@ -1,8 +1,8 @@
 # Group statistics and public group pages: design
 
-Date: 2026-10-19. Status: proposed. Decisions 1 and 2 were made by Brad on 2026-10-19; the rest
-are proposed here for review in the spec PR. If the design changes during a PR, update this file
-in that PR.
+Date: 2026-10-19. Status: approved (PR #228); PR 2, the schema, amends decisions 5, 8 and 18 and
+the Schema section, marked *(amended in PR 2)*. Decisions 1 and 2 were made by Brad on 2026-10-19.
+If the design changes during a PR, update this file in that PR.
 
 Source: page 10 of Brad's design canvas ("Groups with statistics (draft)"), artboards
 `GroupsLanding-Desktop` ("Groups landing, desktop"), `GroupsLanding-Mobile`, `GroupNew-Desktop`
@@ -83,8 +83,9 @@ No new roll-up, cron job or ingest change.
    `public_group_statistics` passes the payload through `group_stats_redact`, which removes:
    - the top lists
    - the members table
-   - on-air names, leaving the count
    - the places' `by` lists
+
+   *(Amended in PR 2: the payload has no on-air names to remove; the cards read them live, decision 18.)*
 
    The web hides those sections because the keys are absent; it never filters callsigns
    itself. The owner's view always has callsigns. The setting defaults to off: the confirm
@@ -112,6 +113,11 @@ No new roll-up, cron job or ingest change.
 8. **The management API and `list_callsign_groups` do not change.** `list_callsign_groups` feeds
    `api_group_json`, so a new column would change API responses. The landing cards read a new
    `list_group_summaries()`. Sharing through the API is out of scope.
+   *(Amended in PR 2:)* the API's create and update pass a body's other fields through
+   (`routeArgs`), so `api_call` drops `public` and `show_callsigns` before
+   `save_callsign_group` / `patch_callsign_group`; without that, a token could publish a page
+   without the confirm dialog. `api_call` is recreated from `20261016000600` with only those two
+   lines changed.
 9. **Unlisted means unlisted.**
    - `web/vercel.json` sends `X-Robots-Tag: noindex` for `/g/(.*)`, and the page also sets
      `<meta name="robots" content="noindex">` while mounted.
@@ -163,7 +169,8 @@ No new roll-up, cron job or ingest change.
     - Opening `/groups` can build a stale group's payload. A user has few groups, and a build is a
       member-indexed read, so it does not need its own budget.
     - On-air names, which go stale within minutes, are read live in the same call (last 30
-      minutes of `spot_stream`).
+      minutes of `spot_stream`, hidden calls left out). *(Amended in PR 2:)* they are not in the
+      cached payload at all, since the Statistics tab never shows them.
 19. **Charts are stock MUI X.** `SparkLineChart` on cards, a horizontal `BarChart` for bands and for
     modes as drawn (not the profile's mode pie), and `DataGrid` with the `GRID` defaults
     (`web/src/stats/parts.tsx`) for the members, places and "View as table" grids. No custom SVG
@@ -195,14 +202,14 @@ alter table callsign_groups
 
 | Function | Kind | Grant | Notes |
 | --- | --- | --- | --- |
-| `new_group_slug()` | plpgsql, volatile | none | 10 masked bytes of `gen_random_bytes`; the caller retries on `unique_violation` |
+| `new_group_slug()` | plpgsql, volatile | none | 10 masked bytes of `gen_random_bytes`, drawn again while the code is taken |
 | `save_callsign_group(payload jsonb) returns uuid` | from `20261013000210`, `create or replace` | authenticated (kept) | Accepts `public` and `show_callsigns` (booleans; anything else is "Not a valid setting."). Absent keeps stored. Sets `public_slug` when `public` becomes true and the slug is null. Deletes the group's `group_stats_cache` rows when the member list changed. Errors otherwise unchanged |
-| `group_statistics_at(p_group_id uuid, p_period text, p_now timestamptz) returns jsonb` | plpgsql, stable, definer, pinned path | none | The builder (below), clock passed in for tests. `p_period` is `'7d'` or `'30d'`, else "Not a valid period." |
+| `group_statistics_at(p_group_id uuid, p_period text, p_now timestamptz) returns jsonb` | plpgsql, stable, definer, pinned path, `plan_cache_mode = force_custom_plan` | none | The builder (below), clock passed in for tests. `p_period` is `'7d'` or `'30d'`, else "Not a valid period." Null for a missing group. A generic plan tests every row against the whole member array: 0.8 s became 3.2 s for 1,000 busy members after five calls in a session |
 | `group_statistics(p_group_id uuid, p_period text) returns jsonb` | SQL wrapper | none | `group_statistics_at(..., now())` |
-| `cached_group_statistics(p_group_id uuid, p_period text) returns jsonb` | plpgsql, definer | none | One-hour TTL, single flight on `pg_advisory_xact_lock(hashtext('group_stats_cache'), hashtext(group_id::text || period))`, `lock_timeout` 2 s then build without the lock, upsert |
-| `group_stats_redact(p jsonb) returns jsonb` | SQL, immutable, pinned path | none | Removes `top`, `members`, `onAir.callsigns`, each place's `by` |
+| `cached_group_statistics(p_group_id uuid, p_period text) returns jsonb` | plpgsql, definer | none | One-hour TTL, single flight on `pg_advisory_xact_lock(hashtext('group_stats_cache'), hashtext(group_id::text || '/' || period))`, `lock_timeout` 2 s then build without the lock, upsert |
+| `group_stats_redact(p jsonb) returns jsonb` | SQL, immutable, pinned path | none | Removes `top`, `members` and each place's `by` |
 | `get_group_statistics(p_id uuid, p_period text) returns jsonb` | plpgsql, definer | authenticated | Owner only, else "Group not found." Returns the cached payload plus `group: {id, name, public, show_callsigns, public_slug, member_count, subscription_count}` |
-| `list_group_summaries() returns table (id uuid, public boolean, spots bigint, members_heard int, members int, daily int[], on_air text[])` | plpgsql, definer | authenticated | The caller's groups. `daily` is the 30 days oldest first. `on_air` is live, at most 3 calls, newest first, plus the count from the payload |
+| `list_group_summaries() returns table (id uuid, public boolean, spots bigint, members_heard int, member_count int, daily int[], on_air text[])` | plpgsql, definer | authenticated | The caller's groups by name. `daily` is the 30 days oldest first. `member_count` is the payload's (hidden calls left out). `on_air` is every member heard in the last 30 minutes, newest first, read live; the card shows three *(amended in PR 2)* |
 | `public_group_statistics(p_slug text, p_period text) returns jsonb` | plpgsql, definer | service_role | Null unless the slug exists and the group is public. Returns the payload (redacted unless `show_callsigns`) plus `group: {name, member_count, show_callsigns}` |
 
 `advisor.test.sql` gains `get_group_statistics` and `list_group_summaries` in the authenticated
@@ -264,8 +271,7 @@ Payload (`GroupStatistics` in `web/src/groups/stats/types.ts`, pinned by
   "members": [{"callsign": "KK4PWJ", "spots": 2591, "days": 17, "mainMode": "CW", "lastHeard": "2026-10-19T14:46:00Z"}],
   "bands": [{"band": "160m", "spots": 0}],
   "modes": [{"label": "CW", "spots": 7158}],
-  "places": [{"reference": "US-2763", "name": "Falls Lake SRA", "program": "POTA", "times": 4, "by": ["KK4PWJ", "W4ABC"]}],
-  "onAir": {"count": 3, "callsigns": ["W4ABC", "KK4PWJ", "N4GHI"]}
+  "places": [{"reference": "US-2763", "name": "Falls Lake SRA", "program": "POTA", "times": 4, "by": ["KK4PWJ", "W4ABC"]}]
 }
 ```
 
@@ -273,7 +279,9 @@ Payload (`GroupStatistics` in `web/src/groups/stats/types.ts`, pinned by
 filled, used by the card sparkline. `calendar` is 365 days, zero days omitted, as the profile's.
 `bands` is the profile's fixed 12-band list zero filled. `modes` is the five buckets in the
 profile's order, zero buckets omitted. `top` lists hold three entries; ties break on callsign.
-`places` holds the top 10 by times, then reference.
+`places` holds the top 10 by times, then reference. A member's `mainMode` is null with no spots in
+the period and `lastHeard` null when never heard. `members` ranks by spots, then days, then
+callsign.
 
 ## Edge function `group-page`
 
