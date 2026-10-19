@@ -25,9 +25,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # Pinned: "latest" makes setup-cli ask the GitHub API for the newest release,
+      # and that call fails the job when the runner's shared rate limit is used up.
+      # Bump it by hand, to the version local development runs (supabase --version).
       - uses: supabase/setup-cli@v1
         with:
-          version: latest
+          version: 2.121.0
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
