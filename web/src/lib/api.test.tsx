@@ -742,3 +742,25 @@ describe("band map", () => {
     await expect(api.loadBandMap()).rejects.toMatchObject({ message: "The band map is unavailable right now.", code: "500" });
   });
 });
+
+describe("loadPublicGroup", () => {
+  it("fetches a public page without a session", async () => {
+    const payload = { period: "7d", group: { name: "Piedmont ARC", member_count: 24, show_callsigns: false } };
+    const fetchMock = respond(200, payload);
+    expect(await api.loadPublicGroup("7f3kq6xm2a", "7d")).toEqual(payload);
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("https://proj.supabase.co/functions/v1/group-page?slug=7f3kq6xm2a&period=7d");
+    expect(init).toEqual({ headers: { apikey: "anon-key" } });
+    expect(fake.client.auth.getSession).not.toHaveBeenCalled();
+  });
+
+  it("returns null for a private or unknown page", async () => {
+    respond(404, { error: "private" });
+    expect(await api.loadPublicGroup("7f3kq6xm2a", "30d")).toBeNull();
+  });
+
+  it("rejects with any other failure", async () => {
+    respond(429, { error: "Too many lookups. Try again in a minute." });
+    await expect(api.loadPublicGroup("7f3kq6xm2a", "30d")).rejects.toMatchObject({ code: "429" });
+  });
+});

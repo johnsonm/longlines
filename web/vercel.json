@@ -10,6 +10,10 @@
     {
       "source": "/manifest.webmanifest",
       "headers": [{ "key": "Content-Type", "value": "application/manifest+json" }]
+    },
+    {
+      "source": "/g/(.*)",
+      "headers": [{ "key": "X-Robots-Tag", "value": "noindex" }]
     }
   ],
   "rewrites": [

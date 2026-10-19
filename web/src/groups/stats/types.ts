@@ -64,6 +64,11 @@ export interface OwnerGroupStatistics extends GroupStatistics {
   group: OwnerGroup;
 }
 
+/** public_group_statistics through the group-page function: the payload, redacted unless callsigns are shown. */
+export interface PublicGroupStatistics extends GroupStatistics {
+  group: { name: string; member_count: number; show_callsigns: boolean };
+}
+
 /** A row of list_group_summaries(): a landing card. Figures are null for a group not built yet. */
 export interface GroupSummary {
   id: string;
