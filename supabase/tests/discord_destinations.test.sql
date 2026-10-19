@@ -222,7 +222,7 @@ select ok(discord_fields_valid(array['callsign'], 1, 4) and not discord_fields_v
   'discord_fields_valid checks names, repeats and the count');
 select throws_ok($$ update discord_destination_settings set line_fields = array['comment'] where destination_id = (select id from raw) $$,
   '23514', null, 'the table''s checks refuse Comment too');
-select is(app_site_url(), 'https://app.longlines.io', 'the site URL knob');
+select is(app_site_url(), 'https://longlines.io', 'the site URL knob');
 select is((select array_agg(discord_source_color(s) order by o)
            from unnest(array['pota', 'sotawatch', 'wwff', 'dxcluster', 'rbn', 'aprs']) with ordinality as t(s, o)),
   array[3066993, 10181046, 1752220, 3447003, 15105570, 9807270],
@@ -247,12 +247,12 @@ select ok((select bool_and(discord_join(f, discord_field_values(sp), sep, lab) =
   'discord_join joins exactly as push''s render_push_fields does');
 
 select is(pg_temp.line(pg_temp.settings(), (select j from spot)),
-  '**[KK4PWJ/P](https://app.longlines.io/call/KK4PWJ)** · 14.062 MHz · CW · POTA · US-2763 · Pisgah National Forest',
+  '**[KK4PWJ/P](https://longlines.io/call/KK4PWJ)** · 14.062 MHz · CW · POTA · US-2763 · Pisgah National Forest',
   'the default plain line: the callsign bold and linked to the profile');
 select is(pg_temp.line(pg_temp.settings('{"bold_first": false}'), (select j from spot)),
-  '[KK4PWJ/P](https://app.longlines.io/call/KK4PWJ) · 14.062 MHz · CW · POTA · US-2763 · Pisgah National Forest', 'bold off');
+  '[KK4PWJ/P](https://longlines.io/call/KK4PWJ) · 14.062 MHz · CW · POTA · US-2763 · Pisgah National Forest', 'bold off');
 select is(pg_temp.line(pg_temp.settings('{"line_fields": ["state", "callsign"], "show_field_names": true}'), (select j from spot)),
-  '**State: NC/SC** · Callsign: [KK4PWJ/P](https://app.longlines.io/call/KK4PWJ)', 'labels on; the first field is bold whatever it is');
+  '**State: NC/SC** · Callsign: [KK4PWJ/P](https://longlines.io/call/KK4PWJ)', 'labels on; the first field is bold whatever it is');
 select is(pg_temp.line(pg_temp.settings('{"line_fields": ["source", "band"], "separator": "comma"}'), (select j from spot)),
   '**POTA**, 20m', 'a comma separator');
 select is(pg_temp.line(pg_temp.settings('{"line_fields": ["place_name"]}'), (select j - 'pota_park_name' from spot)),
@@ -278,7 +278,7 @@ create temp table hostile as select (select j from spot) || jsonb_build_object(
   'source', 'dxcluster', 'callsign', '[FREE-QSL](HTTPS://EVIL.EXAMPLE)', 'base_callsign', '[FREE-QSL](HTTPS:',
   'spotter', '[CLAIM](HTTPS://EVIL.EXAMPLE)') as j;
 select is(discord_profile_url((select j from hostile)), null, 'a call that is not safe in a URL has no profile link');
-select is(discord_profile_url((select j from spot)), 'https://app.longlines.io/call/KK4PWJ', 'a normal one has');
+select is(discord_profile_url((select j from spot)), 'https://longlines.io/call/KK4PWJ', 'a normal one has');
 select is(pg_temp.line(pg_temp.settings(), (select j from hostile)),
   '**\[FREE-QSL\]\(HTTPS://EVIL.EXAMPLE\)** · 14.062 MHz · CW · DX Cluster · US-2763 · Pisgah National Forest',
   'a hostile callsign in the plain line is escaped text with no link');
@@ -315,11 +315,11 @@ select is(pg_temp.line(pg_temp.settings('{"line_fields": ["place_name", "callsig
   '**' || repeat('x', 185) || '…**', 'a first field longer than the line is clipped inside its bold');
 create temp table cut as select pg_temp.line(pg_temp.settings('{"line_fields": ["place_name", "callsign"], "bold_first": false}'),
                        (select j || jsonb_build_object('pota_park_name', repeat('y', 120)) from spot)) as l;
-select is((select l from cut), repeat('y', 120) || ' · [KK4PWJ/P](https://app.longlines.io/call/KK4PWJ)',
+select is((select l from cut), repeat('y', 120) || ' · [KK4PWJ/P](https://longlines.io/call/KK4PWJ)',
   'a link that fits stays whole');
 select is(pg_temp.line(pg_temp.settings('{"line_fields": ["place_name", "callsign"], "bold_first": false}'),
-                       (select j || jsonb_build_object('pota_park_name', repeat('y', 142)) from spot)),
-  repeat('y', 142) || ' · [KK4P…](https://app.longlines.io/call/KK4PWJ)', 'a value cut inside its link keeps the link whole');
+                       (select j || jsonb_build_object('pota_park_name', repeat('y', 146)) from spot)),
+  repeat('y', 146) || ' · [KK4P…](https://longlines.io/call/KK4PWJ)', 'a value cut inside its link keeps the link whole');
 select is(pg_temp.line(pg_temp.settings('{"line_fields": ["place_name", "callsign"], "bold_first": false}'),
                        (select j || jsonb_build_object('pota_park_name', repeat('y', 183)) from spot)),
   repeat('y', 183) || ' · KK4…', 'with no room for the link the value is cut as text');
@@ -335,12 +335,12 @@ select ok((select bool_and(length(pg_temp.line(pg_temp.settings(jsonb_build_obje
                  union all select j || jsonb_build_object('pota_park_name', repeat('w', 175)) from spot) e),
   'every clipped line is at most 190 characters');
 
-select is(discord_title_url(pg_temp.settings(), (select j from spot)), 'https://app.longlines.io/call/KK4PWJ',
+select is(discord_title_url(pg_temp.settings(), (select j from spot)), 'https://longlines.io/call/KK4PWJ',
   'the title links to the profile, by base call');
 select is(discord_title_url(pg_temp.settings('{"title_link": "source"}'), (select j from spot)), 'https://pota.app/#/park/US-2763',
   'or to the spot on the source site');
 select is(discord_title_url(pg_temp.settings('{"title_link": "source"}'), '{"source": "rbn", "callsign": "K1ABC"}'),
-  'https://app.longlines.io/call/K1ABC', 'a source without a page links the profile');
+  'https://longlines.io/call/K1ABC', 'a source without a page links the profile');
 select is(discord_title_url(pg_temp.settings('{"title_link": "none"}'), (select j from spot)), null, 'or nothing');
 
 create temp table long as select (select j from spot) || jsonb_build_object('pota_park_name', repeat('x', 5000)) as j;
@@ -359,7 +359,7 @@ select results_eq($$ select f ->> 'discord_style', f ->> 'discord_title', f ->> 
                             f ->> 'discord_footer', (f ->> 'discord_color')::int, f ->> 'discord_url' from fields $$,
   $$ values ('card'::text, 'KK4PWJ/P · 14.062 MHz · CW'::text, 'POTA · US-2763 · Pisgah National Forest · NC/SC'::text,
              '[{"name": "Band", "value": "20m"}, {"name": "Spotter", "value": "W1AW"}]'::jsonb, 'POTA · 13:45 UTC'::text,
-             3066993, 'https://app.longlines.io/call/KK4PWJ'::text) $$,
+             3066993, 'https://longlines.io/call/KK4PWJ'::text) $$,
   'the default card');
 select is((discord_spot_fields(pg_temp.settings('{"detail_fields": ["state", "spotter"], "show_field_names": true, "separator": "newline"}'),
                                (select j from spot)) ->> 'discord_description'), E'State: NC/SC\nSpotter: W1AW',
@@ -411,7 +411,7 @@ select is((select array_agg(k order by k) from claimed c, jsonb_object_keys(c.sp
   'a Discord spot keeps its documented keys plus the nine discord ones');
 select results_eq(format($$ select spot ->> 'discord_line', (spot ->> 'discord_suppress_embeds')::boolean
                             from claimed where destination ->> 'id' = %L $$, (select id from plain1)),
-  $$ values ('**[KK4PWJ/P](https://app.longlines.io/call/KK4PWJ)**, 14.062 MHz, CW, POTA, US-2763, Pisgah National Forest'::text, true) $$,
+  $$ values ('**[KK4PWJ/P](https://longlines.io/call/KK4PWJ)**, 14.062 MHz, CW, POTA, US-2763, Pisgah National Forest'::text, true) $$,
   'the plain destination''s line, with its separator');
 select ok((select not (destination ? 'discord') and not exists (select 1 from jsonb_object_keys(spot) k where k like 'discord%')
                   and spot ? 'push_title'
@@ -453,8 +453,8 @@ select is(preview_discord_message('{"style": "plain", "separator": "comma"}', (s
   'and the plain one');
 select results_eq($$ select f ->> 'discord_title', f ->> 'discord_line', f ->> 'discord_url'
                      from (select preview_discord_message('{"title_fields": ["callsign", "band"]}') as f) t $$,
-  $$ values ('N0CALL · 20m'::text, '**[N0CALL](https://app.longlines.io/call/N0CALL)** · 14.062 MHz · CW · POTA · US-0000 · Test Park'::text,
-             'https://app.longlines.io/call/N0CALL'::text) $$,
+  $$ values ('N0CALL · 20m'::text, '**[N0CALL](https://longlines.io/call/N0CALL)** · 14.062 MHz · CW · POTA · US-0000 · Test Park'::text,
+             'https://longlines.io/call/N0CALL'::text) $$,
   'without a spot the preview uses the sample spot, with the given settings over the defaults');
 select is((preview_discord_message('{}') ->> 'discord_color')::int, 3066993, 'an empty object is the defaults');
 select throws_ok($$ select preview_discord_message(null, -1) $$, 'P0001', 'Spot not found.', 'an unknown spot');
@@ -470,7 +470,7 @@ select results_eq(format($$ select x -> 'discord' = (select j from defaults), x 
                             from (select discord_test_delivery(%L, %s) as x) t $$, (select id from card1), (select id from s1)),
   format($$ values (true, %L, %L, 'KK4PWJ/P · 14.062 MHz · CW'::text, 'KK4PWJ/P'::text) $$,
          'Test message from Long Lines · ' || (select discord_footer(delivery_spot_json(r)) from raw_spots r where r.id = (select id from s1)),
-         'Test message from Long Lines · **[KK4PWJ/P](https://app.longlines.io/call/KK4PWJ)** · 14.062 MHz · CW · POTA · US-2763 · Pisgah National Forest'),
+         'Test message from Long Lines · **[KK4PWJ/P](https://longlines.io/call/KK4PWJ)** · 14.062 MHz · CW · POTA · US-2763 · Pisgah National Forest'),
   'Send test renders the saved settings for the chosen spot and marks the footer and the line');
 select is((select array_agg(k order by k) from jsonb_object_keys(discord_test_delivery((select id from card1))) k),
   array['discord', 'spot'], 'it returns the settings and the spot');
