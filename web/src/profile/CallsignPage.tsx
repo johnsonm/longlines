@@ -25,6 +25,7 @@ import {
   noLicenseMessage, onAirNow, otherForms, placeLabel, plural, profileUrl, qrzUrl, shortDay, sourceSeries, sourcesDetail,
   spotRows, totalActivations, usStates,
 } from "./format";
+import { ActivityHeatMap } from "./ActivityHeatMap";
 import { Flag } from "./Flag";
 import { LookupForm } from "./LookupForm";
 import type { CallsignProfile, HeardProfile, License } from "./types";
@@ -292,6 +293,8 @@ function Heard({ profile, heard, prefs }: { profile: CallsignProfile; heard: Hea
           <Kpi label="Days at parks/summits/WWFF" value={fmt(totalActivations(heard.activations))} detail={activationsDetail(heard.activations)} />
         </Grid>
       </Grid>
+
+      {heard.calendar && <ActivityHeatMap callsign={profile.callsign} calendar={heard.calendar} />}
 
       <Grid container spacing={2}>
         <Grid size={{ xs: 12, md: 4 }}>

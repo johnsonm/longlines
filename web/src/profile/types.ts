@@ -71,4 +71,22 @@ export type HeardProfile = {
   hunting: { spots: number; sources: { source: string; spots: number }[] }; // spots it posted for others, self-spots excluded, through the last rolled-up day
   heardBy: { spotter: string; spots: number; bestSnr: number | null; topBand: string | null }[]; // top 10 over the last 7 days, self-spots excluded
   recentSpots: ProfileSpot[]; // newest 25 from the last 7 days
+  calendar?: Calendar; // the year heat map; absent from profiles cached before 20261019000300
+};
+
+// The year heat map, from callsign_days plus the live days: every source but APRS-IS.
+export type Calendar = {
+  days: { day: string; spots: number; sources: Record<string, number> }[]; // every UTC day with a spot, oldest first; days without one are absent
+  periods: CalendarPeriod[]; // "past" first, then each year since first heard, newest first
+};
+
+export type CalendarPeriod = {
+  period: string; // "past" (the 365 days ending today) or a year, "2026"
+  from: string; // the grid's first day, YYYY-MM-DD
+  to: string; // its last: today for "past", 31 December for a year
+  days: number; // days from `from` through today or `to`, whichever is first: "179 of 365"
+  spots: number;
+  daysOnAir: number;
+  longestStreak: number; // most consecutive days with a spot
+  busiest: { day: string; spots: number } | null; // the later day on a tie; null without spots
 };

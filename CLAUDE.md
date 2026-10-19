@@ -493,6 +493,11 @@ The delivery side (retries, pause, attempts, rendering, Vault) is in "Delivery r
   `web/src/profile/types.ts`, pinned by `supabase/tests/callsign_profile.test.sql`; change the SQL,
   the type and the test together. It is not granted to clients: the public `callsign-profile`
   function reads it through `cached_callsign_profile` after `record_profile_lookup`.
+- The year heat map (`heard.calendar`, canvas page 9) reads `callsign_days` plus the live days,
+  never `callsign_activity` (compacted) and never APRS-IS. Its periods (past 365 days, then each
+  year since first heard) and their figures (days on the air, longest streak, busiest day) are
+  SQL's; `web/src/profile/calendar.ts` only places days in week columns and words them. The level
+  bounds are fixed in `HEAT_LEVELS` and the legend copy says them; change both together.
 - Live reads of `spot_stream` filter on `base_callsign` and `spot_time`, so `raw_spots` and the
   `rbn_spots` expression index both serve them. Group by spotter before calling `base_callsign()`
   or `cty_lookup()` on spotters.

@@ -185,6 +185,18 @@ describe("CallsignPage profile", () => {
     }
   });
 
+  it("shows the year heat map after the figures", () => {
+    renderAt("/call/KK4PWJ");
+    expect(screen.getByRole("img", { name: /^Heat map of spots heard per day/ })).toBeInTheDocument();
+    expect(screen.getByText("Activity over the past year")).toBeInTheDocument();
+  });
+
+  it("leaves the heat map out of a profile cached before it existed", () => {
+    profileIs({ ...FULL, heard: { ...HEARD, calendar: undefined } });
+    renderAt("/call/KK4PWJ");
+    expect(screen.queryByText("Activity over the past year")).not.toBeInTheDocument();
+  });
+
   it("shows only the frequency and mode when the last spot is older than the recent spots", () => {
     profileIs({ ...FULL, heard: { ...HEARD, recentSpots: [] } });
     renderAt("/call/KK4PWJ");

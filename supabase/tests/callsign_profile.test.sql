@@ -1,9 +1,10 @@
 -- pgTAP: callsign_profile() and its cache, rate limit and prune (20261012000060, recentSpots order
 -- 20261012000100, cache build lock 20261012000130).
+-- calendar 20261019000300.
 -- Pins the payload shape: CallsignProfile in web/src/profile/types.ts.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(77);
+select plan(88);
 
 create or replace function pg_temp.d(p_offset int) returns date language sql as $$
   select (now() at time zone 'utc')::date + p_offset;
@@ -109,12 +110,17 @@ select is(pg_temp.keys((select v -> 'license' from p)),
   array['authority', 'expiresOn', 'grantedOn', 'name', 'operatorClass', 'state', 'status'], 'license keys');
 select is(pg_temp.keys((select v -> 'country' from p)), array['continent', 'name'], 'country keys');
 select is(pg_temp.keys(pg_temp.h()),
-  array['activations', 'activationsByLocation', 'bands', 'continents', 'countries', 'daily', 'daysOnAir',
+  array['activations', 'activationsByLocation', 'bands', 'calendar', 'continents', 'countries', 'daily', 'daysOnAir',
         'firstHeard', 'heardBy', 'hours', 'hunting', 'lastHeard', 'modes', 'monthly', 'reach', 'recentSpots',
         'references', 'sources', 'spots', 'variants'], 'heard keys');
 select is(pg_temp.keys(pg_temp.h() -> 'lastHeard'), array['frequencyKhz', 'mode', 'time'], 'lastHeard keys');
 select is(pg_temp.keys(pg_temp.h() -> 'monthly' -> 0), array['month', 'sources', 'spots'], 'monthly entry keys');
 select is(pg_temp.keys(pg_temp.h() -> 'daily' -> 0), array['day', 'sources', 'spots'], 'daily entry keys');
+select is(pg_temp.keys(pg_temp.h() -> 'calendar'), array['days', 'periods'], 'calendar keys');
+select is(pg_temp.keys(pg_temp.h() #> '{calendar,days,0}'), array['day', 'sources', 'spots'], 'calendar day keys');
+select is(pg_temp.keys(pg_temp.h() #> '{calendar,periods,0}'),
+  array['busiest', 'days', 'daysOnAir', 'from', 'longestStreak', 'period', 'spots', 'to'], 'calendar period keys');
+select is(pg_temp.keys(pg_temp.h() #> '{calendar,periods,0,busiest}'), array['day', 'spots'], 'busiest day keys');
 select is(pg_temp.keys(pg_temp.h() -> 'bands' -> 0), array['band', 'spots'], 'band entry keys');
 select is(pg_temp.keys(pg_temp.h() -> 'modes' -> 0), array['label', 'percent', 'spots'], 'mode entry keys');
 select is(pg_temp.keys(pg_temp.h() -> 'sources' -> 0), array['source', 'spots'], 'source entry keys');
@@ -209,6 +215,56 @@ select is((select (min(e ->> 'month'), max(e ->> 'month'), sum((e ->> 'spots')::
            from jsonb_array_elements(pg_temp.h() -> 'monthly') e),
   (to_char(pg_temp.d(-4), 'YYYY-MM'), to_char(pg_temp.d(0), 'YYYY-MM'), 9)::text,
   'monthly: first month heard through this month');
+
+-- The heat map's days: callsign_days for day -4, the live days -2 and today; only days with spots.
+select is(pg_temp.h() #> '{calendar,days}',
+  jsonb_build_array(
+    jsonb_build_object('day', pg_temp.d(-4), 'spots', 5, 'sources', '{"pota": 2, "rbn": 2, "sotawatch": 1}'::jsonb),
+    jsonb_build_object('day', pg_temp.d(-2), 'spots', 3, 'sources', '{"pota": 2, "rbn": 1}'::jsonb),
+    jsonb_build_object('day', pg_temp.d(0), 'spots', 1, 'sources', '{"rbn": 1}'::jsonb)),
+  'calendar days: rolled-up and live days with spots, oldest first');
+select is(pg_temp.h() #> '{calendar,periods,0}',
+  jsonb_build_object('period', 'past', 'from', pg_temp.d(-364), 'to', pg_temp.d(0), 'days', 365, 'spots', 9,
+                     'daysOnAir', 3, 'longestStreak', 1,
+                     'busiest', jsonb_build_object('day', pg_temp.d(-4), 'spots', 5)),
+  'calendar: the past 365 days come first');
+select is((select array_agg(e ->> 'period' order by o)
+           from jsonb_array_elements(pg_temp.h() #> '{calendar,periods}') with ordinality as t(e, o) where o > 1),
+  (select array_agg(y::text order by y desc)
+   from generate_series(extract(year from pg_temp.d(-4))::int, extract(year from pg_temp.d(0))::int) as y),
+  'calendar: then each year since first heard, newest first');
+
+-- A station heard in runs: callsign_days rows (one over a year ago) plus a live spot today.
+insert into callsign_days (base, day, source, spots, modes, bands)
+values ('K9CAL', pg_temp.d(-370), 'pota', 4, '{ssb}', '{20m}'),
+       ('K9CAL', pg_temp.d(-10), 'pota', 7, '{ssb}', '{20m}'),
+       ('K9CAL', pg_temp.d(-9), 'rbn', 2, '{cw}', '{40m}'),
+       ('K9CAL', pg_temp.d(-8), 'pota', 3, '{ssb}', '{20m}'),
+       ('K9CAL', pg_temp.d(-8), 'rbn', 4, '{cw}', '{20m}'),
+       ('K9CAL', pg_temp.d(-5), 'wwff', 1, '{ssb}', '{20m}');
+select pg_temp.raw('pota', 'c1', pg_temp.at(0, '00:00:02'), 'K9CAL', 'W1AW', 14250, '20m', 'ssb', 'phone');
+create temp table cal as select callsign_profile('K9CAL') #> '{heard,calendar}' as v;
+select is((select v #> '{days,3}' from cal),
+  jsonb_build_object('day', pg_temp.d(-8), 'spots', 7, 'sources', '{"pota": 3, "rbn": 4}'::jsonb),
+  'calendar: a day''s sources are summed');
+select is((select v #> '{periods,0}' from cal),
+  jsonb_build_object('period', 'past', 'from', pg_temp.d(-364), 'to', pg_temp.d(0), 'days', 365, 'spots', 18,
+                     'daysOnAir', 5, 'longestStreak', 3,
+                     'busiest', jsonb_build_object('day', pg_temp.d(-8), 'spots', 7)),
+  'calendar: the past year leaves out older days, counts the longest run and breaks a busiest tie by the later day');
+select is((select (e ->> 'from', e ->> 'to', (e ->> 'days')::int, (e ->> 'spots')::int)::text
+           from cal cross join lateral jsonb_array_elements(v -> 'periods') e
+           where e ->> 'period' = extract(year from pg_temp.d(-370))::text),
+  (make_date(extract(year from pg_temp.d(-370))::int, 1, 1), make_date(extract(year from pg_temp.d(-370))::int, 12, 31),
+   make_date(extract(year from pg_temp.d(-370))::int, 12, 31) - make_date(extract(year from pg_temp.d(-370))::int, 1, 1) + 1,
+   4)::text,
+  'calendar: a past year runs 1 January to 31 December');
+select is((select (e ->> 'to', (e ->> 'days')::int)::text
+           from cal cross join lateral jsonb_array_elements(v -> 'periods') e
+           where e ->> 'period' = extract(year from pg_temp.d(0))::text),
+  (make_date(extract(year from pg_temp.d(0))::int, 12, 31),
+   pg_temp.d(0) - make_date(extract(year from pg_temp.d(0))::int, 1, 1) + 1)::text,
+  'calendar: this year''s grid runs to 31 December, its days to today');
 
 -- Once day -2 is rolled up, the profile reads the same: the live read and the rollup agree.
 select is(rollup_callsign_day(pg_temp.d(-2)), 5::bigint, 'day -2 is rolled up');
