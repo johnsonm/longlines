@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { DiscordSettings, PushSettings } from "./api";
+import type { DiscordSettings, PushSettings, WebhookSettings } from "./api";
 
 type Result = { data?: unknown; error?: { message: string; code?: string } | null };
 
@@ -121,6 +121,17 @@ describe("Edge Function calls", () => {
     expect(JSON.parse(calls[0]![1].body as string)).toEqual({ destination_id: "d1", spot_id: 42 });
     expect(JSON.parse(calls[1]![1].body as string)).toEqual({ destination_id: "d1" });
   });
+
+  it("sendTest returns a webhook receiver's status, or null when the answer has none", async () => {
+    respond(200, { ok: true, status: 204 });
+    expect(await api.sendTest("d1")).toEqual({ status: 204 });
+    respond(200, { ok: true });
+    expect(await api.sendTest("d1")).toEqual({ status: null });
+    respond(502, { error: "Webhook HTTP 500", status: 500 });
+    await expect(api.sendTest("d1")).rejects.toMatchObject({ message: "Webhook HTTP 500", code: "502", receiverStatus: 500 });
+    respond(502, { error: "Webhook request failed: refused", status: "x" });
+    await expect(api.sendTest("d1")).rejects.toMatchObject({ code: "502", receiverStatus: undefined });
+  });
 });
 
 describe("auth wrappers", () => {
@@ -241,22 +252,8 @@ describe("sources and destinations", () => {
     expect(select?.[2][0]).toBe(api.DESTINATION_COLUMNS);
     expect(api.DESTINATION_COLUMNS).not.toMatch(/signing_secret|\burl\b/);
     expect(api.DESTINATION_COLUMNS).toMatch(/\benabled\b/);
-  });
-
-  it("createDestination returns the created row or fails", async () => {
-    const row = { id: "d1", type: "webhook", name: "n", url_display: "x", signing_secret: "s" };
-    fake.rpcs.set("create_destination", { data: [row] });
-    expect(await api.createDestination("webhook", "n", "https://x")).toEqual(row);
-    fake.rpcs.set("create_destination", { data: [] });
-    await expect(api.createDestination("webhook", "n", "https://x")).rejects.toThrow("Couldn't add the destination.");
-    fake.rpcs.set("create_destination", { error: boom });
-    await expect(api.createDestination("webhook", "n", "https://x")).rejects.toThrow("boom");
-  });
-
-  it("createDestination sends a null URL for push", async () => {
-    fake.rpcs.set("create_destination", { data: [{ id: "p1", type: "push", name: "Phone", url_display: "Your devices", signing_secret: null }] });
-    expect((await api.createDestination("push", "Phone", null)).type).toBe("push");
-    expect(fake.client.rpc).toHaveBeenLastCalledWith("create_destination", { p_type: "push", p_name: "Phone", p_url: null });
+    expect(api.DESTINATION_COLUMNS).toMatch(/\bauto_disabled_at\b/);
+    expect(api.DESTINATION_COLUMNS).not.toMatch(/secret_rotated_at|pause_failure/);
   });
 
   it("rotateSigningSecret returns the new secret", async () => {
@@ -437,6 +434,85 @@ describe("discord", () => {
     await expect(api.previewDiscordMessage(settings, null)).rejects.toThrow("Couldn't load the preview.");
     fake.rpcs.set("preview_discord_message", { error: { message: "Pick 1 to 8 fields for the message." } });
     await expect(api.previewDiscordMessage(settings, null)).rejects.toThrow("Pick 1 to 8 fields for the message.");
+  });
+});
+
+describe("webhook", () => {
+  const settings: WebhookSettings = {
+    fields: ["id", "time", "callsign"], key_style: "snake", time_format: "iso_utc", frequency_unit: "khz", missing_values: "omit",
+    batch_seconds: 0, retry_policy: "three_10m", pause_after_failures: 20,
+  };
+
+  it("saveWebhookDestination creates and returns the secret once", async () => {
+    fake.rpcs.set("save_webhook_destination", { data: [{ id: "w1", signing_secret: "whsec_abc" }] });
+    const url = "https://logger.example.org/hook/abc123";
+    const headers = [{ name: "Authorization", value: "Bearer x" }];
+    expect(await api.saveWebhookDestination({ name: "Logger", enabled: true, url, settings, headers }))
+      .toEqual({ id: "w1", signingSecret: "whsec_abc" });
+    expect(fake.client.rpc).toHaveBeenLastCalledWith("save_webhook_destination", {
+      p_id: null, p_name: "Logger", p_enabled: true, p_url: url, p_settings: settings, p_headers: headers,
+    });
+  });
+
+  it("saveWebhookDestination updates with a null URL, sends saved headers without values and null headers as null", async () => {
+    fake.rpcs.set("save_webhook_destination", { data: [{ id: "w1", signing_secret: null }] });
+    expect(await api.saveWebhookDestination({
+      id: "w1", name: "Logger", enabled: false, url: null, settings, headers: [{ name: "Authorization" }, { name: "X-Key", value: "k" }],
+    })).toEqual({ id: "w1", signingSecret: null });
+    expect(fake.client.rpc).toHaveBeenLastCalledWith("save_webhook_destination", {
+      p_id: "w1", p_name: "Logger", p_enabled: false, p_url: null, p_settings: settings,
+      p_headers: [{ name: "Authorization" }, { name: "X-Key", value: "k" }],
+    });
+    await api.saveWebhookDestination({ id: "w1", name: "Logger", enabled: true, url: null, settings, headers: null });
+    expect(fake.client.rpc).toHaveBeenLastCalledWith("save_webhook_destination", expect.objectContaining({ p_headers: null }));
+  });
+
+  it("saveWebhookDestination surfaces SQL's message or falls back", async () => {
+    const input = { name: "Logger", enabled: true, url: "http://x", settings, headers: [] };
+    fake.rpcs.set("save_webhook_destination", { error: { message: "Use an https URL." } });
+    await expect(api.saveWebhookDestination(input)).rejects.toThrow("Use an https URL.");
+    fake.rpcs.set("save_webhook_destination", { error: { message: "" } });
+    await expect(api.saveWebhookDestination(input)).rejects.toThrow("Couldn't save the destination.");
+    fake.rpcs.set("save_webhook_destination", { data: [] });
+    await expect(api.saveWebhookDestination(input)).rejects.toThrow("Couldn't save the destination.");
+  });
+
+  it("getWebhookDestination returns the RPC's json", async () => {
+    const dest = {
+      id: "w1", name: "Logger", enabled: true, url_display: "https://logger.example.org/hook/••••••", settings,
+      headers: [{ name: "Authorization" }], secret_rotated_at: "2026-10-06T14:02:11Z", auto_disabled_at: null,
+    };
+    fake.rpcs.set("get_webhook_destination", { data: dest });
+    expect(await api.getWebhookDestination("w1")).toEqual(dest);
+    expect(fake.client.rpc).toHaveBeenLastCalledWith("get_webhook_destination", { p_id: "w1" });
+    fake.rpcs.set("get_webhook_destination", { error: { message: "Destination not found." } });
+    await expect(api.getWebhookDestination("w1")).rejects.toThrow("Destination not found.");
+  });
+
+  it("listWebhookDestinationSettings returns the rows, or none", async () => {
+    const rows = [{ destination_id: "w1", field_count: 11, batch_seconds: 0 }];
+    fake.rpcs.set("list_webhook_destination_settings", { data: rows });
+    expect(await api.listWebhookDestinationSettings()).toEqual(rows);
+    expect(fake.client.rpc).toHaveBeenLastCalledWith("list_webhook_destination_settings");
+    fake.rpcs.set("list_webhook_destination_settings", { data: null });
+    expect(await api.listWebhookDestinationSettings()).toEqual([]);
+    fake.rpcs.set("list_webhook_destination_settings", { error: boom });
+    await expect(api.listWebhookDestinationSettings()).rejects.toThrow("boom");
+  });
+
+  it("previewWebhookRequest sends the settings, spot and destination only when set, and keeps the body's key order", async () => {
+    const body = { delivery_id: 0, connection: "Example connection", spot: { time: "2026-10-17T17:42:09Z", id: 1, callsign: "KK4PWJ" } };
+    fake.rpcs.set("preview_webhook_request", { data: body });
+    const got = await api.previewWebhookRequest(settings, 42, "w1");
+    expect(got).toEqual(body);
+    expect(Object.keys((got as typeof body).spot)).toEqual(["time", "id", "callsign"]);
+    expect(fake.client.rpc).toHaveBeenLastCalledWith("preview_webhook_request", { p_settings: settings, p_spot_id: 42, p_destination_id: "w1" });
+    await api.previewWebhookRequest(settings, null, null);
+    expect(fake.client.rpc).toHaveBeenLastCalledWith("preview_webhook_request", { p_settings: settings });
+    fake.rpcs.set("preview_webhook_request", { data: null });
+    await expect(api.previewWebhookRequest(settings, null, null)).rejects.toThrow("Couldn't load the preview.");
+    fake.rpcs.set("preview_webhook_request", { error: { message: "Pick at least one field." } });
+    await expect(api.previewWebhookRequest(settings, null, null)).rejects.toThrow("Pick at least one field.");
   });
 });
 

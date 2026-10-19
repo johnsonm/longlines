@@ -195,6 +195,9 @@ listed here comes from Copy at the end of this file.
 - Blocked alert: {device} cannot receive notifications · Notifications are blocked for longlines.io in {agent} on that device. Allow them in the browser site settings, or remove the device from {destination}. · Action: Manage devices
 - Card type lines: Discord channel · Webhook · Push notification
 - Card meta: used by {N} subscription(s) · Last delivery {age} ago | not used by any subscription · Never used | Last delivery failed {age} ago
+  *(Amended 2026-10-18: the meta line and the Delete tooltip follow decision 17 of
+  `2026-10-18-webhook-destination-design.md` for every type: "Used by {N} connection(s)" / "Not
+  used by any connection", capitalized, with a singular tooltip.)*
 - Push card chip when blocked: {N} device(s) blocked; device chip: {label} (blocked)
 - Actions: Send test · Edit · Duplicate · Delete; Delete tooltip: Used by {N} subscriptions. Remove it from them first.
 - Toasts: Added {name} · Saved changes · Duplicated {name} · Deleted {name} · Test spot sent to {name}

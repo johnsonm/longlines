@@ -271,6 +271,9 @@ listed comes from the push spec's Copy.
 **Destinations page**
 - Card type line: Discord channel · Card · {N} fields | Discord channel · Plain line · {N} fields
 - Card: the masked URL in a code block; meta as today; actions Send test · Edit · Duplicate · Delete
+  *(Amended 2026-10-18: the meta line follows decision 17 of
+  `2026-10-18-webhook-destination-design.md`, "Used by {N} connection(s)" / "Not used by any
+  connection", capitalized for every type.)*
 - Toasts: Added {name} · Saved changes · Duplicated {name} · Test spot sent to {name}
 
 **Discord destination editor**

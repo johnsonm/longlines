@@ -167,9 +167,9 @@ spots are sent again afterwards, and nothing counts as a failure or an attempt.
 **Health.** Five failed requests in a row mark the destination "Failing" in the app; the next
 success clears it.
 
-**Pause after repeated failures** (off by default for now; the app's webhook editor, coming
-next, turns it on for new destinations): after 20 failed requests in a row the destination is
-turned off. Failures count toward the pause at most once every 30
+**Pause after repeated failures** (on by default for new destinations; webhooks added before
+the editor shipped keep it off until it is turned on in the editor): after 20 failed requests in a
+row the destination is turned off. Failures count toward the pause at most once every 30
 seconds, so 20 take at least about 10 minutes of failing; a short outage such as a deploy does not
 pause a busy destination. A success starts the count again. When it pauses, the spots waiting to
 be sent are dropped and no new ones are queued. The app shows when it paused; turn Enabled back on

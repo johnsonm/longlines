@@ -43,7 +43,7 @@ const HOOK = "https://discord.com/api/webhooks/123/abc";
 function dest(id: string, overrides: Partial<Destination> = {}): Destination {
   return {
     id, user_id: "u1", type: "discord", name: `Dest ${id}`, enabled: true, url_display: "https://discord.com/api/webhooks/…", health: "ok",
-    consecutive_failures: 0, last_success_at: null, last_error: null, last_error_at: null, created_at: "2026-10-01T00:00:00Z",
+    consecutive_failures: 0, last_success_at: null, last_error: null, last_error_at: null, created_at: "2026-10-01T00:00:00Z", auto_disabled_at: null,
     ...overrides,
   };
 }

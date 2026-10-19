@@ -203,8 +203,9 @@ deploys automatically.
   sets `enabled = false` and `auto_disabled_at`, and makes every queued row of it visible (vt 0,
   rows in retry backoff included). While `auto_disabled_at` is set the claim's unwanted sweep drops
   the queue with `dropped_at`, so nothing is left to deliver on resume; `update_destination`
-  turning it on clears it. `webhook_default_settings()` keeps the pause null until the web editor
-  ships, since the old app can neither show nor undo a pause.
+  turning it on clears it, so the editor sends Enabled only when the switch changed from what it
+  loaded (null otherwise) and a pause since load is never resumed silently. `webhook_default_settings()` sets the pause to 20 (`20261018000400`,
+  shipped with the editor that shows and undoes a pause); backfilled webhooks keep it null.
 - The webhook body is rendered in SQL (`webhook_spot_fields`, ordered `[{key, value}]` pairs in
   the claim's `spot.webhook_fields`); `format.ts` only builds the object in that order and never
   formats, converts or names a value. A row without the keys gets the legacy `{deliveries}` body
@@ -250,8 +251,40 @@ its Copy section is the copy source for the Discord editor.
   Discord does, and matches link text by Discord's grammar, which ignores escapes; its tests pin real `preview_discord_message` output for hostile spots.
 - The editor's default settings are pinned to `discord_default_settings()` by
   `discordModel.test.ts`; change the SQL and `discordModel.ts` together.
-- The field picker is the generic `FieldPicker`, shared with push's notification content card;
-  never fork it per destination type.
+- The field picker is the generic `FieldPicker`, shared with push's notification content card
+  and the webhook Payload card; never fork it per destination type.
+
+## Webhook rules
+
+The design is `docs/superpowers/specs/2026-10-18-webhook-destination-design.md` (canvas page 7);
+its Copy section is the copy source for the webhook editor and the "Destination added" dialog.
+The delivery side (retries, pause, attempts, rendering, Vault) is in "Delivery rules".
+
+- A webhook body is an ordered pick of fields with fixed key names, never a template or free
+  text. Settings live in `webhook_destination_settings` (RLS on, no policies, no client grants,
+  a row made by trigger) and are written only by `save_webhook_destination`, validated by
+  `validate_webhook_settings`. Extra headers are rows of `webhook_destination_headers` whose
+  values are Vault secrets, written only by `set_webhook_headers` (at most 10; an item without a
+  value keeps the stored one by name, a renamed header needs one). Clients and the API only ever
+  get header names; the editor never receives a value, a URL or the secret.
+- SQL names and renders every key and value (`webhook_spot_fields` pairs). The preview
+  (`preview_webhook_request`) and the test (`webhook_test_delivery`) call the same renderer and
+  build with `json`, not `jsonb`, so key order survives; the editor pretty-prints the parsed body
+  as it comes. `webhookKey` in `webhookModel.ts` names keys for display only.
+- Pacing and policy are SQL's knobs: the batch hold (`batch_seconds`, released early at
+  `destination_batch_full('webhook')`, 50), `webhook_claim_max` (5 a claim for one request per
+  spot), the retry policy (`webhook_retry_delay`, `webhook_retry_max_attempts`, and
+  `webhook_retries_exhausted` shared by the sweep and `ready`) and the spaced pause count. A pause
+  is `enabled = false` plus `auto_disabled_at`, never `health`; the card's chip says Paused and the
+  editor says when, whatever the pause switch now says.
+- The reserved header list is in `webhook_header_name_valid` and `WEBHOOK_RESERVED_HEADERS`;
+  change both together.
+- The secret is shown once, from `save_webhook_destination` on create and `rotate_signing_secret`,
+  in `SigningSecretDialog` (Done gated by its checkbox, no backdrop or Escape close). Never show
+  any part of it again; the editor shows `whsec_••••••••` and `secret_rotated_at`.
+- The editor's default settings are pinned to `webhook_default_settings()` by
+  `webhookModel.test.ts`; change the SQL and `webhookModel.ts` together. The field list is the
+  generic `FieldPicker` with `keyOf` and `addAs="chips"`; never fork it.
 
 ## Web app rules
 

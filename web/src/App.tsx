@@ -16,6 +16,7 @@ import { SourceDetailPage } from "./sources/SourceDetailPage";
 import { DestinationsPage } from "./destinations/DestinationsPage";
 import { PushDestinationPage } from "./destinations/PushDestinationPage";
 import { DiscordDestinationPage } from "./destinations/DiscordDestinationPage";
+import { WebhookDestinationPage } from "./destinations/WebhookDestinationPage";
 import { SubscriptionsPage } from "./subscriptions/SubscriptionsPage";
 import { SubscriptionEditorPage } from "./subscriptions/SubscriptionEditorPage";
 import { GroupsPage } from "./groups/GroupsPage";
@@ -161,14 +162,15 @@ function SubscriptionRoute(props: Omit<ComponentProps<typeof SubscriptionEditorP
 
 /**
  * The destination editors likewise, picked by type: a Discord id or ?type=discord opens the Discord
- * editor, a push id or ?type=push the push editor. Anything else (a webhook, an unknown id) goes back
- * to the list once the destinations have loaded.
+ * editor, a webhook id or ?type=webhook the webhook editor, a push id or ?type=push the push editor.
+ * Anything else (an unknown id or type) goes back to the list once the destinations have loaded.
  */
 function DestinationRoute(props: Omit<ComponentProps<typeof PushDestinationPage>, "id" | "type">) {
   const { id } = useParams();
   const [search] = useSearchParams();
   const kind = id ? props.dests.find((d) => d.id === id)?.type : search.get("type");
   if (kind === "discord") return <DiscordDestinationPage {...props} id={id} type={search.get("type")} />;
+  if (kind === "webhook") return <WebhookDestinationPage {...props} id={id} type={search.get("type")} />;
   if (kind === "push") return <PushDestinationPage {...props} id={id} type={search.get("type")} />;
   if (id && kind === undefined && props.loading) return <LinearProgress />;
   return <Navigate to="/destinations" replace />;

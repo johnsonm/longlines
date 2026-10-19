@@ -42,6 +42,9 @@ vi.mock("./destinations/PushDestinationPage", () => ({
 vi.mock("./destinations/DiscordDestinationPage", () => ({
   DiscordDestinationPage: ({ id, type }: { id?: string; type?: string | null }) => <p>discord editor {id ?? "new"} {type ?? "none"}</p>,
 }));
+vi.mock("./destinations/WebhookDestinationPage", () => ({
+  WebhookDestinationPage: ({ id, type }: { id?: string; type?: string | null }) => <p>webhook editor {id ?? "new"} {type ?? "none"}</p>,
+}));
 vi.mock("./subscriptions/SubscriptionsPage", () => ({
   SubscriptionsPage: ({ subs }: { subs: unknown[] }) => <p>subscriptions page {subs.length}</p>,
 }));
@@ -228,7 +231,9 @@ describe("App routing", () => {
   it.each([
     ["/destinations/new?type=discord", "discord editor new discord"],
     ["/destinations/new?type=push", "push editor new push"],
+    ["/destinations/new?type=webhook", "webhook editor new webhook"],
     ["/destinations/dc", "discord editor dc none"],
+    ["/destinations/dw", "webhook editor dw none"],
     ["/destinations/dp", "push editor dp none"],
   ])("routes %s to the editor for its type", async (path, text) => {
     vi.mocked(loadDestinations).mockResolvedValue([
@@ -238,7 +243,7 @@ describe("App routing", () => {
     expect(await screen.findByText(text)).toBeInTheDocument();
   });
 
-  it.each(["/destinations/new", "/destinations/new?type=webhook", "/destinations/dw", "/destinations/missing"])(
+  it.each(["/destinations/new", "/destinations/new?type=email", "/destinations/missing"])(
     "sends %s back to the list",
     async (path) => {
       vi.mocked(loadDestinations).mockResolvedValue([{ ...DEST, id: "dw", type: "webhook" }]);
