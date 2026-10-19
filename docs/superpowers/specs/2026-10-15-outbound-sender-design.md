@@ -326,6 +326,10 @@ Discord and push hosts allowlisted. Changes:
 
 ## 9. Phase 2 outline (planned separately after Phase 1)
 
+*Superseded 2026-10-18 for 9A's webhook body: requests follow canvas page 7
+(`{delivery_id, connection, spot}`, or `{spots: [...]}` when grouped), not the `{deliveries: [...]}`
+envelope; see `2026-10-18-webhook-destination-design.md`.*
+
 A. One webhook request per event (Brad's original ask); envelope kept; Discord stays batched;
 push loses its summary branch. B. In-memory retry layer and cycle pipelining. C. Health and
 auto-disable with `failing_since`, a `disabled` state, `resume_destination`, `register_push_device`
