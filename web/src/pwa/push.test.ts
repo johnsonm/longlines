@@ -346,6 +346,49 @@ describe("refreshPushRegistration", () => {
     expect(currentEndpoint(env)).toBeNull();
   });
 
+  it("subscribes again when granted with no subscription, keeping the remembered device", async () => {
+    const old = "https://fcm.googleapis.com/fcm/send/old";
+    const { env, pushManager } = fakeEnv({ storage: memoryStorage({ [ENDPOINT_KEY]: old }) });
+    await refreshPushRegistration(env);
+    expect(listPushDevices).toHaveBeenCalledWith(old);
+    expect(pushManager.subscribe).toHaveBeenCalledWith({ userVisibleOnly: true, applicationServerKey: base64UrlToBytes(KEY) });
+    expect(registerPushDevice).toHaveBeenCalledWith(
+      { endpoint: "https://fcm.googleapis.com/fcm/send/abc", p256dh: "p256", auth: "auth16" }, null, null, null, old,
+    );
+    expect(currentEndpoint(env)).toBe("https://fcm.googleapis.com/fcm/send/abc");
+  });
+
+  it("forgets a lost subscription's device the account no longer lists instead of subscribing", async () => {
+    vi.mocked(listPushDevices).mockResolvedValue(listed(false));
+    const { env, pushManager } = fakeEnv({ storage: memoryStorage({ [ENDPOINT_KEY]: "https://fcm.googleapis.com/fcm/send/old" }) });
+    await refreshPushRegistration(env);
+    expect(pushManager.subscribe).not.toHaveBeenCalled();
+    expect(registerPushDevice).not.toHaveBeenCalled();
+    expect(currentEndpoint(env)).toBeNull();
+  });
+
+  it("undoes the new subscription when registering it fails, and resolves", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    vi.mocked(registerPushDevice).mockRejectedValue(new Error("Sign in again."));
+    const made = subscription("https://fcm.googleapis.com/fcm/send/new");
+    const old = "https://fcm.googleapis.com/fcm/send/old";
+    const { env, pushManager } = fakeEnv({ storage: memoryStorage({ [ENDPOINT_KEY]: old }) });
+    pushManager.subscribe.mockResolvedValue(made);
+    await expect(refreshPushRegistration(env)).resolves.toBeUndefined();
+    expect(made.unsubscribe).toHaveBeenCalled();
+    expect(currentEndpoint(env)).toBe(old);
+    expect(warn).toHaveBeenCalledWith("Push registration refresh failed", expect.any(Error));
+  });
+
+  it("does nothing when the service worker never becomes active", async () => {
+    const { env } = fakeEnv({
+      serviceWorker: { ready: new Promise(() => undefined) }, readyTimeoutMs: 1,
+      storage: memoryStorage({ [ENDPOINT_KEY]: "https://fcm.googleapis.com/fcm/send/old" }),
+    });
+    await refreshPushRegistration(env);
+    expect(listPushDevices).not.toHaveBeenCalled();
+  });
+
   it("reports the remembered endpoint blocked when denied", async () => {
     const { env } = fakeEnv({
       notification: { permission: "denied", requestPermission: vi.fn() },

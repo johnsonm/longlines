@@ -7,11 +7,17 @@ import DeleteIcon from "@mui/icons-material/Delete";
 import { Link as RouterLink } from "react-router";
 import type { SubscriptionInput } from "../lib/api";
 import type { CallsignGroup } from "../groups/types";
+import { splitCallsigns } from "../groups/parse";
 import { BANDS, MODES, modeLabel, type SourceInfo } from "../sources/sources";
 import {
   fieldInfo, fieldsFor, MAX_RULES, needsCallsign, newRow, opLabel, QUIET_OPTIONS, rowInvalid, rulesOf, withField,
   type Join, type RuleField, type RuleOp, type RuleRow,
 } from "./model";
+
+/** Upper-cased calls, with pasted lists split on spaces, commas and semicolons as the group editor does. */
+function callValues(values: string[]): string[] {
+  return [...new Set(values.flatMap((v) => splitCallsigns(v.toUpperCase())))];
+}
 
 interface Props {
   sub: SubscriptionInput;
@@ -80,8 +86,10 @@ export function FilterStep({ sub, setSub, rows, setRows, groups, groupsFailed, p
       case "callsign":
         return (
           <Autocomplete
-            multiple freeSolo options={[] as string[]} value={row.values}
-            onChange={(_e, v) => set(v.map((x) => x.toUpperCase().trim()).filter(Boolean))}
+            // autoSelect commits text left in the field on blur, so a call typed without Enter is
+            // not dropped on Save (a dropped call can widen the connection to every spot).
+            multiple freeSolo autoSelect options={[] as string[]} value={row.values}
+            onChange={(_e, v) => set(callValues(v))}
             renderInput={(p) => <TextField {...p} label={label} placeholder="Type a call" error={missingCall && row.op === "is"} />}
           />
         );

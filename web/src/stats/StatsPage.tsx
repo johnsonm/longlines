@@ -116,7 +116,9 @@ function Dashboard({ payload }: { payload: StatsPayload }) {
   const wwffPrograms = payload.wwffPrograms ?? [];
   const hourly = payload.hourly ?? [];
   const hours = hourly.map((h) => new Date(h.hour));
-  const hourTotals = hourly.map((h) => h.pota + h.sota + (h.wwff ?? 0) + h.rbn + (h.aprs ?? 0));
+  // "All sources combined" includes DX Cluster, which the week's totals leave out on purpose; dx is
+  // missing from a snapshot written before 20261014000200.
+  const hourTotals = hourly.map((h) => h.pota + h.sota + (h.wwff ?? 0) + h.rbn + (h.aprs ?? 0) + (h.dx ?? 0));
   // Midnight ticks; every other day on phones so the labels do not collide.
   const midnights = midnightTicks(hours, mobile);
   const processed = payload.totals.spots + rbn.spots + aprs.packets;

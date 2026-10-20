@@ -7,7 +7,7 @@
 import type {
   WebhookDestination, WebhookDestinationInput, WebhookField, WebhookHeaderInput, WebhookSettings,
 } from "../lib/api";
-import { labelOf, type FieldInfo, type Option } from "./fieldList";
+import type { FieldInfo, Option } from "./fieldList";
 
 export { sendTestBlocker } from "./discordModel";
 
@@ -28,10 +28,6 @@ export const WEBHOOK_FIELDS: FieldInfo<WebhookField>[] = [
   { id: "url", label: "Spot URL" },
   { id: "comment", label: "Comment (free text)" },
 ];
-
-export function webhookFieldLabel(id: WebhookField): string {
-  return labelOf(WEBHOOK_FIELDS, id);
-}
 
 /** webhook_fields_valid()'s limits, checked again in SQL. */
 export const FIELDS_MIN = 1;

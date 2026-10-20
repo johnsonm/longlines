@@ -21,6 +21,19 @@ export interface LocalStatus {
 
 export class StackNotRunning extends Error {}
 
+const LOCAL_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]"]);
+
+/** True for a postgres:// or postgresql:// URL whose host is this machine; false for anything else, unparsable included. */
+export function isLocalDbUrl(dbUrl: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(dbUrl);
+  } catch {
+    return false;
+  }
+  return (url.protocol === "postgres:" || url.protocol === "postgresql:") && LOCAL_HOSTS.has(url.hostname.toLowerCase());
+}
+
 export function localStatus(): LocalStatus {
   const result = spawnSync("supabase", ["status", "--output", "json", "--workdir", repoRoot], {
     encoding: "utf8",
@@ -49,14 +62,29 @@ export function localStatus(): LocalStatus {
   if (!/^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(apiUrl)) {
     throw new Error(`refusing to use a non-local API URL: ${apiUrl}`);
   }
+  // The sender script hands this to a process that allows insecure destinations, and check-all's db
+  // test writes rows through it; refuse anything that is not this machine too.
+  const dbUrl = field("DB_URL");
+  if (!isLocalDbUrl(dbUrl)) {
+    throw new Error(`refusing to use a non-local database URL (host ${hostOf(dbUrl)})`);
+  }
   return {
     apiUrl,
-    dbUrl: field("DB_URL"),
+    dbUrl,
     anonKey: field("ANON_KEY"),
     serviceRoleKey: field("SERVICE_ROLE_KEY"),
     studioUrl: field("STUDIO_URL"),
     mailUrl: field("MAILPIT_URL"),
   };
+}
+
+/** The URL's host for an error message, never its password. */
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host || "missing";
+  } catch {
+    return "unparsable";
+  }
 }
 
 export function fail(message: string): never {
