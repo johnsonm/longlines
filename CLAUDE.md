@@ -116,7 +116,7 @@ deploys automatically.
 
 - `stats_snapshots` is written only by `refresh_stats_snapshot()` from pg_cron; clients have
   `select` only. It is the one table `anon` may read: the Stats page (`/stats`) is public and
-  renders in `PublicShell` when signed out, `AppShell` when signed in. RBN figures come from the
+  renders in `AppShell` either way (signed out, the account sections are disabled). RBN figures come from the
   `rollup_rbn_day` tables (today's hours from `rollup_rbn_hours`), never from `rbn_spots` directly: the refresh runs hourly and the
   firehose is ~1.5M rows a day. APRS figures come from `aprs_packet_hours` and the `aprs_daily_*`
   tables, never `aprs_packets`. The payload shape is `StatsPayload` in `web/src/stats/types.ts` and is pinned by

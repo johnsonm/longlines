@@ -138,11 +138,12 @@ describe("App routing", () => {
     expect(await screen.findByText(text)).toBeInTheDocument();
   });
 
-  it("serves Stats publicly without the app shell", async () => {
+  it("serves Stats publicly in the app shell, with the account sections disabled", async () => {
     session(null);
     renderAt("/stats");
     expect(await screen.findByText("stats page")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Sign in" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Connections" })).toHaveAttribute("aria-disabled", "true");
   });
 
   it("serves Stats inside the app shell when signed in", async () => {

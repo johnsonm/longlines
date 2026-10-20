@@ -13,6 +13,7 @@ import SendIcon from "@mui/icons-material/Send";
 import InsightsIcon from "@mui/icons-material/Insights";
 import PersonSearchIcon from "@mui/icons-material/PersonSearch";
 import KeyIcon from "@mui/icons-material/Key";
+import LoginIcon from "@mui/icons-material/Login";
 import SearchIcon from "@mui/icons-material/Search";
 import LightModeIcon from "@mui/icons-material/LightMode";
 import DarkModeIcon from "@mui/icons-material/DarkMode";
@@ -26,19 +27,22 @@ import { pushCleanup } from "../pwa/push";
 import { Footer } from "./Footer";
 import { InstallDialog } from "./InstallDialog";
 
+// `open` sections are public; signed out, the rest stay in the drawer, disabled, to show what an account adds.
 const NAV = [
-  { id: "sources", label: "Sources", icon: <SensorsIcon /> },
-  { id: "connections", label: "Connections", icon: <FilterListIcon /> },
-  { id: "destinations", label: "Destinations", icon: <SendIcon /> },
-  { id: "groups", label: "Groups", icon: <GroupsIcon /> },
-  { id: "band-map", label: "Band map", icon: <GraphicEqIcon /> },
-  { id: "lookup", label: "Callsign lookup", icon: <PersonSearchIcon /> },
-  { id: "stats", label: "Stats", icon: <InsightsIcon /> },
-  { id: "api-tokens", label: "API tokens", icon: <KeyIcon /> },
+  { id: "sources", label: "Sources", icon: <SensorsIcon />, open: false },
+  { id: "connections", label: "Connections", icon: <FilterListIcon />, open: false },
+  { id: "destinations", label: "Destinations", icon: <SendIcon />, open: false },
+  { id: "groups", label: "Groups", icon: <GroupsIcon />, open: false },
+  { id: "band-map", label: "Band map", icon: <GraphicEqIcon />, open: true },
+  { id: "lookup", label: "Callsign lookup", icon: <PersonSearchIcon />, open: true },
+  { id: "stats", label: "Stats", icon: <InsightsIcon />, open: true },
+  { id: "api-tokens", label: "API tokens", icon: <KeyIcon />, open: false },
 ];
+const SIGN_IN_TO_USE = "Create an account or sign in to use";
 const DRAWER = 232;
 
-export function AppShell({ children, destinationsFailing }: { children: ReactNode; destinationsFailing: boolean }) {
+/** The frame for every page but the email-link screens; signed out it has a Sign in button instead of the account menu. */
+export function AppShell({ children, destinationsFailing = false }: { children: ReactNode; destinationsFailing?: boolean }) {
   const theme = useTheme();
   const mobile = useMediaQuery(theme.breakpoints.down("md"));
   const navigate = useNavigate();
@@ -54,12 +58,16 @@ export function AppShell({ children, destinationsFailing }: { children: ReactNod
   const page = section === "call" ? "lookup" : section;
   const callsign = profile?.callsign ?? "";
   const initials = callsign.slice(0, 2) || "?";
+  const signedIn = !!session;
 
   const go = (path: string) => {
     setMenuEl(null);
     setNavOpen(false);
     void navigate(`/${path}`);
   };
+
+  // Signing in comes back to this page.
+  const signIn = () => void navigate("/signin", { state: { from: location.pathname } });
 
   const handleInstall = () => {
     setMenuEl(null);
@@ -81,16 +89,25 @@ export function AppShell({ children, destinationsFailing }: { children: ReactNod
     <Box>
       <Toolbar />
       <List>
-        {NAV.map((n) => (
-          <ListItemButton key={n.id} selected={page === n.id} onClick={() => go(n.id)}>
-            <ListItemIcon>
-              {n.id === "destinations"
-                ? <Badge color="error" variant="dot" invisible={!destinationsFailing}>{n.icon}</Badge>
-                : n.icon}
-            </ListItemIcon>
-            <ListItemText primary={n.label} />
-          </ListItemButton>
-        ))}
+        {NAV.map((n) => {
+          const item = (
+            <ListItemButton key={n.id} selected={page === n.id} disabled={!signedIn && !n.open} onClick={() => go(n.id)}>
+              <ListItemIcon>
+                {n.id === "destinations"
+                  ? <Badge color="error" variant="dot" invisible={!destinationsFailing}>{n.icon}</Badge>
+                  : n.icon}
+              </ListItemIcon>
+              <ListItemText primary={n.label} />
+            </ListItemButton>
+          );
+          if (signedIn || n.open) return item;
+          // A disabled button gets no pointer events, so the tooltip sits on a wrapper; a tap shows it on phones.
+          return (
+            <Tooltip key={n.id} title={`${SIGN_IN_TO_USE} ${n.label}.`} placement="right" enterTouchDelay={0}>
+              <Box>{item}</Box>
+            </Tooltip>
+          );
+        })}
       </List>
     </Box>
   );
@@ -112,37 +129,46 @@ export function AppShell({ children, destinationsFailing }: { children: ReactNod
               </IconButton>
             )
             : <BarSearch />}
-          <IconButton color="inherit" onClick={(e) => setMenuEl(e.currentTarget)} aria-label="Account menu" sx={{ display: { xs: "inline-flex", sm: "none" } }}>
-            <Avatar sx={{ width: 32, height: 32 }}>{initials}</Avatar>
-          </IconButton>
-          <Button
-            color="inherit"
-            onClick={(e) => setMenuEl(e.currentTarget)}
-            startIcon={<Avatar sx={{ width: 28, height: 28 }}>{initials}</Avatar>}
-            aria-label="Account menu"
-            sx={{ display: { xs: "none", sm: "inline-flex" } }}
-          >
-            {callsign}
-          </Button>
-          <Menu
-            anchorEl={menuEl}
-            open={!!menuEl}
-            onClose={() => setMenuEl(null)}
-            anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
-            transformOrigin={{ vertical: "top", horizontal: "right" }}
-          >
-            <Box sx={{ px: 2, py: 1 }}>
-              <Typography variant="subtitle2">{profile?.name || callsign}</Typography>
-              <Typography variant="body2" color="text.secondary">{session?.user.email}</Typography>
-            </Box>
-            <Divider />
-            <ThemeSwitch />
-            <Divider />
-            <MenuItem onClick={() => go("account")}>Account</MenuItem>
-            {install !== "none" && <MenuItem onClick={handleInstall}>Install app</MenuItem>}
-            <MenuItem onClick={() => void handleSignOut()}>Sign out</MenuItem>
-          </Menu>
-          <InstallDialog open={installOpen} onClose={() => setInstallOpen(false)} />
+          {!signedIn && location.pathname !== "/signin" && (
+            mobile
+              ? <IconButton color="inherit" edge="end" onClick={signIn} aria-label="Sign in"><LoginIcon /></IconButton>
+              : <Button color="inherit" onClick={signIn}>Sign in</Button>
+          )}
+          {signedIn && (
+            <>
+              <IconButton color="inherit" onClick={(e) => setMenuEl(e.currentTarget)} aria-label="Account menu" sx={{ display: { xs: "inline-flex", sm: "none" } }}>
+                <Avatar sx={{ width: 32, height: 32 }}>{initials}</Avatar>
+              </IconButton>
+              <Button
+                color="inherit"
+                onClick={(e) => setMenuEl(e.currentTarget)}
+                startIcon={<Avatar sx={{ width: 28, height: 28 }}>{initials}</Avatar>}
+                aria-label="Account menu"
+                sx={{ display: { xs: "none", sm: "inline-flex" } }}
+              >
+                {callsign}
+              </Button>
+              <Menu
+                anchorEl={menuEl}
+                open={!!menuEl}
+                onClose={() => setMenuEl(null)}
+                anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
+                transformOrigin={{ vertical: "top", horizontal: "right" }}
+              >
+                <Box sx={{ px: 2, py: 1 }}>
+                  <Typography variant="subtitle2">{profile?.name || callsign}</Typography>
+                  <Typography variant="body2" color="text.secondary">{session?.user.email}</Typography>
+                </Box>
+                <Divider />
+                <ThemeSwitch />
+                <Divider />
+                <MenuItem onClick={() => go("account")}>Account</MenuItem>
+                {install !== "none" && <MenuItem onClick={handleInstall}>Install app</MenuItem>}
+                <MenuItem onClick={() => void handleSignOut()}>Sign out</MenuItem>
+              </Menu>
+              <InstallDialog open={installOpen} onClose={() => setInstallOpen(false)} />
+            </>
+          )}
         </Toolbar>
       </AppBar>
       <Drawer
