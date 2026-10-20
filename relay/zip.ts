@@ -25,6 +25,26 @@ export interface ZipEntry {
   compressedSize: number;
   size: number;
   headerOffset: number;
+  /** CRC-32 of the uncompressed bytes, from the central directory. */
+  crc32: number;
+}
+
+/** CRC-32 (IEEE 802.3, reflected 0xEDB88320), the checksum zip stores per entry. */
+const CRC_TABLE = (() => {
+  const table = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    table[n] = c >>> 0;
+  }
+  return table;
+})();
+
+/** Folds `bytes` into a running CRC-32; start from 0 and pass the previous result to continue. */
+export function crc32(bytes: Uint8Array, previous = 0): number {
+  let c = ~previous >>> 0;
+  for (let i = 0; i < bytes.length; i++) c = CRC_TABLE[(c ^ bytes[i]!) & 0xff]! ^ (c >>> 8);
+  return ~c >>> 0;
 }
 
 const EOCD = 0x06054b50;
@@ -38,7 +58,9 @@ export async function readZipDirectory(src: RangeSource): Promise<ZipEntry[]> {
   const view = new DataView(tail.buffer, tail.byteOffset, tail.byteLength);
   let eocd = -1;
   for (let i = tail.length - 22; i >= 0; i--) {
-    if (view.getUint32(i, true) === EOCD) {
+    // The record ends the file: its comment length must reach exactly to the
+    // end, which also skips the signature's bytes appearing inside a comment.
+    if (view.getUint32(i, true) === EOCD && i + 22 + view.getUint16(i + 20, true) === tail.length) {
       eocd = i;
       break;
     }
@@ -67,6 +89,7 @@ export async function readZipDirectory(src: RangeSource): Promise<ZipEntry[]> {
       compressedSize: d.getUint32(p + 20, true),
       size: d.getUint32(p + 24, true),
       headerOffset: d.getUint32(p + 42, true),
+      crc32: d.getUint32(p + 16, true),
     };
     if (flags & 1) throw new Error(`${entry.name} is encrypted`);
     if ([entry.compressedSize, entry.size, entry.headerOffset].includes(0xffffffff)) {
@@ -78,7 +101,10 @@ export async function readZipDirectory(src: RangeSource): Promise<ZipEntry[]> {
   return entries;
 }
 
-/** The entry's uncompressed bytes. The stream errors if they are not exactly entry.size. */
+/**
+ * The entry's uncompressed bytes. The stream errors if they are not exactly
+ * entry.size or their CRC-32 is not entry.crc32.
+ */
 export async function openZipEntry(
   src: RangeSource,
   entry: ZipEntry,
@@ -100,17 +126,23 @@ export async function openZipEntry(
     : raw;
 
   let seen = 0;
+  let crc = 0;
   return data.pipeThrough(
     new TransformStream<Uint8Array, Uint8Array>({
       transform(chunk, controller) {
         seen += chunk.length;
         if (seen > entry.size) {
           controller.error(new Error(`${entry.name}: more than ${entry.size} bytes`));
-        } else controller.enqueue(chunk);
+        } else {
+          crc = crc32(chunk, crc);
+          controller.enqueue(chunk);
+        }
       },
       flush(controller) {
         if (seen !== entry.size) {
           controller.error(new Error(`${entry.name}: ${seen} of ${entry.size} bytes`));
+        } else if (crc !== entry.crc32) {
+          controller.error(new Error(`${entry.name}: CRC-32 mismatch`));
         }
       },
     }),
@@ -118,8 +150,18 @@ export async function openZipEntry(
 }
 
 export interface HttpZip extends RangeSource {
-  /** Last-Modified, or the ETag when the server sends no date. */
+  /**
+   * Last-Modified, or the strong ETag when the server sends no date. This is
+   * what fcc_license_load_status stores, so it stays the date when there is one
+   * (switching it to the ETag would make the loaded file look new once).
+   */
   version: string;
+}
+
+/** A strong entity tag (`"..."`), the only kind RFC 9110 allows in If-Range. */
+function strongEtag(etag: string | null): string | null {
+  const tag = etag?.trim() ?? "";
+  return /^"[^"]*"$/.test(tag) ? tag : null;
 }
 
 /** How long stream()'s Range request may wait for response headers; the body then has readWithin's idle timeout. */
@@ -151,23 +193,40 @@ export async function openHttpZip(
   await head.body?.cancel();
   if (!head.ok) throw new Error(`HEAD ${url}: HTTP ${head.status}`);
   const size = Number(head.headers.get("content-length"));
-  const validator = head.headers.get("last-modified") ?? head.headers.get("etag");
-  if (!Number.isSafeInteger(size) || size <= 0 || !validator) {
-    throw new Error(`HEAD ${url}: no Content-Length or Last-Modified`);
+  const lastModified = head.headers.get("last-modified");
+  const etag = strongEtag(head.headers.get("etag"));
+  if (!Number.isSafeInteger(size) || size <= 0) {
+    throw new Error(`HEAD ${url}: no Content-Length`);
   }
-  const version: string = validator;
+  if (!lastModified && !etag) {
+    throw new Error(
+      head.headers.has("etag")
+        ? `HEAD ${url}: only a weak ETag and no Last-Modified, so If-Range cannot pin the file`
+        : `HEAD ${url}: no Last-Modified or ETag`,
+    );
+  }
+  const version = lastModified ?? etag ?? "";
+  // RFC 9110 13.1.5: send the strong entity tag when there is one, a date otherwise.
+  const ifRange = etag ?? lastModified ?? "";
 
   // If-Range ties every range to the version HEAD saw: if the FCC replaces the
   // file mid-load, the server answers 200 with the new file, which is refused,
   // rather than mixing two weeks' bytes.
   async function range(start: number, end: number, timeout?: AbortSignal): Promise<Response> {
     const res = await fetchFn(url, {
-      headers: { ...headers, Range: `bytes=${start}-${end - 1}`, "If-Range": version },
+      headers: { ...headers, Range: `bytes=${start}-${end - 1}`, "If-Range": ifRange },
       signal: timeout ? AbortSignal.any([signal, timeout]) : signal,
     });
+    const what = `GET ${url} bytes ${start}-${end - 1}`;
     if (res.status !== 206) {
       await res.body?.cancel();
-      throw new Error(`GET ${url} bytes ${start}-${end - 1}: HTTP ${res.status}, expected 206`);
+      throw new Error(`${what}: HTTP ${res.status}, expected 206`);
+    }
+    // A shifted or partial range would put the wrong bytes at every offset.
+    const contentRange = res.headers.get("content-range") ?? "";
+    if (!contentRange.startsWith(`bytes ${start}-${end - 1}/`)) {
+      await res.body?.cancel();
+      throw new Error(`${what}: Content-Range "${contentRange}" does not match`);
     }
     return res;
   }
@@ -177,7 +236,13 @@ export async function openHttpZip(
     version,
     async bytes(start, end) {
       const res = await range(start, end, AbortSignal.timeout(60_000));
-      return new Uint8Array(await res.arrayBuffer());
+      const body = new Uint8Array(await res.arrayBuffer());
+      if (body.length !== end - start) {
+        throw new Error(
+          `GET ${url} bytes ${start}-${end - 1}: ${body.length} of ${end - start} bytes`,
+        );
+      }
+      return body;
     },
     async stream(start, end) {
       // No overall timeout: the caller reads slowly, pausing while it pushes rows.

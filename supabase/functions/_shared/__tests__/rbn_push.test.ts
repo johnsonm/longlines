@@ -1,4 +1,4 @@
-import { assertEquals, assertRejects } from "@std/assert";
+import { assertEquals, assertMatch, assertRejects } from "@std/assert";
 import { runRbnPush } from "../rbn_push.ts";
 import type { InsertedSpot, NormalizedSpot, RbnSpotRow, Source, SpotFailure } from "../types.ts";
 import type { RbnPushDb } from "../rbn_push.ts";
@@ -144,4 +144,25 @@ Deno.test("runRbnPush dead-letters an oversized or far-future line and stores th
     "received_at out of range",
   ]);
   assertEquals(calls.failure, []);
+});
+
+async function capturingErrors<T>(fn: () => Promise<T>): Promise<unknown[]> {
+  const errors: unknown[] = [];
+  const original = console.error;
+  console.error = (...args: unknown[]) => errors.push(args[0]);
+  try {
+    await fn();
+  } finally {
+    console.error = original;
+  }
+  return errors;
+}
+
+Deno.test("runRbnPush rethrows the store error when recording the failure fails too", async () => {
+  const { db } = fakeDb({ storeFails: true });
+  db.recordFailure = () => Promise.reject(new Error("db down"));
+  const errors = await capturingErrors(() =>
+    assertRejects(() => runRbnPush({ lines: [item(watchedLine)] }, db, NOW), Error, "disk full")
+  );
+  assertMatch(String(errors[0]), /ingest-rbn: recording the failure failed: db down/);
 });
