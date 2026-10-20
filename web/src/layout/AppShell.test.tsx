@@ -6,7 +6,6 @@ import { signOut } from "../lib/api";
 import { installState, promptInstall, subscribeInstall } from "../pwa/install";
 import { pushCleanup } from "../pwa/push";
 import { AppShell } from "./AppShell";
-import { PublicShell } from "./PublicShell";
 
 vi.mock("../lib/api", () => ({ signOut: vi.fn() }));
 vi.mock("../pwa/install", () => ({ installState: vi.fn(), promptInstall: vi.fn(), subscribeInstall: vi.fn() }));
@@ -160,36 +159,50 @@ describe("AppShell", () => {
   });
 });
 
-describe("PublicShell", () => {
-  it("offers sign in and remembers the page", async () => {
-    const { user } = renderPage(<PublicShell><p>public body</p></PublicShell>, { route: "/stats" });
-    expect(screen.getByText("public body")).toBeInTheDocument();
+describe("AppShell signed out", () => {
+  const signedOut = { app: { session: null, profile: null } };
+  const LOCKED = ["Sources", "Connections", "Destinations", "Groups", "API tokens"];
+  const OPEN = ["Band map", "Callsign lookup", "Stats"];
+
+  it("shows every section, with the account ones disabled and explained", async () => {
+    const { user } = renderPage(shell(), { route: "/stats", ...signedOut });
+    expect(screen.getByText("page body")).toBeInTheDocument();
     expect(screen.getByRole("contentinfo")).toHaveTextContent("Brad Bazemore");
+    for (const name of LOCKED) expect(screen.getByRole("button", { name })).toHaveAttribute("aria-disabled", "true");
+    for (const name of OPEN) expect(screen.getByRole("button", { name })).not.toHaveAttribute("aria-disabled");
+    expect(screen.getByRole("button", { name: "Stats" })).toHaveClass("Mui-selected");
+    await user.hover(screen.getByRole("button", { name: "Connections" }).parentElement!);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Create an account or sign in to use Connections.");
+  });
+
+  it("has no account menu, and offers sign in that remembers the page", async () => {
+    const { user } = renderPage(shell(), { route: "/stats", ...signedOut });
+    expect(screen.queryByRole("button", { name: "Account menu" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Sign in" }));
     const where = screen.getByTestId("location");
     expect(where).toHaveTextContent("/signin");
     expect(JSON.parse(where.dataset.state ?? "null")).toEqual({ from: "/stats" });
   });
 
-  it("keeps the original page when Sign in is clicked on the sign-in page", async () => {
-    const { user } = renderPage(<PublicShell><p>public body</p></PublicShell>, { route: "/signin", state: { from: "/groups" } });
-    await user.click(screen.getByRole("button", { name: "Sign in" }));
-    expect(JSON.parse(screen.getByTestId("location").dataset.state ?? "null")).toEqual({ from: "/groups" });
+  it("hides the Sign in button on the sign-in page itself", () => {
+    renderPage(shell(), { route: "/signin", ...signedOut });
+    expect(screen.queryByRole("button", { name: "Sign in" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sources" })).toHaveAttribute("aria-disabled", "true");
   });
 
-  it.each([["Lookup", "/lookup"], ["Stats", "/stats"]])("links to %s", async (name, path) => {
-    const { user } = renderPage(<PublicShell><p>public body</p></PublicShell>, { route: "/call/KK4PWJ" });
-    await user.click(screen.getByRole("button", { name }));
-    expect(screen.getByTestId("location")).toHaveTextContent(path);
+  it("navigates to the public sections", async () => {
+    const { user } = renderPage(shell(), { route: "/signin", ...signedOut });
+    await user.click(screen.getByRole("button", { name: "Band map" }));
+    expect(screen.getByTestId("location")).toHaveTextContent("/band-map");
   });
 
-  it("shows the links as icons on phones", async () => {
+  it("shows Sign in as an icon on phones, next to the drawer", async () => {
     setMobile(true);
-    const { user } = renderPage(<PublicShell><p>public body</p></PublicShell>, { route: "/call/KK4PWJ" });
-    expect(screen.queryByText("Lookup")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Lookup" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Stats" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Sign in" }));
+    const { user } = renderPage(shell(), { route: "/call/KK4PWJ", ...signedOut });
+    await user.click(screen.getByRole("button", { name: "Open navigation" }));
+    expect(await screen.findByRole("button", { name: "Groups" })).toHaveAttribute("aria-disabled", "true");
+    await user.keyboard("{Escape}");
+    await user.click(await screen.findByRole("button", { name: "Sign in" }));
     expect(JSON.parse(screen.getByTestId("location").dataset.state ?? "null")).toEqual({ from: "/call/KK4PWJ" });
   });
 });

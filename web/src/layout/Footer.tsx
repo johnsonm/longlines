@@ -5,7 +5,7 @@ export const REPO_URL = "https://github.com/sonyccd/longlines";
 // Read once per load; render stays pure.
 const YEAR = new Date().getFullYear();
 
-/** The copyright line and repository link at the bottom of every frame (AppShell, PublicShell, AuthFrame). */
+/** The copyright line and repository link at the bottom of every frame (AppShell, AuthFrame). */
 export function Footer() {
   return (
     <Box component="footer" sx={{ mt: 4 }}>

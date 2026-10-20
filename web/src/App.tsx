@@ -10,7 +10,6 @@ import { CheckEmailPage } from "./auth/CheckEmailPage";
 import { ResetPasswordPage } from "./auth/ResetPasswordPage";
 import { SetPasswordPage } from "./auth/SetPasswordPage";
 import { AppShell } from "./layout/AppShell";
-import { PublicShell } from "./layout/PublicShell";
 import { SourcesPage } from "./sources/SourcesPage";
 import { SourceDetailPage } from "./sources/SourceDetailPage";
 import { DestinationsPage } from "./destinations/DestinationsPage";
@@ -59,7 +58,7 @@ function Toast() {
 function Router() {
   return (
     <Routes>
-      <Route path="/signin" element={<PublicOnly><PublicShell><SignInPage /></PublicShell></PublicOnly>} />
+      <Route path="/signin" element={<PublicOnly><AppShell><SignInPage /></AppShell></PublicOnly>} />
       <Route path="/check-email" element={<CheckEmailPage />} />
       <Route path="/reset-password" element={<ResetPasswordPage />} />
       <Route path="/set-password" element={<SetPasswordPage />} />
@@ -107,19 +106,19 @@ type PublicPage = "band-map" | "stats" | "lookup" | "call" | "group-public";
 // Signed-out visitors read profiles in UTC.
 const UTC: TimePrefs = { utcTimes: true, timezone: "UTC" };
 
-/** The band map, Stats, callsign profiles and public group pages are public: signed-in users see them inside the app, everyone else in the public shell. */
+/** The band map, Stats, callsign profiles and public group pages are public: signed out, AppShell shows them with the other sections disabled. */
 function PublicRoute({ page }: { page: PublicPage }) {
   const { session, sessionLoading } = useApp();
   if (sessionLoading) return <LinearProgress />;
   if (session) return <RequireAuth page={page} />;
   return (
-    <PublicShell>
+    <AppShell>
       {page === "band-map" && <BandMapPage />}
       {page === "stats" && <StatsPage />}
       {page === "lookup" && <LookupPage />}
       {page === "call" && <CallsignPage prefs={UTC} />}
       {page === "group-public" && <PublicGroupRoute />}
-    </PublicShell>
+    </AppShell>
   );
 }
 
