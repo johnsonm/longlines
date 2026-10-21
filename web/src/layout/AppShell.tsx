@@ -66,8 +66,8 @@ export function AppShell({ children, destinationsFailing = false }: { children: 
     void navigate(`/${path}`);
   };
 
-  // Signing in comes back to this page.
-  const signIn = () => void navigate("/signin", { state: { from: location.pathname } });
+  // Signing in comes back to this page, query and hash included, as RequireAuth's redirect does.
+  const signIn = () => void navigate("/signin", { state: { from: location.pathname + location.search + location.hash } });
 
   const handleInstall = () => {
     setMenuEl(null);
@@ -90,8 +90,9 @@ export function AppShell({ children, destinationsFailing = false }: { children: 
       <Toolbar />
       <List>
         {NAV.map((n) => {
+          const locked = !signedIn && !n.open;
           const item = (
-            <ListItemButton key={n.id} selected={page === n.id} disabled={!signedIn && !n.open} onClick={() => go(n.id)}>
+            <ListItemButton key={n.id} selected={page === n.id} disabled={locked} onClick={() => go(n.id)}>
               <ListItemIcon>
                 {n.id === "destinations"
                   ? <Badge color="error" variant="dot" invisible={!destinationsFailing}>{n.icon}</Badge>
@@ -100,11 +101,13 @@ export function AppShell({ children, destinationsFailing = false }: { children: 
               <ListItemText primary={n.label} />
             </ListItemButton>
           );
-          if (signedIn || n.open) return item;
-          // A disabled button gets no pointer events, so the tooltip sits on a wrapper; a tap shows it on phones.
+          if (!locked) return item;
+          // A disabled button gets no pointer events and leaves the tab order, so the tooltip sits on a
+          // focusable wrapper: hover, a tap on phones or keyboard focus shows it, and describeChild
+          // gives it to screen readers as the item's description.
           return (
-            <Tooltip key={n.id} title={`${SIGN_IN_TO_USE} ${n.label}.`} placement="right" enterTouchDelay={0}>
-              <Box>{item}</Box>
+            <Tooltip key={n.id} title={`${SIGN_IN_TO_USE} ${n.label}.`} placement="right" enterTouchDelay={0} describeChild>
+              <Box tabIndex={0}>{item}</Box>
             </Tooltip>
           );
         })}
@@ -129,6 +132,7 @@ export function AppShell({ children, destinationsFailing = false }: { children: 
               </IconButton>
             )
             : <BarSearch />}
+          {!signedIn && <SignedOutTheme />}
           {!signedIn && location.pathname !== "/signin" && (
             mobile
               ? <IconButton color="inherit" edge="end" onClick={signIn} aria-label="Sign in"><LoginIcon /></IconButton>
@@ -195,6 +199,29 @@ const MODES = [
   { mode: "system", label: "Automatic", icon: <SettingsBrightnessIcon fontSize="small" /> },
   { mode: "dark", label: "Dark", icon: <DarkModeIcon fontSize="small" /> },
 ] as const;
+
+/** Signed out there is no account menu, so the Theme switch gets its own small menu. */
+function SignedOutTheme() {
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+  const { mode } = useColorScheme();
+  const current = MODES.find((m) => m.mode === mode) ?? MODES[1];
+  return (
+    <>
+      <IconButton color="inherit" onClick={(e) => setAnchor(e.currentTarget)} aria-label="Theme">
+        {current.icon}
+      </IconButton>
+      <Menu
+        anchorEl={anchor}
+        open={!!anchor}
+        onClose={() => setAnchor(null)}
+        anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
+        transformOrigin={{ vertical: "top", horizontal: "right" }}
+      >
+        <ThemeSwitch />
+      </Menu>
+    </>
+  );
+}
 
 /** Light, automatic (follows the device) or dark; MUI stores the choice per browser. */
 function ThemeSwitch() {

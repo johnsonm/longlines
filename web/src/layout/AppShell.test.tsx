@@ -175,13 +175,34 @@ describe("AppShell signed out", () => {
     expect(await screen.findByRole("tooltip")).toHaveTextContent("Create an account or sign in to use Connections.");
   });
 
-  it("has no account menu, and offers sign in that remembers the page", async () => {
+  it("explains a locked section to keyboard and screen reader users", async () => {
     const { user } = renderPage(shell(), { route: "/stats", ...signedOut });
+    const wrapper = screen.getByRole("button", { name: "Sources" }).parentElement!;
+    expect(wrapper).toHaveAttribute("tabindex", "0");
+    // Tab reaches it (the disabled button inside is skipped); a browser then opens the tooltip on
+    // focus-visible, which jsdom can't match, so the description is what is checked here.
+    for (let i = 0; i < 20 && document.activeElement !== wrapper; i += 1) await user.tab();
+    expect(wrapper).toHaveFocus();
+    expect(wrapper).toHaveAccessibleDescription("Create an account or sign in to use Sources.");
+  });
+
+  it("offers the Theme switch signed out", async () => {
+    const { user } = renderPage(shell(), { route: "/stats", ...signedOut });
+    await user.click(screen.getByRole("button", { name: "Theme" }));
+    const dark = await screen.findByRole("button", { name: "Dark" });
+    await user.click(dark);
+    expect(dark).toHaveAttribute("aria-pressed", "true");
+    await user.keyboard("{Escape}");
+    expect(screen.getByRole("button", { name: "Theme" })).toBeInTheDocument();
+  });
+
+  it("has no account menu, and offers sign in that remembers the page, query and hash included", async () => {
+    const { user } = renderPage(shell(), { route: "/stats", search: "?range=7d", hash: "#bands", ...signedOut });
     expect(screen.queryByRole("button", { name: "Account menu" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Sign in" }));
     const where = screen.getByTestId("location");
     expect(where).toHaveTextContent("/signin");
-    expect(JSON.parse(where.dataset.state ?? "null")).toEqual({ from: "/stats" });
+    expect(JSON.parse(where.dataset.state ?? "null")).toEqual({ from: "/stats?range=7d#bands" });
   });
 
   it("hides the Sign in button on the sign-in page itself", () => {

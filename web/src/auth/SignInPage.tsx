@@ -185,8 +185,9 @@ export function SignInPage() {
 
   return (
     <Stack spacing={{ xs: 4, md: 6 }} sx={{ py: { md: 2 } }}>
+      {/* Columns split from lg: beside the 232px drawer, md leaves about 670px. */}
       <Grid container spacing={6} sx={{ alignItems: "center" }}>
-        <Grid size={{ xs: 12, md: 7 }}>
+        <Grid size={{ xs: 12, lg: 7 }}>
           <Typography variant="overline" color="primary" component="p">For amateur radio operators</Typography>
           <Typography variant={desktop ? "h3" : "h4"} component="h1" sx={{ mt: 0.5, mb: 2 }}>
             Get the spots you want, sent where you want them.
@@ -212,7 +213,7 @@ export function SignInPage() {
             </Button>
           </Stack>
         </Grid>
-        <Grid size={{ xs: 12, md: 5 }}>{signInCard}</Grid>
+        <Grid size={{ xs: 12, lg: 5 }}>{signInCard}</Grid>
       </Grid>
 
       <Stack spacing={2}>
@@ -222,7 +223,7 @@ export function SignInPage() {
         </Box>
         <Grid container spacing={2}>
           {STEPS.map((s, i) => (
-            <Grid key={s.title} size={{ xs: 12, md: 4 }}>
+            <Grid key={s.title} size={{ xs: 12, sm: 6, lg: 4 }}>
               <Card variant="outlined" sx={{ height: "100%" }}>
                 <CardContent sx={{ height: "100%", display: "flex", flexDirection: "column", gap: 2 }}>
                   <Stack direction="row" spacing={2} sx={{ alignItems: "center" }}>
@@ -245,7 +246,7 @@ export function SignInPage() {
       </Stack>
 
       <Grid container spacing={2}>
-        <Grid size={{ xs: 12, md: 7 }}>
+        <Grid size={{ xs: 12, lg: 7 }}>
           <Card variant="outlined" sx={{ height: "100%" }}>
             <CardMedia
               component="img"
@@ -261,7 +262,7 @@ export function SignInPage() {
             </CardContent>
           </Card>
         </Grid>
-        <Grid size={{ xs: 12, md: 5 }}>
+        <Grid size={{ xs: 12, lg: 5 }}>
           <Card variant="outlined" sx={{ height: "100%" }}>
             <CardHeader title="Why Long Lines" subheader="Built for operators who chase spots" />
             <CardContent sx={{ pt: 0 }}>

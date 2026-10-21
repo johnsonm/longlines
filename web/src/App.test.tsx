@@ -123,6 +123,15 @@ describe("App routing", () => {
     expect(await screen.findByText("sources page")).toBeInTheDocument();
   });
 
+  it("sends a new session on sign in back to the page it came from, where SignInPage sends it", async () => {
+    render(
+      <MemoryRouter initialEntries={[{ pathname: "/signin", state: { from: "/stats" } }]}>
+        <App />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText("stats page")).toBeInTheDocument();
+  });
+
   it("redirects unknown paths to Sources", async () => {
     renderAt("/nope");
     expect(await screen.findByText("sources page")).toBeInTheDocument();

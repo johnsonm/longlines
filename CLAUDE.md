@@ -291,8 +291,8 @@ The delivery side (retries, pause, attempts, rendering, Vault) is in "Delivery r
 - `web/src/lib/api.ts` is the only module that touches supabase-js; pages call its typed
   functions. Edge Functions are called with plain `fetch` there so non-2xx bodies surface as
   messages.
-- Stock MUI theme with both `colorSchemes`; the account menu's Theme switch picks light, dark or
-  automatic (`useColorScheme`, stored by MUI in localStorage). Automatic follows `prefers-color-scheme`. MUI 9: `Grid` uses `size`,
+- Stock MUI theme with both `colorSchemes`; the account menu's Theme switch (signed out, its own app bar
+  menu) picks light, dark or automatic (`useColorScheme`, stored by MUI in localStorage). Automatic follows `prefers-color-scheme`. MUI 9: `Grid` uses `size`,
   `Stack` takes flex alignment through `sx`, there is no `fontWeight` prop (use a variant such as
   `subtitle2`), `slotProps` replaces `InputProps`/`secondaryTypographyProps`.
 - `sx` is for layout only (spacing, sizing, display, flex/grid placement, overflow, position).

@@ -49,6 +49,9 @@ export interface Options {
   app?: Partial<AppContextValue>;
   route?: string;
   state?: unknown;
+  /** The entry's query string and hash, e.g. "?q=1" and "#top". */
+  search?: string;
+  hash?: string;
 }
 
 export interface Rendered extends RenderResult {
@@ -76,7 +79,7 @@ export function renderPage(ui: ReactElement, options: Options = {}): Rendered {
   const user = userEvent.setup({ delay: null });
   const result = render(
     wrap(
-      <MemoryRouter initialEntries={[{ pathname: route, state: options.state }]}>
+      <MemoryRouter initialEntries={[{ pathname: route, search: options.search ?? "", hash: options.hash ?? "", state: options.state }]}>
         <Routes>
           <Route path={route} element={ui} />
           <Route path="*" element={null} />
