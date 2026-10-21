@@ -1,4 +1,4 @@
-import { assertEquals, assertRejects, assertThrows } from "@std/assert";
+import { assertEquals, assertMatch, assertRejects, assertThrows } from "@std/assert";
 import {
   APRS_PACKET_TYPES,
   aprsPacketRow,
@@ -259,4 +259,29 @@ Deno.test("runAprsPush dead-letters a bad packet and stores the rest of the batc
   assertEquals(summary.failed, 2);
   // The failure payload is made storable too.
   assertEquals(calls.failures[0]![1]!.raw_payload["line"], `${POSITION} \ufffd`);
+});
+
+async function capturingErrors<T>(fn: () => Promise<T>): Promise<unknown[]> {
+  const errors: unknown[] = [];
+  const original = console.error;
+  console.error = (...args: unknown[]) => errors.push(args[0]);
+  try {
+    await fn();
+  } finally {
+    console.error = original;
+  }
+  return errors;
+}
+
+Deno.test("runAprsPush rethrows the store error when recording the failure fails too", async () => {
+  const { db } = fakeDb({ storeFails: true });
+  db.recordFailure = () => Promise.reject(new Error("db down"));
+  const errors = await capturingErrors(() =>
+    assertRejects(
+      () => runAprsPush({ lines: [{ line: POSITION, received_at: RECEIVED }] }, db),
+      Error,
+      "disk full",
+    )
+  );
+  assertMatch(String(errors[0]), /ingest-aprs: recording the failure failed: db down/);
 });

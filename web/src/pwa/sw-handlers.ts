@@ -159,8 +159,10 @@ export async function handleNotificationClick(
 /**
  * The push service replaced or dropped the subscription. Re-subscribe with the
  * same key, then tell every open window so it re-registers the device: the
- * worker has no session to do that itself. With no window open, the next app
- * load re-registers, and the old endpoint is pruned on its first 410.
+ * worker has no session to do that itself. Without a key or when subscribe
+ * fails, the window's refresh subscribes with the app's key instead. With no
+ * window open, the next app load does either, and until then the old endpoint
+ * may be pruned on its first 410.
  */
 export async function handleSubscriptionChange(
   registration: RegistrationLike,
@@ -172,7 +174,8 @@ export async function handleSubscriptionChange(
     try {
       await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
     } catch {
-      // The window re-subscribes with the app's own key when it gets the message.
+      // An open window's refresh (or the next app load) finds no subscription and
+      // subscribes again with the app's own key, keeping the device it remembers.
     }
   }
   const windows = await clients.matchAll({ type: "window", includeUncontrolled: true });

@@ -20,7 +20,7 @@ export interface ImportCtyDeps {
 
 export async function handleImportCty(req: Request, deps: ImportCtyDeps): Promise<Response> {
   // Only the service role (cron, or an operator) may replace the country tables.
-  if (!isServiceRole(req, deps.serviceRoleKey)) {
+  if (!await isServiceRole(req, deps.serviceRoleKey)) {
     return Response.json({ error: "Forbidden" }, { status: 403 });
   }
   try {

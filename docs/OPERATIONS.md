@@ -111,16 +111,18 @@ Work down the chain.
 
 Individual spots that could not be normalized, or that would fail their batch in Postgres (a spot
 time more than a day ahead or before 2000, a callsign, spotter or reference over 64 characters, a
-spot id over 256). The daily housekeeping job deletes rows older than 30 days.
+spot id over 256). The same item failing again (same source and `raw_payload`) does not add a row:
+it bumps that row's `occurrences`, `last_seen_at` and `error`. The daily housekeeping job deletes rows
+not seen for 30 days.
 
 ```sql
-select id, source, occurred_at, error, raw_payload
-from ingest_failures order by occurred_at desc limit 20;
+select id, source, occurred_at, last_seen_at, occurrences, error, raw_payload
+from ingest_failures order by last_seen_at desc limit 20;
 
 -- Which errors are most common?
-select source, error, count(*) from ingest_failures
-where occurred_at > now() - interval '1 day'
-group by 1, 2 order by 3 desc;
+select source, error, count(*) as items, sum(occurrences) as occurrences from ingest_failures
+where last_seen_at > now() - interval '1 day'
+group by 1, 2 order by 4 desc;
 ```
 
 ## Temporarily disable a source
@@ -222,6 +224,19 @@ group by 1, 2 having count(*) >= 10;
 ```
 
 Rows older than a day are deleted by the daily housekeeping job.
+
+The identifier is the account's email whenever `email_for_identifier` resolves the one typed, so a
+user's email and callsign share one budget; an unknown callsign is counted as typed. A wrong password
+is answered no sooner than 300 ms after the request arrived (`FAILED_SIGN_IN_FLOOR_MS`), so response
+time does not show whether an email has an account.
+
+Supabase Auth has its own per-IP limit on password sign-ins, but every check comes from the
+`sign-in` function, so Auth sees the function's address for every visitor and its budget is shared
+site-wide. `supabase/config.toml` raises `[auth.rate_limit] sign_in_sign_ups` to 3000 per 5 minutes
+for the local stack. **Operator step:** raise the hosted project's limit the same way (Dashboard,
+Authentication, Rate Limits, sign-ups and sign-ins), well above expected site-wide traffic; otherwise
+about 30 wrong passwords from anywhere make every sign-in answer "too many attempts" until the window
+resets. `begin_sign_in_attempt` stays the real per-client policy.
 
 ## Database tests
 
@@ -512,8 +527,8 @@ destination without a settings row. A stale notification is worse than none.
 ### Housekeeping
 
 A daily job (`housekeeping`, 03:00 UTC) deletes deliveries (sent or dropped) and archived queue
-messages older than 7 days, sign-in attempts older than a day, `ingest_failures` older than 30 days
-and `subscription_quiet` rows sent more than an hour ago (the longest quiet window).
+messages older than 7 days, sign-in attempts older than a day, `ingest_failures` not seen for 30 days,
+send-test counters, `cron.job_run_details` older than 7 days and `subscription_quiet` rows sent more than an hour ago (the longest quiet window).
 
 ### Stats snapshot
 

@@ -75,3 +75,27 @@ describe("useBandMap", () => {
     expect(result.current.payload).toBeNull();
   });
 });
+
+describe("useBandMap ordering", () => {
+  it("ignores a response that lands after a newer one", async () => {
+    let resolveOld: (p: BandMapPayload) => void = () => undefined;
+    let rejectOld: (e: Error) => void = () => undefined;
+    vi.mocked(loadBandMap)
+      .mockReturnValueOnce(new Promise((r, reject) => {
+        resolveOld = r;
+        rejectOld = reject;
+      }))
+      .mockResolvedValueOnce(payload("new"));
+    const { result } = renderHook(() => useBandMap());
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(loadBandMap).toHaveBeenCalledTimes(2);
+    expect(result.current).toEqual({ payload: payload("new"), loading: false, error: null });
+    resolveOld(payload("old"));
+    rejectOld(new Error("late"));
+    await settle();
+    expect(result.current).toEqual({ payload: payload("new"), loading: false, error: null });
+  });
+});

@@ -4,7 +4,7 @@
 // never renders a field: the preview and the delivered message come from SQL.
 
 import type { DiscordDestination, DiscordDestinationInput, DiscordField, DiscordSettings } from "../lib/api";
-import { labelOf, type FieldInfo, type Option } from "./fieldList";
+import type { FieldInfo, Option } from "./fieldList";
 
 /** discord_fields() in SQL's order: push_fields() minus comment, with push_field_label()'s names. */
 export const DISCORD_FIELDS: FieldInfo<DiscordField>[] = [
@@ -19,10 +19,6 @@ export const DISCORD_FIELDS: FieldInfo<DiscordField>[] = [
   { id: "spotter", label: "Spotter" },
   { id: "time", label: "Time" },
 ];
-
-export function discordFieldLabel(id: DiscordField): string {
-  return labelOf(DISCORD_FIELDS, id);
-}
 
 /** Decision 4's limits, checked again in SQL (validate_discord_fields). */
 export const TITLE_MIN = 1;
@@ -154,13 +150,6 @@ export function toInput(form: DiscordForm): DiscordDestinationInput {
 /** True when saving `current` would change what `initial` saved. */
 export function dirty(initial: DiscordForm, current: DiscordForm): boolean {
   return JSON.stringify(toInput(initial)) !== JSON.stringify(toInput(current));
-}
-
-/** The fields a message shows: a card's title, details and grid, or a plain line's fields. */
-export function fieldCount(settings: DiscordSettings): number {
-  return settings.style === "plain"
-    ? settings.line_fields.length
-    : settings.title_fields.length + settings.detail_fields.length + settings.grid_fields.length;
 }
 
 const WEBHOOK_PREFIXES = ["https://discord.com/api/webhooks/", "https://discordapp.com/api/webhooks/"];

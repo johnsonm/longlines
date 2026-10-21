@@ -185,7 +185,7 @@ export function SourceDetailPage({ prefs, subs }: { prefs: TimePrefs; subs: Subs
                 </Box>
               </ChartCard>
             )}
-            {source.alerts && <RecentSpotsCard source={source} prefs={prefs} health={health} />}
+            {source.alerts && <RecentSpotsCard key={source.id} source={source} prefs={prefs} health={health} />}
           </Stack>
         </Grid>
         <Grid size={{ xs: 12, md: 4 }}>

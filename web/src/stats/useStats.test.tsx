@@ -73,3 +73,59 @@ describe("useStats", () => {
     expect(result.current.error).toBeNull();
   });
 });
+
+describe("freshUntil", () => {
+  const now = Date.parse("2026-10-19T12:00:00Z");
+
+  it("keeps a snapshot until an hour after the server wrote it", async () => {
+    const { freshUntil } = await import("./useStats");
+    expect(freshUntil("2026-10-19T11:20:00Z", now)).toBe(now + 20 * 60_000);
+  });
+
+  it("keeps a snapshot at least a minute after it arrives, however fast the browser clock is", async () => {
+    const { freshUntil } = await import("./useStats");
+    expect(freshUntil("2026-10-19T09:00:00Z", now)).toBe(now + 60_000);
+    expect(freshUntil("not a time", now)).toBe(now + 60_000);
+  });
+
+  it("keeps a snapshot at most an hour after it arrives, however slow the browser clock is", async () => {
+    const { freshUntil } = await import("./useStats");
+    expect(freshUntil("2026-10-19T15:00:00Z", now)).toBe(now + 60 * 60_000);
+  });
+});
+
+describe("useStats with a skewed clock", () => {
+  const server = "2026-10-19T12:00:00Z";
+
+  async function mountAndSettle(useStats: () => unknown) {
+    const { result } = renderHook(() => useStats() as { loading: boolean });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+  }
+
+  it("asks once a minute at most when the browser clock is two hours fast", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(Date.parse(server) + 2 * 60 * 60_000);
+    const { load, useStats } = await fresh();
+    load.mockResolvedValue(stats(server));
+    await mountAndSettle(useStats);
+    await mountAndSettle(useStats);
+    expect(load).toHaveBeenCalledTimes(1);
+    vi.setSystemTime(Date.now() + 61_000);
+    await mountAndSettle(useStats);
+    expect(load).toHaveBeenCalledTimes(2);
+  });
+
+  it("asks again within an hour when the browser clock is three hours slow", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(Date.parse(server) - 3 * 60 * 60_000);
+    const { load, useStats } = await fresh();
+    load.mockResolvedValue(stats(server));
+    await mountAndSettle(useStats);
+    vi.setSystemTime(Date.now() + 59 * 60_000);
+    await mountAndSettle(useStats);
+    expect(load).toHaveBeenCalledTimes(1);
+    vi.setSystemTime(Date.now() + 2 * 60_000);
+    await mountAndSettle(useStats);
+    expect(load).toHaveBeenCalledTimes(2);
+  });
+});

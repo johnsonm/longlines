@@ -4,7 +4,7 @@ import { sendTestBlocker as discordBlocker } from "./discordModel";
 import {
   addHeader, answeredStatus, blankForm, createdSentence, extraHeaderLines, fixedHeaderLines, headerNeedsName, looksLikeHttpsUrl, requestPath, DEFAULT_WEBHOOK_SETTINGS, defaultFields, dirty, FIELDS_MAX, FIELDS_MIN, formOf, FREQUENCY_UNITS, headerInput,
   headerNeedsValue, HEADERS_MAX, KEY_STYLES, missingHelper, MISSING_VALUES, PAUSE_AFTER, removeHeader, REQUEST_OPTIONS, requestsHelper,
-  RETRY_POLICIES, sendTestBlocker, timeExample, TIME_FORMATS, toInput, updateHeader, WEBHOOK_FIELDS, webhookCardLine, webhookFieldLabel,
+  RETRY_POLICIES, sendTestBlocker, timeExample, TIME_FORMATS, toInput, updateHeader, WEBHOOK_FIELDS, webhookCardLine,
   webhookKey, type HeaderRow,
 } from "./webhookModel";
 
@@ -66,7 +66,6 @@ describe("the field list and options", () => {
       "Spot ID", "Time", "Callsign", "Frequency", "Mode", "Band", "Source", "Reference", "Place name", "State", "Spotter", "Country",
       "Spot URL", "Comment (free text)",
     ]);
-    expect(webhookFieldLabel("url")).toBe("Spot URL");
   });
 
   it("names every key as the spec's key table does", () => {

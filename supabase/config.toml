@@ -205,7 +205,12 @@ anonymous_users = 30
 # Number of sessions that can be refreshed in a 5 minute interval per IP address.
 token_refresh = 150
 # Number of sign up and sign-in requests that can be made in a 5 minute interval per IP address (excludes anonymous users).
-sign_in_sign_ups = 30
+# Raised well above site-wide traffic on purpose: every password check comes from the sign-in
+# function, so Auth sees the function's address, not the visitor's, and 30 would let ~30 wrong
+# passwords from anywhere lock out everyone. The real per-client policy is begin_sign_in_attempt
+# (10 failures per identifier and client, 100 per identifier, in 15 minutes). The hosted project's
+# limit is set in the dashboard and must be raised the same way (docs/OPERATIONS.md).
+sign_in_sign_ups = 3000
 # Number of OTP / Magic link verifications that can be made in a 5 minute interval per IP address.
 token_verifications = 30
 # Number of Web3 logins that can be made in a 5 minute interval per IP address.

@@ -3,6 +3,7 @@ import {
   assertSafeDestinationUrl,
   assertSafePushEndpoint,
   assertSafeResolvedHost,
+  hostOf,
   isDeniedHostname,
   isPrivateIp,
 } from "../delivery/urlsafety.ts";
@@ -138,6 +139,8 @@ Deno.test("assertSafeDestinationUrl refuses private-only name suffixes (same lis
       "https://1.0.0.10.in-addr.arpa/spots",
       "https://API.INTERNAL/spots",
       "https://api.internal./spots",
+      "https://svc.internal../spots",
+      "https://localhost../spots",
       "https://api.internal:8443/spots",
     ]
   ) {
@@ -246,4 +249,11 @@ Deno.test("assertSafePushEndpoint refuses anything else", () => {
   ) {
     assertThrows(() => assertSafePushEndpoint(url), Error, "Use a browser push service.", url);
   }
+});
+
+Deno.test("hostOf strips every trailing dot, as validate_destination_url's rtrim does", () => {
+  assertEquals(hostOf(new URL("https://SVC.internal../x")), "svc.internal");
+  assertEquals(hostOf(new URL("https://localhost.../x")), "localhost");
+  assertEquals(hostOf(new URL("https://example.com./x")), "example.com");
+  assertEquals(hostOf(new URL("https://[::1]/x")), "::1");
 });

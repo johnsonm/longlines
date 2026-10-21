@@ -1,5 +1,5 @@
-import { assertEquals } from "@std/assert";
-import { parseUlsRecord, ulsDate, UlsRecords } from "../uls.ts";
+import { assertEquals, assertThrows } from "@std/assert";
+import { MAX_ULS_RECORD, parseUlsRecord, ulsDate, UlsRecords } from "../uls.ts";
 
 // Synthetic records in the l_amat.zip layout (made-up calls and people; the
 // real file's EN rows carry addresses this repository never stores).
@@ -99,4 +99,30 @@ Deno.test("UlsRecords ignores text before the first record", () => {
   const splitter = new UlsRecords("HD");
   assertEquals(splitter.push("junk\r\nHD|1|\r\n"), []);
   assertEquals(splitter.flush(), ["HD|1|"]);
+});
+
+Deno.test("UlsRecords throws on a line with no LF past the cap", () => {
+  const splitter = new UlsRecords("HD");
+  assertEquals(splitter.push("HD|1|"), []);
+  assertThrows(() => splitter.push("x".repeat(MAX_ULS_RECORD)), Error, "ULS line longer");
+});
+
+Deno.test("UlsRecords throws on a record grown past the cap by continuation lines", () => {
+  const splitter = new UlsRecords("EN");
+  assertEquals(splitter.push("EN|1|\n"), []);
+  const piece = `${"x".repeat(1023)}\n`;
+  assertThrows(
+    () => {
+      for (let i = 0; i < 100; i++) splitter.push(piece);
+    },
+    Error,
+    "ULS record longer",
+  );
+});
+
+Deno.test("UlsRecords keeps a record at the cap", () => {
+  const splitter = new UlsRecords("AM");
+  const record = `AM|${"x".repeat(MAX_ULS_RECORD - 3)}`;
+  assertEquals(splitter.push(`${record}\n`), []);
+  assertEquals(splitter.flush(), [record]);
 });

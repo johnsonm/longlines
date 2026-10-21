@@ -281,6 +281,16 @@ for (const [name, make] of DECODERS) {
     assertEquals(d.push(enc(long.slice(100))), []);
     assertEquals(d.push(enc("\n\n")), [long, ""]);
   });
+
+  Deno.test(`${name} drops an overlong line completed inside one read`, () => {
+    const d = make();
+    const long = "z".repeat(MAX_PENDING + 1);
+    assertEquals(d.push(enc(`ok 1\n${long}\nok 2\n`)), ["ok 1", "ok 2"]);
+    // Pending text counts toward the cap of the line it completes.
+    assertEquals(d.push(enc("z".repeat(MAX_PENDING - 2))), []);
+    assertEquals(d.push(enc("zzz\nok 3\n")), ["ok 3"]);
+    assertEquals(d.push(enc(`${"y".repeat(MAX_PENDING)}\n`)), ["y".repeat(MAX_PENDING)]);
+  });
 }
 
 Deno.test("runTelnet over plain TCP logs in with loginLine when a completed line matches the prompt", async () => {

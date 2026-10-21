@@ -112,9 +112,26 @@ export async function signIn(identifier: string, password: string): Promise<void
   if (error) throw new ApiError(error.message);
 }
 
-/** Re-check the current password without changing the session. */
+/**
+ * Re-check the current password without changing the session. The check signs
+ * in, so the session it minted is revoked at once; a failed revoke does not
+ * fail the check (that session's refresh token is simply never used).
+ */
 export async function verifyPassword(email: string, password: string): Promise<void> {
-  await callFunction<SignInTokens>("sign-in", { identifier: email, password });
+  const tokens = await callFunction<SignInTokens>("sign-in", { identifier: email, password });
+  await revokeSession(tokens.access_token);
+}
+
+/** Signs out only the session `token` belongs to (scope local), leaving this browser's own session alone. */
+async function revokeSession(token: string): Promise<void> {
+  try {
+    await fetch(`${SUPABASE_URL}/auth/v1/logout?scope=local`, {
+      method: "POST",
+      headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${token}` },
+    });
+  } catch {
+    // Best effort, as above.
+  }
 }
 
 async function accessToken(): Promise<string> {

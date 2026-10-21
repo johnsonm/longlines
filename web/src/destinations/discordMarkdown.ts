@@ -16,8 +16,8 @@ export type Segment =
   | { kind: "bold"; children: Segment[] }
   | { kind: "link"; url: string; children: Segment[] };
 
-/** Only http(s) targets become links; anything else stays text. */
-function safeUrl(url: string): boolean {
+/** Only http(s) targets become links; anything else stays text (masked links here, the card title in DiscordMockup). */
+export function safeUrl(url: string): boolean {
   return /^https?:\/\/\S+$/i.test(url);
 }
 

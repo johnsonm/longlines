@@ -8,12 +8,31 @@ import type {
   IngestSummary,
   NormalizedSpot,
   SkipReason,
+  Source,
   SourceAdapter,
   SpotFailure,
 } from "./types.ts";
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * Records a failed run and rethrows its error. When recording fails too (the
+ * database is usually why both failed), that is only logged: the run's own
+ * error is the one the caller and the 500 body should see.
+ */
+export async function recordFailureAndThrow(
+  db: Pick<IngestDb, "recordFailure">,
+  source: Source,
+  error: unknown,
+): Promise<never> {
+  try {
+    await db.recordFailure(source, errorMessage(error));
+  } catch (recordError) {
+    console.error(`ingest-${source}: recording the failure failed: ${errorMessage(recordError)}`);
+  }
+  throw error;
 }
 
 /**
@@ -103,7 +122,6 @@ export async function runIngest(
     summary.duration_ms = Math.round(performance.now() - started);
     return summary;
   } catch (error) {
-    await db.recordFailure(adapter.source, errorMessage(error));
-    throw error;
+    return await recordFailureAndThrow(db, adapter.source, error);
   }
 }

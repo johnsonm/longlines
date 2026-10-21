@@ -87,6 +87,12 @@ describe("DiscordMockup", () => {
     expect(figure().queryByText("POTA, 17:42 UTC")).not.toBeInTheDocument();
   });
 
+  it("draws the title as text when its URL is not http(s)", () => {
+    renderPage(<DiscordMockup preview={{ ...CARD, discord_url: "javascript:alert(1)" }} now={NOW} />);
+    expect(figure().getByText("N0CALL · 14.062 MHz · CW")).toBeInTheDocument();
+    expect(figure().queryByRole("link", { name: "N0CALL · 14.062 MHz · CW" })).not.toBeInTheDocument();
+  });
+
   it("draws the plain line with bold and a new-tab link", () => {
     renderPage(<DiscordMockup preview={{ ...CARD, discord_style: "plain" }} now={NOW} />);
     const line = screen.getByTestId("discord-line");
