@@ -20,8 +20,9 @@
 -- 1. License records: first and last names
 -- ---------------------------------------------------------------------------
 
-alter table callsign_licenses add column first_name text, add column last_name text;
-alter table fcc_uls_en add column first_name text, add column last_name text;
+-- Idempotent: a preview branch ran this once under an earlier version number.
+alter table callsign_licenses add column if not exists first_name text, add column if not exists last_name text;
+alter table fcc_uls_en add column if not exists first_name text, add column if not exists last_name text;
 
 -- Same as 20261012000050 except EN rows stage first_name and last_name.
 create or replace function public.fcc_license_load_rows(p_load bigint, p_kind text, p_rows jsonb)
@@ -129,7 +130,7 @@ $$;
 -- record has no such name (a club) or the call is hidden. One primary-key
 -- read per call; the renderers run inside definer RPCs, so callers need no
 -- grant on callsign_licenses.
-create function public.spot_license_name(p_spot jsonb, p_part text)
+create or replace function public.spot_license_name(p_spot jsonb, p_part text)
 returns text
 language sql
 stable
