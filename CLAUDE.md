@@ -213,6 +213,10 @@ deploys automatically.
   and leave it only in `claim_deliveries`, `webhook_test_delivery` and `duplicate_destination`.
   The reserved header list is in `webhook_header_name_valid` and `WEBHOOK_RESERVED_HEADERS`
   (`format.ts`); change both together.
+- First name and Last name (push, Discord and webhook fields) are the spotted call's license names,
+  read only through `spot_license_name` (by base call, none for a club or a call in
+  `hidden_callsigns`), never the spotter's. The FCC load stages them apart from the joined `name`
+  (`_shared/uls.ts`, `fcc_uls_en`); never split `name` to get them.
 - Nothing in the app sets `destinations.health = 'paused'`; it is an operator tool, and the claim
   drops a paused destination's queued rows as unwanted, like `enabled = false`. To hold a queue
   and resume it, set `throttled_until`.

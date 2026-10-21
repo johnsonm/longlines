@@ -215,7 +215,8 @@ create function pg_temp.line(p discord_destination_settings, p_spot jsonb) retur
   select discord_plain_line(p, discord_field_values(p_spot), p_spot);
 $$;
 
-select is(discord_fields(), array['callsign', 'frequency', 'band', 'mode', 'source', 'reference', 'place_name', 'state', 'spotter', 'time'],
+select is(discord_fields(), array['callsign', 'first_name', 'last_name', 'frequency', 'band', 'mode', 'source', 'reference', 'place_name',
+                                  'state', 'spotter', 'time'],
   'the Discord fields are push''s without Comment, in the editor''s order');
 select ok(discord_fields_valid(array['callsign'], 1, 4) and not discord_fields_valid(array['comment'], 0, 8)
           and not discord_fields_valid(array['band', 'band'], 0, 8) and not discord_fields_valid(array[]::text[], 1, 4),

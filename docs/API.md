@@ -96,8 +96,8 @@ A destination looks like this:
 ```
 
 A push destination also has `push`: its notification settings as the web app's editor sets them
-(the title and body are ordered lists of field names from `callsign`, `frequency`, `band`, `mode`,
-`source`, `reference`, `place_name`, `state`, `spotter`, `comment` and `time`; there is no custom
+(the title and body are ordered lists of field names from `callsign`, `first_name`, `last_name`,
+`frequency`, `band`, `mode`, `source`, `reference`, `place_name`, `state`, `spotter`, `comment` and `time`; there is no custom
 text), and `device_count`:
 
 ```json
@@ -116,8 +116,8 @@ The API does not change these settings; the web app's editor does.
 
 A Discord destination also has `discord`: its message settings as the web app's editor sets them.
 `style` is `card` or `plain`; the card's title, details and small grid and the plain line are
-ordered lists of field names from `callsign`, `frequency`, `band`, `mode`, `source`, `reference`,
-`place_name`, `state`, `spotter` and `time` (not `comment`; there is no custom text, and mentions
+ordered lists of field names from `callsign`, `first_name`, `last_name`, `frequency`, `band`, `mode`,
+`source`, `reference`, `place_name`, `state`, `spotter` and `time` (not `comment`; there is no custom text, and mentions
 such as @everyone are always off). `batch_seconds` is 0 for one message per spot, or 10, 30 or 60
 to group the spots of that window into one message:
 
@@ -138,7 +138,7 @@ The API does not change these settings; the web app's editor does.
 
 A webhook also has `webhook`: its payload and delivery settings as the web app's editor sets them
 (see [WEBHOOKS.md](WEBHOOKS.md)). `fields` is an ordered list from `id`, `time`, `callsign`,
-`frequency`, `mode`, `band`, `source`, `reference`, `place_name`, `state`, `spotter`, `country`,
+`first_name`, `last_name`, `frequency`, `mode`, `band`, `source`, `reference`, `place_name`, `state`, `spotter`, `country`,
 `url` and `comment`. `key_style` is `snake` or `camel`, `time_format` `iso_utc` or
 `unix_seconds`, `frequency_unit` `khz`, `mhz` or `hz`, and `missing_values` `omit` or `null`.
 `batch_seconds` is 0 for one request per spot, or 10, 30 or 60 to group spots into one request.

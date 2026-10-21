@@ -9,7 +9,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(171);
+select plan(173);
 select pgmq.purge_queue('spot_events');
 select pgmq.purge_queue('deliveries_queue');
 delete from deliveries;
@@ -89,13 +89,14 @@ select is((select pause_failures from logger_row), 0, 'the pause count starts at
 -- ---------------------------------------------------------------------------
 -- Catalog and knobs
 -- ---------------------------------------------------------------------------
-select is(webhook_fields(), array['id', 'time', 'callsign', 'frequency', 'mode', 'band', 'source', 'reference', 'place_name',
-                                  'state', 'spotter', 'country', 'url', 'comment'], 'the field catalog, in the editor''s order');
+select is(webhook_fields(), array['id', 'time', 'callsign', 'first_name', 'last_name', 'frequency', 'mode', 'band', 'source',
+                                  'reference', 'place_name', 'state', 'spotter', 'country', 'url', 'comment'],
+  'the field catalog, in the editor''s order');
 select ok(webhook_fields_valid(array['id']) and webhook_fields_valid(webhook_fields())
           and not webhook_fields_valid('{}') and not webhook_fields_valid(null)
           and not webhook_fields_valid(array['id', 'id']) and not webhook_fields_valid(array['grid'])
           and not webhook_fields_valid(array[null]::text[]),
-  'a field list is 1 to 14 known fields, each once');
+  'a field list is 1 to 16 known fields, each once');
 select is(array[destination_batch_full('discord'), destination_batch_full('webhook'), destination_batch_full('push')],
   array[10, 50, null], 'a hold releases at 10 Discord spots or 50 webhook spots');
 select is(array[webhook_claim_max(0), webhook_claim_max(10), webhook_claim_max(30), webhook_claim_max(60)],
@@ -145,7 +146,7 @@ from destinations d
 where d.type = 'webhook' and not exists (select 1 from webhook_destination_settings s where s.destination_id = d.id);
 select results_eq($$ select cardinality(fields), batch_seconds, retry_policy, pause_after_failures
                      from webhook_destination_settings where destination_id = (select id from logger) $$,
-  $$ values (14, 10, 'day'::text, null::int) $$, 'the backfill restores a missing row once, with the legacy settings');
+  $$ values (16, 10, 'day'::text, null::int) $$, 'the backfill restores a missing row once, with the legacy settings');
 update webhook_destination_settings s set fields = d.fields, batch_seconds = d.batch_seconds, retry_policy = d.retry_policy,
        pause_after_failures = d.pause_after_failures
   from pg_temp.ws('{}') d where s.destination_id = (select id from logger);
@@ -206,6 +207,11 @@ create temp table dx as select jsonb_build_object(
   'pota_reference', null, 'pota_park_name', null, 'pota_location', null, 'sota_summit_ref', null, 'wwff_reference', null,
   'wwff_reference_name', null) as j;
 
+delete from callsign_licenses where callsign = 'KK4PWJ';
+delete from hidden_callsigns where callsign = 'KK4PWJ';
+insert into callsign_licenses (callsign, authority, name, first_name, last_name, loaded_at)
+values ('KK4PWJ', 'FCC', 'Jane Q Doe', 'Jane', 'Doe', now());
+
 select is(webhook_spot_fields(pg_temp.ws('{}'), (select j from spot)),
   '[{"key": "id", "value": 4421907}, {"key": "time", "value": "2026-10-17T17:42:09Z"}, {"key": "callsign", "value": "KK4PWJ"},
     {"key": "frequency_khz", "value": 14062}, {"key": "mode", "value": "cw"}, {"key": "band", "value": "20m"},
@@ -217,12 +223,21 @@ select is(pg_temp.keys(webhook_spot_fields(pg_temp.ws('{}'), push_sample_spot())
   'the sample spot renders the same keys');
 select is(pg_temp.keys(webhook_spot_fields(pg_temp.ws(jsonb_build_object('fields', to_jsonb(webhook_fields()), 'key_style', 'camel')),
                                            (select j from spot))),
-  array['id', 'time', 'callsign', 'frequencyKhz', 'mode', 'band', 'source', 'reference', 'placeName', 'state', 'spotter',
-        'country', 'url', 'comment'], 'camelCase keys');
+  array['id', 'time', 'callsign', 'firstName', 'lastName', 'frequencyKhz', 'mode', 'band', 'source', 'reference', 'placeName',
+        'state', 'spotter', 'country', 'url', 'comment'], 'camelCase keys');
+select is(array[webhook_field_value('first_name', (select j from spot), 'iso_utc', 'khz'),
+                webhook_field_value('last_name', (select j from spot), 'iso_utc', 'khz'),
+                webhook_field_value('first_name', (select j from dx), 'iso_utc', 'khz')],
+  array['"Jane"', '"Doe"', null]::jsonb[], 'the names are the spotted call''s license''s, none without one');
+insert into hidden_callsigns (callsign) values ('KK4PWJ');
+select is(webhook_field_value('first_name', (select j from spot), 'iso_utc', 'khz'), null, 'a hidden call has no name');
+delete from hidden_callsigns where callsign = 'KK4PWJ';
 select is(array[webhook_field_key('frequency', 'snake', 'mhz'), webhook_field_key('frequency', 'snake', 'hz'),
                 webhook_field_key('frequency', 'camel', 'mhz'), webhook_field_key('frequency', 'camel', 'hz'),
-                webhook_field_key('place_name', 'snake', 'khz'), webhook_field_key('spotter', 'camel', 'khz')],
-  array['frequency_mhz', 'frequency_hz', 'frequencyMhz', 'frequencyHz', 'place_name', 'spotter'], 'the unit is in the key');
+                webhook_field_key('place_name', 'snake', 'khz'), webhook_field_key('spotter', 'camel', 'khz'),
+                webhook_field_key('first_name', 'snake', 'khz'), webhook_field_key('last_name', 'camel', 'khz')],
+  array['frequency_mhz', 'frequency_hz', 'frequencyMhz', 'frequencyHz', 'place_name', 'spotter', 'first_name', 'lastName'],
+  'the unit is in the key');
 select is(array[webhook_field_value('frequency', (select j from spot), 'iso_utc', 'khz'),
                 webhook_field_value('frequency', (select j from spot), 'iso_utc', 'mhz'),
                 webhook_field_value('frequency', (select j from spot), 'iso_utc', 'hz'),
@@ -238,14 +253,14 @@ delete from cty_prefixes;
 delete from cty_entities;
 select is(pg_temp.keys(webhook_spot_fields(pg_temp.ws(jsonb_build_object('fields', to_jsonb(webhook_fields()))), (select j from dx))),
   array['id', 'time', 'callsign', 'frequency_khz', 'mode', 'band', 'source', 'spotter'],
-  'a DX Cluster spot leaves out reference, place name, state, URL, the empty comment and an unknown country');
+  'a DX Cluster spot leaves out names, reference, place name, state, URL, the empty comment and an unknown country');
 select is((select x -> 'value' from jsonb_array_elements(webhook_spot_fields(
              pg_temp.ws(jsonb_build_object('fields', to_jsonb(webhook_fields()), 'missing_values', 'null')), (select j from dx))) x
            where x ->> 'key' = 'country'), 'null'::jsonb, 'country is null without cty.dat');
 select is((select jsonb_object_agg(x ->> 'key', x -> 'value') from jsonb_array_elements(webhook_spot_fields(
              pg_temp.ws(jsonb_build_object('fields', to_jsonb(webhook_fields()), 'missing_values', 'null')), (select j from dx))) x
-           where x ->> 'key' in ('reference', 'place_name', 'state', 'url', 'comment')),
-  '{"reference": null, "place_name": null, "state": null, "url": null, "comment": null}'::jsonb,
+           where x ->> 'key' in ('first_name', 'last_name', 'reference', 'place_name', 'state', 'url', 'comment')),
+  '{"first_name": null, "last_name": null, "reference": null, "place_name": null, "state": null, "url": null, "comment": null}'::jsonb,
   'with "null" the missing values are sent as JSON null');
 select load_cty('test', '[{"prefix":"JA","name":"Japan","continent":"AS","cq_zone":25,"itu_zone":45,"lat":36.4,"lon":138.38}]',
   '[{"pattern":"JA","exact":false,"entity":"JA","continent":"AS","cq_zone":25,"itu_zone":45}]');

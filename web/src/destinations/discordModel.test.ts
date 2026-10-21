@@ -16,11 +16,11 @@ const MIGRATIONS: Record<string, string> = import.meta.glob("../../../supabase/m
 
 /** The body of the newest definition of a SQL function, up to its closing $$. */
 function sqlFunction(name: string): string {
-  const head = `create function public.${name}(`;
-  const file = Object.keys(MIGRATIONS).sort().filter((f) => MIGRATIONS[f]?.includes(head)).at(-1);
+  const head = new RegExp(`create (or replace )?function public\\.${name}\\(`);
+  const file = Object.keys(MIGRATIONS).sort().filter((f) => head.test(MIGRATIONS[f] ?? "")).at(-1);
   if (!file) throw new Error(`no migration defines ${name}`);
   const sql = MIGRATIONS[file] ?? "";
-  const start = sql.indexOf(head);
+  const start = sql.search(head);
   return sql.slice(start, sql.indexOf("$$;", start));
 }
 
@@ -56,9 +56,9 @@ describe("the SQL pins", () => {
 });
 
 describe("the field list and options", () => {
-  it("has ten fields with push's labels and no comment", () => {
+  it("has twelve fields with push's labels and no comment", () => {
     expect(DISCORD_FIELDS.map((f) => f.id)).toEqual([
-      "callsign", "frequency", "band", "mode", "source", "reference", "place_name", "state", "spotter", "time",
+      "callsign", "first_name", "last_name", "frequency", "band", "mode", "source", "reference", "place_name", "state", "spotter", "time",
     ]);
   });
 

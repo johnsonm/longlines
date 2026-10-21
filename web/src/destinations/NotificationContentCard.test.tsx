@@ -34,7 +34,7 @@ describe("NotificationContentCard", () => {
     const { user, onChange } = render();
     await user.click(addSelect("Title"));
     const options = screen.getAllByRole("option").map((o) => o.textContent);
-    expect(options).toEqual(["Band", "Source", "Reference", "Place name", "State", "Spotter", "Comment", "Time"]);
+    expect(options).toEqual(["First name", "Last name", "Band", "Source", "Reference", "Place name", "State", "Spotter", "Comment", "Time"]);
     await user.click(screen.getByRole("option", { name: "Band" }));
     expect(onChange).toHaveBeenCalledWith({ title_fields: ["callsign", "frequency", "mode", "band"] });
   });

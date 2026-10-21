@@ -6,7 +6,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(123);
+select plan(128);
 select pgmq.purge_queue('spot_events');
 select pgmq.purge_queue('deliveries_queue');
 delete from deliveries;
@@ -160,14 +160,32 @@ create temp table spot as select jsonb_build_object(
   'spotter', 'W1AW', 'frequency_khz', 14062, 'band', '20m', 'mode', 'cw', 'comment', 'QRT soon',
   'pota_reference', 'US-2763', 'pota_park_name', 'Pisgah National Forest', 'pota_location', 'US-NC,US-SC',
   'sota_summit_ref', null, 'wwff_reference', null, 'wwff_reference_name', null) as j;
-select is(push_fields(), array['callsign', 'frequency', 'band', 'mode', 'source', 'reference', 'place_name', 'state', 'spotter', 'comment', 'time'],
+delete from callsign_licenses where callsign in ('KK4PWJ', 'W4CLB');
+delete from hidden_callsigns where callsign in ('KK4PWJ', 'W4CLB');
+insert into callsign_licenses (callsign, authority, name, first_name, last_name, loaded_at) values
+  ('KK4PWJ', 'FCC', 'Jane Q Doe', 'Jane', 'Doe', now()),
+  ('W4CLB', 'FCC', 'Example Amateur Radio Club', null, null, now());
+select is(push_fields(), array['callsign', 'first_name', 'last_name', 'frequency', 'band', 'mode', 'source', 'reference', 'place_name',
+                               'state', 'spotter', 'comment', 'time'],
   'the fixed field list, in the editor''s order');
 select is((select array_agg(push_field_label(f) order by o) from unnest(push_fields()) with ordinality as t(f, o)),
-  array['Callsign', 'Frequency', 'Band', 'Mode', 'Source', 'Reference', 'Place name', 'State', 'Spotter', 'Comment', 'Time'],
+  array['Callsign', 'First name', 'Last name', 'Frequency', 'Band', 'Mode', 'Source', 'Reference', 'Place name', 'State', 'Spotter',
+        'Comment', 'Time'],
   'every field has its display name');
 select is((select array_agg(render_push_field(f, (select j from spot)) order by o) from unnest(push_fields()) with ordinality as t(f, o)),
-  array['KK4PWJ/P', '14.062 MHz', '20m', 'CW', 'POTA', 'US-2763', 'Pisgah National Forest', 'NC/SC', 'W1AW', 'QRT soon', '13:45Z'],
-  'every field renders');
+  array['KK4PWJ/P', 'Jane', 'Doe', '14.062 MHz', '20m', 'CW', 'POTA', 'US-2763', 'Pisgah National Forest', 'NC/SC', 'W1AW', 'QRT soon',
+        '13:45Z'],
+  'every field renders, the names from the base call''s license');
+select is(render_push_field('first_name', (select j - 'base_callsign' from spot)), 'Jane',
+  'names: the base call is worked out when the spot lacks it');
+select is(render_push_field('first_name', '{"callsign": "W4CLB", "base_callsign": "W4CLB"}'), null, 'names: a club has none');
+select is(render_push_field('last_name', '{"callsign": "K0NONE", "base_callsign": "K0NONE"}'), null, 'names: no license, no name');
+select is(render_push_field('first_name', '{"callsign": "W1AW", "base_callsign": "W1AW", "spotter": "KK4PWJ"}'), null,
+  'names: the spotted call''s, never the spotter''s');
+insert into hidden_callsigns (callsign) values ('KK4PWJ');
+select is(render_push_fields(array['callsign', 'first_name', 'last_name'], (select j from spot), 'dot', false), 'KK4PWJ/P',
+  'names: a hidden call has none');
+delete from hidden_callsigns where callsign = 'KK4PWJ';
 select is(render_push_field('place_name', (select j - 'pota_park_name' from spot)), null, 'a missing field renders null');
 select is(render_push_field('comment', (select j || '{"comment": ""}' from spot)), null, 'an empty field renders null');
 select is(render_push_field('reference', '{"source": "sotawatch", "sota_summit_ref": "W4C/CM-001"}'), 'W4C/CM-001', 'reference: the summit');

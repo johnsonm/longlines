@@ -105,8 +105,8 @@ describe("WebhookPayloadCard", () => {
     renderPage(
       <Harness
         initial={{
-          fields: ["id", "time", "callsign", "frequency", "mode", "band", "source", "reference", "place_name", "state", "spotter", "country", "url",
-            "comment"],
+          fields: ["id", "time", "callsign", "first_name", "last_name", "frequency", "mode", "band", "source", "reference", "place_name", "state",
+            "spotter", "country", "url", "comment"],
         }}
       />,
     );

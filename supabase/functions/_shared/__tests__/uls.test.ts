@@ -36,22 +36,35 @@ Deno.test("parseUlsRecord keeps the HD call sign, status and dates", () => {
   });
 });
 
-Deno.test("parseUlsRecord keeps only the EN name and state", () => {
-  assertEquals(parseUlsRecord("EN", EN), { usi: 4000001, name: "Jane Q Doe Jr", state: "NC" });
+Deno.test("parseUlsRecord keeps only the EN names and state", () => {
+  assertEquals(parseUlsRecord("EN", EN), {
+    usi: 4000001,
+    name: "Jane Q Doe Jr",
+    first_name: "Jane",
+    last_name: "Doe",
+    state: "NC",
+  });
+  // A club has only its entity name.
   assertEquals(parseUlsRecord("EN", CLUB), {
     usi: 4000002,
     name: "Example Amateur Radio Club",
+    first_name: null,
+    last_name: null,
     state: "NC",
   });
   // Only the last name, odd spacing, a non-state "state".
   assertEquals(parseUlsRecord("EN", "EN|9|||K1ABC|L||DOE,  JOHN|||  DOE ||||||||Xyz|||||"), {
     usi: 9,
     name: "DOE",
+    first_name: null,
+    last_name: "DOE",
     state: null,
   });
   assertEquals(parseUlsRecord("EN", "EN|9|||K1ABC|L||||||||||||||||"), {
     usi: 9,
     name: null,
+    first_name: null,
+    last_name: null,
     state: null,
   });
 });

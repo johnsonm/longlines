@@ -30,6 +30,9 @@ export interface HdRow {
 export interface EnRow {
   usi: number;
   name: string | null;
+  /** The licensee's own first and last names; null for a club, which has only an entity name. */
+  first_name: string | null;
+  last_name: string | null;
   state: string | null;
 }
 
@@ -114,11 +117,15 @@ export function parseUlsRecord(kind: UlsKind, record: string): UlsRow | null {
     case "EN": {
       if (f[5]?.trim() !== "L") return null;
       const person = [f[8], f[9], f[10], f[11]].map(text).filter((p) => p !== null);
+      const first = text(f[8]);
+      const last = text(f[10]);
       const state = text(f[17])?.toUpperCase() ?? null;
       return {
         usi: id,
         // Individuals have first and last names; clubs only an entity name.
-        name: text(f[8]) || text(f[10]) ? person.join(" ") : text(f[7]),
+        name: first || last ? person.join(" ") : text(f[7]),
+        first_name: first,
+        last_name: last,
         state: state && /^[A-Z]{2}$/.test(state) ? state : null,
       };
     }

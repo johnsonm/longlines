@@ -16,6 +16,8 @@ export const WEBHOOK_FIELDS: FieldInfo<WebhookField>[] = [
   { id: "id", label: "Spot ID" },
   { id: "time", label: "Time" },
   { id: "callsign", label: "Callsign" },
+  { id: "first_name", label: "First name" },
+  { id: "last_name", label: "Last name" },
   { id: "frequency", label: "Frequency" },
   { id: "mode", label: "Mode" },
   { id: "band", label: "Band" },
@@ -31,7 +33,7 @@ export const WEBHOOK_FIELDS: FieldInfo<WebhookField>[] = [
 
 /** webhook_fields_valid()'s limits, checked again in SQL. */
 export const FIELDS_MIN = 1;
-export const FIELDS_MAX = 14;
+export const FIELDS_MAX = 16;
 
 /** Extra headers per destination, checked again in SQL (set_webhook_headers). */
 export const HEADERS_MAX = 10;
@@ -58,12 +60,17 @@ export function defaultFields(): WebhookField[] {
 
 /**
  * The key a field goes out under, as webhook_field_key() names it: the
- * frequency key carries the unit, and camelCase changes only placeName and
- * the frequency. For display only; SQL names the keys of every request.
+ * frequency key carries the unit, and camelCase changes only placeName,
+ * firstName, lastName and the frequency. For display only; SQL names the keys
+ * of every request.
  */
 export function webhookKey(field: WebhookField, keyStyle: WebhookSettings["key_style"], unit: WebhookSettings["frequency_unit"]): string {
   if (field === "frequency") return keyStyle === "camel" ? `frequency${unit[0]!.toUpperCase()}${unit.slice(1)}` : `frequency_${unit}`;
-  if (field === "place_name" && keyStyle === "camel") return "placeName";
+  if (keyStyle === "camel") {
+    if (field === "place_name") return "placeName";
+    if (field === "first_name") return "firstName";
+    if (field === "last_name") return "lastName";
+  }
   return field;
 }
 

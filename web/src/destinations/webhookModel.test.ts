@@ -61,21 +61,23 @@ describe("the SQL pins", () => {
 });
 
 describe("the field list and options", () => {
-  it("has the spec's fourteen labels", () => {
+  it("has the spec's fourteen labels plus the two names", () => {
     expect(WEBHOOK_FIELDS.map((f) => f.label)).toEqual([
-      "Spot ID", "Time", "Callsign", "Frequency", "Mode", "Band", "Source", "Reference", "Place name", "State", "Spotter", "Country",
+      "Spot ID", "Time", "Callsign", "First name", "Last name", "Frequency", "Mode", "Band", "Source", "Reference", "Place name", "State", "Spotter", "Country",
       "Spot URL", "Comment (free text)",
     ]);
   });
 
   it("names every key as the spec's key table does", () => {
     const snake: Record<WebhookField, string> = {
-      id: "id", time: "time", callsign: "callsign", frequency: "frequency_khz", mode: "mode", band: "band", source: "source",
+      id: "id", time: "time", callsign: "callsign", first_name: "first_name", last_name: "last_name", frequency: "frequency_khz", mode: "mode", band: "band", source: "source",
       reference: "reference", place_name: "place_name", state: "state", spotter: "spotter", country: "country", url: "url", comment: "comment",
     };
     for (const f of WEBHOOK_FIELDS) {
       expect(webhookKey(f.id, "snake", "khz")).toBe(snake[f.id]);
-      expect(webhookKey(f.id, "camel", "khz")).toBe({ ...snake, frequency: "frequencyKhz", place_name: "placeName" }[f.id]);
+      expect(webhookKey(f.id, "camel", "khz")).toBe({
+        ...snake, first_name: "firstName", last_name: "lastName", frequency: "frequencyKhz", place_name: "placeName",
+      }[f.id]);
     }
     expect(["khz", "mhz", "hz"].map((u) => webhookKey("frequency", "snake", u as WebhookSettings["frequency_unit"])))
       .toEqual(["frequency_khz", "frequency_mhz", "frequency_hz"]);
