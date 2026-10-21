@@ -430,6 +430,12 @@ verify_jwt = false
 [functions.band-map]
 verify_jwt = false
 
+# health serves the public Health page to signed-out browsers. It checks no
+# caller identity; every visitor shares one 30-second cache per range in SQL
+# (_shared/handlers/health.ts).
+[functions.health]
+verify_jwt = false
+
 # group-page serves a group's public statistics page to signed-out browsers. It
 # checks no caller identity, only the profile's per-IP rate limit; SQL returns
 # nothing unless the owner made the page public (_shared/handlers/group_page.ts).
@@ -457,6 +463,11 @@ verify_jwt = false
 # load-licenses is called by the same relay with the same secret for the weekly
 # FCC license load (_shared/handlers/load_licenses.ts).
 [functions.load-licenses]
+verify_jwt = false
+
+# relay-status is the same relay's once-a-minute heartbeat for the Health page,
+# with the same secret (_shared/handlers/relay_status.ts).
+[functions.relay-status]
 verify_jwt = false
 
 # archive and import-cty are called by pg_cron with the legacy service-role JWT.

@@ -1,10 +1,11 @@
 -- pgTAP: the outbound sender's role (20261015000200 sender_role). The role
 -- may execute exactly the sender RPC allowlist and nothing else in public,
 -- has no table privileges and no usage on pgmq. The allowlist gained
--- throttle_destination and delivery_queue_stats in 20261015000400.
+-- throttle_destination and delivery_queue_stats in 20261015000400, and
+-- record_sender_heartbeat in 20261021000100 (the Health page).
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(15);
+select plan(16);
 
 select ok(exists (
   select 1 from pg_roles
@@ -29,7 +30,8 @@ where n.nspname = 'public'
 select set_eq(
   $$select proname::text from public_functions where has_function_privilege('delivery_sender', oid, 'execute')$$,
   array['claim_deliveries', 'mark_deliveries_sent', 'mark_deliveries_failed',
-        'prune_push_devices', 'record_push_results', 'throttle_destination', 'delivery_queue_stats'],
+        'prune_push_devices', 'record_push_results', 'throttle_destination', 'delivery_queue_stats',
+        'record_sender_heartbeat'],
   'delivery_sender may execute exactly the sender RPC allowlist');
 
 select is(
@@ -72,6 +74,7 @@ select lives_ok($$ select public.mark_deliveries_sent(array[]::bigint[], array[]
 select throws_ok($$ select public.throttle_destination('00000000-0000-0000-0000-000000000000', array[]::bigint[], null) $$,
   'P0001', 'Destination not found.', 'the role can throttle (the call reaches the function)');
 select lives_ok($$ select * from public.delivery_queue_stats() $$, 'the role can read queue stats');
+select lives_ok($$ select public.record_sender_heartbeat(now(), now(), 1) $$, 'the role can report its heartbeat');
 select throws_ok($$ select count(*) from public.deliveries $$, '42501', null, 'the role cannot read deliveries');
 select throws_ok($$ select * from pgmq.metrics('deliveries_queue') $$, '42501', null, 'the role cannot reach pgmq');
 select throws_ok($$ select public.match_pending_spots() $$, '42501', null, 'the matcher stays service_role only');

@@ -544,6 +544,50 @@ Deno.test("startSender logs a failed stats call and keeps the previous figures",
   await sender.done;
 });
 
+Deno.test("startSender reports a heartbeat after each stats call and logs one that fails", async () => {
+  let beatFail = false;
+  const db = fakeDb(({ fn }) =>
+    fn === "record_sender_heartbeat" && beatFail ? { error: "permission denied" } : undefined
+  );
+  const clock = fakeClock(T0);
+  const logs: string[] = [];
+  const sender = startSender(config({ statsMs: 10_000 }), { db: db.db, send: allSent }, {
+    hostname: "127.0.0.1",
+    log: (m) => logs.push(m),
+    now: clock.now,
+    sleep: clock.sleep,
+    rss: () => 90_000_000,
+  });
+  await waitFor("the heartbeat", () => db.of("record_sender_heartbeat").length === 1);
+  const first = db.of("record_sender_heartbeat")[0]!.args;
+  assertEquals(first.p_started_at, T0.toISOString());
+  assertEquals(first.p_rss_bytes, 90_000_000);
+  // The first claim and the first heartbeat race; either way the time is the claim's.
+  assertEquals([null, T0.toISOString()].includes(first.p_last_progress_at as string | null), true);
+  beatFail = true;
+  await clock.advance(10_000);
+  await waitFor("the second heartbeat", () => db.of("record_sender_heartbeat").length === 2);
+  assertEquals(logs.includes("record_sender_heartbeat failed: permission denied"), true);
+  await sender.shutdown();
+  await sender.done;
+});
+
+Deno.test("startSender's default heartbeat memory is the process's RSS", async () => {
+  const db = fakeDb();
+  const clock = fakeClock(T0);
+  const sender = startSender(config(), { db: db.db, send: allSent }, {
+    hostname: "127.0.0.1",
+    log: () => {},
+    now: clock.now,
+    sleep: clock.sleep,
+  });
+  await waitFor("the heartbeat", () => db.of("record_sender_heartbeat").length === 1);
+  const rss = db.of("record_sender_heartbeat")[0]!.args.p_rss_bytes as number;
+  assertEquals(Number.isSafeInteger(rss) && rss > 0, true);
+  await sender.shutdown();
+  await sender.done;
+});
+
 Deno.test("abortableSleep ends on the timer or on abort", async () => {
   const controller = new AbortController();
   await abortableSleep(1, controller.signal);
