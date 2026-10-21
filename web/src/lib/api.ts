@@ -6,6 +6,7 @@ import type { Database, Json } from "./database.types";
 import type { LatestStats, StatsPayload } from "../stats/types";
 import type { CallsignProfile } from "../profile/types";
 import type { BandMapPayload } from "../bandmap/types";
+import type { HealthPayload, HealthRange } from "../health/types";
 import type { CallsignGroup, GroupInput, NormalizedCallsigns } from "../groups/types";
 import type { GroupPeriod, GroupSummary, OwnerGroupStatistics, PublicGroupStatistics } from "../groups/stats/types";
 import type { Rules } from "../subscriptions/model";
@@ -875,4 +876,16 @@ export async function loadCallsignProfile(callsign: string): Promise<CallsignPro
  */
 export async function loadBandMap(): Promise<BandMapPayload> {
   return fetchFunction<BandMapPayload>("band-map", { headers: { apikey: SUPABASE_ANON_KEY } });
+}
+
+// ---- Health -----------------------------------------------------------------
+
+/**
+ * The Health page's checks, series and jobs for a range, from the public
+ * health Edge Function, which works signed out, so no session is sent. Every
+ * visitor shares one result per range cached for 30 seconds in SQL
+ * (cached_health).
+ */
+export async function loadHealth(range: HealthRange): Promise<HealthPayload> {
+  return fetchFunction<HealthPayload>(`health?range=${range}`, { headers: { apikey: SUPABASE_ANON_KEY } });
 }

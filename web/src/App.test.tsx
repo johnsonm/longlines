@@ -57,6 +57,7 @@ vi.mock("./groups/GroupsPage", () => ({ GroupsPage: () => <p>groups page</p> }))
 vi.mock("./groups/GroupPage", () => ({ GroupPage: ({ id, tab }: { id: string; tab: string }) => <p>group page {id} {tab}</p> }));
 vi.mock("./groups/PublicGroupPage", () => ({ PublicGroupPage: ({ slug }: { slug: string }) => <p>public group page {slug}</p> }));
 vi.mock("./stats/StatsPage", () => ({ StatsPage: () => <p>stats page</p> }));
+vi.mock("./health/HealthPage", () => ({ HealthPage: () => <p>health page</p> }));
 vi.mock("./account/AccountPage", () => ({ AccountPage: () => <p>account page</p> }));
 vi.mock("./profile/LookupPage", () => ({ LookupPage: () => <p>lookup page</p> }));
 vi.mock("./profile/CallsignPage", () => ({
@@ -149,6 +150,19 @@ describe("App routing", () => {
   it("serves Stats inside the app shell when signed in", async () => {
     renderAt("/stats");
     expect(await screen.findByText("stats page")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Sign in" })).not.toBeInTheDocument();
+  });
+
+  it("serves Health publicly, and inside the app shell when signed in", async () => {
+    session(null);
+    const { unmount } = renderAt("/health");
+    expect(await screen.findByText("health page")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sign in" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Health" })).toHaveClass("Mui-selected");
+    unmount();
+    session(SESSION);
+    renderAt("/health");
+    expect(await screen.findByText("health page")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Sign in" })).not.toBeInTheDocument();
   });
 
