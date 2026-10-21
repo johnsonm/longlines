@@ -4,7 +4,7 @@ import SendIcon from "@mui/icons-material/Send";
 import { useState, type ReactNode } from "react";
 
 import type { DiscordPreview } from "../lib/api";
-import { colorHex, renderDiscordMarkdown, todayAt, type MarkdownComponents } from "./discordMarkdown";
+import { colorHex, renderDiscordMarkdown, safeUrl, todayAt, type MarkdownComponents } from "./discordMarkdown";
 
 // Discord's dark theme, as on the canvas. These are Discord's colours, not
 // the app's, so they stay fixed in both of the app's colour schemes.
@@ -137,7 +137,7 @@ export function DiscordMockup({ preview, now }: Props) {
             <Embed barColor={colorHex(preview.discord_color)} data-testid="discord-embed" sx={{ mt: 0.5 }}>
               <Stack spacing={1}>
                 <EmbedTitle>
-                  {preview.discord_url
+                  {preview.discord_url && safeUrl(preview.discord_url)
                     ? newTab(preview.discord_url, renderDiscordMarkdown(preview.discord_title, TITLE_MARKDOWN))
                     : renderDiscordMarkdown(preview.discord_title, TITLE_MARKDOWN)}
                 </EmbedTitle>

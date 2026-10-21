@@ -152,8 +152,9 @@ the callsign to an email with a service-role-only SQL function, calls
 `signInWithPassword` server side, and returns the session tokens. The error
 message is the same for an unknown identifier and a wrong password, unknown
 identifiers still pay for a password check, and attempts are logged in
-`sign_in_attempts` so the eleventh attempt per identifier in fifteen minutes is
-refused.
+`sign_in_attempts`, keyed on the account's email when the identifier resolves (so an
+email and a callsign share one budget), so the eleventh attempt in fifteen minutes is
+refused. A failed sign-in answers no sooner than 300 ms after the request started.
 
 ## Destinations
 
@@ -1030,7 +1031,9 @@ registries can load into it later; FCC is the only loader for now.
   after twelve hours, so a load that keeps failing downloads the file twice a day at most.
 - **Streaming.** `relay/zip.ts` reads the zip's central directory from its tail, then fetches only
   `HD.dat`, `EN.dat` and `AM.dat` with Range requests and inflates them with
-  `DecompressionStream`. Every range carries `If-Range` with the `Last-Modified` HEAD saw, so a
+  `DecompressionStream`. Every range carries `If-Range` with the strong ETag HEAD saw (else its `Last-Modified`;
+  a weak-only validator is refused), and each body must match its `Content-Range` and each entry its
+  CRC-32, so a
   file the FCC replaces mid-load comes back as a 200, which is refused, rather than as a mix of
   two weeks' bytes. Memory stays flat (a full run against the real file parsed all three in
   13 s before network time and stayed under the relay's 160 MB heap); an inflated size that differs from the directory's is
@@ -1301,7 +1304,7 @@ optional actions; the service worker never formats text), `notificationclick` fo
 Long Lines window and navigates it, or opens one (a source site always gets its own window), and
 `pushsubscriptionchange` re-subscribes with the old key and posts `push-subscription-changed` to
 open windows. The worker never holds a session or token, so re-registering the device is the
-page's job; the old endpoint is pruned on its first 410. The worker calls `skipWaiting()` at
+page's job; when the worker could not re-subscribe, the page subscribes with the app's key. The worker calls `skipWaiting()` at
 startup, since there is no cache for a new version to keep consistent, and the build fails if
 `sw.js` would import another chunk: it is registered as a classic worker.
 
@@ -1316,7 +1319,9 @@ registers the device (`register_push_device`, with "{Browser} on {Platform}" fro
 The browser remembers only its own last endpoint, in `localStorage`, and never reads one back
 from the database. Three things keep the registration current: `AppProvider` runs
 `refreshPushRegistration()` once per load with a session (a granted, subscribed browser re-sends
-its keys; a denied one reports its remembered endpoint blocked), `register.ts` runs it again when
+its keys; a granted one with no subscription but a remembered endpoint the account still lists
+subscribes again and moves that device to the new endpoint; a denied one reports its remembered
+endpoint blocked), `register.ts` runs it again when
 the worker posts `push-subscription-changed`, and every local sign-out passes `pushCleanup` to
 `signOut`, so the device leaves with the session ("Sign out other devices" keeps it). Installing
 is `install.ts`: `main.tsx` captures Chrome's `beforeinstallprompt` before the first render, the

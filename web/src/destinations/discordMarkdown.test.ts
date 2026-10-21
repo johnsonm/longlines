@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseDiscordMarkdown } from "./discordMarkdown";
+import { parseDiscordMarkdown, safeUrl } from "./discordMarkdown";
 
 const URL = "https://longlines.io/call/KK4PWJ";
 
@@ -129,5 +129,15 @@ describe("parseDiscordMarkdown", () => {
       { kind: "bold", children: [{ kind: "link", url: profile, children: [{ kind: "text", text: "K1ABC/**" }] }] },
       { kind: "text", text: " · 14.062 MHz · CW · POTA · US-2763 · 1. [Park](https://evil.example) <#123>" },
     ]);
+  });
+});
+
+describe("safeUrl", () => {
+  it("accepts only http(s) targets without spaces", () => {
+    expect(safeUrl("https://longlines.io/call/K1ABC")).toBe(true);
+    expect(safeUrl("HTTP://x.example")).toBe(true);
+    expect(safeUrl("javascript:alert(1)")).toBe(false);
+    expect(safeUrl("data:text/html,x")).toBe(false);
+    expect(safeUrl("https://a.example/x y")).toBe(false);
   });
 });

@@ -57,6 +57,12 @@ Deno.test("resolveMode never overrides an explicit specific mode", () => {
   assertEquals(resolveMode("FT4", "was on FT8"), "ft4");
 });
 
+Deno.test("resolveMode folds USB and LSB to ssb", () => {
+  assertEquals(resolveMode("USB", ""), "ssb");
+  assertEquals(resolveMode("lsb", "FT8 later"), "ssb");
+  assertEquals(resolveMode("SSB", ""), "ssb");
+});
+
 Deno.test("modeFamily classifies cw, phone and digital modes", () => {
   assertEquals(modeFamily("cw"), "cw");
   assertEquals(modeFamily("ssb"), "phone");

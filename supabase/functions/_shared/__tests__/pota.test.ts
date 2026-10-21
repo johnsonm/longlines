@@ -71,6 +71,24 @@ Deno.test("pota.normalize stores a null mode and family when upstream mode is bl
   assertEquals(result.spot.mode_family, null);
 });
 
+Deno.test("pota.normalize stores USB as ssb but hashes the upstream USB", async () => {
+  const raw: JsonObject = { ...spot(58161562), mode: "USB" };
+  const result = await pota.normalize(raw, NOW);
+  if (result.kind !== "spot") throw new Error("expected spot");
+  assertEquals([result.spot.mode, result.spot.mode_family], ["ssb", "phone"]);
+  assertEquals(
+    result.spot.content_hash,
+    await contentHash([
+      raw["spotTime"],
+      raw["activator"],
+      raw["reference"],
+      raw["frequency"],
+      "USB",
+      raw["comments"],
+    ]),
+  );
+});
+
 Deno.test("pota.normalize takes the mode from the comment when upstream mode is blank", async () => {
   const result = await pota.normalize({ ...spot(58161562), mode: "", comments: "FT8 QRP" }, NOW);
   if (result.kind !== "spot") throw new Error("expected spot");

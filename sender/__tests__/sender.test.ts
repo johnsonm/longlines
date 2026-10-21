@@ -510,12 +510,19 @@ Deno.test("startSender shutdown waits for the cycle in flight before closing the
 
 Deno.test("startSender ends with the error when a cycle throws anything but a ClaimError", async () => {
   const d = dest("d1");
-  const db = fakeDb(({ fn }) => fn === "claim_deliveries" ? { data: [row(1, d)] } : undefined);
+  // A throw from send is a failed destination now (runDeliveryBatch catches it), so
+  // the cycle's unexpected error comes from the database adapter itself rejecting.
+  const db = fakeDb(({ fn }) => {
+    if (fn === "mark_deliveries_sent") throw new TypeError("boom");
+    return fn === "claim_deliveries" ? { data: [row(1, d)] } : undefined;
+  });
   const clock = fakeClock(T0);
-  const sender = startSender(config(), {
-    db: db.db,
-    send: () => Promise.reject(new TypeError("boom")),
-  }, { hostname: "127.0.0.1", log: () => {}, now: clock.now, sleep: clock.sleep });
+  const sender = startSender(config(), { db: db.db, send: allSent }, {
+    hostname: "127.0.0.1",
+    log: () => {},
+    now: clock.now,
+    sleep: clock.sleep,
+  });
   await assertRejects(() => sender.done, TypeError, "boom");
   await sender.shutdown();
   assertEquals(db.closed(), 1);

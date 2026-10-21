@@ -17,10 +17,14 @@ export function bearerToken(req: Request): string | null {
  * this only from functions deployed with verify_jwt = true, where the gateway has
  * already verified it.
  */
-export function isServiceRole(req: Request, serviceRoleKey: string | undefined): boolean {
+export async function isServiceRole(
+  req: Request,
+  serviceRoleKey: string | undefined,
+): Promise<boolean> {
   const token = bearerToken(req);
   if (!token) return false;
-  if (serviceRoleKey && token === serviceRoleKey) return true;
+  // Constant time, like the relay secret: the key is a long-lived credential.
+  if (serviceRoleKey && await secretsMatch(token, serviceRoleKey)) return true;
   return jwtRole(token) === "service_role";
 }
 

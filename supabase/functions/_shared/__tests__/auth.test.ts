@@ -27,26 +27,29 @@ function jwt(payload: Record<string, unknown>): string {
 const withBearer = (token?: string) =>
   new Request("http://x/", { headers: token ? { Authorization: `Bearer ${token}` } : {} });
 
-Deno.test("isServiceRole accepts the runtime key itself", () => {
-  assertEquals(isServiceRole(withBearer("sb_secret_abc"), "sb_secret_abc"), true);
+Deno.test("isServiceRole accepts the runtime key itself", async () => {
+  assertEquals(await isServiceRole(withBearer("sb_secret_abc"), "sb_secret_abc"), true);
 });
 
-Deno.test("isServiceRole accepts a service_role JWT when the runtime key is the new secret key", () => {
+Deno.test("isServiceRole accepts a service_role JWT when the runtime key is the new secret key", async () => {
   // Hosted projects set SUPABASE_SERVICE_ROLE_KEY to sb_secret_..., while pg_cron must send the
   // legacy service-role JWT to get past verify_jwt.
-  assertEquals(isServiceRole(withBearer(jwt({ role: "service_role" })), "sb_secret_abc"), true);
-  assertEquals(isServiceRole(withBearer(jwt({ role: "service_role" })), undefined), true);
+  assertEquals(
+    await isServiceRole(withBearer(jwt({ role: "service_role" })), "sb_secret_abc"),
+    true,
+  );
+  assertEquals(await isServiceRole(withBearer(jwt({ role: "service_role" })), undefined), true);
 });
 
-Deno.test("isServiceRole refuses other roles, other tokens and a missing header", () => {
+Deno.test("isServiceRole refuses other roles, other tokens and a missing header", async () => {
   assertEquals(
-    isServiceRole(withBearer(jwt({ role: "authenticated", sub: "u1" })), "sb_secret_abc"),
+    await isServiceRole(withBearer(jwt({ role: "authenticated", sub: "u1" })), "sb_secret_abc"),
     false,
   );
-  assertEquals(isServiceRole(withBearer(jwt({ role: "anon" })), "sb_secret_abc"), false);
-  assertEquals(isServiceRole(withBearer("sb_secret_other"), "sb_secret_abc"), false);
-  assertEquals(isServiceRole(withBearer("a.%%%.c"), "sb_secret_abc"), false);
-  assertEquals(isServiceRole(withBearer("only.two"), "sb_secret_abc"), false);
-  assertEquals(isServiceRole(withBearer(), "sb_secret_abc"), false);
-  assertEquals(isServiceRole(withBearer(), undefined), false);
+  assertEquals(await isServiceRole(withBearer(jwt({ role: "anon" })), "sb_secret_abc"), false);
+  assertEquals(await isServiceRole(withBearer("sb_secret_other"), "sb_secret_abc"), false);
+  assertEquals(await isServiceRole(withBearer("a.%%%.c"), "sb_secret_abc"), false);
+  assertEquals(await isServiceRole(withBearer("only.two"), "sb_secret_abc"), false);
+  assertEquals(await isServiceRole(withBearer(), "sb_secret_abc"), false);
+  assertEquals(await isServiceRole(withBearer(), undefined), false);
 });

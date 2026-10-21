@@ -1,11 +1,15 @@
 // Test helpers: build a zip in memory and serve it like data.fcc.gov does
 // (HEAD with Content-Length and Last-Modified, GET with Range -> 206).
 
+import { crc32 } from "../zip.ts";
+
 export interface ZipFile {
   name: string;
   text: string;
   /** Store instead of deflate. */
   stored?: boolean;
+  /** Write this CRC-32 instead of the real one. */
+  crc?: number;
 }
 
 async function deflateRaw(data: Uint8Array): Promise<Uint8Array> {
@@ -24,11 +28,13 @@ export async function buildZip(files: ZipFile[], comment = ""): Promise<Uint8Arr
     const name = enc.encode(file.name);
     const data = enc.encode(file.text);
     const body = file.stored ? data : await deflateRaw(data);
+    const crc = file.crc ?? crc32(data);
     const local = new Uint8Array(30 + name.length);
     const l = new DataView(local.buffer);
     l.setUint32(0, 0x04034b50, true);
     l.setUint16(4, 20, true);
     l.setUint16(8, file.stored ? 0 : 8, true);
+    l.setUint32(14, crc, true);
     l.setUint32(18, body.length, true);
     l.setUint32(22, data.length, true);
     l.setUint16(26, name.length, true);
@@ -40,6 +46,7 @@ export async function buildZip(files: ZipFile[], comment = ""): Promise<Uint8Arr
     c.setUint16(4, 20, true);
     c.setUint16(6, 20, true);
     c.setUint16(10, file.stored ? 0 : 8, true);
+    c.setUint32(16, crc, true);
     c.setUint32(20, body.length, true);
     c.setUint32(24, data.length, true);
     c.setUint16(28, name.length, true);
@@ -80,6 +87,12 @@ export interface ZipServerOptions {
   stallAfter?: number;
   /** Never answer a Range request for entry data (no headers) until the client gives up. */
   stallHeaders?: boolean;
+  /** Send this ETag on every response (and expect it in If-Range). */
+  etag?: string;
+  /** Send one byte fewer than every Range asks for. */
+  shortBody?: boolean;
+  /** Answer every Range from one byte later, with a Content-Range that says so. */
+  shiftRange?: boolean;
 }
 
 export function serveZip(bytes: Uint8Array, options: ZipServerOptions = {}) {
@@ -93,6 +106,7 @@ export function serveZip(bytes: Uint8Array, options: ZipServerOptions = {}) {
   let lastModified = options.lastModified === undefined
     ? "Sun, 11 Oct 2026 13:18:48 GMT"
     : options.lastModified;
+  let etag = options.etag ?? null;
   const server = Deno.serve({ hostname: "127.0.0.1", port: 0, onListen: () => {} }, (req) => {
     const range = req.headers.get("range");
     requests.push({
@@ -103,12 +117,19 @@ export function serveZip(bytes: Uint8Array, options: ZipServerOptions = {}) {
     });
     const headers: Record<string, string> = { "content-length": String(bytes.length) };
     if (lastModified) headers["last-modified"] = lastModified;
+    if (etag) headers["etag"] = etag;
     if (req.method === "HEAD") return new Response(null, { headers });
     const m = /^bytes=(\d+)-(\d+)$/.exec(range ?? "");
     const ifRange = req.headers.get("if-range");
-    const changed = ifRange !== null && ifRange !== lastModified;
+    const changed = ifRange !== null && ifRange !== lastModified && ifRange !== etag;
     if (!m || options.ignoreRange || changed) return new Response(bytes as BodyInit, { headers });
-    const slice = bytes.slice(Number(m[1]), Number(m[2]) + 1);
+    const first = Number(m[1]) + (options.shiftRange ? 1 : 0);
+    const last = Number(m[2]) + (options.shiftRange ? 1 : 0) - (options.shortBody ? 1 : 0);
+    const slice = bytes.slice(first, last + 1);
+    const partial = {
+      status: 206,
+      headers: { "content-range": `bytes ${first}-${last}/${bytes.length}` },
+    };
     // Entry data: not the directory tail (from 0 in a small file) or a 30-byte local header.
     const entryData = Number(m[1]) > 0 && slice.length > 30;
     if (options.stallHeaders && entryData) {
@@ -121,9 +142,9 @@ export function serveZip(bytes: Uint8Array, options: ZipServerOptions = {}) {
           controller.enqueue(head);
         },
       });
-      return new Response(body, { status: 206 });
+      return new Response(body, partial);
     }
-    return new Response(slice as BodyInit, { status: 206 });
+    return new Response(slice as BodyInit, partial);
   });
   return {
     // No ".zip" in a plain-http URL: CodeQL reads that as an insecure download.
@@ -135,8 +156,9 @@ export function serveZip(bytes: Uint8Array, options: ZipServerOptions = {}) {
       for (const resolve of stalled.splice(0)) resolve(new Response(null, { status: 503 }));
     },
     /** The FCC publishes a new file. */
-    republish(date: string) {
+    republish(date: string, newEtag?: string) {
       lastModified = date;
+      if (newEtag !== undefined) etag = newEtag;
     },
   };
 }

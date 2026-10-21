@@ -13,15 +13,20 @@ export function RecentSpotsCard({ source, prefs, health }: { source: SourceInfo;
   const [spots, setSpots] = useState<RecentSpot[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const mounted = useRef(true);
+  // Only the newest request may land: an older one (an earlier tick, or another source before
+  // the key changed) finishing late must not replace what a newer one showed.
+  const latest = useRef(0);
 
   const refresh = useCallback(async () => {
+    const request = ++latest.current;
+    const current = () => mounted.current && request === latest.current;
     try {
       const rows = await loadRecentSpots(source.id);
-      if (!mounted.current) return;
+      if (!current()) return;
       setSpots(rows);
       setError(null);
     } catch (err) {
-      if (mounted.current) setError(errorText(err, "Couldn't load recent spots."));
+      if (current()) setError(errorText(err, "Couldn't load recent spots."));
     }
   }, [source.id]);
 

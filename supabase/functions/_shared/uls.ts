@@ -127,10 +127,15 @@ export function parseUlsRecord(kind: UlsKind, record: string): UlsRow | null {
   }
 }
 
+/** Longest record or unterminated line UlsRecords keeps; real records are under 1 KB. */
+export const MAX_ULS_RECORD = 64 * 1024;
+
 /**
  * Splits decoded .dat text into records. A record is a line that starts with
  * the file's record type; any other line continues the previous record (a
- * field with a line break in it), joined with a space.
+ * field with a line break in it), joined with a space. A line or record longer
+ * than MAX_ULS_RECORD throws, so a malformed file fails the load (the relay
+ * abandons it) instead of growing a buffer toward the size of the file.
  */
 export class UlsRecords {
   #partial = "";
@@ -145,6 +150,9 @@ export class UlsRecords {
   push(chunk: string): string[] {
     const lines = (this.#partial + chunk).split("\n");
     this.#partial = lines.pop() ?? "";
+    if (this.#partial.length > MAX_ULS_RECORD) {
+      throw new Error(`ULS line longer than ${MAX_ULS_RECORD} characters`);
+    }
     return this.#take(lines);
   }
 
@@ -166,6 +174,9 @@ export class UlsRecords {
         this.#record = line;
       } else if (line !== "" && this.#record !== null) {
         this.#record += ` ${line}`;
+      }
+      if ((this.#record?.length ?? 0) > MAX_ULS_RECORD) {
+        throw new Error(`ULS record longer than ${MAX_ULS_RECORD} characters`);
       }
     }
     return out;

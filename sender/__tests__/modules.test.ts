@@ -20,6 +20,8 @@ Deno.test("the Docker image allows every environment variable the sender reads",
   });
   const { dockerfile, allowed } = allowEnvList();
   assertEquals([...read].filter((name) => !allowed.includes(name)), []);
+  // And nothing more: an allowance no module reads is a variable an import could start reading unseen.
+  assertEquals(allowed.filter((name) => !read.has(name)), []);
   // The image runs the shell with the heap bound the 256 MB machine needs, and no import map.
   assertEquals(dockerfile.includes("--v8-flags=--max-old-space-size=160"), true);
   assertEquals(dockerfile.includes('"--no-config"'), true);

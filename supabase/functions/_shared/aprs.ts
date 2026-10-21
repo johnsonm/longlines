@@ -23,6 +23,7 @@ import {
   MAX_CALLSIGN_LENGTH,
   parseUtc,
 } from "./normalize.ts";
+import { recordFailureAndThrow } from "./ingest.ts";
 import { parseRelayBody, requireString, withoutNul } from "./relay_lines.ts";
 import type {
   AprsDb,
@@ -195,8 +196,7 @@ export async function runAprsPush(
     if (failures.length > 0) await db.recordSpotFailures(failures);
     await db.recordSuccess("aprs", stored, null);
   } catch (error) {
-    await db.recordFailure("aprs", errorMessage(error));
-    throw error;
+    return await recordFailureAndThrow(db, "aprs", error);
   }
   return {
     source: "aprs",

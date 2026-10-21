@@ -660,3 +660,45 @@ Deno.test("runDeliveryBatch passes the cycle clock to the sender", async () => {
   }, NOW);
   assertEquals(seen, [NOW]);
 });
+
+Deno.test("runDeliveryBatch fails a destination whose send throws and still acks the others", async () => {
+  const a = dest("a");
+  const b = dest("b");
+  const c = dest("c");
+  const { result, calls } = await run(
+    [row(1, a), row(2, b, { attempts: 2 }), row(3, b), row(4, c)],
+    (d, batch) => {
+      if (d.id === "b") return Promise.reject(new TypeError("toFixed of null"));
+      // A send that throws before returning a promise is caught the same way.
+      if (d.id === "c") throw new Error("sync boom");
+      return Promise.resolve({ ok: true, sent: batch.length });
+    },
+  );
+  assertEquals([result.sent, result.failed, result.unattempted], [1, 3, 0]);
+  assertEquals(calls.slice(1), [
+    { fn: "mark_deliveries_sent", args: { p_delivery_ids: [1], p_msg_ids: [10] } },
+    {
+      fn: "mark_deliveries_failed",
+      args: {
+        p_delivery_ids: [2, 3],
+        p_msg_ids: [20, 30],
+        p_error: "send threw: toFixed of null",
+        p_delay_seconds: backoffSeconds(3),
+      },
+    },
+    {
+      fn: "mark_deliveries_failed",
+      args: {
+        p_delivery_ids: [4],
+        p_msg_ids: [40],
+        p_error: "send threw: sync boom",
+        p_delay_seconds: backoffSeconds(1),
+      },
+    },
+  ]);
+  assertEquals(result.destinations.map((d) => d.error), [
+    undefined,
+    "send threw: toFixed of null",
+    "send threw: sync boom",
+  ]);
+});
