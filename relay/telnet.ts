@@ -28,7 +28,10 @@ class LineSplitter {
     const lines: string[] = [];
     let start = 0;
     for (let lf = chunk.indexOf("\n"); lf !== -1; lf = chunk.indexOf("\n", start)) {
-      if (!this.#discarding) lines.push(this.#text + chunk.slice(start, lf));
+      // A line completed inside this chunk is held to the same cap as pending text.
+      if (!this.#discarding && this.#text.length + (lf - start) <= MAX_PENDING) {
+        lines.push(this.#text + chunk.slice(start, lf));
+      }
       this.#text = "";
       this.#discarding = false;
       start = lf + 1;

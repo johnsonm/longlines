@@ -1,4 +1,4 @@
-import { assertEquals, assertRejects } from "@std/assert";
+import { assertEquals, assertMatch, assertRejects } from "@std/assert";
 import { runIngest } from "../ingest.ts";
 import { wwff } from "../wwff.ts";
 import type {
@@ -283,4 +283,30 @@ Deno.test("runIngest makes lone surrogates storable before normalize and the dea
   await runIngest(adapter, db, NOW);
   assertEquals(seen[0], { id: 1, comment: "hi \ufffd" });
   assertEquals(calls.failures[0]?.[0]?.raw_payload, { id: 2, throws: true, c: "\ufffd" });
+});
+
+async function capturingErrors<T>(fn: () => Promise<T>): Promise<unknown[]> {
+  const errors: unknown[] = [];
+  const original = console.error;
+  console.error = (...args: unknown[]) => errors.push(args[0]);
+  try {
+    await fn();
+  } finally {
+    console.error = original;
+  }
+  return errors;
+}
+
+Deno.test("runIngest rethrows the run's own error when recording the failure fails too", async () => {
+  const { db } = fakeDb();
+  db.recordFailure = () => Promise.reject(new Error("record_ingest_failure failed: db down"));
+  const errors = await capturingErrors(() =>
+    assertRejects(
+      () => runIngest(fakeAdapter(new Error("ECONNRESET")), db, NOW),
+      Error,
+      "ECONNRESET",
+    )
+  );
+  assertEquals(errors.length, 1);
+  assertMatch(String(errors[0]), /ingest-pota: recording the failure failed: .*db down/);
 });

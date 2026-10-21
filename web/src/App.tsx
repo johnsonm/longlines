@@ -23,6 +23,7 @@ import { GroupPage } from "./groups/GroupPage";
 import { PublicGroupPage } from "./groups/PublicGroupPage";
 import { StatsPage } from "./stats/StatsPage";
 import { BandMapPage } from "./bandmap/BandMapPage";
+import { HealthPage } from "./health/HealthPage";
 import { ApiTokensPage } from "./tokens/ApiTokensPage";
 import { AccountPage } from "./account/AccountPage";
 import { LookupPage } from "./profile/LookupPage";
@@ -30,6 +31,7 @@ import { CallsignPage } from "./profile/CallsignPage";
 import { loadDestinations, loadSubscriptions, signOut, type Destination, type SubscriptionWithLinks } from "./lib/api";
 import type { TimePrefs } from "./lib/time";
 import { pushCleanup } from "./pwa/push";
+import { withoutQueryOrHash } from "./lib/analytics";
 
 // Both schemes, so useColorScheme() can pick light, dark or system; MUI keeps the choice in localStorage.
 const theme = createTheme({ colorSchemes: { light: true, dark: true } });
@@ -42,8 +44,8 @@ export default function App() {
         <Router />
         <Toast />
       </AppProvider>
-      <SpeedInsights />
-      <Analytics />
+      <SpeedInsights beforeSend={withoutQueryOrHash} />
+      <Analytics beforeSend={withoutQueryOrHash} />
     </ThemeProvider>
   );
 }
@@ -76,6 +78,7 @@ function Router() {
       <Route path="/destinations/:id" element={<RequireAuth page="destination" />} />
       <Route path="/band-map" element={<PublicRoute page="band-map" />} />
       <Route path="/stats" element={<PublicRoute page="stats" />} />
+      <Route path="/health" element={<PublicRoute page="health" />} />
       <Route path="/lookup" element={<PublicRoute page="lookup" />} />
       <Route path="/call/*" element={<PublicRoute page="call" />} />
       <Route path="/g/:slug" element={<PublicRoute page="group-public" />} />
@@ -104,13 +107,13 @@ function PublicOnly({ children }: { children: ReactNode }) {
   return children;
 }
 
-type Page = "sources" | "source" | "band-map" | "subscriptions" | "subscription-new" | "subscription" | "groups" | "group" | "group-settings" | "destinations" | "destination-new" | "destination" | "stats" | "lookup" | "call" | "account" | "api-tokens" | "group-public";
-type PublicPage = "band-map" | "stats" | "lookup" | "call" | "group-public";
+type Page = "sources" | "source" | "band-map" | "subscriptions" | "subscription-new" | "subscription" | "groups" | "group" | "group-settings" | "destinations" | "destination-new" | "destination" | "stats" | "health" | "lookup" | "call" | "account" | "api-tokens" | "group-public";
+type PublicPage = "band-map" | "stats" | "health" | "lookup" | "call" | "group-public";
 
 // Signed-out visitors read profiles in UTC.
 const UTC: TimePrefs = { utcTimes: true, timezone: "UTC" };
 
-/** The band map, Stats, callsign profiles and public group pages are public: signed out, AppShell shows them with the other sections disabled. */
+/** The band map, Stats, Health, callsign profiles and public group pages are public: signed out, AppShell shows them with the other sections disabled. */
 function PublicRoute({ page }: { page: PublicPage }) {
   const { session, sessionLoading } = useApp();
   if (sessionLoading) return <LinearProgress />;
@@ -119,6 +122,7 @@ function PublicRoute({ page }: { page: PublicPage }) {
     <AppShell>
       {page === "band-map" && <BandMapPage />}
       {page === "stats" && <StatsPage />}
+      {page === "health" && <HealthPage />}
       {page === "lookup" && <LookupPage />}
       {page === "call" && <CallsignPage prefs={UTC} />}
       {page === "group-public" && <PublicGroupRoute />}
@@ -197,12 +201,38 @@ function DestinationRoute(props: Omit<ComponentProps<typeof PushDestinationPage>
   return <Navigate to="/destinations" replace />;
 }
 
+const LOAD_FAILED = "Couldn't load your destinations and connections.";
+const LIST_PAGES = new Set<Page>(["subscriptions", "subscription-new", "subscription", "destinations", "destination-new", "destination"]);
+
+/** A failed load in place of the page, with Retry. */
+function LoadError({ message, retry }: { message: string; retry: () => Promise<void> }) {
+  const [busy, setBusy] = useState(false);
+  const again = async () => {
+    setBusy(true);
+    try {
+      await retry();
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Alert
+      severity="error"
+      action={<Button color="inherit" size="small" disabled={busy} onClick={() => void again()}>Retry</Button>}
+    >
+      {message}
+    </Alert>
+  );
+}
+
 function SignedIn({ page }: { page: Page }) {
   const { profile, notify } = useApp();
   const mobile = useMediaQuery((t: ReturnType<typeof createTheme>) => t.breakpoints.down("md"));
   const [dests, setDests] = useState<Destination[]>([]);
   const [subs, setSubs] = useState<SubscriptionWithLinks[]>([]);
-  const [loading, setLoading] = useState(true);
+  // "failed" only until the first successful load: a later failed reload keeps the lists it has and only toasts.
+  const [status, setStatus] = useState<"loading" | "ready" | "failed">("loading");
+  const loading = status === "loading";
   const prefs: TimePrefs = { utcTimes: profile?.utc_times ?? true, timezone: profile?.timezone ?? "UTC" };
 
   const reload = useCallback(async () => {
@@ -210,10 +240,10 @@ function SignedIn({ page }: { page: Page }) {
       const [d, s] = await Promise.all([loadDestinations(), loadSubscriptions()]);
       setDests(d);
       setSubs(s);
+      setStatus("ready");
     } catch {
-      notify("Couldn't load your destinations and connections.");
-    } finally {
-      setLoading(false);
+      notify(LOAD_FAILED);
+      setStatus((was) => (was === "ready" ? "ready" : "failed"));
     }
   }, [notify]);
 
@@ -222,6 +252,15 @@ function SignedIn({ page }: { page: Page }) {
   }, [reload]);
 
   if (!profile) return <LinearProgress />;
+
+  // Pages built on these lists would show a failed load as "none yet", and an editor's id would bounce to the list.
+  if (status === "failed" && LIST_PAGES.has(page)) {
+    return (
+      <AppShell>
+        <LoadError message={LOAD_FAILED} retry={reload} />
+      </AppShell>
+    );
+  }
 
   return (
     <AppShell destinationsFailing={dests.some((d) => d.health === "failing")}>
@@ -242,6 +281,7 @@ function SignedIn({ page }: { page: Page }) {
         <DestinationRoute dests={dests} loading={loading} reload={reload} mobile={mobile} />
       )}
       {page === "stats" && <StatsPage />}
+      {page === "health" && <HealthPage />}
       {page === "lookup" && <LookupPage />}
       {page === "call" && <CallsignPage prefs={prefs} signedIn />}
       {page === "account" && <AccountPage profile={profile} />}

@@ -190,6 +190,17 @@ describe("new subscription", () => {
     expect(saveSubscription).toHaveBeenCalledWith(expect.objectContaining({ sources: ["rbn"], rules: [[rule("callsign", "is", "KK4PWJ")]] }));
   });
 
+  it("keeps a call typed without Enter once the field loses focus", async () => {
+    const { user } = render({ source: "rbn" });
+    await user.type(screen.getByLabelText(/^Name/), "Me");
+    await user.type(screen.getByLabelText("Values"), "kk4pwj");
+    expect(save()).toBeDisabled();
+    await user.tab();
+    expect(save()).toBeEnabled();
+    await user.click(save());
+    expect(saveSubscription).toHaveBeenCalledWith(expect.objectContaining({ sources: ["rbn"], rules: [[rule("callsign", "is", "KK4PWJ")]] }));
+  });
+
   it("on RBN, needs a callsign or group in every Or", async () => {
     const { user } = render({ id: "s1", subs: [sub({ sources: ["rbn"], rules: [[rule("callsign", "is", "W1AW")]] })] });
     expect(save()).toBeEnabled();
@@ -312,6 +323,15 @@ describe("edit subscription", () => {
     await waitFor(() => expect(previewSubscription).toHaveBeenLastCalledWith({ sources: ["pota"], rules }));
     await user.click(save());
     expect(saveSubscription).toHaveBeenCalledWith(expect.objectContaining({ rules }));
+  });
+
+  it("saves calls left in the callsign field, splitting a pasted list", async () => {
+    const { user } = render({ id: "s1", subs: [sub({ rules: [[rule("callsign", "is", "W1AW")]] })] });
+    await user.type(screen.getByLabelText("Values"), " k1abc, n0call  w1aw");
+    await user.click(save());
+    expect(saveSubscription).toHaveBeenCalledWith(expect.objectContaining({
+      rules: [[rule("callsign", "is", "W1AW", "K1ABC", "N0CALL")]],
+    }));
   });
 
   it("joins the next rule up to nothing when the first is deleted", async () => {

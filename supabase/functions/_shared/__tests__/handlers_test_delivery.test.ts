@@ -1,7 +1,11 @@
 import { assertEquals } from "@std/assert";
 import type { SendResult } from "../delivery/send.ts";
 import type { DeliveryDestination, PendingDelivery } from "../delivery/types.ts";
-import { handleSendTest } from "../handlers/test_delivery.ts";
+import {
+  DESTINATION_THROTTLED,
+  handleSendTest,
+  TOO_MANY_TESTS,
+} from "../handlers/test_delivery.ts";
 import { fakeSupabase, type FakeSupabaseOptions } from "./fake_supabase.ts";
 
 const NOW = new Date("2026-10-05T14:00:00Z");
@@ -59,8 +63,12 @@ async function run(
   const { client, calls } = fakeSupabase({
     getUser: USER,
     from: { destinations: { data: DEST } },
-    rpc: { webhook_test_delivery: { data: WEBHOOK_TEST } },
     ...options,
+    rpc: {
+      record_send_test: { data: true },
+      webhook_test_delivery: { data: WEBHOOK_TEST },
+      ...options.rpc,
+    },
   });
   const sent: Array<{ destination: DeliveryDestination; batch: readonly PendingDelivery[] }> = [];
   const res = await handleSendTest(req, {
@@ -197,7 +205,7 @@ Deno.test("handleSendTest sends a push destination's members the text SQL built 
     },
   );
   assertEquals(res.status, 200);
-  assertEquals(calls.rpc[0], {
+  assertEquals(calls.rpc[1], {
     fn: "push_test_delivery",
     args: { p_destination_id: "00000000-0000-4000-8000-0000000000f1", p_spot_id: null },
   });
@@ -217,7 +225,7 @@ Deno.test("handleSendTest renders the spot the preview shows", async () => {
       rpc: { push_test_delivery: { data: PUSH_TEST } },
     },
   );
-  assertEquals(calls.rpc[0]?.args, {
+  assertEquals(calls.rpc[1]?.args, {
     p_destination_id: "00000000-0000-4000-8000-0000000000f1",
     p_spot_id: 42,
   });
@@ -274,7 +282,7 @@ Deno.test("handleSendTest prunes and records devices after a push test", async (
     },
   );
   assertEquals(body, { error: "Turn on notifications on a device first." });
-  assertEquals(calls.rpc.slice(1), [{
+  assertEquals(calls.rpc.slice(2), [{
     fn: "prune_push_devices",
     args: { p_endpoints: ["https://fcm.googleapis.com/gone"] },
   }]);
@@ -283,7 +291,7 @@ Deno.test("handleSendTest prunes and records devices after a push test", async (
 Deno.test("handleSendTest leaves other destinations' devices alone", async () => {
   const { calls } = await run(post({ destination_id: "00000000-0000-4000-8000-0000000000d1" }));
   assertEquals(calls.from.map((f) => f.table), ["destinations"]);
-  assertEquals(calls.rpc.map((c) => c.fn), ["webhook_test_delivery"]);
+  assertEquals(calls.rpc.map((c) => c.fn), ["record_send_test", "webhook_test_delivery"]);
 });
 
 const DISCORD: DeliveryDestination = {
@@ -336,7 +344,7 @@ Deno.test("handleSendTest sends a Discord destination the message SQL rendered f
     },
   );
   assertEquals(res.status, 200);
-  assertEquals(calls.rpc, [{
+  assertEquals(calls.rpc.slice(1), [{
     fn: "discord_test_delivery",
     args: { p_destination_id: "00000000-0000-4000-8000-0000000000e1", p_spot_id: null },
   }]);
@@ -354,7 +362,7 @@ Deno.test("handleSendTest renders the spot the Discord preview shows", async () 
       rpc: { discord_test_delivery: { data: DISCORD_TEST } },
     },
   );
-  assertEquals(calls.rpc[0]?.args, {
+  assertEquals(calls.rpc[1]?.args, {
     p_destination_id: "00000000-0000-4000-8000-0000000000e1",
     p_spot_id: 42,
   });
@@ -392,7 +400,7 @@ Deno.test("handleSendTest sends a webhook the body SQL rendered, marked as a tes
     {},
     { ok: true, sent: 1, attempted: 1, status: 204 },
   );
-  assertEquals(calls.rpc, [{
+  assertEquals(calls.rpc.slice(1), [{
     fn: "webhook_test_delivery",
     args: { p_destination_id: "00000000-0000-4000-8000-0000000000d1", p_spot_id: 42 },
   }]);
@@ -446,4 +454,49 @@ Deno.test("handleSendTest reports a webhook lookup error and an unknown spot", a
   });
   assertEquals(notWebhook.body, { error: "Destination not found." });
   assertEquals(notWebhook.sent, []);
+});
+
+Deno.test("handleSendTest records the test before sending and refuses one over the limit", async () => {
+  const ok = await run(post({ destination_id: "00000000-0000-4000-8000-0000000000d1" }));
+  assertEquals(ok.calls.rpc[0], {
+    fn: "record_send_test",
+    args: { p_user_id: "u1", p_destination_id: "00000000-0000-4000-8000-0000000000d1" },
+  });
+  const limited = await run(post({ destination_id: "00000000-0000-4000-8000-0000000000d1" }), {
+    rpc: { record_send_test: { data: false } },
+  });
+  assertEquals(limited.res.status, 429);
+  assertEquals(limited.body, { error: TOO_MANY_TESTS });
+  assertEquals(limited.calls.from, []);
+  assertEquals(limited.sent, []);
+  // Null: not the caller's destination, which the lookup then answers with 404.
+  const notOwned = await run(post({ destination_id: "00000000-0000-4000-8000-0000000000d1" }), {
+    rpc: { record_send_test: { data: null } },
+    from: { destinations: { data: null } },
+  });
+  assertEquals(notOwned.res.status, 404);
+  const failed = await run(post({ destination_id: "00000000-0000-4000-8000-0000000000d1" }), {
+    rpc: { record_send_test: { error: { message: "x" } } },
+  });
+  assertEquals(failed.res.status, 500);
+  assertEquals(failed.sent, []);
+});
+
+Deno.test("handleSendTest refuses a destination that is throttled", async () => {
+  const throttled = await run(post({ destination_id: "00000000-0000-4000-8000-0000000000d1" }), {
+    from: { destinations: { data: { ...DEST, throttled_until: "2026-10-05T14:01:00Z" } } },
+  });
+  assertEquals(throttled.res.status, 429);
+  assertEquals(throttled.body, { error: DESTINATION_THROTTLED });
+  assertEquals(throttled.sent, []);
+  // A throttle that has run out is no longer in the way, and never reaches the sender.
+  const over = await run(post({ destination_id: "00000000-0000-4000-8000-0000000000d1" }), {
+    from: { destinations: { data: { ...DEST, throttled_until: "2026-10-05T13:59:00Z" } } },
+  });
+  assertEquals(over.res.status, 200);
+  assertEquals("throttled_until" in over.sent[0]!.destination, false);
+  assertEquals(over.calls.from[0]!.ops[0], [
+    "select",
+    ["id, type, name, url, signing_secret, health, consecutive_failures, throttled_until"],
+  ]);
 });

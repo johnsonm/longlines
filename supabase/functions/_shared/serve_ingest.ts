@@ -23,11 +23,11 @@ export function ingestHandler(
   adapter: SourceAdapter,
   deps: IngestDeps,
 ): (req: Request) => Promise<Response> {
-  return (req: Request) => {
-    if (!isServiceRole(req, deps.serviceRoleKey)) {
-      return Promise.resolve(Response.json({ error: "Forbidden" }, { status: 403 }));
+  return async (req: Request) => {
+    if (!await isServiceRole(req, deps.serviceRoleKey)) {
+      return Response.json({ error: "Forbidden" }, { status: 403 });
     }
-    return respond(adapter.source, () => runIngest(adapter, deps.db()));
+    return await respond(adapter.source, () => runIngest(adapter, deps.db()));
   };
 }
 

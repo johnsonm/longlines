@@ -29,8 +29,28 @@ Deno.test("SENDER_RPCS is exactly the sender role's allowlist", () => {
     "mark_deliveries_sent",
     "prune_push_devices",
     "record_push_results",
+    "record_sender_heartbeat",
     "throttle_destination",
   ]);
+});
+
+Deno.test("rpcStatement casts the heartbeat's times and memory", () => {
+  assertEquals(
+    rpcStatement("record_sender_heartbeat", {
+      p_started_at: "2026-10-21T12:00:00.000Z",
+      p_last_progress_at: null,
+      p_rss_bytes: 90_000_000,
+    }),
+    {
+      text: "select * from public.record_sender_heartbeat(p_started_at => $1::timestamptz, " +
+        "p_last_progress_at => $2::timestamptz, p_rss_bytes => $3::bigint)",
+      params: [
+        { value: "2026-10-21T12:00:00.000Z", type: "timestamptz" },
+        { value: null, type: "timestamptz" },
+        { value: 90_000_000, type: "bigint" },
+      ],
+    },
+  );
 });
 
 Deno.test("rpcStatement names and casts every parameter in the function's order", () => {
@@ -361,6 +381,14 @@ Deno.test({
       const row = (stats.data as Array<Record<string, unknown>>)[0]!;
       assertEquals(typeof row.depth, "number");
       assertEquals(typeof row.expired_last_hour, "number");
+
+      // The heartbeat keeps at most one row per 30 seconds, so repeated runs add little.
+      const beat = await db.rpc("record_sender_heartbeat", {
+        p_started_at: new Date().toISOString(),
+        p_last_progress_at: null,
+        p_rss_bytes: 1,
+      });
+      assertEquals(beat.error, null);
 
       // p_limit 0 runs the expiry sweep and claims nothing, so a shared local database is left alone.
       const claimed = await db.rpc("claim_deliveries", { p_limit: 0, p_vt: 60 });

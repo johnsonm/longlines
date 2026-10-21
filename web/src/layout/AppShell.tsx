@@ -11,6 +11,7 @@ import FilterListIcon from "@mui/icons-material/FilterList";
 import GroupsIcon from "@mui/icons-material/Groups";
 import SendIcon from "@mui/icons-material/Send";
 import InsightsIcon from "@mui/icons-material/Insights";
+import MonitorHeartIcon from "@mui/icons-material/MonitorHeart";
 import PersonSearchIcon from "@mui/icons-material/PersonSearch";
 import KeyIcon from "@mui/icons-material/Key";
 import LoginIcon from "@mui/icons-material/Login";
@@ -36,6 +37,7 @@ const NAV = [
   { id: "band-map", label: "Band map", icon: <GraphicEqIcon />, open: true },
   { id: "lookup", label: "Callsign lookup", icon: <PersonSearchIcon />, open: true },
   { id: "stats", label: "Stats", icon: <InsightsIcon />, open: true },
+  { id: "health", label: "Health", icon: <MonitorHeartIcon />, open: true },
   { id: "api-tokens", label: "API tokens", icon: <KeyIcon />, open: false },
 ];
 const SIGN_IN_TO_USE = "Create an account or sign in to use";

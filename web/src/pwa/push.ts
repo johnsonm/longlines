@@ -284,7 +284,11 @@ export async function pushCleanup(env: PushEnv = browserEnv()): Promise<void> {
  * reports the endpoint it remembers as blocked. A device this browser
  * registered that the account no longer lists was removed from another
  * device, so the browser follows the removal and unsubscribes instead of
- * creating the device again. Never throws.
+ * creating the device again. A granted browser that has lost its subscription
+ * (the push service dropped it and the worker could not re-subscribe) but
+ * remembers an endpoint the account still lists subscribes again with the
+ * app's key and registers with the remembered endpoint as the previous one, so
+ * the device keeps its id and destinations. Never throws.
  */
 export async function refreshPushRegistration(env: PushEnv = browserEnv()): Promise<void> {
   try {
@@ -295,9 +299,14 @@ export async function refreshPushRegistration(env: PushEnv = browserEnv()): Prom
       return;
     }
     if (env.notification.permission !== "granted") return;
-    const sub = await subscription(env);
-    if (!sub) return;
+    const active = await registration(env);
+    if (!active) return;
     const remembered = currentEndpoint(env);
+    const sub = await active.pushManager.getSubscription();
+    if (!sub) {
+      if (remembered) await resubscribe(env, active.pushManager, remembered);
+      return;
+    }
     const devices = await listPushDevices(sub.endpoint);
     if (!devices.some((d) => d.is_current) && remembered === sub.endpoint) {
       await sub.unsubscribe();
@@ -310,4 +319,26 @@ export async function refreshPushRegistration(env: PushEnv = browserEnv()): Prom
   } catch (err) {
     console.warn("Push registration refresh failed", err);
   }
+}
+
+/**
+ * refreshPushRegistration's fallback for a lost subscription: subscribes with
+ * the app's key and moves the remembered device to the new endpoint. A device
+ * the account no longer lists was removed elsewhere, so the browser forgets
+ * it instead; a subscription made here is undone when the registration fails.
+ */
+async function resubscribe(env: PushEnv, pushManager: PushManagerLike, remembered: string): Promise<void> {
+  const devices = await listPushDevices(remembered);
+  if (!devices.some((d) => d.is_current)) {
+    remember(env, null);
+    return;
+  }
+  const sub = await pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: base64UrlToBytes(env.publicKey) });
+  try {
+    await registerPushDevice(keysOf(sub), null, null, null, remembered);
+  } catch (err) {
+    await sub.unsubscribe().catch(() => false);
+    throw err;
+  }
+  remember(env, sub.endpoint);
 }

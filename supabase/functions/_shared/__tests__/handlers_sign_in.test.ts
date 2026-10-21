@@ -1,5 +1,10 @@
 import { assert, assertEquals, assertMatch, assertNotEquals } from "@std/assert";
-import { EMAIL_NOT_CONFIRMED, handleSignIn, SIGN_IN_UNAVAILABLE } from "../handlers/sign_in.ts";
+import {
+  EMAIL_NOT_CONFIRMED,
+  FAILED_SIGN_IN_FLOOR_MS,
+  handleSignIn,
+  SIGN_IN_UNAVAILABLE,
+} from "../handlers/sign_in.ts";
 import { hmacKey, hmacSha256Hex } from "../hmac.ts";
 import { GENERIC_SIGN_IN_ERROR, TOO_MANY_ATTEMPTS } from "../signin.ts";
 import { fakeSupabase, type FakeSupabaseOptions } from "./fake_supabase.ts";
@@ -31,7 +36,9 @@ async function run(
   req: Request,
   admin: FakeSupabaseOptions = {},
   anon: FakeSupabaseOptions = {},
-  deps: { key?: CryptoKey | undefined; clientIpHeader?: string } = { key: KEY },
+  deps: { key?: CryptoKey | undefined; clientIpHeader?: string; elapsedMs?: number } = {
+    key: KEY,
+  },
 ) {
   const a = fakeSupabase({
     rpc: {
@@ -42,13 +49,29 @@ async function run(
     },
   });
   const b = fakeSupabase(anon);
+  // A fake clock: the request takes `elapsedMs` (default 0) and sleeps are recorded, not waited.
+  let now = 1_000;
+  let first = true;
+  const sleeps: number[] = [];
   const res = await handleSignIn(req, {
     admin: () => a.client,
     anon: () => b.client,
     clientIpHeader: deps.clientIpHeader,
     key: deps.key,
+    clock: () => {
+      if (first) first = false;
+      else now = 1_000 + (deps.elapsedMs ?? 0);
+      return now;
+    },
+    sleep: (ms) => (sleeps.push(ms), Promise.resolve()),
   });
-  return { res, body: res.status === 204 ? null : await res.json(), admin: a.calls, anon: b.calls };
+  return {
+    res,
+    body: res.status === 204 ? null : await res.json(),
+    admin: a.calls,
+    anon: b.calls,
+    sleeps,
+  };
 }
 
 const fns = (calls: { rpc: Array<{ fn: string }> }) => calls.rpc.map((c) => c.fn);
@@ -78,15 +101,16 @@ Deno.test("handleSignIn returns tokens and forgets the attempt for a right passw
   assertEquals(res.status, 200);
   assertEquals(body, { access_token: "at", refresh_token: "rt", expires_in: 3600 });
   assertEquals(fns(admin), [
-    "begin_sign_in_attempt",
     "email_for_identifier",
+    "begin_sign_in_attempt",
     "forget_sign_in_attempt",
   ]);
-  assertEquals(admin.rpc[0]!.args, {
-    p_identifier: "KK4PWJ",
+  assertEquals(admin.rpc[0]!.args, { p_identifier: "KK4PWJ" });
+  // The attempt is keyed on the account's email, not the callsign typed.
+  assertEquals(admin.rpc[1]!.args, {
+    p_identifier: "kk4pwj@example.com",
     p_client: await hmacSha256Hex(KEY, "192.0.2.7"),
   });
-  assertEquals(admin.rpc[1]!.args, { p_identifier: "KK4PWJ" });
   assertEquals(admin.rpc[2]!.args, { p_attempt_id: 41 });
   assertEquals(anon.signInWithPassword, [{ email: "kk4pwj@example.com", password: "hunter22" }]);
 });
@@ -100,7 +124,7 @@ Deno.test("handleSignIn keys attempts on the client, from the configured header"
     key: KEY,
     clientIpHeader: "x-real-ip",
   });
-  const clientOf = (r: typeof one) => r.admin.rpc[0]!.args!["p_client"];
+  const clientOf = (r: typeof one) => r.admin.rpc[1]!.args!["p_client"];
   assertEquals(clientOf(one), await hmacSha256Hex(KEY, "198.51.100.1"));
   assertNotEquals(clientOf(one), clientOf(two));
 });
@@ -109,7 +133,54 @@ Deno.test("handleSignIn counts a wrong password and keeps it logged", async () =
   const { res, body, admin } = await run(post(GOOD), {}, WRONG);
   assertEquals(res.status, 401);
   assertEquals(body, { error: GENERIC_SIGN_IN_ERROR });
-  assertEquals(fns(admin), ["begin_sign_in_attempt", "email_for_identifier"]);
+  assertEquals(fns(admin), ["email_for_identifier", "begin_sign_in_attempt"]);
+});
+
+Deno.test("handleSignIn gives an account's email and callsign one attempt budget", async () => {
+  const keyOf = (r: Awaited<ReturnType<typeof run>>) => r.admin.rpc[1]!.args!["p_identifier"];
+  const byCall = await run(post(GOOD), {}, WRONG);
+  const byEmail = await run(post({ identifier: "KK4PWJ@Example.com", password: "x" }), {
+    rpc: { email_for_identifier: { data: "KK4PWJ@example.com" } },
+  }, WRONG);
+  assertEquals(byEmail.admin.rpc[0]!.args, { p_identifier: "kk4pwj@example.com" });
+  assertEquals([keyOf(byCall), keyOf(byEmail)], ["kk4pwj@example.com", "kk4pwj@example.com"]);
+  // A callsign with no account is counted as typed.
+  const unknown = await run(post(GOOD), { rpc: { email_for_identifier: { data: null } } }, WRONG);
+  assertEquals(keyOf(unknown), "KK4PWJ");
+});
+
+Deno.test("handleSignIn holds a wrong password's answer to the floor from the request's start", async () => {
+  const fast = await run(post(GOOD), {}, WRONG, { key: KEY, elapsedMs: 40 });
+  assertEquals(fast.res.status, 401);
+  assertEquals(fast.sleeps, [FAILED_SIGN_IN_FLOOR_MS - 40]);
+  const slow = await run(post(GOOD), {}, WRONG, { key: KEY, elapsedMs: 500 });
+  assertEquals(slow.res.status, 401);
+  assertEquals(slow.sleeps, []);
+  // Only a 401 waits: a right password or a refusal answers at once.
+  const ok = await run(post(GOOD), {}, { signInWithPassword: SESSION });
+  assertEquals([ok.res.status, ok.sleeps], [200, []]);
+  const refused = await run(post(GOOD), { rpc: { begin_sign_in_attempt: { data: null } } });
+  assertEquals([refused.res.status, refused.sleeps], [429, []]);
+});
+
+Deno.test("handleSignIn waits the real floor with the default clock", async () => {
+  const a = fakeSupabase({
+    rpc: {
+      begin_sign_in_attempt: { data: 41 },
+      email_for_identifier: { data: "kk4pwj@example.com" },
+    },
+  });
+  const b = fakeSupabase(WRONG);
+  const started = performance.now();
+  const res = await handleSignIn(post(GOOD), {
+    admin: () => a.client,
+    anon: () => b.client,
+    clientIpHeader: undefined,
+    key: KEY,
+  });
+  assertEquals(res.status, 401);
+  await res.body?.cancel();
+  assert(performance.now() - started >= FAILED_SIGN_IN_FLOOR_MS - 5);
 });
 
 Deno.test("handleSignIn still checks a password for unknown identifiers", async () => {
@@ -137,7 +208,7 @@ Deno.test("handleSignIn rate limits a refused attempt without checking the passw
   assertEquals(res.status, 429);
   assertEquals(body, { error: TOO_MANY_ATTEMPTS });
   assertEquals(anon.signInWithPassword, []);
-  assertEquals(fns(admin), ["begin_sign_in_attempt"]);
+  assertEquals(fns(admin), ["email_for_identifier", "begin_sign_in_attempt"]);
 });
 
 Deno.test("handleSignIn maps Auth's own rate limit to 429 without counting it", async () => {
@@ -201,5 +272,6 @@ Deno.test("handleSignIn returns 500 when the key, attempt log or lookup fails", 
   });
   assertEquals(lookup.res.status, 500);
   assert(lookup.anon.signInWithPassword.length === 0);
-  assertEquals(fns(lookup.admin).at(-1), "forget_sign_in_attempt");
+  // The lookup comes first, so there is no attempt to forget.
+  assertEquals(fns(lookup.admin), ["email_for_identifier"]);
 });

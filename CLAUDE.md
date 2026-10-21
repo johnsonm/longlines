@@ -584,6 +584,32 @@ Copy section is the copy source for the group pages.
 - `GroupStatistics` is shared by the owner's page and the public page. Every callsign it shows
   links to `/call/<base>` (`CallLink`, `CallList`).
 
+## Health page rules
+
+The design is `docs/superpowers/specs/2026-10-21-health-page-design.md` (Brad's "Long Lines health
+page" canvas); its Copy section is the copy source for `/health`.
+
+- `/health` is public. Its data comes only from the `health` function, which calls
+  `cached_health(range)` (one `health_cache` row per range, rebuilt at most every 30 seconds under
+  an advisory lock). The payload is `HealthPayload` (`web/src/health/types.ts`), pinned by
+  `supabase/tests/health_snapshot.test.sql`; change the SQL, the type and the test together.
+- Numbers and statuses only: never error text, response bodies, URLs, or user or destination ids.
+- Every status and threshold is SQL's (`health_snapshot`); the web words them, and the rule copy
+  must match the SQL.
+- History is `health_samples`, one row a minute from `record_health_sample()` (cron
+  `health-sample`), which also copies HTTP statuses into `cron_http_requests` and prunes its tables
+  after 8 days. Event counts (sent, failed, expired, latency) come from `deliveries` through its
+  partial indexes; `last_failed_at` is set only by the `deliveries_last_failed_at` trigger.
+- A cron job that calls a function goes through `cron_call_function(job, function, body,
+  timeout)`, never a bare `net.http_post`, so the page can show its HTTP status.
+- "Oldest ready delivery" is per destination (the age of each destination's newest ready row, then
+  the largest), because deliveries go newest first under a budget. `health_oldest_ready_seconds`
+  repeats `claim_deliveries`' `ready` predicate; change them together.
+- The workers report in once a minute, best effort: the sender through `record_sender_heartbeat`
+  (in its allowlist), the relay by POSTing `relay-status` with its secret (`relay/status.ts`).
+  `worker_heartbeats` keeps at most one row per worker per 30 seconds. A failed heartbeat is
+  logged, never retried and never counts as sender progress.
+
 ## Subscription rules
 
 - Users and API clients call a subscription a **connection**: web copy, web routes (`/connections`;

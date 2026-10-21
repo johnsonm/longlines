@@ -510,12 +510,19 @@ Deno.test("startSender shutdown waits for the cycle in flight before closing the
 
 Deno.test("startSender ends with the error when a cycle throws anything but a ClaimError", async () => {
   const d = dest("d1");
-  const db = fakeDb(({ fn }) => fn === "claim_deliveries" ? { data: [row(1, d)] } : undefined);
+  // A throw from send is a failed destination now (runDeliveryBatch catches it), so
+  // the cycle's unexpected error comes from the database adapter itself rejecting.
+  const db = fakeDb(({ fn }) => {
+    if (fn === "mark_deliveries_sent") throw new TypeError("boom");
+    return fn === "claim_deliveries" ? { data: [row(1, d)] } : undefined;
+  });
   const clock = fakeClock(T0);
-  const sender = startSender(config(), {
-    db: db.db,
-    send: () => Promise.reject(new TypeError("boom")),
-  }, { hostname: "127.0.0.1", log: () => {}, now: clock.now, sleep: clock.sleep });
+  const sender = startSender(config(), { db: db.db, send: allSent }, {
+    hostname: "127.0.0.1",
+    log: () => {},
+    now: clock.now,
+    sleep: clock.sleep,
+  });
   await assertRejects(() => sender.done, TypeError, "boom");
   await sender.shutdown();
   assertEquals(db.closed(), 1);
@@ -540,6 +547,50 @@ Deno.test("startSender logs a failed stats call and keeps the previous figures",
   await waitFor("the second stats call", () => db.of("delivery_queue_stats").length === 2);
   assertEquals(logs.includes("delivery_queue_stats failed: timeout"), true);
   assertEquals(sender.status().queue, { depth: 3, expired_last_hour: 1 });
+  await sender.shutdown();
+  await sender.done;
+});
+
+Deno.test("startSender reports a heartbeat after each stats call and logs one that fails", async () => {
+  let beatFail = false;
+  const db = fakeDb(({ fn }) =>
+    fn === "record_sender_heartbeat" && beatFail ? { error: "permission denied" } : undefined
+  );
+  const clock = fakeClock(T0);
+  const logs: string[] = [];
+  const sender = startSender(config({ statsMs: 10_000 }), { db: db.db, send: allSent }, {
+    hostname: "127.0.0.1",
+    log: (m) => logs.push(m),
+    now: clock.now,
+    sleep: clock.sleep,
+    rss: () => 90_000_000,
+  });
+  await waitFor("the heartbeat", () => db.of("record_sender_heartbeat").length === 1);
+  const first = db.of("record_sender_heartbeat")[0]!.args;
+  assertEquals(first.p_started_at, T0.toISOString());
+  assertEquals(first.p_rss_bytes, 90_000_000);
+  // The first claim and the first heartbeat race; either way the time is the claim's.
+  assertEquals([null, T0.toISOString()].includes(first.p_last_progress_at as string | null), true);
+  beatFail = true;
+  await clock.advance(10_000);
+  await waitFor("the second heartbeat", () => db.of("record_sender_heartbeat").length === 2);
+  assertEquals(logs.includes("record_sender_heartbeat failed: permission denied"), true);
+  await sender.shutdown();
+  await sender.done;
+});
+
+Deno.test("startSender's default heartbeat memory is the process's RSS", async () => {
+  const db = fakeDb();
+  const clock = fakeClock(T0);
+  const sender = startSender(config(), { db: db.db, send: allSent }, {
+    hostname: "127.0.0.1",
+    log: () => {},
+    now: clock.now,
+    sleep: clock.sleep,
+  });
+  await waitFor("the heartbeat", () => db.of("record_sender_heartbeat").length === 1);
+  const rss = db.of("record_sender_heartbeat")[0]!.args.p_rss_bytes as number;
+  assertEquals(Number.isSafeInteger(rss) && rss > 0, true);
   await sender.shutdown();
   await sender.done;
 });

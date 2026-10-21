@@ -205,7 +205,12 @@ anonymous_users = 30
 # Number of sessions that can be refreshed in a 5 minute interval per IP address.
 token_refresh = 150
 # Number of sign up and sign-in requests that can be made in a 5 minute interval per IP address (excludes anonymous users).
-sign_in_sign_ups = 30
+# Raised well above site-wide traffic on purpose: every password check comes from the sign-in
+# function, so Auth sees the function's address, not the visitor's, and 30 would let ~30 wrong
+# passwords from anywhere lock out everyone. The real per-client policy is begin_sign_in_attempt
+# (10 failures per identifier and client, 100 per identifier, in 15 minutes). The hosted project's
+# limit is set in the dashboard and must be raised the same way (docs/OPERATIONS.md).
+sign_in_sign_ups = 3000
 # Number of OTP / Magic link verifications that can be made in a 5 minute interval per IP address.
 token_verifications = 30
 # Number of Web3 logins that can be made in a 5 minute interval per IP address.
@@ -430,6 +435,12 @@ verify_jwt = false
 [functions.band-map]
 verify_jwt = false
 
+# health serves the public Health page to signed-out browsers. It checks no
+# caller identity; every visitor shares one 30-second cache per range in SQL
+# (_shared/handlers/health.ts).
+[functions.health]
+verify_jwt = false
+
 # group-page serves a group's public statistics page to signed-out browsers. It
 # checks no caller identity, only the profile's per-IP rate limit; SQL returns
 # nothing unless the owner made the page public (_shared/handlers/group_page.ts).
@@ -457,6 +468,11 @@ verify_jwt = false
 # load-licenses is called by the same relay with the same secret for the weekly
 # FCC license load (_shared/handlers/load_licenses.ts).
 [functions.load-licenses]
+verify_jwt = false
+
+# relay-status is the same relay's once-a-minute heartbeat for the Health page,
+# with the same secret (_shared/handlers/relay_status.ts).
+[functions.relay-status]
 verify_jwt = false
 
 # archive and import-cty are called by pg_cron with the legacy service-role JWT.

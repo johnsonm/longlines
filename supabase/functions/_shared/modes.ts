@@ -71,17 +71,22 @@ export function modeHintFromComment(comment: string): string | null {
   return match?.[1] ? canonicalMode(match[1]) : null;
 }
 
+/** Sideband is a detail of SSB; band-plan guesses and filters both say "ssb". */
+const SIDEBAND: Record<string, string> = { usb: "ssb", lsb: "ssb" };
+
 /**
  * The mode to store: the canonical upstream value, except that a blank or
- * generic digital label defers to a specific mode named in the comment.
- * An explicit specific upstream mode is never overridden.
+ * generic digital label defers to a specific mode named in the comment, and
+ * USB/LSB fold to "ssb" (filters offer only "ssb"). An explicit specific
+ * upstream mode is never overridden. Content hashes use the raw upstream mode,
+ * so folding here never makes a stored spot look new.
  */
 export function resolveMode(upstream: string | null | undefined, comment: string): string | null {
   const canonical = canonicalMode(upstream);
   if (canonical === null || GENERIC_DIGITAL.has(canonical)) {
     return modeHintFromComment(comment) ?? canonical;
   }
-  return canonical;
+  return SIDEBAND[canonical] ?? canonical;
 }
 
 export function modeFamily(mode: string | null): ModeFamily | null {
@@ -104,9 +109,6 @@ export function modeFamily(mode: string | null): ModeFamily | null {
  */
 const DX_COMMENT_MODE =
   /\b(cw|ssb|usb|lsb|rtty|sstv|wspr|olivia|dmr|c4fm|d[ -]?star|psk[ -]?(?:31|63)?|ft[ -]?8|ft[ -]?4|js[ -]?8|q[ -]?65|msk[ -]?144|jt[ -]?65|jt[ -]?9|fst[ -]?4w?)\b/i;
-
-/** Sideband is a detail of SSB; band-plan guesses and filters both say "ssb". */
-const SIDEBAND: Record<string, string> = { usb: "ssb", lsb: "ssb" };
 
 /** The first mode named in a DX Cluster comment, canonical. Null when none. */
 export function modeFromComment(comment: string): string | null {

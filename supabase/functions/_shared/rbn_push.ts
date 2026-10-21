@@ -3,7 +3,7 @@
 // subscription names (exactly or by base call, see watched_among) continue through runIngest into raw_spots, the spot_events queue and
 // the matcher, exactly as before the firehose.
 
-import { runIngest } from "./ingest.ts";
+import { recordFailureAndThrow, runIngest } from "./ingest.ts";
 import { rbnAdapter, rbnSpotRow } from "./rbn.ts";
 import { parseRelayBody, withoutNul } from "./relay_lines.ts";
 import type {
@@ -50,8 +50,7 @@ export async function runRbnPush(
     const watched = new Set(await db.watchedAmong("rbn", stations));
     watchedItems = kept.filter((_raw, i) => watched.has(rows[i]!.callsign));
   } catch (error) {
-    await db.recordFailure("rbn", errorMessage(error));
-    throw error;
+    return await recordFailureAndThrow(db, "rbn", error);
   }
 
   // Runs even with no watched lines so ingest_state records the heartbeat.

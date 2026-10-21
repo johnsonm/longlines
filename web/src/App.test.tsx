@@ -7,12 +7,15 @@ import App from "./App";
 import { useSession } from "./auth/useSession";
 import { loadDestinations, loadProfile, loadSubscriptions, signOut, type Destination } from "./lib/api";
 import { pushCleanup } from "./pwa/push";
+import { withoutQueryOrHash } from "./lib/analytics";
+import { Analytics } from "@vercel/analytics/react";
+import { SpeedInsights } from "@vercel/speed-insights/react";
 import { PROFILE, SESSION } from "./test/render";
 
 vi.mock("./auth/useSession", () => ({ useSession: vi.fn() }));
 vi.mock("./lib/api", () => ({ loadProfile: vi.fn(), loadDestinations: vi.fn(), loadSubscriptions: vi.fn(), signOut: vi.fn() }));
-vi.mock("@vercel/speed-insights/react", () => ({ SpeedInsights: () => null }));
-vi.mock("@vercel/analytics/react", () => ({ Analytics: () => null }));
+vi.mock("@vercel/speed-insights/react", () => ({ SpeedInsights: vi.fn(() => null) }));
+vi.mock("@vercel/analytics/react", () => ({ Analytics: vi.fn(() => null) }));
 
 // App's job is routing and loading shared data; each page has its own tests.
 // The stubs show which page rendered and the props App passed it.
@@ -32,8 +35,11 @@ vi.mock("./sources/SourceDetailPage", () => ({
   SourceDetailPage: ({ prefs }: { prefs: { timezone: string } }) => <p>source page {prefs.timezone}</p>,
 }));
 vi.mock("./destinations/DestinationsPage", () => ({
-  DestinationsPage: ({ dests, loading }: { dests: Destination[]; loading: boolean }) => (
-    <p>destinations page {loading ? "loading" : dests.map((d) => d.name).join(",")}</p>
+  DestinationsPage: ({ dests, loading, reload }: { dests: Destination[]; loading: boolean; reload: () => Promise<void> }) => (
+    <>
+      <p>destinations page {loading ? "loading" : dests.map((d) => d.name).join(",")}</p>
+      <button type="button" onClick={() => void reload()}>reload</button>
+    </>
   ),
 }));
 vi.mock("./destinations/PushDestinationPage", () => ({
@@ -57,6 +63,7 @@ vi.mock("./groups/GroupsPage", () => ({ GroupsPage: () => <p>groups page</p> }))
 vi.mock("./groups/GroupPage", () => ({ GroupPage: ({ id, tab }: { id: string; tab: string }) => <p>group page {id} {tab}</p> }));
 vi.mock("./groups/PublicGroupPage", () => ({ PublicGroupPage: ({ slug }: { slug: string }) => <p>public group page {slug}</p> }));
 vi.mock("./stats/StatsPage", () => ({ StatsPage: () => <p>stats page</p> }));
+vi.mock("./health/HealthPage", () => ({ HealthPage: () => <p>health page</p> }));
 vi.mock("./account/AccountPage", () => ({ AccountPage: () => <p>account page</p> }));
 vi.mock("./profile/LookupPage", () => ({ LookupPage: () => <p>lookup page</p> }));
 vi.mock("./profile/CallsignPage", () => ({
@@ -86,6 +93,15 @@ beforeEach(() => {
   vi.mocked(loadDestinations).mockReset().mockResolvedValue([DEST]);
   vi.mocked(loadSubscriptions).mockReset().mockResolvedValue([]);
   vi.mocked(signOut).mockReset().mockResolvedValue();
+});
+
+describe("App analytics", () => {
+  it("strips the query string and hash from what Analytics and Speed Insights report", async () => {
+    renderAt("/stats");
+    await screen.findByText("stats page");
+    expect(vi.mocked(Analytics).mock.calls[0]![0]).toEqual({ beforeSend: withoutQueryOrHash });
+    expect(vi.mocked(SpeedInsights).mock.calls[0]![0]).toEqual({ beforeSend: withoutQueryOrHash });
+  });
 });
 
 describe("App routing", () => {
@@ -158,6 +174,19 @@ describe("App routing", () => {
   it("serves Stats inside the app shell when signed in", async () => {
     renderAt("/stats");
     expect(await screen.findByText("stats page")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Sign in" })).not.toBeInTheDocument();
+  });
+
+  it("serves Health publicly, and inside the app shell when signed in", async () => {
+    session(null);
+    const { unmount } = renderAt("/health");
+    expect(await screen.findByText("health page")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sign in" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Health" })).toHaveClass("Mui-selected");
+    unmount();
+    session(SESSION);
+    renderAt("/health");
+    expect(await screen.findByText("health page")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Sign in" })).not.toBeInTheDocument();
   });
 
@@ -289,8 +318,32 @@ describe("App routing", () => {
 
   it("toasts when shared data fails to load", async () => {
     vi.mocked(loadDestinations).mockRejectedValue(new Error("x"));
-    renderAt("/destinations");
+    renderAt("/sources");
     expect(await screen.findByText("Couldn't load your destinations and connections.")).toBeInTheDocument();
+    expect(screen.getByText("sources page")).toBeInTheDocument();
+  });
+
+  it.each(["/destinations", "/destinations/dc", "/connections", "/connections/s1"])(
+    "shows a failed load on %s with Retry instead of an empty list or a redirect, and recovers",
+    async (path) => {
+      vi.mocked(loadDestinations).mockRejectedValueOnce(new Error("x")).mockResolvedValue([{ ...DEST, id: "dc", type: "discord" }]);
+      renderAt(path);
+      const retry = await screen.findByRole("button", { name: "Retry" });
+      expect(screen.queryByText(/page|editor/)).not.toBeInTheDocument();
+      await userEvent.click(retry);
+      expect(await screen.findByText(/page|editor/)).toBeInTheDocument();
+      expect(loadDestinations).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it("keeps the lists it has when a later reload fails", async () => {
+    vi.mocked(loadDestinations).mockResolvedValueOnce([DEST]).mockRejectedValue(new Error("x"));
+    renderAt("/destinations");
+    expect(await screen.findByText("destinations page Shack")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "reload" }));
+    expect(await screen.findByText("Couldn't load your destinations and connections.")).toBeInTheDocument();
+    expect(screen.getByText("destinations page Shack")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
   });
 
   it("marks Destinations in the nav when one is failing", async () => {

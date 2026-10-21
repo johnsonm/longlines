@@ -2,6 +2,31 @@
 
 All queries below run in the Supabase Studio SQL editor (or psql as `postgres`).
 
+## Health page
+
+`/health` on the web app is the first stop: eight checks against their rules, queue and capacity
+charts, and every cron job's last result. It is public and read-only, built by
+`health_snapshot(range)` and served by the `health` function from a 30-second cache. The design is
+`docs/superpowers/specs/2026-10-21-health-page-design.md`. When a row is not Healthy, the sections
+below are where to look. The same payload from SQL:
+
+```sql
+select jsonb_pretty(health_snapshot('1h') -> 'checks');
+```
+
+- The charts come from `health_samples`, written once a minute by the `health-sample` job. A gap in
+  the charts means that job stopped.
+- Sender and relay rows read "No data" until the workers report in: the sender through
+  `record_sender_heartbeat`, the relay through the `relay-status` function, about once a minute
+  each (`select * from worker_heartbeats order by received_at desc limit 10;`).
+- Disk percent is measured against `health_disk_limit_bytes()` (8 GB). Postgres can't see the
+  plan's disk; when the disk grows, change that function in a new migration.
+- A function-calling job's result is its HTTP status: `cron_call_function` logs each request in
+  `cron_http_requests`, and the sampler copies the status from `net._http_response`.
+
+Hosted, once: `supabase db push`, then `supabase functions deploy health` and
+`supabase functions deploy relay-status`.
+
 ## Health check
 
 ```sql
@@ -22,10 +47,11 @@ Times are UTC.
 
 | Job | Schedule | Runs |
 | --- | --- | --- |
-| `ingest-pota` | every minute | the `ingest-pota` function over pg_net |
+| `ingest-pota` | every minute | the `ingest-pota` function, through `cron_call_function` (pg_net) |
 | `ingest-sotawatch` | every 30 seconds | `ingest-sotawatch` |
 | `ingest-wwff` | every minute | `ingest-wwff` |
 | `match-pending-spots` | every minute | `match_pending_spots()`, the safety net behind the call every ingest makes |
+| `health-sample` | every minute | `record_health_sample()`, the Health page's history |
 | `archive-aprs` | every 5 minutes | the `archive` function for APRS-IS only (`{"sources": ["aprs"]}`) |
 | `archive-spots` | every 10 minutes | `archive` for POTA, SOTAwatch, DX Cluster, WWFF and RBN |
 | `refresh-stats-snapshot` | :05 hourly | `refresh_stats_snapshot()` |
@@ -53,8 +79,11 @@ Work down the chain.
    from cron.job_run_details d join cron.job j using (jobid)
    order by start_time desc limit 20;
    ```
-2. Did the HTTP calls reach the functions? pg_net keeps recent responses:
+2. Did the HTTP calls reach the functions? `cron_http_requests` keeps each job's request
+   statuses for 8 days; pg_net keeps the response bodies for a few hours:
    ```sql
+   select job, sent_at, status_code, timed_out from cron_http_requests
+   order by sent_at desc limit 20;
    select id, status_code, content::text, created
    from net._http_response order by created desc limit 20;
    ```
@@ -82,16 +111,18 @@ Work down the chain.
 
 Individual spots that could not be normalized, or that would fail their batch in Postgres (a spot
 time more than a day ahead or before 2000, a callsign, spotter or reference over 64 characters, a
-spot id over 256). The daily housekeeping job deletes rows older than 30 days.
+spot id over 256). The same item failing again (same source and `raw_payload`) does not add a row:
+it bumps that row's `occurrences`, `last_seen_at` and `error`. The daily housekeeping job deletes rows
+not seen for 30 days.
 
 ```sql
-select id, source, occurred_at, error, raw_payload
-from ingest_failures order by occurred_at desc limit 20;
+select id, source, occurred_at, last_seen_at, occurrences, error, raw_payload
+from ingest_failures order by last_seen_at desc limit 20;
 
 -- Which errors are most common?
-select source, error, count(*) from ingest_failures
-where occurred_at > now() - interval '1 day'
-group by 1, 2 order by 3 desc;
+select source, error, count(*) as items, sum(occurrences) as occurrences from ingest_failures
+where last_seen_at > now() - interval '1 day'
+group by 1, 2 order by 4 desc;
 ```
 
 ## Temporarily disable a source
@@ -193,6 +224,19 @@ group by 1, 2 having count(*) >= 10;
 ```
 
 Rows older than a day are deleted by the daily housekeeping job.
+
+The identifier is the account's email whenever `email_for_identifier` resolves the one typed, so a
+user's email and callsign share one budget; an unknown callsign is counted as typed. A wrong password
+is answered no sooner than 300 ms after the request arrived (`FAILED_SIGN_IN_FLOOR_MS`), so response
+time does not show whether an email has an account.
+
+Supabase Auth has its own per-IP limit on password sign-ins, but every check comes from the
+`sign-in` function, so Auth sees the function's address for every visitor and its budget is shared
+site-wide. `supabase/config.toml` raises `[auth.rate_limit] sign_in_sign_ups` to 3000 per 5 minutes
+for the local stack. **Operator step:** raise the hosted project's limit the same way (Dashboard,
+Authentication, Rate Limits, sign-ups and sign-ins), well above expected site-wide traffic; otherwise
+about 30 wrong passwords from anywhere make every sign-in answer "too many attempts" until the window
+resets. `begin_sign_in_attempt` stays the real per-client policy.
 
 ## Database tests
 
@@ -483,8 +527,8 @@ destination without a settings row. A stale notification is worse than none.
 ### Housekeeping
 
 A daily job (`housekeeping`, 03:00 UTC) deletes deliveries (sent or dropped) and archived queue
-messages older than 7 days, sign-in attempts older than a day, `ingest_failures` older than 30 days
-and `subscription_quiet` rows sent more than an hour ago (the longest quiet window).
+messages older than 7 days, sign-in attempts older than a day, `ingest_failures` not seen for 30 days,
+send-test counters, `cron.job_run_details` older than 7 days and `subscription_quiet` rows sent more than an hour ago (the longest quiet window).
 
 ### Stats snapshot
 

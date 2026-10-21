@@ -163,7 +163,19 @@ export async function runDeliveryBatch(
       // The claim leaves paused destinations out; this is the belt to its braces.
       // Their messages reappear after the visibility timeout.
       if (destination.health === "paused") return { batch, sent: null };
-      const sent = await send(destination, batch, now);
+      let sent: SendResult;
+      try {
+        sent = await send(destination, batch, now);
+      } catch (error) {
+        // A send function reports its own failures; a throw is a bug in what
+        // runs around the request (formatting, signing). It fails this
+        // destination's rows like any other failure (no `attempted`, so the whole
+        // batch counts an attempt and a webhook row's retries run out) instead of
+        // rejecting the cycle before the ack and re-sending every other
+        // destination's delivered rows.
+        const message = error instanceof Error ? error.message : String(error);
+        sent = { ok: false, sent: 0, error: `send threw: ${message}` };
+      }
       progress("send");
       return { batch, sent };
     },
