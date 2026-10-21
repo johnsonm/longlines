@@ -117,6 +117,9 @@ describe("HealthPage", () => {
     expect(within(chart("Spots ingested")).getByText(/^Per 30 minutes, by source\./)).toBeInTheDocument();
     expect(within(chart("Spots ingested")).getByText("POTA: 80|")).toBeInTheDocument();
     expect(within(chart("Time from match to sent")).getByText("p95 210 s")).toBeInTheDocument();
+    expect(within(chart("Database size")).getByText("4.88 of 8 GB")).toBeInTheDocument();
+    expect(within(chart("Database size")).getByText("Size: 4.88 GB|")).toBeInTheDocument();
+    expect(within(chart("Database size")).getByTestId("limit")).toHaveTextContent("8 GB disk at 8");
     expect(within(chart("Database connections")).getByText("38 of 60")).toBeInTheDocument();
     expect(within(chart("Database connections")).getByTestId("limit")).toHaveTextContent("Limit of 60 at 60");
     expect(within(chart("Worker memory")).getByText("Sender 92 MB")).toBeInTheDocument();
@@ -161,6 +164,13 @@ describe("HealthPage", () => {
       "archive-spotsEvery 10 minNeverFailingNo runs yet1,234",
       "ingest-wwffEvery minute8 s agoLast run failedHTTP 5001",
     ]);
+  });
+
+  it("offers Refresh to signed-in users only", () => {
+    vi.mocked(useHealth).mockReturnValue({ payload: healthPayload(), loading: false, error: null, refresh });
+    renderPage(<HealthPage />, { app: { session: null } });
+    expect(screen.queryByRole("button", { name: "Refresh" })).not.toBeInTheDocument();
+    expect(screen.getByText(/^Updated /)).toBeInTheDocument();
   });
 
   it("switches the range and refreshes", async () => {

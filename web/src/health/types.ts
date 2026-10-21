@@ -55,6 +55,8 @@ export interface HealthPayload {
     delivery_waiting: Series;
     oldest_ready_seconds: Series;
     connections: Series;
+    /** pg_database_size, each bucket's largest sample. */
+    db_bytes: Series;
     failed: Series;
     expired: Series;
     latency_p50: Series;

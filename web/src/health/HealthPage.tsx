@@ -6,9 +6,10 @@ import {
 import RefreshIcon from "@mui/icons-material/Refresh";
 import { BarChart, LineChart } from "@mui/x-charts";
 import { ChartsReferenceLine } from "@mui/x-charts/ChartsReferenceLine";
+import { useApp } from "../app/hooks";
 import { PageTitle } from "../layout/PageTitle";
 import {
-  axisMax, banner, BUCKET_TEXT, bucketLabel, bucketTimes, CHECKS, checkNow, JOB_STATUS_LABEL, lastRunText, latest, mb, RANGES,
+  axisMax, banner, BUCKET_TEXT, bucketLabel, bucketTimes, CHECKS, checkNow, gb, JOB_STATUS_LABEL, lastRunText, latest, mb, RANGES,
   resultText, scheduleText, sourcesReporting, STATUS_LABEL, tickLabel, updatedText,
 } from "./model";
 import type { HealthPayload, HealthRange, HealthStatus, Series } from "./types";
@@ -300,6 +301,20 @@ function Charts({ payload }: { payload: HealthPayload }) {
       <Section title="Capacity">
         <Half>
           <ChartBox
+            title="Database size"
+            figure={`${gb(checks.database.bytes)} of ${gb(checks.database.disk_limit_bytes)} GB`}
+            caption="Space the database takes on its disk. Spots are archived and retired as they age, so the line should level off. One that keeps climbing toward the dashed line means the archive isn't keeping up."
+          >
+            <TimeChart
+              payload={payload}
+              unit="GB"
+              lines={[{ label: "Size", data: series.db_bytes.map((v) => (v === null ? null : gb(v))), color: text }]}
+              limit={{ value: gb(checks.database.disk_limit_bytes), label: `${gb(checks.database.disk_limit_bytes)} GB disk` }}
+            />
+          </ChartBox>
+        </Half>
+        <Half>
+          <ChartBox
             title="Database connections"
             figure={`${checks.database.connections} of ${checks.database.max_connections}`}
             caption="Open connections against the connection limit. Sitting near the dashed line means it's time to raise the limit or the compute size."
@@ -336,6 +351,8 @@ function Charts({ payload }: { payload: HealthPayload }) {
 /** Public: signed-out visitors see it in AppShell with the account sections disabled. */
 export function HealthPage() {
   const [range, setRange] = useState<HealthRange>("24h");
+  // Refresh is for signed-in users; everyone gets the once-a-minute refresh.
+  const { session } = useApp();
   const { payload, loading, error, refresh } = useHealth(range);
   const alert = payload ? banner(payload.checks) : null;
   return (
@@ -359,7 +376,7 @@ export function HealthPage() {
           </ToggleButtonGroup>
           <Stack direction="row" sx={{ alignItems: "center", gap: 1 }}>
             {payload && <Typography variant="caption" color="text.secondary">{updatedText(payload.generated_at)}</Typography>}
-            <Button startIcon={<RefreshIcon />} onClick={refresh} disabled={loading}>Refresh</Button>
+            {session && <Button startIcon={<RefreshIcon />} onClick={refresh} disabled={loading}>Refresh</Button>}
           </Stack>
         </Stack>
       </Stack>
