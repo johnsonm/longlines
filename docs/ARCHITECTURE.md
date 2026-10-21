@@ -1122,7 +1122,7 @@ A profile is everything Long Lines has heard from one station, for a public page
 ## Management API
 
 Scripts manage destinations, subscriptions and callsign groups through the `api` Edge Function with
-a personal API token instead of a browser session (`docs/API.md` is the public reference;
+a personal API token instead of a browser session (`docs/openapi.yaml` is the public reference and `docs/API.md` its guide;
 migration `20261013000300_management_api.sql`). Public URL `https://api.longlines.io/v1/...`, a
 host-matched rewrite in `web/vercel.json` to `/functions/v1/api/v1/...`.
 

@@ -1,4 +1,4 @@
-// The management API's routes (docs/API.md): method and path to an api_call
+// The management API's routes (docs/openapi.yaml): method and path to an api_call
 // operation, the scope it needs and the arguments it receives. Pure; the SQL
 // side (api_call) repeats the scope check and owns all validation beyond the
 // shape checks here. API clients call subscriptions connections, so their

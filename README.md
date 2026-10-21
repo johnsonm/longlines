@@ -55,4 +55,5 @@ and so on).
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): design and reasoning
 - [docs/OPERATIONS.md](docs/OPERATIONS.md): deploying, health checks and troubleshooting
 - [docs/WEBHOOKS.md](docs/WEBHOOKS.md): the webhook contract and how to verify signatures
-- [docs/API.md](docs/API.md): the management API
+- [docs/API.md](docs/API.md): the management API, with its OpenAPI reference
+  [docs/openapi.yaml](docs/openapi.yaml)
