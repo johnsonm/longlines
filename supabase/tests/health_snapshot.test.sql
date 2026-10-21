@@ -1,4 +1,4 @@
--- pgTAP: the Health page (20261021000100_health). Pins the payload shape
+-- pgTAP: the Health page (20261021000100_health, 20261021000200_health_storage). Pins the payload shape
 -- (HealthPayload in web/src/health/types.ts), every check's threshold (the
 -- page's rule copy), the per-destination oldest ready delivery, job outcomes
 -- from cron_http_requests, the series buckets, the sampler, heartbeats, the
@@ -6,7 +6,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(44);
+select plan(45);
 
 create function pg_temp.checks() returns jsonb
 language sql as $$ select public.health_snapshot('1h') -> 'checks' $$;
@@ -29,7 +29,7 @@ select set_eq($$ select jsonb_object_keys(public.health_snapshot('24h')) $$,
 select set_eq($$ select jsonb_object_keys(pg_temp.checks()) $$,
   array['pulled', 'relay', 'match_queue', 'delivery_queue', 'sender', 'database', 'jobs', 'archive'], 'check keys');
 select set_eq($$ select jsonb_object_keys(public.health_snapshot('24h') -> 'series') $$,
-  array['match_waiting', 'delivery_waiting', 'oldest_ready_seconds', 'connections', 'failed', 'expired',
+  array['match_waiting', 'delivery_waiting', 'oldest_ready_seconds', 'connections', 'db_bytes', 'failed', 'expired',
         'latency_p50', 'latency_p95', 'spots', 'sender_memory', 'relay_memory'], 'series keys');
 select set_eq($$ select jsonb_object_keys(public.health_snapshot('24h') -> 'series' -> 'spots') $$,
   array['pota', 'sotawatch', 'wwff', 'dxcluster'], 'spots series: the four sources that are not firehoses');
@@ -187,6 +187,11 @@ from (values (3, 100), (2, 110), (1, 130), (0, 130)) v(m, t);
 select is((select array_agg(x::int) filter (where x <> 'null')
            from jsonb_array_elements_text(public.health_snapshot('1h') -> 'series' -> 'spots' -> 'pota') x),
   array[10, 20, 0], 'spots: the difference from the previous sample, per bucket');
+update health_samples set db_bytes = 1000 + extract(minute from sampled_at)::int;
+-- The four samples span at most two 30-minute buckets; the series keeps each one's largest.
+select is((select max(x::bigint) from jsonb_array_elements_text(public.health_snapshot('24h') -> 'series' -> 'db_bytes') x
+           where x <> 'null'),
+  (select max(db_bytes) from health_samples), 'database size: each bucket''s largest sample');
 
 -- The sampler: one row a minute, response statuses copied, 8 days kept.
 delete from health_samples;

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { healthChecks, healthPayload } from "../test/health";
 import {
-  axisMax, banner, bucketLabel, bucketTimes, CHECKS, checkNow, duration, lastRunText, latest, mb, resultText, scheduleText,
+  axisMax, banner, bucketLabel, bucketTimes, CHECKS, checkNow, duration, gb, lastRunText, latest, mb, resultText, scheduleText,
   sourceName, sourcesReporting, tickLabel, updatedText,
 } from "./model";
 
@@ -154,6 +154,7 @@ describe("series helpers", () => {
 
   it("converts bytes, names sources and words the update time", () => {
     expect(mb(92 * 1024 * 1024)).toBe(92);
+    expect(gb(6_739_351_219)).toBe(6.28);
     expect(sourceName("dxcluster")).toBe("DX Cluster");
     expect(sourceName("other")).toBe("other");
     expect(updatedText(new Date(2026, 9, 21, 11, 57, 8).toISOString())).toBe("Updated 11:57:08");

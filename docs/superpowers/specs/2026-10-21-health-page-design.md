@@ -168,7 +168,8 @@ From the canvas, word for word except where marked.
 
 - Title: "Health". Lede: "How Long Lines is running right now: queues, workers, database and
   scheduled jobs. Times are local."
-- Range: "1 hour", "24 hours", "7 days". "Updated HH:MM:SS", "Refresh".
+- Range: "1 hour", "24 hours", "7 days". "Updated HH:MM:SS", "Refresh" (signed in only, *amended
+  2026-10-21*: everyone else relies on the once-a-minute refresh).
 - Banner titles *(the canvas has one example)*: Pulled sources "Pulled sources are behind", Relay
   "A relay feed is behind", Match queue "Matching is behind", Delivery queue "Outbound is slower
   than usual", Sender "The sender has stopped", Database "The database is nearly full", Scheduled
@@ -202,6 +203,11 @@ From the canvas, word for word except where marked.
   - Database connections caption *(amended)*: "against the connection limit", not "the pooler
     limit": the figure is `max_connections`.
   - Figures when there is nothing to show *(added)*: "None ready", "No deliveries", "No data".
+  - Database size *(added 2026-10-21, `20261021000200`)*, first in Capacity: figure "6.28 of 8 GB",
+    caption "Space the database takes on its disk. Spots are archived and retired as they age, so
+    the line should level off. One that keeps climbing toward the dashed line means the archive
+    isn't keeping up.", line "Size", limit "8 GB disk" (`health_disk_limit_bytes()`). The series is
+    `series.db_bytes`, each bucket's largest `health_samples.db_bytes`.
 - Scheduled jobs: "Jobs that call a function show the HTTP status it returned, not just that the
   request was sent." Columns Job, Schedule, Last run, Last result, Failed in 24 h. Results "HTTP
   200", "Timed out" *(added)*, "Done in 0.2 s".

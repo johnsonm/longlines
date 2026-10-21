@@ -70,6 +70,9 @@ function oldest(ages: SourceAge[], verb: string): string {
 
 export const mb = (bytes: number): number => Math.round(bytes / (1024 * 1024));
 
+/** Gigabytes to two places, for the storage chart. */
+export const gb = (bytes: number): number => Math.round((bytes / 1024 ** 3) * 100) / 100;
+
 /** The Now column. */
 export function checkNow(id: CheckId, checks: HealthChecks): string {
   switch (id) {

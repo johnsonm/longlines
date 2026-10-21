@@ -36,6 +36,7 @@ export function healthPayload(over: Partial<HealthPayload> = {}): HealthPayload 
       delivery_waiting: flat(12),
       oldest_ready_seconds: flat(4),
       connections: flat(38),
+      db_bytes: flat(0.61 * 8 * 1024 ** 3),
       failed: flat(0),
       expired: flat(0),
       latency_p50: flat(8),
