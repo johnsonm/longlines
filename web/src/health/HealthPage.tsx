@@ -9,8 +9,8 @@ import { ChartsReferenceLine } from "@mui/x-charts/ChartsReferenceLine";
 import { useApp } from "../app/hooks";
 import { PageTitle } from "../layout/PageTitle";
 import {
-  axisMax, banner, BUCKET_TEXT, bucketLabel, bucketTimes, CHECKS, checkNow, gb, JOB_STATUS_LABEL, lastRunText, latest, mb, RANGES,
-  resultText, scheduleText, sourcesReporting, STATUS_LABEL, tickLabel, updatedText,
+  axisMax, banner, BUCKET_TEXT, bucketLabel, bucketTimes, CHECKS, checkNow, gb, JOB_STATUS_LABEL, JOB_UNUSUAL_LABEL, lastRunText, latest, mb,
+  RANGES, resultText, runSeconds, scheduleText, sourcesReporting, STATUS_LABEL, tickLabel, updatedText,
 } from "./model";
 import type { HealthPayload, HealthRange, HealthStatus, Series } from "./types";
 import { useHealth } from "./useHealth";
@@ -150,16 +150,22 @@ function JobsTable({ payload, now }: { payload: HealthPayload; now: Date }) {
         <Typography variant="h6" component="h2">Scheduled jobs</Typography>
         <Typography variant="caption" color="text.secondary">
           Jobs that call a function show the HTTP status it returned, not just that the request was sent.
+          Average, standard deviation and p95 are successful runs over the range shown; a function's time is its own.
+          A job is flagged when its last hour is well outside its previous 7 days.
         </Typography>
       </CardContent>
       <TableContainer>
-        <Table size="small" sx={{ minWidth: 640 }}>
+        <Table size="small" sx={{ minWidth: 900 }}>
           <TableHead>
             <TableRow>
               <TableCell>Job</TableCell>
               <TableCell>Schedule</TableCell>
               <TableCell>Last run</TableCell>
               <TableCell>Last result</TableCell>
+              <TableCell align="right">Average</TableCell>
+              <TableCell align="right">Std dev</TableCell>
+              <TableCell align="right">p95</TableCell>
+              <TableCell align="right">Runs failed</TableCell>
               <TableCell>Failed in 24 h</TableCell>
             </TableRow>
           </TableHead>
@@ -172,9 +178,14 @@ function JobsTable({ payload, now }: { payload: HealthPayload; now: Date }) {
                 <TableCell>
                   <Stack direction="row" sx={{ alignItems: "center", gap: 1, flexWrap: "wrap" }}>
                     <StatusChip status={j.status} label={JOB_STATUS_LABEL[j.status]} />
+                    {j.unusual && <Chip size="small" variant="outlined" color="warning" label={JOB_UNUSUAL_LABEL[j.unusual]} />}
                     <Typography variant="caption" color="text.secondary">{resultText(j.result)}</Typography>
                   </Stack>
                 </TableCell>
+                <TableCell align="right">{runSeconds(j.timing?.average)}</TableCell>
+                <TableCell align="right">{runSeconds(j.timing?.sd)}</TableCell>
+                <TableCell align="right">{runSeconds(j.timing?.p95)}</TableCell>
+                <TableCell align="right">{j.timing ? `${j.timing.failed.toLocaleString("en-US")} of ${j.timing.runs.toLocaleString("en-US")}` : "–"}</TableCell>
                 <TableCell>{j.failed_24h.toLocaleString("en-US")}</TableCell>
               </TableRow>
             ))}

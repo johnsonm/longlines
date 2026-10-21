@@ -211,3 +211,36 @@ From the canvas, word for word except where marked.
 - Scheduled jobs: "Jobs that call a function show the HTTP status it returned, not just that the
   request was sent." Columns Job, Schedule, Last run, Last result, Failed in 24 h. Results "HTTP
   200", "Timed out" *(added)*, "Done in 0.2 s".
+  - Job timings *(added 2026-10-21, `20261021000400`)*: the caption gains "Average, standard
+    deviation and p95 are successful runs over the range shown; a function's time is its own. A
+    job is flagged when its last hour is well outside its previous 7 days." Columns Average, Std
+    dev, p95, Runs failed ("4 of 1,440") go between Last result and Failed in 24 h; a figure SQL
+    does not have is "–". A function job's result reads "HTTP 200 in 0.4 s" once it has a time.
+    A second chip, outlined warning, beside the status: "Slower than usual", "Failing more than
+    usual". The Scheduled jobs check's rule becomes "Failing when a job fails 3 runs in a row;
+    delayed when one is slower or fails more than usual", its Delayed title "A scheduled job is
+    not running as usual", and its Now text gains "· 1 job not running as usual".
+
+## Amendment, 2026-10-21: job timings
+
+pg_net keeps no run time: `net._http_response.created` is when its worker stored a batch of
+responses, so `answered_at - sent_at` was batch lag (a 30 s time-out read 0 s). Each
+cron-called function (the three pulled ingests, `archive`, `import-cty`) now stamps
+`Server-Timing: total;dur=<ms>` on its response (`_shared/timing.ts`, a few microseconds a run),
+and `record_health_sample` copies it into `cron_http_requests.run_seconds`; a request with no
+response takes pg_net's own "Total time" from `error_msg`. The figure is the function's own time,
+without cold start or the gateway.
+
+`health_snapshot` adds per job `timing` over the range (`runs`, `failed`, and the `average`,
+sample `sd` and `p95` of successful runs' seconds) and `unusual`, which compares the last hour
+with the 7 days before it:
+
+- `failures`: 3 or more failed runs in the last hour and more than 3 standard deviations
+  (Poisson) above what the 7-day failure rate predicts for that many runs. A failure here and
+  there never reaches it; a burst does.
+- `slow`: the last hour's average over the 7-day average plus 3 standard deviations, and at least
+  a second over it, with at least 10 timed runs in the 7 days.
+
+The jobs check is Delayed while any job is unusual (Failing still wins) and carries `unusual`, the
+count. Both keys are optional in `HealthPayload` because the web can ship before the migration is
+hosted.

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { healthChecks, healthPayload } from "../test/health";
 import {
-  axisMax, banner, bucketLabel, bucketTimes, CHECKS, checkNow, duration, gb, lastRunText, latest, mb, resultText, scheduleText,
+  axisMax, banner, bucketLabel, bucketTimes, CHECKS, checkNow, duration, gb, lastRunText, latest, mb, resultText, runSeconds, scheduleText,
   sourceName, sourcesReporting, tickLabel, updatedText,
 } from "./model";
 
@@ -83,6 +83,18 @@ describe("banner", () => {
     });
   });
 
+  it("says a job is not running as usual while the jobs check is only Delayed", () => {
+    const checks = healthChecks({ jobs: { status: "delayed", count: 15, failed_1h: 3, unusual: 1 } });
+    expect(banner(checks)).toEqual({
+      severity: "warning",
+      title: "A scheduled job is not running as usual",
+      body: "15 jobs · 3 failed runs in the last hour · 1 job not running as usual",
+      more: null,
+    });
+    expect(banner(healthChecks({ jobs: { status: "failing", count: 15, failed_1h: 3, unusual: 1 } }))?.title)
+      .toBe("A scheduled job keeps failing");
+  });
+
   it("is an error when anything is Failing", () => {
     const checks = healthChecks({ sender: { status: "failing", progress_seconds: 600, restarts_24h: 2, memory_bytes: 1 } });
     expect(banner(checks)).toEqual({
@@ -91,6 +103,13 @@ describe("banner", () => {
       body: "Last progress 10 min ago · 2 restarts in 24 h",
       more: null,
     });
+  });
+});
+
+describe("runSeconds", () => {
+  it("shows two places under 10 s, then one, and a dash without a figure", () => {
+    expect([0.05, 1.234, 9.996, 12.34, 125, null, undefined].map(runSeconds))
+      .toEqual(["0.05 s", "1.23 s", "10.00 s", "12.3 s", "125.0 s", "–", "–"]);
   });
 });
 
@@ -110,7 +129,8 @@ describe("resultText and lastRunText", () => {
   it("prefers a time-out, then the HTTP status, then the run time", () => {
     expect(resultText(null)).toBe("No runs yet");
     expect(resultText({ ok: false, http_status: 200, timed_out: true, seconds: 30 })).toBe("Timed out");
-    expect(resultText({ ok: true, http_status: 200, timed_out: false, seconds: 0.4 })).toBe("HTTP 200");
+    expect(resultText({ ok: true, http_status: 200, timed_out: false, seconds: 0.44 })).toBe("HTTP 200 in 0.4 s");
+    expect(resultText({ ok: true, http_status: 200, timed_out: false, seconds: null })).toBe("HTTP 200");
     expect(resultText({ ok: true, http_status: null, timed_out: false, seconds: 0.25 })).toBe("Done in 0.3 s");
     expect(resultText({ ok: true, http_status: null, timed_out: false, seconds: null })).toBe("Done in 0.0 s");
     expect(resultText({ ok: false, http_status: null, timed_out: false, seconds: 0 })).toBe("Failed");

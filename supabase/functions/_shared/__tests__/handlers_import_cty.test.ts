@@ -1,4 +1,4 @@
-import { assertEquals } from "@std/assert";
+import { assertEquals, assertMatch } from "@std/assert";
 import { handleImportCty } from "../handlers/import_cty.ts";
 import { fakeSupabase } from "./fake_supabase.ts";
 
@@ -36,6 +36,7 @@ Deno.test("handleImportCty loads the parsed file through load_cty", async () => 
     fetchCty: () => Promise.resolve(fixture),
   });
   assertEquals(res.status, 200);
+  assertMatch(res.headers.get("Server-Timing") ?? "", /^total;dur=\d+\.\d$/);
   const body = await res.json();
   assertEquals([body.version, body.entities], ["20260915", 340]);
   assertEquals(calls.rpc.map((c) => c.fn), ["load_cty"]);

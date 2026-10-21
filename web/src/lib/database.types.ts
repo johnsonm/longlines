@@ -373,14 +373,14 @@ isOneToOne: false
                   ]
                 },"cron_http_requests": {
                   Row: {
-                    "answered_at": string | null,"job": string,"request_id": number,"sent_at": string,"status_code": number | null,"timed_out": boolean | null
+                    "answered_at": string | null,"job": string,"request_id": number,"run_seconds": number | null,"sent_at": string,"status_code": number | null,"timed_out": boolean | null
                   }
                   ComputedFields: never
                   Insert: {
-                    "answered_at"?: string | null,"job": string,"request_id": number,"sent_at"?: string,"status_code"?: number | null,"timed_out"?: boolean | null
+                    "answered_at"?: string | null,"job": string,"request_id": number,"run_seconds"?: number | null,"sent_at"?: string,"status_code"?: number | null,"timed_out"?: boolean | null
                   }
                   Update: {
-                    "answered_at"?: string | null,"job"?: string,"request_id"?: number,"sent_at"?: string,"status_code"?: number | null,"timed_out"?: boolean | null
+                    "answered_at"?: string | null,"job"?: string,"request_id"?: number,"run_seconds"?: number | null,"sent_at"?: string,"status_code"?: number | null,"timed_out"?: boolean | null
                   }
                   Relationships: [
                     

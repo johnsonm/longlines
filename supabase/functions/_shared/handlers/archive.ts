@@ -8,6 +8,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { archiveSources, runArchive } from "../archive.ts";
 import { isServiceRole } from "../auth.ts";
 import { createArchiveDb } from "../db.ts";
+import { timed } from "../timing.ts";
 import type { ArchiveStore, Source } from "../types.ts";
 
 export interface ArchiveDeps {
@@ -17,11 +18,16 @@ export interface ArchiveDeps {
   store: () => ArchiveStore;
 }
 
-export async function handleArchive(
+/** The archive run, stamped with its run time for the Health page (timing.ts). */
+export function handleArchive(
   req: Request,
   deps: ArchiveDeps,
   now: Date = new Date(),
 ): Promise<Response> {
+  return timed(() => archive(req, deps, now));
+}
+
+async function archive(req: Request, deps: ArchiveDeps, now: Date): Promise<Response> {
   // Only the service role (cron) may run the archive.
   if (!await isServiceRole(req, deps.serviceRoleKey)) {
     return Response.json({ error: "Forbidden" }, { status: 403 });

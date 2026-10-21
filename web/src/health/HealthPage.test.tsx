@@ -73,7 +73,7 @@ describe("HealthPage", () => {
       "Delivery queuedeliveries_queueHealthy12 waiting · oldest ready 4 sDelayed when the oldest ready waits over 2 min",
       "SenderFly.io, longlines-senderHealthyLast progress 6 s ago · 0 restarts in 24 hFailing after 2 min without progress",
       "DatabaseHealthy38 of 60 connections · disk 61% fullDelayed over 80% of either",
-      "Scheduled jobsHealthy10 jobs · 0 failed runs in the last hourFailing when a job fails 3 runs in a row",
+      "Scheduled jobsHealthy10 jobs · 0 failed runs in the last hourFailing when a job fails 3 runs in a row; delayed when one is slower or fails more than usual",
       "ArchiveHealthyLast slice written 6 min agoDelayed after 2 hours",
     ]);
   });
@@ -153,16 +153,17 @@ describe("HealthPage", () => {
     payload.jobs.push({
       name: "ingest-wwff", schedule: "* * * * *", last_run_at: "2026-10-21T11:57:00Z",
       result: { ok: false, http_status: 500, timed_out: false, seconds: 1 }, status: "delayed", failed_24h: 1, failed_1h: 1,
+      timing: { runs: 1440, failed: 4, average: 12.34, sd: 3.1, p95: null }, unusual: "slow",
     });
     vi.mocked(useHealth).mockReturnValue({ payload, loading: false, error: null, refresh });
     renderPage(<HealthPage />);
     const rows = within(screen.getByText("Scheduled jobs", { selector: "h2" }).closest(".MuiCard-root") as HTMLElement).getAllByRole("row");
     expect(rows.map((r) => r.textContent)).toEqual([
-      "JobScheduleLast runLast resultFailed in 24 h",
-      "ingest-sotawatchEvery 30 s4 s agoHealthyHTTP 2000",
-      "refresh-stats-snapshotHourly at :0552 min agoHealthyDone in 0.6 s0",
-      "archive-spotsEvery 10 minNeverFailingNo runs yet1,234",
-      "ingest-wwffEvery minute8 s agoLast run failedHTTP 5001",
+      "JobScheduleLast runLast resultAverageStd devp95Runs failedFailed in 24 h",
+      "ingest-sotawatchEvery 30 s4 s agoHealthyHTTP 200 in 0.4 s0.42 s0.11 s0.61 s1 of 2,8800",
+      "refresh-stats-snapshotHourly at :0552 min agoHealthyDone in 0.6 s––––0",
+      "archive-spotsEvery 10 minNeverFailingNo runs yet––––1,234",
+      "ingest-wwffEvery minute8 s agoLast run failedSlower than usualHTTP 500 in 1.0 s12.3 s3.10 s–4 of 1,4401",
     ]);
   });
 

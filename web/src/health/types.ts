@@ -1,5 +1,5 @@
 // The health function's payload: cached_health(range) / health_snapshot(range)
-// in 20261021000100_health.sql, pinned by supabase/tests/health_snapshot.test.sql.
+// in 20261021000100_health.sql (job timings 20261021000400), pinned by supabase/tests/health_snapshot.test.sql.
 // Change the SQL, this type and the test together.
 
 export type HealthRange = "1h" | "24h" | "7d";
@@ -20,23 +20,42 @@ export interface HealthChecks {
   delivery_queue: { status: HealthStatus; waiting: number; oldest_ready_seconds: number | null; throttled: number };
   sender: { status: HealthStatus; progress_seconds: number | null; restarts_24h: number | null; memory_bytes: number | null };
   database: { status: HealthStatus; connections: number; max_connections: number; bytes: number; disk_limit_bytes: number };
-  jobs: { status: HealthStatus; count: number; failed_1h: number };
+  /** delayed while any job is unusual; `unusual` (the count) is absent before 20261021000400. */
+  jobs: { status: HealthStatus; count: number; failed_1h: number; unusual?: number };
   archive: { status: HealthStatus; seconds: number | null };
 }
 
 export type CheckId = keyof HealthChecks;
+
+/** Over the range shown. Times are successful runs' seconds; null without two (sd) or one. */
+export interface JobTiming {
+  runs: number;
+  failed: number;
+  average: number | null;
+  sd: number | null;
+  p95: number | null;
+}
+
+/**
+ * The last hour against the 7 days before it: `failures` is 3 or more failed
+ * runs, far above the usual rate; `slow` is an average 3 sd and a second over.
+ */
+export type JobUnusual = "failures" | "slow";
 
 export interface HealthJob {
   name: string;
   /** pg_cron's schedule as written: a cron expression or "N seconds". */
   schedule: string;
   last_run_at: string | null;
-  /** The latest finished run; null when none in the last 8 days. */
+  /** The latest finished run; null when none in the last 8 days. Seconds are a function's own run time. */
   result: { ok: boolean; http_status: number | null; timed_out: boolean; seconds: number | null } | null;
   /** delayed: the last run failed; failing: the last 3 did. */
   status: HealthStatus;
   failed_24h: number;
   failed_1h: number;
+  /** Absent before 20261021000400 is applied. */
+  timing?: JobTiming;
+  unusual?: JobUnusual | null;
 }
 
 /** One value per bucket, oldest first; null where nothing was recorded. */

@@ -49,6 +49,7 @@ export function healthPayload(over: Partial<HealthPayload> = {}): HealthPayload 
       {
         name: "ingest-sotawatch", schedule: "30 seconds", last_run_at: "2026-10-21T11:57:04Z",
         result: { ok: true, http_status: 200, timed_out: false, seconds: 0.4 }, status: "healthy", failed_24h: 0, failed_1h: 0,
+        timing: { runs: 2880, failed: 1, average: 0.42, sd: 0.11, p95: 0.61 }, unusual: null,
       },
       {
         name: "refresh-stats-snapshot", schedule: "5 * * * *", last_run_at: "2026-10-21T11:05:00Z",
