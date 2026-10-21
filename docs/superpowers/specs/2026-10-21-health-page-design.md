@@ -175,7 +175,8 @@ From the canvas, word for word except where marked.
   jobs "A scheduled job keeps failing", Archive "The archive is behind". Body: the check's Now text.
   More than one: the first in table order, and "N checks need attention." after the body.
 - Current status: "Each rule is the point where a row turns Delayed or Failing." Columns Check,
-  Status, Now, Rule. Chips "Healthy", "Delayed", "Failing", "No data" *(added)*.
+  Status, Now, Rule. Chips "Healthy", "Delayed", "Failing", "No data" *(added)*. A job's chip
+  for one failed run is "Last run failed" *(added)*.
 - Rows (name, caption, rule):
   - "Pulled sources", "POTA, SOTAwatch, WWFF", "Delayed after 3 min without a success"
   - "Relay feeds", "RBN, DX Cluster, APRS-IS", "Delayed after 3 min without a push"
@@ -195,6 +196,12 @@ From the canvas, word for word except where marked.
     deliverable message waiting. Over the dashed line, outbound is stuck or throttled."
   - Worker memory caption: "The two Fly.io machines have 256 MB each. A line that keeps climbing
     toward the dashed line means it's time for a bigger machine."
+  - "Per 30 minutes." at the start of the Failed and expired and Spots ingested captions follows the
+    range *(amended)*: "Per minute." for 1 hour, "Per 3 hours." for 7 days ("Per 30 minutes, by
+    source." and so on for Spots ingested).
+  - Database connections caption *(amended)*: "against the connection limit", not "the pooler
+    limit": the figure is `max_connections`.
+  - Figures when there is nothing to show *(added)*: "None ready", "No deliveries", "No data".
 - Scheduled jobs: "Jobs that call a function show the HTTP status it returned, not just that the
   request was sent." Columns Job, Schedule, Last run, Last result, Failed in 24 h. Results "HTTP
   200", "Timed out" *(added)*, "Done in 0.2 s".

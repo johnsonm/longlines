@@ -23,6 +23,7 @@ import { GroupPage } from "./groups/GroupPage";
 import { PublicGroupPage } from "./groups/PublicGroupPage";
 import { StatsPage } from "./stats/StatsPage";
 import { BandMapPage } from "./bandmap/BandMapPage";
+import { HealthPage } from "./health/HealthPage";
 import { ApiTokensPage } from "./tokens/ApiTokensPage";
 import { AccountPage } from "./account/AccountPage";
 import { LookupPage } from "./profile/LookupPage";
@@ -77,6 +78,7 @@ function Router() {
       <Route path="/destinations/:id" element={<RequireAuth page="destination" />} />
       <Route path="/band-map" element={<PublicRoute page="band-map" />} />
       <Route path="/stats" element={<PublicRoute page="stats" />} />
+      <Route path="/health" element={<PublicRoute page="health" />} />
       <Route path="/lookup" element={<PublicRoute page="lookup" />} />
       <Route path="/call/*" element={<PublicRoute page="call" />} />
       <Route path="/g/:slug" element={<PublicRoute page="group-public" />} />
@@ -101,13 +103,13 @@ function PublicOnly({ children }: { children: ReactNode }) {
   return children;
 }
 
-type Page = "sources" | "source" | "band-map" | "subscriptions" | "subscription-new" | "subscription" | "groups" | "group" | "group-settings" | "destinations" | "destination-new" | "destination" | "stats" | "lookup" | "call" | "account" | "api-tokens" | "group-public";
-type PublicPage = "band-map" | "stats" | "lookup" | "call" | "group-public";
+type Page = "sources" | "source" | "band-map" | "subscriptions" | "subscription-new" | "subscription" | "groups" | "group" | "group-settings" | "destinations" | "destination-new" | "destination" | "stats" | "health" | "lookup" | "call" | "account" | "api-tokens" | "group-public";
+type PublicPage = "band-map" | "stats" | "health" | "lookup" | "call" | "group-public";
 
 // Signed-out visitors read profiles in UTC.
 const UTC: TimePrefs = { utcTimes: true, timezone: "UTC" };
 
-/** The band map, Stats, callsign profiles and public group pages are public: signed out, AppShell shows them with the other sections disabled. */
+/** The band map, Stats, Health, callsign profiles and public group pages are public: signed out, AppShell shows them with the other sections disabled. */
 function PublicRoute({ page }: { page: PublicPage }) {
   const { session, sessionLoading } = useApp();
   if (sessionLoading) return <LinearProgress />;
@@ -116,6 +118,7 @@ function PublicRoute({ page }: { page: PublicPage }) {
     <AppShell>
       {page === "band-map" && <BandMapPage />}
       {page === "stats" && <StatsPage />}
+      {page === "health" && <HealthPage />}
       {page === "lookup" && <LookupPage />}
       {page === "call" && <CallsignPage prefs={UTC} />}
       {page === "group-public" && <PublicGroupRoute />}
@@ -274,6 +277,7 @@ function SignedIn({ page }: { page: Page }) {
         <DestinationRoute dests={dests} loading={loading} reload={reload} mobile={mobile} />
       )}
       {page === "stats" && <StatsPage />}
+      {page === "health" && <HealthPage />}
       {page === "lookup" && <LookupPage />}
       {page === "call" && <CallsignPage prefs={prefs} signedIn />}
       {page === "account" && <AccountPage profile={profile} />}

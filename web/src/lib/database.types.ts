@@ -371,6 +371,20 @@ isOneToOne: false
                   Relationships: [
                     
                   ]
+                },"cron_http_requests": {
+                  Row: {
+                    "answered_at": string | null,"job": string,"request_id": number,"sent_at": string,"status_code": number | null,"timed_out": boolean | null
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "answered_at"?: string | null,"job": string,"request_id": number,"sent_at"?: string,"status_code"?: number | null,"timed_out"?: boolean | null
+                  }
+                  Update: {
+                    "answered_at"?: string | null,"job"?: string,"request_id"?: number,"sent_at"?: string,"status_code"?: number | null,"timed_out"?: boolean | null
+                  }
+                  Relationships: [
+                    
+                  ]
                 },"cty_entities": {
                   Row: {
                     "continent": string,"cq_zone": number,"itu_zone": number,"lat": number,"lon": number,"name": string,"prefix": string
@@ -435,14 +449,14 @@ isOneToOne: false
                   ]
                 },"deliveries": {
                   Row: {
-                    "attempts": number,"created_at": string,"destination_id": string,"dropped_at": string | null,"id": number,"last_error": string | null,"sent_at": string | null,"spot_id": number,"status": string,"subscription_id": string
+                    "attempts": number,"created_at": string,"destination_id": string,"dropped_at": string | null,"id": number,"last_error": string | null,"last_failed_at": string | null,"sent_at": string | null,"spot_id": number,"status": string,"subscription_id": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "attempts"?: number,"created_at"?: string,"destination_id": string,"dropped_at"?: string | null,"id"?: number,"last_error"?: string | null,"sent_at"?: string | null,"spot_id": number,"status"?: string,"subscription_id": string
+                    "attempts"?: number,"created_at"?: string,"destination_id": string,"dropped_at"?: string | null,"id"?: number,"last_error"?: string | null,"last_failed_at"?: string | null,"sent_at"?: string | null,"spot_id": number,"status"?: string,"subscription_id": string
                   }
                   Update: {
-                    "attempts"?: number,"created_at"?: string,"destination_id"?: string,"dropped_at"?: string | null,"id"?: number,"last_error"?: string | null,"sent_at"?: string | null,"spot_id"?: number,"status"?: string,"subscription_id"?: string
+                    "attempts"?: number,"created_at"?: string,"destination_id"?: string,"dropped_at"?: string | null,"id"?: number,"last_error"?: string | null,"last_failed_at"?: string | null,"sent_at"?: string | null,"spot_id"?: number,"status"?: string,"subscription_id"?: string
                   }
                   Relationships: [
                     {
@@ -566,6 +580,34 @@ isOneToOne: false
       referencedRelation: "callsign_groups"
       referencedColumns: ["id"]
     }
+                  ]
+                },"health_cache": {
+                  Row: {
+                    "generated_at": string,"payload": NonNullable<Json>,"range": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "generated_at": string,"payload": NonNullable<Json>,"range": string
+                  }
+                  Update: {
+                    "generated_at"?: string,"payload"?: NonNullable<Json>,"range"?: string
+                  }
+                  Relationships: [
+                    
+                  ]
+                },"health_samples": {
+                  Row: {
+                    "db_bytes": number,"db_connections": number,"delivery_oldest_ready_seconds": number | null,"delivery_waiting": number,"match_oldest_seconds": number | null,"match_waiting": number,"sampled_at": string,"spots_total": NonNullable<Json>,"throttled_destinations": number
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "db_bytes": number,"db_connections": number,"delivery_oldest_ready_seconds"?: number | null,"delivery_waiting": number,"match_oldest_seconds"?: number | null,"match_waiting": number,"sampled_at": string,"spots_total": NonNullable<Json>,"throttled_destinations": number
+                  }
+                  Update: {
+                    "db_bytes"?: number,"db_connections"?: number,"delivery_oldest_ready_seconds"?: number | null,"delivery_waiting"?: number,"match_oldest_seconds"?: number | null,"match_waiting"?: number,"sampled_at"?: string,"spots_total"?: NonNullable<Json>,"throttled_destinations"?: number
+                  }
+                  Relationships: [
+                    
                   ]
                 },"hidden_callsigns": {
                   Row: {
@@ -971,6 +1013,20 @@ isOneToOne: true
       referencedColumns: ["id"]
     }
                   ]
+                },"worker_heartbeats": {
+                  Row: {
+                    "feeds": Json | null,"id": number,"last_progress_at": string | null,"received_at": string,"reconnects": number | null,"rss_bytes": number,"started_at": string,"worker": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "feeds"?: Json | null,"id"?: number,"last_progress_at"?: string | null,"received_at"?: string,"reconnects"?: number | null,"rss_bytes": number,"started_at": string,"worker": string
+                  }
+                  Update: {
+                    "feeds"?: Json | null,"id"?: number,"last_progress_at"?: string | null,"received_at"?: string,"reconnects"?: number | null,"rss_bytes"?: number,"started_at"?: string,"worker"?: string
+                  }
+                  Relationships: [
+                    
+                  ]
                 }
           }
           Views: {
@@ -1104,6 +1160,9 @@ isOneToOne: true
 "cached_group_statistics":
 { Args: { "p_build"?: boolean,"p_group_id": string,"p_max_age"?: string,"p_period": string }; Returns: Json
                            },
+"cached_health":
+{ Args: { "p_range": string }; Returns: Json
+                           },
 "callsign_available":
 { Args: { "p_callsign": string }; Returns: boolean
                            },
@@ -1142,6 +1201,9 @@ isOneToOne: true
                            },
 "create_rbn_spots_partition":
 { Args: { "p_day": string }; Returns: undefined
+                           },
+"cron_call_function":
+{ Args: { "p_body"?: Json,"p_function": string,"p_job": string,"p_timeout_ms"?: number }; Returns: number
                            },
 "cty_lookup":
 { Args: { "p_call": string }; Returns: {
@@ -1306,6 +1368,18 @@ isOneToOne: true
                            },
 "group_stats_roster":
 { Args: { "p_bases": (string)[] }; Returns: string
+                           },
+"health_disk_limit_bytes":
+{ Args: Record<PropertyKey, never>; Returns: number
+                           },
+"health_oldest_ready_seconds":
+{ Args: { "p_now": string }; Returns: number
+                           },
+"health_snapshot":
+{ Args: { "p_range": string }; Returns: Json
+                           },
+"health_worker_memory_bytes":
+{ Args: Record<PropertyKey, never>; Returns: number
                            },
 "ingest_aprs_packets":
 { Args: { "p_rows": Json }; Returns: number
@@ -1516,6 +1590,9 @@ isOneToOne: true
 "record_callsign_rollup_failure":
 { Args: { "p_day": string,"p_error": string }; Returns: undefined
                            },
+"record_health_sample":
+{ Args: Record<PropertyKey, never>; Returns: undefined
+                           },
 "record_ingest_failure":
 { Args: { "p_error": string,"p_source": string }; Returns: undefined
                            },
@@ -1528,8 +1605,14 @@ isOneToOne: true
 "record_push_results":
 { Args: { "p_errors": Json,"p_ok": (string)[] }; Returns: undefined
                            },
+"record_relay_heartbeat":
+{ Args: { "p_feeds": Json,"p_reconnects": number,"p_rss_bytes": number,"p_started_at": string }; Returns: undefined
+                           },
 "record_send_test":
 { Args: { "p_destination_id": string,"p_user_id": string }; Returns: boolean
+                           },
+"record_sender_heartbeat":
+{ Args: { "p_last_progress_at": string,"p_rss_bytes": number,"p_started_at": string }; Returns: undefined
                            },
 "refresh_stats_snapshot":
 { Args: Record<PropertyKey, never>; Returns: undefined

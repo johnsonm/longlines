@@ -162,7 +162,7 @@ describe("AppShell", () => {
 describe("AppShell signed out", () => {
   const signedOut = { app: { session: null, profile: null } };
   const LOCKED = ["Sources", "Connections", "Destinations", "Groups", "API tokens"];
-  const OPEN = ["Band map", "Callsign lookup", "Stats"];
+  const OPEN = ["Band map", "Callsign lookup", "Stats", "Health"];
 
   it("shows every section, with the account ones disabled and explained", async () => {
     const { user } = renderPage(shell(), { route: "/stats", ...signedOut });
