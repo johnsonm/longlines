@@ -95,11 +95,15 @@ function OldConnectionsPath() {
   return <Navigate to={`${pathname.replace(/^\/subscriptions/, "/connections")}${search}${hash}`} replace />;
 }
 
-/** Signed-in users skip the sign-in screen. */
+/**
+ * Signed-in users skip the sign-in screen, to the page they came from (AppShell's Sign in and
+ * RequireAuth put it in `from`), the same place SignInPage sends them, so the two never race.
+ */
 function PublicOnly({ children }: { children: ReactNode }) {
   const { session, sessionLoading } = useApp();
+  const { state } = useLocation() as { state: { from?: string } | null };
   if (sessionLoading) return <LinearProgress />;
-  if (session) return <Navigate to="/sources" replace />;
+  if (session) return <Navigate to={state?.from ?? "/sources"} replace />;
   return children;
 }
 
