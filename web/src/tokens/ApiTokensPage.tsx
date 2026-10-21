@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import {
-  Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Paper, Stack, Table, TableBody, TableCell,
+  Alert, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Paper, Stack, Table, TableBody, TableCell,
   TableHead, TableRow, TextField, Typography,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
@@ -15,6 +15,9 @@ import { errorText, useNotify } from "../app/hooks";
 export function ApiTokensPage() {
   const notify = useNotify();
   const [tokens, setTokens] = useState<ApiToken[]>([]);
+  // A failed load shows in the table, so it never reads as "No tokens yet." or as a stale list.
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [retrying, setRetrying] = useState(false);
   const [busy, setBusy] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [name, setName] = useState("");
@@ -27,10 +30,17 @@ export function ApiTokensPage() {
   const reload = useCallback(async () => {
     try {
       setTokens(await loadApiTokens());
+      setLoadError(null);
     } catch (err) {
-      notify(errorText(err, "Couldn't load your tokens."));
+      setLoadError(errorText(err, "Couldn't load your tokens."));
     }
-  }, [notify]);
+  }, []);
+
+  const retry = async () => {
+    setRetrying(true);
+    await reload();
+    setRetrying(false);
+  };
 
   useEffect(() => {
     void reload();
@@ -116,12 +126,24 @@ export function ApiTokensPage() {
             </TableRow>
           </TableHead>
           <TableBody>
-            {tokens.length === 0 && (
+            {loadError !== null && (
+              <TableRow>
+                <TableCell colSpan={6}>
+                  <Alert
+                    severity="error"
+                    action={<Button color="inherit" size="small" disabled={retrying} onClick={() => void retry()}>Retry</Button>}
+                  >
+                    {loadError}
+                  </Alert>
+                </TableCell>
+              </TableRow>
+            )}
+            {loadError === null && tokens.length === 0 && (
               <TableRow>
                 <TableCell colSpan={6}><Typography variant="body2" color="text.secondary">No tokens yet.</Typography></TableCell>
               </TableRow>
             )}
-            {tokens.map((t) => (
+            {loadError === null && tokens.map((t) => (
               <TableRow key={t.id}>
                 <TableCell>
                   <Typography variant="subtitle2">{t.name}</Typography>

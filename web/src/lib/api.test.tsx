@@ -76,6 +76,28 @@ describe("Edge Function calls", () => {
     await expect(api.signIn("x", "y")).rejects.toThrow("bad session");
   });
 
+  it("verifyPassword revokes the session the check minted, scoped to that session", async () => {
+    fake.client.auth.setSession.mockClear();
+    const fetchMock = respond(200, { access_token: "checked", refresh_token: "r" });
+    await api.verifyPassword("a@b.c", "pw");
+    const calls = fetchMock.mock.calls as unknown as Array<[string, RequestInit]>;
+    expect(calls.map(([u]) => u)).toEqual([
+      "https://proj.supabase.co/functions/v1/sign-in",
+      "https://proj.supabase.co/auth/v1/logout?scope=local",
+    ]);
+    expect(calls[1]![1]).toEqual({ method: "POST", headers: { apikey: "anon-key", Authorization: "Bearer checked" } });
+    expect(fake.client.auth.setSession).not.toHaveBeenCalled();
+  });
+
+  it("verifyPassword still succeeds when the revoke fails", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ access_token: "a", refresh_token: "r" }), { status: 200 }))
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(api.verifyPassword("a@b.c", "pw")).resolves.toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("surfaces the function's error message and status", async () => {
     respond(401, { error: "That callsign or email and password don't match." });
     await expect(api.verifyPassword("a@b.c", "pw")).rejects.toMatchObject({

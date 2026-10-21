@@ -103,9 +103,9 @@ export function isPrivateIp(ip: string): boolean {
   return false;
 }
 
-/** Hostname without IPv6 brackets or a trailing dot, lowercase. */
+/** Hostname without IPv6 brackets or trailing dots (all of them, like SQL's rtrim), lowercase. */
 export function hostOf(url: URL): string {
-  return url.hostname.replace(/^\[|\]$/g, "").replace(/\.$/, "").toLowerCase();
+  return url.hostname.replace(/^\[|\]$/g, "").replace(/\.+$/, "").toLowerCase();
 }
 
 // Name suffixes that only ever resolve inside a private network: Fly's 6PN

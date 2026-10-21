@@ -583,14 +583,14 @@ isOneToOne: false
                   ]
                 },"ingest_failures": {
                   Row: {
-                    "error": string,"id": number,"occurred_at": string,"raw_payload": NonNullable<Json>,"source": string
+                    "error": string,"id": number,"last_seen_at": string,"occurred_at": string,"occurrences": number,"payload_hash": string | null,"raw_payload": NonNullable<Json>,"source": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "error": string,"id"?: number,"occurred_at"?: string,"raw_payload": NonNullable<Json>,"source": string
+                    "error": string,"id"?: number,"last_seen_at"?: string,"occurred_at"?: string,"occurrences"?: number,"payload_hash"?: never,"raw_payload": NonNullable<Json>,"source": string
                   }
                   Update: {
-                    "error"?: string,"id"?: number,"occurred_at"?: string,"raw_payload"?: NonNullable<Json>,"source"?: string
+                    "error"?: string,"id"?: number,"last_seen_at"?: string,"occurred_at"?: string,"occurrences"?: number,"payload_hash"?: never,"raw_payload"?: NonNullable<Json>,"source"?: string
                   }
                   Relationships: [
                     
@@ -822,6 +822,26 @@ isOneToOne: true
                   }
                   Relationships: [
                     
+                  ]
+                },"send_test_limits": {
+                  Row: {
+                    "destination_id": string,"tests": number,"user_id": string,"window_start": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "destination_id": string,"tests": number,"user_id": string,"window_start": string
+                  }
+                  Update: {
+                    "destination_id"?: string,"tests"?: number,"user_id"?: string,"window_start"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "send_test_limits_destination_id_fkey"
+      columns: ["destination_id"]
+isOneToOne: false
+      referencedRelation: "destinations"
+      referencedColumns: ["id"]
+    }
                   ]
                 },"sign_in_attempts": {
                   Row: {
@@ -1508,6 +1528,9 @@ isOneToOne: true
 "record_push_results":
 { Args: { "p_errors": Json,"p_ok": (string)[] }; Returns: undefined
                            },
+"record_send_test":
+{ Args: { "p_destination_id": string,"p_user_id": string }; Returns: boolean
+                           },
 "refresh_stats_snapshot":
 { Args: Record<PropertyKey, never>; Returns: undefined
                            },
@@ -1586,6 +1609,12 @@ isOneToOne: true
 { Args: { "p_enabled": boolean,"p_headers": Json,"p_id": string,"p_name": string,"p_settings": Json,"p_url": string }; Returns: {
               "id": string,"signing_secret": string
             }[]
+                           },
+"send_test_account_limit":
+{ Args: Record<PropertyKey, never>; Returns: number
+                           },
+"send_test_destination_limit":
+{ Args: Record<PropertyKey, never>; Returns: number
                            },
 "set_webhook_headers":
 { Args: { "p_destination_id": string,"p_headers": Json }; Returns: undefined

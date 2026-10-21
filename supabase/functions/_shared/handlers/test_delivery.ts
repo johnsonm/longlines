@@ -56,8 +56,27 @@ export async function handleSendTest(
     return json({ error: "Pick a spot." }, 400);
   }
 
+  // The web path's limit (record_send_test: 10 a minute per destination, 30 per
+  // account); the API's test is capped per token in api_call instead. A
+  // destination the caller doesn't own answers null and sendTestTo says 404.
+  if (isUuid(destinationId)) {
+    const limit = await admin.rpc("record_send_test", {
+      p_user_id: user.id,
+      p_destination_id: destinationId,
+    });
+    if (limit.error) {
+      console.error(`send-test: record_send_test failed: ${limit.error.message}`);
+      return json({ error: "Couldn't load that destination." }, 500);
+    }
+    if (limit.data === false) return json({ error: TOO_MANY_TESTS }, 429);
+  }
+
   return await sendTestTo(admin, user.id, destinationId, deps.send, now, spotId as number | null);
 }
+
+export const TOO_MANY_TESTS = "Too many tests. Wait a minute and try again.";
+export const DESTINATION_THROTTLED =
+  "This destination asked Long Lines to slow down. Try the test again in a few minutes.";
 
 /** What push_test_delivery returns: the destination's settings, its members and the rendered spot. */
 interface PushTest {
@@ -139,7 +158,7 @@ export async function sendTestTo(
   if (!isUuid(destinationId)) return json({ error: "Destination not found." }, 404);
   const { data, error } = await admin
     .from("destinations")
-    .select("id, type, name, url, signing_secret, health, consecutive_failures")
+    .select("id, type, name, url, signing_secret, health, consecutive_failures, throttled_until")
     .eq("id", destinationId)
     .eq("user_id", userId)
     .maybeSingle();
@@ -149,7 +168,15 @@ export async function sendTestTo(
   }
   if (!data) return json({ error: "Destination not found." }, 404);
 
-  const destination = data as DeliveryDestination;
+  // A destination the claim is holding back after a rate limit (throttle_destination)
+  // gets no test either, on both paths.
+  const { throttled_until: throttledUntil, ...row } = data as DeliveryDestination & {
+    throttled_until?: string | null;
+  };
+  if (throttledUntil && Date.parse(throttledUntil) > now.getTime()) {
+    return json({ error: DESTINATION_THROTTLED }, 429);
+  }
+  const destination = row as DeliveryDestination;
   const { rpc, apply } = TEST_RPCS[destination.type];
   const test = await admin.rpc(rpc, { p_destination_id: destination.id, p_spot_id: spotId });
   if (test.error) {

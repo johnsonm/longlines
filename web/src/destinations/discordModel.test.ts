@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { DiscordDestination, DiscordField } from "../lib/api";
+import type { DiscordDestination } from "../lib/api";
 import {
-  BATCH_OPTIONS, blankForm, CARD_COLORS, DEFAULT_SETTINGS, defaultFields, DETAILS_MAX, dirty, DISCORD_FIELDS, discordCardLine, discordFieldLabel,
-  fieldCount, formOf, GRID_MAX, LINE_MAX, LINE_MIN, LINK_PREVIEWS, looksLikeWebhookUrl, sendTestBlocker, SEPARATORS, STYLES, TITLE_LINKS, TITLE_MAX,
+  BATCH_OPTIONS, blankForm, CARD_COLORS, DEFAULT_SETTINGS, defaultFields, DETAILS_MAX, dirty, DISCORD_FIELDS, discordCardLine,
+  formOf, GRID_MAX, LINE_MAX, LINE_MIN, LINK_PREVIEWS, looksLikeWebhookUrl, sendTestBlocker, SEPARATORS, STYLES, TITLE_LINKS, TITLE_MAX,
   TITLE_MIN, toInput,
 } from "./discordModel";
 import { PUSH_FIELDS } from "./pushModel";
@@ -60,8 +60,6 @@ describe("the field list and options", () => {
     expect(DISCORD_FIELDS.map((f) => f.id)).toEqual([
       "callsign", "frequency", "band", "mode", "source", "reference", "place_name", "state", "spotter", "time",
     ]);
-    expect(discordFieldLabel("place_name")).toBe("Place name");
-    expect(discordFieldLabel("nope" as DiscordField)).toBe("nope");
   });
 
   it("keeps the defaults inside the limits", () => {
@@ -139,13 +137,7 @@ describe("the form", () => {
   });
 });
 
-describe("fieldCount and the card line", () => {
-  it("counts a card's title, details and grid, or a plain line's fields", () => {
-    expect(fieldCount(DEFAULT_SETTINGS)).toBe(9);
-    expect(fieldCount({ ...DEFAULT_SETTINGS, style: "plain" })).toBe(6);
-    expect(fieldCount({ ...DEFAULT_SETTINGS, grid_fields: [] })).toBe(7);
-  });
-
+describe("the card line", () => {
   it("names the style and the count", () => {
     expect(discordCardLine("card", 9)).toBe("Discord channel · Card · 9 fields");
     expect(discordCardLine("plain", 6)).toBe("Discord channel · Plain line · 6 fields");

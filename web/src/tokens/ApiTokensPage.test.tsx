@@ -41,13 +41,30 @@ describe("ApiTokensPage", () => {
     expect(screen.getByText(/Limit: 60 requests per minute per token/)).toBeInTheDocument();
   });
 
-  it("says when there are no tokens and reports load errors", async () => {
+  it("says when there are no tokens", async () => {
     vi.mocked(loadApiTokens).mockResolvedValueOnce([]);
     render();
     expect(await screen.findByText("No tokens yet.")).toBeInTheDocument();
+  });
+
+  it("shows a failed load in the table with Retry instead of the empty state, and recovers", async () => {
     vi.mocked(loadApiTokens).mockRejectedValueOnce(new Error("offline"));
-    const { app } = render();
-    await waitFor(() => expect(app.notify).toHaveBeenCalledWith("offline"));
+    const { user } = render();
+    expect(await screen.findByText("offline")).toBeInTheDocument();
+    expect(screen.queryByText("No tokens yet.")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    expect(await screen.findByText("Club Discord bot")).toBeInTheDocument();
+    expect(screen.queryByText("offline")).not.toBeInTheDocument();
+    expect(loadApiTokens).toHaveBeenCalledTimes(2);
+  });
+
+  it("hides a stale list when the reload after an action fails", async () => {
+    vi.mocked(loadApiTokens).mockResolvedValueOnce([TOKEN]).mockRejectedValueOnce(new Error("offline"));
+    const { user } = render();
+    await user.click(await screen.findByRole("button", { name: "Revoke Club Discord bot" }));
+    await user.click(screen.getByRole("button", { name: "Revoke" }));
+    expect(await screen.findByText("offline")).toBeInTheDocument();
+    expect(screen.queryByText("Club Discord bot")).not.toBeInTheDocument();
   });
 
   it("creates a token and shows the secret once", async () => {

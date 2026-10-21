@@ -97,9 +97,9 @@ describe("StatsPage", () => {
   it("shows ingest volume across every source", () => {
     vi.mocked(useStats).mockReturnValue({ stats: STATS, loading: false, error: null });
     renderPage(<StatsPage />);
-    // 1,931,000 spots and packets over 10,080 minutes; every hour of the fixture is 50 + 10 + 5 + 1,000 + 10,000.
+    // 1,931,000 spots and packets over 10,080 minutes; every hour of the fixture is 50 + 10 + 5 + 1,000 + 10,000 + 2 (DX Cluster).
     expect(screen.getByText("192/min")).toBeInTheDocument();
-    expect(screen.getByText("Peak hour: 11,065 spots")).toBeInTheDocument();
+    expect(screen.getByText("Peak hour: 11,067 spots")).toBeInTheDocument();
     expect(screen.getByText("312")).toBeInTheDocument();
     expect(screen.getByText("Spots processed per hour")).toBeInTheDocument();
     // One per-day chart per source; the RBN subheader sums its seven days.
@@ -202,6 +202,14 @@ describe("StatsPage", () => {
     expect(screen.queryByText("1. United States")).not.toBeInTheDocument();
   });
 
+  it("leaves DX Cluster out of the hourly sum on a snapshot from before dx", () => {
+    const hourly = PAYLOAD.hourly.map(({ dx: _d, ...h }) => h);
+    const stats = { ...STATS, payload: { ...PAYLOAD, hourly } } as unknown as LatestStats;
+    vi.mocked(useStats).mockReturnValue({ stats, loading: false, error: null });
+    renderPage(<StatsPage />);
+    expect(screen.getByText("Peak hour: 11,065 spots")).toBeInTheDocument();
+  });
+
   it("renders a snapshot written before APRS figures existed", () => {
     const { aprs: _aprs, ...old } = PAYLOAD;
     const daily = PAYLOAD.daily.map(({ aprs: _a, ...d }) => d);
@@ -211,7 +219,7 @@ describe("StatsPage", () => {
     renderPage(<StatsPage />);
     expect(screen.getByText("181,000")).toBeInTheDocument();
     expect(screen.getByText("168,000 RBN, 0 APRS, 10,000 POTA, 2,345 SOTA, 655 WWFF")).toBeInTheDocument();
-    expect(screen.getByText("Peak hour: 1,065 spots")).toBeInTheDocument();
+    expect(screen.getByText("Peak hour: 1,067 spots")).toBeInTheDocument();
     expect(screen.getByText("0 packets")).toBeInTheDocument();
     expect(screen.getByText("APRS packets")).toBeInTheDocument();
   });
@@ -244,7 +252,7 @@ describe("StatsPage", () => {
     vi.mocked(useStats).mockReturnValue({ stats, loading: false, error: null });
     renderPage(<StatsPage />);
     expect(screen.getByText("168,000 RBN, 1,750,000 APRS, 10,000 POTA, 2,345 SOTA, 0 WWFF")).toBeInTheDocument();
-    expect(screen.getByText("Peak hour: 11,060 spots")).toBeInTheDocument();
+    expect(screen.getByText("Peak hour: 11,062 spots")).toBeInTheDocument();
     expect(screen.getByText("0 spots")).toBeInTheDocument();
     expect(screen.getByText("102,500")).toBeInTheDocument();
     expect(screen.getByText("Top WWFF programs")).toBeInTheDocument();

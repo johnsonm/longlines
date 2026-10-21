@@ -23,7 +23,7 @@ export async function handleArchive(
   now: Date = new Date(),
 ): Promise<Response> {
   // Only the service role (cron) may run the archive.
-  if (!isServiceRole(req, deps.serviceRoleKey)) {
+  if (!await isServiceRole(req, deps.serviceRoleKey)) {
     return Response.json({ error: "Forbidden" }, { status: 403 });
   }
   let sources: readonly Source[];
