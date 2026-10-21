@@ -102,7 +102,7 @@ go at once.
 
 ## Spot fields
 
-Each destination picks 1 to 14 of these, in any order. Key names are fixed: you choose the style,
+Each destination picks 1 to 16 of these, in any order. Key names are fixed: you choose the style,
 not the name.
 
 | Field | snake_case key | camelCase key | Value | Type | No value when |
@@ -110,6 +110,8 @@ not the name.
 | Spot ID | `id` | `id` | Long Lines' spot id | integer | never |
 | Time | `time` | `time` | the spot time (see below) | string or integer | never |
 | Callsign | `callsign` | `callsign` | the call as spotted | string | never |
+| First name | `first_name` | `firstName` | the first name on the spotted call's license (FCC records only), as the license has it | string | no license, a club, or a call hidden on request |
+| Last name | `last_name` | `lastName` | the last name on the spotted call's license, as the license has it | string | no license, a club, or a call hidden on request |
 | Frequency | `frequency_khz`, `frequency_mhz`, `frequency_hz` | `frequencyKhz`, `frequencyMhz`, `frequencyHz` | see below | number | never |
 | Mode | `mode` | `mode` | lower case: `cw`, `ssb`, `ft8` | string | the spot has no mode |
 | Band | `band` | `band` | `20m`, `2m`, `70cm` | string | outside every band |

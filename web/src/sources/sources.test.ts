@@ -44,11 +44,11 @@ describe("SOURCES catalog fields", () => {
 
   // webhook_fields() order with the default snake_case keys and kHz (docs/WEBHOOKS.md).
   const CATALOG = [
-    "id", "time", "callsign", "frequency_khz", "mode", "band", "source", "reference", "place_name", "state",
-    "spotter", "country", "url", "comment",
+    "id", "time", "callsign", "first_name", "last_name", "frequency_khz", "mode", "band", "source", "reference", "place_name",
+    "state", "spotter", "country", "url", "comment",
   ];
   // webhook_default_settings()'s fields, sent with missing values left out.
-  const DEFAULT_KEYS = CATALOG.slice(0, 11);
+  const DEFAULT_KEYS = CATALOG.filter((k) => !["first_name", "last_name", "country", "url", "comment"].includes(k));
 
   it("gives every live source but APRS-IS the webhook field catalog and its default spot", () => {
     for (const s of live) {

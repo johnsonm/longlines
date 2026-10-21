@@ -233,14 +233,14 @@ isOneToOne: false
                   ]
                 },"callsign_licenses": {
                   Row: {
-                    "authority": string,"callsign": string,"country": string | null,"expires_on": string | null,"granted_on": string | null,"grid": string | null,"loaded_at": string,"name": string | null,"operator_class": string | null,"state": string | null,"status": string | null
+                    "authority": string,"callsign": string,"country": string | null,"expires_on": string | null,"first_name": string | null,"granted_on": string | null,"grid": string | null,"last_name": string | null,"loaded_at": string,"name": string | null,"operator_class": string | null,"state": string | null,"status": string | null
                   }
                   ComputedFields: never
                   Insert: {
-                    "authority": string,"callsign": string,"country"?: string | null,"expires_on"?: string | null,"granted_on"?: string | null,"grid"?: string | null,"loaded_at": string,"name"?: string | null,"operator_class"?: string | null,"state"?: string | null,"status"?: string | null
+                    "authority": string,"callsign": string,"country"?: string | null,"expires_on"?: string | null,"first_name"?: string | null,"granted_on"?: string | null,"grid"?: string | null,"last_name"?: string | null,"loaded_at": string,"name"?: string | null,"operator_class"?: string | null,"state"?: string | null,"status"?: string | null
                   }
                   Update: {
-                    "authority"?: string,"callsign"?: string,"country"?: string | null,"expires_on"?: string | null,"granted_on"?: string | null,"grid"?: string | null,"loaded_at"?: string,"name"?: string | null,"operator_class"?: string | null,"state"?: string | null,"status"?: string | null
+                    "authority"?: string,"callsign"?: string,"country"?: string | null,"expires_on"?: string | null,"first_name"?: string | null,"granted_on"?: string | null,"grid"?: string | null,"last_name"?: string | null,"loaded_at"?: string,"name"?: string | null,"operator_class"?: string | null,"state"?: string | null,"status"?: string | null
                   }
                   Relationships: [
                     
@@ -535,14 +535,14 @@ isOneToOne: true
                   ]
                 },"fcc_uls_en": {
                   Row: {
-                    "name": string | null,"state": string | null,"usi": number
+                    "first_name": string | null,"last_name": string | null,"name": string | null,"state": string | null,"usi": number
                   }
                   ComputedFields: never
                   Insert: {
-                    "name"?: string | null,"state"?: string | null,"usi": number
+                    "first_name"?: string | null,"last_name"?: string | null,"name"?: string | null,"state"?: string | null,"usi": number
                   }
                   Update: {
-                    "name"?: string | null,"state"?: string | null,"usi"?: number
+                    "first_name"?: string | null,"last_name"?: string | null,"name"?: string | null,"state"?: string | null,"usi"?: number
                   }
                   Relationships: [
                     
@@ -1704,6 +1704,9 @@ isOneToOne: true
                            },
 "source_matches":
 { Args: { "p_source": string,"p_sources": (string)[] }; Returns: boolean
+                           },
+"spot_license_name":
+{ Args: { "p_part": string,"p_spot": Json }; Returns: string
                            },
 "spot_matches":
 { Args: { "spot": Omit<Database["public"]['Tables']["raw_spots"]['Row'], Database["public"]['Tables']["raw_spots"]['ComputedFields']>,"sub": Omit<Database["public"]['Tables']["subscriptions"]['Row'], Database["public"]['Tables']["subscriptions"]['ComputedFields']> }; Returns: boolean

@@ -158,7 +158,7 @@ Deno.test("importLicenses stages HD, EN and AM in batches and finishes with the 
       expires_on: "2010-01-01",
     });
     const en = batches.find((b) => b.kind === "EN")!.rows[0];
-    assertEquals(en, { usi: 1, name: "Jo Doe", state: "NC" });
+    assertEquals(en, { usi: 1, name: "Jo Doe", first_name: "Jo", last_name: "Doe", state: "NC" });
     assertEquals(logs, [
       "HD.dat: 13 staged, 1 skipped",
       "EN.dat: 12 staged, 1 skipped",

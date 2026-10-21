@@ -14,11 +14,11 @@ const MIGRATIONS: Record<string, string> = import.meta.glob("../../../supabase/m
 
 /** The body of the newest definition of a SQL function, up to its closing $$. */
 function sqlFunction(name: string): string {
-  const head = `create function public.${name}(`;
-  const file = Object.keys(MIGRATIONS).sort().filter((f) => MIGRATIONS[f]?.includes(head)).at(-1);
+  const head = new RegExp(`create (or replace )?function public\\.${name}\\(`);
+  const file = Object.keys(MIGRATIONS).sort().filter((f) => head.test(MIGRATIONS[f] ?? "")).at(-1);
   if (!file) throw new Error(`no migration defines ${name}`);
   const sql = MIGRATIONS[file] ?? "";
-  const start = sql.indexOf(head);
+  const start = sql.search(head);
   return sql.slice(start, sql.indexOf("$$;", start));
 }
 
@@ -79,7 +79,9 @@ describe("list edits", () => {
   });
 
   it("lists the unpicked fields in push_fields() order", () => {
-    expect(unpickedFields(LIST).map((f) => f.id)).toEqual(["band", "source", "reference", "place_name", "state", "spotter", "comment", "time"]);
+    expect(unpickedFields(LIST).map((f) => f.id)).toEqual([
+      "first_name", "last_name", "band", "source", "reference", "place_name", "state", "spotter", "comment", "time",
+    ]);
   });
 
   it("labels an unknown field by its id", () => {

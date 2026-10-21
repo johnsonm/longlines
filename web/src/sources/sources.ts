@@ -57,6 +57,8 @@ const COMMON_FIELDS: SchemaField[] = [
   { name: "id", type: "integer", description: "Unique id Long Lines assigns to the spot.", derived: true },
   { name: "time", type: "string", description: "When the source reported the spot: ISO 8601 in UTC, whole seconds. Or Unix seconds.", derived: false },
   { name: "callsign", type: "string", description: "Callsign that was spotted, as spotted.", derived: false },
+  { name: "first_name", type: "string", description: "First name on the spotted call's license, when Long Lines has one. Not sent by default.", derived: true },
+  { name: "last_name", type: "string", description: "Last name on the spotted call's license, when Long Lines has one. Not sent by default.", derived: true },
   { name: "frequency_khz", type: "number", description: "Frequency in kHz. MHz or Hz change the key to frequency_mhz or frequency_hz.", derived: false },
   { name: "mode", type: "string", description: "Operating mode as the spotter entered it, lower case.", derived: false },
   { name: "band", type: "string", description: "Amateur band, worked out from the frequency.", derived: true },

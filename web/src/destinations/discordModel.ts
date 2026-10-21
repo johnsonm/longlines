@@ -9,6 +9,8 @@ import type { FieldInfo, Option } from "./fieldList";
 /** discord_fields() in SQL's order: push_fields() minus comment, with push_field_label()'s names. */
 export const DISCORD_FIELDS: FieldInfo<DiscordField>[] = [
   { id: "callsign", label: "Callsign" },
+  { id: "first_name", label: "First name" },
+  { id: "last_name", label: "Last name" },
   { id: "frequency", label: "Frequency" },
   { id: "band", label: "Band" },
   { id: "mode", label: "Mode" },

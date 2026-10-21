@@ -15,6 +15,8 @@ export type FieldInfo = GenericFieldInfo<PushField>;
 /** push_fields() in SQL's order, with push_field_label()'s display names. */
 export const PUSH_FIELDS: FieldInfo[] = [
   { id: "callsign", label: "Callsign" },
+  { id: "first_name", label: "First name" },
+  { id: "last_name", label: "Last name" },
   { id: "frequency", label: "Frequency" },
   { id: "band", label: "Band" },
   { id: "mode", label: "Mode" },

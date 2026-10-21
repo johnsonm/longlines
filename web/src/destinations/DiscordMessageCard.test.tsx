@@ -113,11 +113,11 @@ describe("DiscordMessageCard", () => {
     expect(onChange).toHaveBeenCalledWith({ style: "card" });
   });
 
-  it("offers the ten fields minus the picked ones, never Comment", async () => {
+  it("offers the twelve fields minus the picked ones, never Comment", async () => {
     const { user, onChange } = render();
     await user.click(addSelect("Small grid"));
     expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual([
-      "Callsign", "Frequency", "Mode", "Source", "Reference", "Place name", "State", "Time",
+      "Callsign", "First name", "Last name", "Frequency", "Mode", "Source", "Reference", "Place name", "State", "Time",
     ]);
     await user.click(screen.getByRole("option", { name: "Time" }));
     expect(onChange).toHaveBeenCalledWith({ grid_fields: ["band", "spotter", "time"] });

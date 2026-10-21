@@ -291,7 +291,8 @@ export interface PushDevice {
 
 /** The fields a notification can show, rendered and labelled in SQL (push_fields()). */
 export type PushField =
-  | "callsign" | "frequency" | "band" | "mode" | "source" | "reference" | "place_name" | "state" | "spotter" | "comment" | "time";
+  | "callsign" | "first_name" | "last_name" | "frequency" | "band" | "mode" | "source" | "reference" | "place_name" | "state" | "spotter"
+  | "comment" | "time";
 
 /** A push destination's settings row, as SQL stores it (push_destination_settings). */
 export interface PushSettings {
@@ -443,7 +444,8 @@ export async function previewPushNotification(
 
 /** The fields a Discord message can show: push_fields() minus comment (discord_fields()). */
 export type DiscordField =
-  | "callsign" | "frequency" | "band" | "mode" | "source" | "reference" | "place_name" | "state" | "spotter" | "time";
+  | "callsign" | "first_name" | "last_name" | "frequency" | "band" | "mode" | "source" | "reference" | "place_name" | "state" | "spotter"
+  | "time";
 
 /** A Discord destination's settings row, as SQL stores it (discord_destination_settings). */
 export interface DiscordSettings {
@@ -558,12 +560,12 @@ export async function previewDiscordMessage(settings: DiscordSettings, spotId: n
 
 /** The fields a webhook spot can carry, in webhook_fields()'s order. */
 export type WebhookField =
-  | "id" | "time" | "callsign" | "frequency" | "mode" | "band" | "source" | "reference" | "place_name" | "state" | "spotter"
-  | "country" | "url" | "comment";
+  | "id" | "time" | "callsign" | "first_name" | "last_name" | "frequency" | "mode" | "band" | "source" | "reference" | "place_name"
+  | "state" | "spotter" | "country" | "url" | "comment";
 
 /** A webhook destination's settings row, as SQL stores it (webhook_destination_settings). */
 export interface WebhookSettings {
-  /** 1 to 14, each once, in the order the spot carries them. */
+  /** 1 to 16, each once, in the order the spot carries them. */
   fields: WebhookField[];
   key_style: "snake" | "camel";
   time_format: "iso_utc" | "unix_seconds";

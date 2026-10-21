@@ -43,7 +43,7 @@ select is(fcc_license_load_rows((select max(id) from license_loads), 'HD',
   5, 'a batch retried after a lost reply reports the same total');
 select is(fcc_license_load_rows((select max(id) from license_loads), 'EN',
   '[{"usi":1,"name":"Jane Roe","state":"VA"},
-    {"usi":2,"name":"Jane Q Doe","state":"NC","street_address":"1 Main St","zip_code":"27601"},
+    {"usi":2,"name":"Jane Q Doe","first_name":"Jane","last_name":"Doe","state":"NC","street_address":"1 Main St","zip_code":"27601"},
     {"usi":3,"name":"Example Amateur Radio Club","state":"NC"}]'),
   3, 'EN rows stage');
 select is(fcc_license_load_rows((select max(id) from license_loads), 'AM',
@@ -84,12 +84,12 @@ select lives_ok($$select apply_license_loads()$$, 'apply swaps the load in');
 select is((select (status, licenses)::text from license_loads), '(applied,3)',
   'the load is applied with the license count');
 select results_eq(
-  $$select callsign, name, operator_class, status, granted_on::text, expires_on::text, state, country
+  $$select callsign, name, first_name, last_name, operator_class, status, granted_on::text, expires_on::text, state, country
     from callsign_licenses order by callsign$$,
-  $$values ('KK4XYS', 'Jane Q Doe', 'Amateur Extra', 'Active', '2019-03-14', '2029-03-14', 'NC', 'US'),
-           ('KK4ZZS', 'Example Amateur Radio Club', null, 'Active', '2020-05-01', '2030-05-01', 'NC', 'US'),
-           ('N0CLS', null, 'Novice', 'Expired', '1990-01-01', '2000-01-01', null, 'US')$$,
-  'the active record wins (over a blank status too), calls are uppercase, missing EN rows leave nulls, dropped calls go');
+  $$values ('KK4XYS', 'Jane Q Doe', 'Jane', 'Doe', 'Amateur Extra', 'Active', '2019-03-14', '2029-03-14', 'NC', 'US'),
+           ('KK4ZZS', 'Example Amateur Radio Club', null, null, null, 'Active', '2020-05-01', '2030-05-01', 'NC', 'US'),
+           ('N0CLS', null, null, null, 'Novice', 'Expired', '1990-01-01', '2000-01-01', null, 'US')$$,
+  'the active record wins (over a blank status too), calls are uppercase, first and last names stay apart, missing EN rows leave nulls, dropped calls go');
 select is((select count(*) from fcc_uls_hd) + (select count(*) from fcc_uls_en)
           + (select count(*) from fcc_uls_am), 0::bigint, 'apply empties staging');
 
