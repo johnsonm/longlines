@@ -40,10 +40,15 @@ function fakeTelnet(lines: string[]) {
   };
 }
 
-/** Stand-in for the ingest Edge Function: records each push and answers 200. */
+/** Stand-in for the ingest Edge Functions and relay-status: records each push and answers 200. */
 function fakeFunctions() {
   const pushes: { path: string; secret: string | null; lines: RelayLine[] }[] = [];
+  const statuses: { secret: string | null; body: Record<string, unknown> }[] = [];
   const server = Deno.serve({ hostname: "127.0.0.1", port: 0, onListen: () => {} }, async (req) => {
+    if (new URL(req.url).pathname.endsWith("/relay-status")) {
+      statuses.push({ secret: req.headers.get("x-relay-secret"), body: await req.json() });
+      return Response.json({ ok: true });
+    }
     const body = await req.json() as { lines: RelayLine[] };
     pushes.push({
       path: new URL(req.url).pathname,
@@ -52,7 +57,7 @@ function fakeFunctions() {
     });
     return Response.json({ ok: true });
   });
-  return { url: `http://127.0.0.1:${server.addr.port}/functions/v1`, pushes, server };
+  return { url: `http://127.0.0.1:${server.addr.port}/functions/v1`, pushes, statuses, server };
 }
 
 async function waitFor(what: string, check: () => boolean | Promise<boolean>): Promise<void> {
@@ -90,6 +95,14 @@ Deno.test("startRelay forwards spot lines, serves /healthz and flushes on shutdo
   assertEquals(h.body.feeds[0].id, "rbn");
   assertEquals(h.body.feeds[0].connected, true);
   assertEquals(h.body.feeds[0].connects, 1);
+
+  // The Health page heartbeat goes out at start, with the relay secret.
+  await waitFor("the status", () => functions.statuses.length >= 1);
+  assertEquals(functions.statuses[0]!.secret, "s3cret");
+  assertEquals(functions.statuses[0]!.body.reconnects, 0);
+  assertEquals((functions.statuses[0]!.body.feeds as Array<{ id: string }>).map((f) => f.id), [
+    "rbn",
+  ]);
 
   // Shutdown pushes the buffered spots before closing; a second call does not push again.
   await Promise.all([relay.shutdown(), relay.shutdown()]);

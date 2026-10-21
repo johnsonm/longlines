@@ -2,6 +2,31 @@
 
 All queries below run in the Supabase Studio SQL editor (or psql as `postgres`).
 
+## Health page
+
+`/health` on the web app is the first stop: eight checks against their rules, queue and capacity
+charts, and every cron job's last result. It is public and read-only, built by
+`health_snapshot(range)` and served by the `health` function from a 30-second cache. The design is
+`docs/superpowers/specs/2026-10-21-health-page-design.md`. When a row is not Healthy, the sections
+below are where to look. The same payload from SQL:
+
+```sql
+select jsonb_pretty(health_snapshot('1h') -> 'checks');
+```
+
+- The charts come from `health_samples`, written once a minute by the `health-sample` job. A gap in
+  the charts means that job stopped.
+- Sender and relay rows read "No data" until the workers report in: the sender through
+  `record_sender_heartbeat`, the relay through the `relay-status` function, about once a minute
+  each (`select * from worker_heartbeats order by received_at desc limit 10;`).
+- Disk percent is measured against `health_disk_limit_bytes()` (8 GB). Postgres can't see the
+  plan's disk; when the disk grows, change that function in a new migration.
+- A function-calling job's result is its HTTP status: `cron_call_function` logs each request in
+  `cron_http_requests`, and the sampler copies the status from `net._http_response`.
+
+Hosted, once: `supabase db push`, then `supabase functions deploy health` and
+`supabase functions deploy relay-status`.
+
 ## Health check
 
 ```sql
@@ -22,10 +47,11 @@ Times are UTC.
 
 | Job | Schedule | Runs |
 | --- | --- | --- |
-| `ingest-pota` | every minute | the `ingest-pota` function over pg_net |
+| `ingest-pota` | every minute | the `ingest-pota` function, through `cron_call_function` (pg_net) |
 | `ingest-sotawatch` | every 30 seconds | `ingest-sotawatch` |
 | `ingest-wwff` | every minute | `ingest-wwff` |
 | `match-pending-spots` | every minute | `match_pending_spots()`, the safety net behind the call every ingest makes |
+| `health-sample` | every minute | `record_health_sample()`, the Health page's history |
 | `archive-aprs` | every 5 minutes | the `archive` function for APRS-IS only (`{"sources": ["aprs"]}`) |
 | `archive-spots` | every 10 minutes | `archive` for POTA, SOTAwatch, DX Cluster, WWFF and RBN |
 | `refresh-stats-snapshot` | :05 hourly | `refresh_stats_snapshot()` |
@@ -53,8 +79,11 @@ Work down the chain.
    from cron.job_run_details d join cron.job j using (jobid)
    order by start_time desc limit 20;
    ```
-2. Did the HTTP calls reach the functions? pg_net keeps recent responses:
+2. Did the HTTP calls reach the functions? `cron_http_requests` keeps each job's request
+   statuses for 8 days; pg_net keeps the response bodies for a few hours:
    ```sql
+   select job, sent_at, status_code, timed_out from cron_http_requests
+   order by sent_at desc limit 20;
    select id, status_code, content::text, created
    from net._http_response order by created desc limit 20;
    ```

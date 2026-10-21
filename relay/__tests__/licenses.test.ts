@@ -320,6 +320,8 @@ Deno.test("the relay loads licenses through load-licenses with its secret", asyn
   const functions = Deno.serve(
     { hostname: "127.0.0.1", port: 0, onListen: () => {} },
     async (req) => {
+      // The Health page heartbeat (relay/status.ts) posts here too.
+      if (new URL(req.url).pathname.endsWith("/relay-status")) return Response.json({ ok: true });
       const body = await req.json() as LoadLicensesRequest;
       requests.push({ secret: req.headers.get("x-relay-secret"), body });
       switch (body.action) {

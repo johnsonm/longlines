@@ -12,13 +12,14 @@ import postgres, { type JSONValue, type ParameterOrJSON } from "npm:postgres@3.4
 import type { DeliveryRpc } from "../supabase/functions/_shared/delivery/run.ts";
 import { RETRY_MAX_MS, RETRY_MIN_MS, type SenderConfig } from "./config.ts";
 
-type SqlType = "int" | "bigint[]" | "text" | "text[]" | "uuid" | "jsonb";
+type SqlType = "int" | "bigint" | "bigint[]" | "text" | "text[]" | "uuid" | "jsonb" | "timestamptz";
 
 /**
  * The allowlist: every RPC the sender may call with its named parameters and
  * their SQL types, in the function's own order. The grants in
- * 20261015000200_sender_role.sql and 20261015000400_rate_aware_claim.sql are
- * the other half; supabase/tests/sender_role.test.sql pins them.
+ * 20261015000200_sender_role.sql, 20261015000400_rate_aware_claim.sql and
+ * 20261021000100_health.sql are the other half; supabase/tests/sender_role.test.sql
+ * pins them.
  */
 export const SENDER_RPCS: Readonly<Record<string, Readonly<Record<string, SqlType>>>> = {
   claim_deliveries: { p_limit: "int", p_vt: "int" },
@@ -33,6 +34,11 @@ export const SENDER_RPCS: Readonly<Record<string, Readonly<Record<string, SqlTyp
   delivery_queue_stats: {},
   prune_push_devices: { p_endpoints: "text[]" },
   record_push_results: { p_ok: "text[]", p_errors: "jsonb" },
+  record_sender_heartbeat: {
+    p_started_at: "timestamptz",
+    p_last_progress_at: "timestamptz",
+    p_rss_bytes: "bigint",
+  },
 };
 
 export interface RpcStatement {

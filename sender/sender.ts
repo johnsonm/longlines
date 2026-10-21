@@ -38,6 +38,8 @@ export interface SenderOptions {
   sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
   /** Rows per claim; the loop re-claims at once after a full batch. */
   claimLimit?: number;
+  /** The process's resident set size in bytes, for the heartbeat (tests pass a constant). */
+  rss?: () => number;
 }
 
 export interface Sender {
@@ -76,6 +78,7 @@ export function startSender(
   const log = options.log ?? ((message: string) => console.log(message));
   const now = options.now ?? (() => new Date());
   const sleep = options.sleep ?? abortableSleep;
+  const rss = options.rss ?? (() => Deno.memoryUsage().rss);
   const controller = new AbortController();
   const { signal } = controller;
 
@@ -175,7 +178,9 @@ export function startSender(
   }
 
   // Queue depth and spots expired undelivered in the last hour, from SQL, for
-  // /healthz and the log. The one Phase 1 loss signal.
+  // /healthz and the log. The one Phase 1 loss signal. Then the heartbeat for
+  // the Health page: start time (restarts), last progress and memory. A failed
+  // heartbeat is logged and never counts as progress.
   async function statsLoop(): Promise<void> {
     while (!signal.aborted) {
       const { data, error } = await deps.db.rpc("delivery_queue_stats", {});
@@ -189,6 +194,12 @@ export function startSender(
             `${totals.throttled} throttled`,
         );
       }
+      const beat = await deps.db.rpc("record_sender_heartbeat", {
+        p_started_at: startedAt.toISOString(),
+        p_last_progress_at: lastProgressAt?.toISOString() ?? null,
+        p_rss_bytes: rss(),
+      });
+      if (beat.error !== null) log(`record_sender_heartbeat failed: ${beat.error}`);
       await sleep(config.statsMs, signal);
     }
   }
