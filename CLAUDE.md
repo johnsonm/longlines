@@ -630,7 +630,7 @@ page" canvas); its Copy section is the copy source for `/health`.
   "subscription" to a user; the browser's push subscription is a different thing and keeps its name.
 - A subscription's filter is `subscriptions.rules`: AND groups, ORed (`[[A, B], [C]]` is "A and B or
   C"; And binds tighter). Each rule is `{field, op, values}`; the fields and ops are listed at the top
-  of `20261014000500_subscription_rules.sql` and in `docs/API.md`. `[]` passes every spot. The
+  of `20261014000500_subscription_rules.sql` and in `docs/openapi.yaml`. `[]` passes every spot. The
   source stays its own column (`sources`), not a rule.
 - `normalize_subscription_rules` is the only validator and normaliser; `save_subscription` and
   `preview_subscription` both go through it. `group_ids` is derived from the rules (every group
@@ -647,10 +647,14 @@ page" canvas); its Copy section is the copy source for `/health`.
 
 ## Management API rules
 
-- The `api` function (`docs/API.md`, `_shared/handlers/api.ts`) only routes, checks shapes and maps
+- The `api` function (`_shared/handlers/api.ts`) only routes, checks shapes and maps
   errors. Behavior goes in SQL: `api_call` acts as the token's owner and calls the same RPCs the
   web app calls. A new operation goes in `api_call`'s allowlist and the route table together, with
   the same scope (`api_routes.test.ts` compares them); only `GET` routes are read scope.
+- The reference is the OpenAPI 3.1 file `docs/openapi.yaml`; `docs/API.md` is only the quick start
+  and an example. A route, scope, status or body field changes in `routes.ts` and the spec
+  together (`openapi.test.ts` compares them). Operation ids are the `api_call` ops with
+  "connection" for "subscription", and the spec says "connection" throughout.
 - `api_call` sets the request's JWT claims to the owner and must put them back before returning.
   Never call it, or `set_config('request.jwt.claim...')`, anywhere else.
 - `api_tokens.token_hash` is never granted, and plaintext tokens come back only from

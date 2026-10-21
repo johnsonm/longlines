@@ -1,0 +1,1052 @@
+openapi: 3.1.0
+# The management API's reference. The route table in
+# supabase/functions/_shared/api/routes.ts and this file change together:
+# supabase/functions/_shared/__tests__/openapi.test.ts compares their methods,
+# paths, scopes, statuses and body fields.
+info:
+  title: Long Lines API
+  version: "1"
+  description: |
+    Manage your connections, destinations and callsign groups from your own scripts, bots and
+    club tools. Everything the web app can change about these, the API can change too, and the
+    same rules and error messages apply.
+
+    ## Tokens
+
+    Create a token on the **API tokens** page. Long Lines shows it once; copy it then. A token
+    looks like `ll_live_7hq2…` followed by more letters and digits.
+
+    - **Access.** *Read only* tokens can only make `GET` requests. *Read and write* tokens can
+      do everything below.
+    - **Expiry.** A token can expire after 30, 90 or 365 days, or never.
+    - **Rotate** gives a token a new secret, keeping its name, access and expiry. The old
+      secret stops working immediately. The expiry window restarts from the rotation.
+    - **Revoke** deletes the token. It stops working immediately.
+    - You can have up to 10 tokens.
+
+    Send the token in the `Authorization` header on every request:
+
+    ```sh
+    curl https://api.longlines.io/v1/connections \
+      -H "Authorization: Bearer ll_live_…"
+    ```
+
+    A token acts as you. Anyone who has it can change your connections and destinations, so
+    keep it out of source control. If one leaks, rotate or revoke it.
+
+    ## Limits
+
+    - **Rate limit.** 60 requests per minute per token. Over the limit you get `429` with a
+      `Retry-After` header giving the seconds until the next minute.
+    - **Request size.** A request body can be at most 256 KB.
+    - **List size.** A list in a request, such as `callsigns`, can hold at most 2,000 items,
+      and a group at most 1,000 callsigns.
+
+    ## Responses and errors
+
+    Successful responses are JSON. Creates return `201`, everything else `200`. Deletes return
+    `{"deleted": true}`.
+
+    Errors return `{"error": "<message>"}`. Besides the statuses listed on each operation, a
+    path that exists but not with the method sent returns `405`, with an `Allow` header listing
+    the methods it takes, and an unknown path returns `404`.
+
+    Ids are UUIDs. Times are ISO 8601 in UTC.
+servers:
+  - url: https://api.longlines.io/v1
+security:
+  - apiToken: [read]
+tags:
+  - name: Destinations
+    description: |
+      A destination is where matching spots go: a Discord channel webhook, your own HTTPS
+      webhook, or push notifications to your devices. See
+      [WEBHOOKS.md](https://github.com/sonyccd/longlines/blob/main/docs/WEBHOOKS.md) for the
+      webhook payload and its signature. The API never returns a destination's URL, only
+      `url_display`, a masked form.
+
+      An account can have any number of push destinations. A push destination has no URL
+      (`url_display` is "Your devices"); it reaches the devices picked for it in the web app.
+      Devices, and which destination gets which, can only be managed from a browser signed in
+      to Long Lines. The API creates, lists, tests, renames, turns off and deletes push
+      destinations, and shows their notification settings and how many devices they have, but
+      never the devices.
+
+      Names are unique per account across every type, ignoring case. A name already in use is
+      a `400`: "A destination named {name} already exists. Choose a different name."
+
+      The API does not change a destination's push, Discord or webhook settings, or a
+      webhook's extra headers; the web app's editor does.
+  - name: Connections
+    description: A connection says which spots you want and where to send them.
+  - name: Callsign groups
+    description: |
+      A group is a named list of up to 1,000 callsigns, such as a club roster. Point
+      connections at a group with a `group` rule. Adding a member to the group changes what
+      every connection using it matches, and you don't need to save the connections again.
+
+      Members are stored as base calls: adding `KN4XYZ/P` stores `KN4XYZ`, which matches
+      `KN4XYZ` and any portable or prefixed form of it. Removing works the same way. A call that
+      isn't a valid callsign refuses the whole request with `400` and "Not a callsign: …", and
+      nothing changes.
+
+      The two `members` routes change the list in one step, so two scripts adding members at
+      the same time don't lose each other's changes.
+
+paths:
+  /destinations:
+    get:
+      operationId: list_destinations
+      tags: [Destinations]
+      summary: List your destinations
+      responses:
+        "200":
+          description: All your destinations, oldest first.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Destination" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "500": { $ref: "#/components/responses/ServerError" }
+    post:
+      operationId: create_destination
+      tags: [Destinations]
+      summary: Create a destination
+      description: |
+        A webhook gets its `signing_secret` here, shown only once, and starts with the default
+        payload and delivery settings. A new push destination has the default notification
+        settings and no devices. The answer is a short form of the destination; get it to see
+        its settings.
+      security:
+        - apiToken: [write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DestinationCreate" }
+            examples:
+              discord:
+                value:
+                  type: discord
+                  name: "Club #spots"
+                  url: "https://discord.com/api/webhooks/…"
+              push:
+                value: { type: push, name: My phone }
+      responses:
+        "201":
+          description: The destination.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DestinationCreated" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ReadOnly" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "500": { $ref: "#/components/responses/ServerError" }
+
+  /destinations/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      operationId: get_destination
+      tags: [Destinations]
+      summary: Get a destination
+      responses:
+        "200":
+          description: The destination.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Destination" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "500": { $ref: "#/components/responses/ServerError" }
+    patch:
+      operationId: update_destination
+      tags: [Destinations]
+      summary: Rename, re-point or turn a destination on or off
+      description: |
+        The type can't change, and a push destination takes no `url`. A new `url` clears
+        `failing` health and the failure count. `"enabled": false` stops new spots going to it
+        and drops the ones already queued; connections that use it keep their other
+        destinations. `"enabled": true` on a webhook that paused itself after repeated failures
+        resumes it and starts its failure counts again. Fields left out, or sent as `null`, keep
+        their values.
+      security:
+        - apiToken: [write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DestinationPatch" }
+      responses:
+        "200":
+          description: The destination.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Destination" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ReadOnly" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "500": { $ref: "#/components/responses/ServerError" }
+    delete:
+      operationId: delete_destination
+      tags: [Destinations]
+      summary: Delete a destination
+      security:
+        - apiToken: [write]
+      responses:
+        "200": { $ref: "#/components/responses/Deleted" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ReadOnly" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/InUse" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "500": { $ref: "#/components/responses/ServerError" }
+
+  /destinations/{id}/rotate-secret:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    post:
+      operationId: rotate_signing_secret
+      tags: [Destinations]
+      summary: Give a webhook a new signing secret
+      description: The old secret stops working. The new one is shown only here.
+      security:
+        - apiToken: [write]
+      responses:
+        "200":
+          description: The new secret.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [signing_secret]
+                properties:
+                  signing_secret: { type: string, examples: ["whsec_…"] }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ReadOnly" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "500": { $ref: "#/components/responses/ServerError" }
+
+  /destinations/{id}/test:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    post:
+      operationId: send_test
+      tags: [Destinations]
+      summary: Send a sample spot
+      description: |
+        Delivers a sample spot the way real spots go: for push, to at least one of its devices,
+        with the notification text its saved fields build; for Discord, as the message its saved
+        settings build, marked as a test; for a webhook, as the body its saved settings build,
+        with its extra headers and `X-LongLines-Test: true`.
+      security:
+        - apiToken: [write]
+      responses:
+        "200":
+          description: The sample spot was delivered.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties:
+                  ok: { const: true }
+                  status:
+                    type: integer
+                    description: For a webhook, the HTTP status the receiver answered.
+              examples:
+                webhook: { value: { ok: true, status: 204 } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ReadOnly" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429":
+          description: |
+            Too many requests (see Limits), or the destination asked Long Lines to slow down and
+            is being held back: "This destination asked Long Lines to slow down. Try the test
+            again in a few minutes."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "500": { $ref: "#/components/responses/ServerError" }
+        "502":
+          description: The delivery failed.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - type: object
+                    properties:
+                      status:
+                        type: integer
+                        description: |
+                          For a webhook, the HTTP status the receiver answered. A request that
+                          got no answer has none.
+              examples:
+                webhook: { value: { error: Webhook HTTP 500, status: 500 } }
+
+  /connections:
+    get:
+      operationId: list_connections
+      tags: [Connections]
+      summary: List your connections
+      responses:
+        "200":
+          description: All your connections, oldest first.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Connection" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "500": { $ref: "#/components/responses/ServerError" }
+    post:
+      operationId: create_connection
+      tags: [Connections]
+      summary: Create a connection
+      security:
+        - apiToken: [write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/ConnectionInput"
+                - required: [name]
+            example:
+              name: Members on the air
+              sources: [pota, sotawatch]
+              rules: [[{ field: group, op: is, values: ["<group id>"] }]]
+              destinations: ["<destination id>"]
+      responses:
+        "201":
+          description: The connection.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Connection" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ReadOnly" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "500": { $ref: "#/components/responses/ServerError" }
+
+  /connections/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      operationId: get_connection
+      tags: [Connections]
+      summary: Get a connection
+      responses:
+        "200":
+          description: The connection.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Connection" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "500": { $ref: "#/components/responses/ServerError" }
+    put:
+      operationId: replace_connection
+      tags: [Connections]
+      summary: Replace a connection
+      description: |
+        `sources` and `destinations` left out become empty; `rules`, `enabled` and
+        `quiet_minutes` left out keep their values (send `"rules": []` to clear the filter).
+      security:
+        - apiToken: [write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/ConnectionInput"
+                - required: [name]
+      responses:
+        "200":
+          description: The connection.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Connection" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ReadOnly" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "500": { $ref: "#/components/responses/ServerError" }
+    patch:
+      operationId: patch_connection
+      tags: [Connections]
+      summary: Change some of a connection's fields
+      description: |
+        Fields left out keep their values, and so do `name`, `enabled` and `quiet_minutes` sent
+        as `null`. A list can't be `null`: send `[]` to empty it.
+      security:
+        - apiToken: [write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ConnectionInput" }
+      responses:
+        "200":
+          description: The connection.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Connection" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ReadOnly" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "500": { $ref: "#/components/responses/ServerError" }
+    delete:
+      operationId: delete_connection
+      tags: [Connections]
+      summary: Delete a connection
+      security:
+        - apiToken: [write]
+      responses:
+        "200": { $ref: "#/components/responses/Deleted" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ReadOnly" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "500": { $ref: "#/components/responses/ServerError" }
+
+  /groups:
+    get:
+      operationId: list_groups
+      tags: [Callsign groups]
+      summary: List your callsign groups
+      responses:
+        "200":
+          description: All your groups, by name.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Group" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "500": { $ref: "#/components/responses/ServerError" }
+    post:
+      operationId: create_group
+      tags: [Callsign groups]
+      summary: Create a callsign group
+      description: Names are unique per account, ignoring case.
+      security:
+        - apiToken: [write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/GroupInput"
+                - required: [name]
+            example: { name: Club members }
+      responses:
+        "201":
+          description: The group.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Group" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ReadOnly" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "500": { $ref: "#/components/responses/ServerError" }
+
+  /groups/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      operationId: get_group
+      tags: [Callsign groups]
+      summary: Get a callsign group
+      responses:
+        "200":
+          description: The group.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Group" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "500": { $ref: "#/components/responses/ServerError" }
+    patch:
+      operationId: update_group
+      tags: [Callsign groups]
+      summary: Rename a group or replace its members
+      description: |
+        A `callsigns` list replaces the whole member list. A `name` left out, or sent as `null`,
+        stays.
+      security:
+        - apiToken: [write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GroupInput" }
+      responses:
+        "200":
+          description: The group.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Group" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ReadOnly" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "500": { $ref: "#/components/responses/ServerError" }
+    delete:
+      operationId: delete_group
+      tags: [Callsign groups]
+      summary: Delete a callsign group
+      security:
+        - apiToken: [write]
+      responses:
+        "200": { $ref: "#/components/responses/Deleted" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ReadOnly" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/InUse" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "500": { $ref: "#/components/responses/ServerError" }
+
+  /groups/{id}/members:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    post:
+      operationId: add_group_members
+      tags: [Callsign groups]
+      summary: Add members
+      description: Calls already in the group are skipped.
+      security:
+        - apiToken: [write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Callsigns" }
+            example: { callsigns: [KN4XYZ] }
+      responses:
+        "200":
+          description: The group, after adding.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Group" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ReadOnly" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "500": { $ref: "#/components/responses/ServerError" }
+
+  /groups/{id}/members/remove:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    post:
+      operationId: remove_group_members
+      tags: [Callsign groups]
+      summary: Remove members
+      description: Calls not in the group are ignored.
+      security:
+        - apiToken: [write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Callsigns" }
+            example: { callsigns: [W1OLD] }
+      responses:
+        "200":
+          description: The group, after removing.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Group" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ReadOnly" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "500": { $ref: "#/components/responses/ServerError" }
+
+components:
+  securitySchemes:
+    apiToken:
+      type: http
+      scheme: bearer
+      description: |
+        A personal API token from the API tokens page (`ll_live_` and 52 more characters). A
+        `read` token can call only `GET` routes; routes that change something need `write`.
+
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      description: The object's id. Any case; a value that isn't a UUID is a `404`.
+      schema: { type: string, format: uuid }
+
+  responses:
+    Deleted:
+      description: Deleted.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [deleted]
+            properties:
+              deleted: { const: true }
+    BadRequest:
+      description: |
+        The request was invalid. The message says why, for example "Give the connection a
+        name."
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Unauthorized:
+      description: The token is missing, malformed, unknown, revoked or expired.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    ReadOnly:
+      description: A read-only token tried to change something.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: The connection, destination or group doesn't exist or isn't yours.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    InUse:
+      description: |
+        Still used by a connection: "Remove it from its connections first."
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    TooLarge:
+      description: The request body is larger than 256 KB.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    TooManyRequests:
+      description: More than 60 requests this minute from this token.
+      headers:
+        Retry-After:
+          description: Seconds until the next minute.
+          schema: { type: integer }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    ServerError:
+      description: Something went wrong on our side. Try again.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+
+    Source:
+      type: string
+      enum: [pota, sotawatch, wwff, rbn, dxcluster]
+
+    PushField:
+      type: string
+      enum: [callsign, first_name, last_name, frequency, band, mode, source, reference,
+             place_name, state, spotter, comment, time]
+
+    DiscordField:
+      type: string
+      enum: [callsign, first_name, last_name, frequency, band, mode, source, reference,
+             place_name, state, spotter, time]
+
+    WebhookField:
+      type: string
+      enum: [id, time, callsign, first_name, last_name, frequency, mode, band, source, reference,
+             place_name, state, spotter, country, url, comment]
+
+    DestinationCreate:
+      oneOf:
+        - type: object
+          title: Discord or webhook
+          required: [type, name, url]
+          properties:
+            type: { type: string, enum: [discord, webhook] }
+            name: { type: string }
+            url:
+              type: string
+              format: uri
+              description: |
+                A Discord channel webhook URL, or your own HTTPS URL for a webhook.
+        - type: object
+          title: Push
+          required: [type, name]
+          properties:
+            type: { const: push }
+            name: { type: string }
+
+    DestinationCreated:
+      type: object
+      required: [id, type, name, url_display, health, created_at, signing_secret]
+      properties:
+        id: { type: string, format: uuid }
+        type: { type: string, enum: [discord, webhook, push] }
+        name: { type: string }
+        url_display: { type: string }
+        health: { type: string, enum: [ok, failing, paused] }
+        created_at: { type: string, format: date-time }
+        signing_secret:
+          type: [string, "null"]
+          description: |
+            A webhook's signing secret, shown only here and from `rotate-secret`. Null for other
+            types.
+
+    DestinationPatch:
+      type: object
+      properties:
+        name: { type: [string, "null"] }
+        url: { type: [string, "null"], format: uri }
+        enabled: { type: [boolean, "null"] }
+
+    Destination:
+      type: object
+      required: [id, type, name, url_display, enabled, health, consecutive_failures,
+                 last_success_at, last_error, last_error_at, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        type: { type: string, enum: [discord, webhook, push] }
+        name: { type: string }
+        url_display:
+          type: string
+          description: A masked form of the URL; "Your devices" for push.
+        enabled: { type: boolean }
+        health: { type: string, enum: [ok, failing, paused] }
+        consecutive_failures: { type: integer }
+        last_success_at: { type: [string, "null"], format: date-time }
+        last_error: { type: [string, "null"] }
+        last_error_at: { type: [string, "null"], format: date-time }
+        created_at: { type: string, format: date-time }
+        push: { $ref: "#/components/schemas/PushSettings" }
+        discord: { $ref: "#/components/schemas/DiscordSettings" }
+        webhook: { $ref: "#/components/schemas/WebhookSettings" }
+      example:
+        id: 4b0e…
+        type: discord
+        name: "Club #spots"
+        url_display: "https://discord.com/api/webhooks/1234…/abc"
+        enabled: true
+        health: ok
+        consecutive_failures: 0
+        last_success_at: "2026-10-13T14:02:11Z"
+        last_error: null
+        last_error_at: null
+        created_at: "2026-10-01T18:30:00Z"
+
+    PushSettings:
+      type: object
+      description: |
+        A push destination's notification settings as the web app's editor sets them, and how
+        many devices it reaches. The title and body are ordered lists of fields; there is no
+        custom text. Only on push destinations.
+      properties:
+        title_fields: { type: array, items: { $ref: "#/components/schemas/PushField" }, minItems: 1, maxItems: 4 }
+        body_fields: { type: array, items: { $ref: "#/components/schemas/PushField" }, maxItems: 8 }
+        show_field_names: { type: boolean }
+        body_separator: { type: string, enum: [dot, comma, newline] }
+        tap_target: { type: string, enum: [profile, source] }
+        action_buttons: { type: boolean }
+        urgency: { type: string, enum: [low, normal, high] }
+        ttl_seconds: { type: integer, enum: [300, 900, 1800, 3600, 14400] }
+        replace_same_station: { type: boolean }
+        sound: { type: boolean }
+        quiet_enabled: { type: boolean }
+        quiet_from: { type: string, examples: ["22:00:00"] }
+        quiet_until: { type: string, examples: ["07:00:00"] }
+        quiet_mode: { type: string, enum: [silent, skip] }
+        device_count: { type: integer }
+      example:
+        title_fields: [callsign, frequency, mode]
+        body_fields: [source, reference, place_name, state]
+        show_field_names: false
+        body_separator: dot
+        tap_target: profile
+        action_buttons: true
+        urgency: normal
+        ttl_seconds: 1800
+        replace_same_station: true
+        sound: true
+        quiet_enabled: false
+        quiet_from: "22:00:00"
+        quiet_until: "07:00:00"
+        quiet_mode: silent
+        device_count: 2
+
+    DiscordSettings:
+      type: object
+      description: |
+        A Discord destination's message settings as the web app's editor sets them. The card's
+        title, details and small grid and the plain line are ordered lists of fields; there is
+        no custom text, and mentions such as @everyone are always off. Only on Discord
+        destinations.
+      properties:
+        style: { type: string, enum: [card, plain] }
+        title_fields: { type: array, items: { $ref: "#/components/schemas/DiscordField" }, minItems: 1, maxItems: 4 }
+        detail_fields: { type: array, items: { $ref: "#/components/schemas/DiscordField" }, maxItems: 8 }
+        grid_fields: { type: array, items: { $ref: "#/components/schemas/DiscordField" }, maxItems: 6 }
+        title_link: { type: string, enum: [profile, source, none] }
+        card_color: { type: string, enum: [source, blue, green, purple, orange, red, grey] }
+        footer: { type: boolean }
+        line_fields: { type: array, items: { $ref: "#/components/schemas/DiscordField" }, minItems: 1, maxItems: 8 }
+        bold_first: { type: boolean }
+        link_preview: { type: string, enum: [hidden, shown] }
+        show_field_names: { type: boolean }
+        separator: { type: string, enum: [dot, comma, newline] }
+        batch_seconds:
+          type: integer
+          enum: [0, 10, 30, 60]
+          description: 0 for one message per spot, or a window whose spots go in one message.
+      example:
+        style: card
+        title_fields: [callsign, frequency, mode]
+        detail_fields: [source, reference, place_name, state]
+        grid_fields: [band, spotter]
+        title_link: profile
+        card_color: source
+        footer: true
+        line_fields: [callsign, frequency, mode, source, reference, place_name]
+        bold_first: true
+        link_preview: hidden
+        show_field_names: false
+        separator: dot
+        batch_seconds: 0
+
+    WebhookSettings:
+      type: object
+      description: |
+        A webhook's payload and delivery settings as the web app's editor sets them (see
+        WEBHOOKS.md). Only on webhook destinations.
+      properties:
+        fields: { type: array, items: { $ref: "#/components/schemas/WebhookField" } }
+        key_style: { type: string, enum: [snake, camel] }
+        time_format: { type: string, enum: [iso_utc, unix_seconds] }
+        frequency_unit: { type: string, enum: [khz, mhz, hz] }
+        missing_values: { type: string, enum: [omit, "null"] }
+        batch_seconds:
+          type: integer
+          enum: [0, 10, 30, 60]
+          description: 0 for one request per spot, or a window whose spots go in one request.
+        retry_policy: { type: string, enum: [none, three_10m, day] }
+        pause_after_failures:
+          type: [integer, "null"]
+          minimum: 1
+          maximum: 100
+          description: Failed requests that turn the destination off, or null for never.
+        headers:
+          type: array
+          description: The extra headers' names. Their values are never returned.
+          items:
+            type: object
+            required: [name]
+            properties:
+              name: { type: string }
+        secret_rotated_at: { type: [string, "null"], format: date-time }
+        auto_disabled_at:
+          type: [string, "null"]
+          format: date-time
+          description: Set while the destination is paused after repeated failures.
+      example:
+        fields: [id, time, callsign, frequency, mode, band, source, reference, place_name,
+                 state, spotter]
+        key_style: snake
+        time_format: iso_utc
+        frequency_unit: khz
+        missing_values: omit
+        batch_seconds: 0
+        retry_policy: three_10m
+        pause_after_failures: 20
+        headers: [{ name: Authorization }]
+        secret_rotated_at: "2026-10-06T14:02:11Z"
+        auto_disabled_at: null
+
+    ConnectionInput:
+      type: object
+      properties:
+        name: { type: [string, "null"] }
+        enabled:
+          type: [boolean, "null"]
+          description: Defaults to `true`.
+        sources:
+          type: array
+          items: { $ref: "#/components/schemas/Source" }
+          description: |
+            Empty means any. A DX Cluster spot only matches a connection that lists
+            `dxcluster`, and a WWFF spot one that lists `wwff`.
+        rules: { $ref: "#/components/schemas/Rules" }
+        quiet_minutes:
+          type: [integer, "null"]
+          enum: [0, 5, 10, 30, 60, null]
+          description: Defaults to 10.
+        destinations:
+          type: array
+          items: { type: string, format: uuid }
+          description: |
+            Zero or more of your destinations. With none, the connection stays off whatever
+            `enabled` says, and starts once it has one.
+
+    Connection:
+      type: object
+      required: [id, name, enabled, sources, rules, quiet_minutes, destinations, created_at,
+                 updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        enabled: { type: boolean }
+        sources: { type: array, items: { $ref: "#/components/schemas/Source" } }
+        rules: { $ref: "#/components/schemas/Rules" }
+        quiet_minutes: { type: integer, enum: [0, 5, 10, 30, 60] }
+        destinations: { type: array, items: { type: string, format: uuid } }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    Rules:
+      type: array
+      description: |
+        The filter: a list of groups, and each group a list of rules. A spot passes when it
+        passes every rule in at least one group: rules in a group are joined by "and", and
+        groups by "or". The web app shows the same thing as one list where each rule after the
+        first says And or Or, with And binding tighter. `[]` passes every spot and is the
+        default.
+
+        A connection can have at most 50 rules, and each group needs at least one. RBN spots
+        only pass a group that has a `callsign` or `group` rule with `is`, so a connection
+        whose only source is `rbn` needs one in every group.
+      items:
+        type: array
+        minItems: 1
+        items: { $ref: "#/components/schemas/Rule" }
+      example:
+        - - { field: band, op: is, values: [20m] }
+          - { field: mode, op: is, values: [cw] }
+        - - { field: callsign, op: is, values: [W1AW] }
+
+    Rule:
+      type: object
+      description: |
+        `is` passes a spot that has any of the values and `is_not` one that has none of them,
+        so a spot with no band passes `band is_not 20m`.
+
+        | `field` | `op` | `values` |
+        |---|---|---|
+        | `callsign` | `is`, `is_not` | Calls, uppercased for you. A call matches exactly or by its base call. |
+        | `group` | `is`, `is_not` | Callsign group ids. A spot's base call is checked against the members. |
+        | `band` | `is`, `is_not` | Bands, for example `20m`, lowercased for you. |
+        | `mode` | `is`, `is_not` | Modes or mode families, for example `cw`, `ft8`, `digital`. |
+        | `reference` | `contains`, `not_contains` | Text to look for in a POTA reference or location, a SOTA summit code or a WWFF reference, such as `US-NC` or `KFF-`. Ignores case. |
+        | `frequency` | `is`, `is_not`, `gt`, `lt` | One number, in kHz. `gt` is greater than and `lt` less than. |
+      required: [field, op, values]
+      properties:
+        field: { type: string, enum: [callsign, group, band, mode, reference, frequency] }
+        op: { type: string, enum: [is, is_not, contains, not_contains, gt, lt] }
+        values:
+          type: array
+          minItems: 1
+          maxItems: 1000
+          items: { type: [string, number] }
+
+    GroupInput:
+      type: object
+      properties:
+        name: { type: [string, "null"] }
+        callsigns:
+          type: array
+          maxItems: 1000
+          items: { type: string }
+
+    Callsigns:
+      type: object
+      required: [callsigns]
+      properties:
+        callsigns:
+          type: array
+          maxItems: 2000
+          items: { type: string }
+
+    Group:
+      type: object
+      required: [id, name, callsigns, member_count, connection_count, updated_at, on_air]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        callsigns:
+          type: array
+          items: { type: string }
+          description: Base calls, sorted.
+        member_count: { type: integer }
+        connection_count: { type: integer, description: Connections that use the group. }
+        updated_at: { type: string, format: date-time }
+        on_air:
+          type: object
+          description: The members spotted in the last 30 minutes, with the newest of those spots.
+          required: [count, latest]
+          properties:
+            count: { type: integer }
+            latest:
+              type: [object, "null"]
+              properties:
+                callsign: { type: string }
+                frequency_khz: { type: [number, "null"] }
+                band: { type: [string, "null"] }
+                mode: { type: [string, "null"] }
+                source: { $ref: "#/components/schemas/Source" }
+                reference:
+                  type: [string, "null"]
+                  description: The POTA, SOTA or WWFF reference, whichever the spot has.
+                spot_time: { type: string, format: date-time }
+      example:
+        id: 9c1d…
+        name: Club members
+        callsigns: [KK4PWJ, N4DXX]
+        member_count: 2
+        connection_count: 1
+        updated_at: "2026-10-13T18:40:00Z"
+        on_air:
+          count: 1
+          latest:
+            callsign: KK4PWJ/P
+            frequency_khz: 14062
+            band: 20m
+            mode: CW
+            source: pota
+            reference: US-1234
+            spot_time: "2026-10-13T18:31:07Z"

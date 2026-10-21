@@ -1,4 +1,4 @@
-// The management API (docs/API.md): scripts manage a user's destinations,
+// The management API (docs/openapi.yaml): scripts manage a user's destinations,
 // subscriptions and callsign groups with a personal API token instead of a
 // browser session. Deployed with verify_jwt = false, because the token is not
 // a JWT; this handler checks it itself.
