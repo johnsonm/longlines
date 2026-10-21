@@ -1,4 +1,4 @@
-import { assertEquals } from "@std/assert";
+import { assertEquals, assertMatch } from "@std/assert";
 import { handleArchive } from "../handlers/archive.ts";
 import { fakeSupabase } from "./fake_supabase.ts";
 import { ARCHIVE_SCHEMAS } from "../archive.ts";
@@ -72,6 +72,7 @@ Deno.test("handleArchive runs the archive and returns its summary", async () => 
     store: bucket.store,
   }, NOW);
   assertEquals(res.status, 200);
+  assertMatch(res.headers.get("Server-Timing") ?? "", /^total;dur=\d+\.\d$/);
   const body = await res.json();
   assertEquals([body.slices, body.rows, body.errors], [1, 1, []]);
   assertEquals(bucket.paths, ["rbn/year=2026/month=10/day=11/1410.parquet"]);

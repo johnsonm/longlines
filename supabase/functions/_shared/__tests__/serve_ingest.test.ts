@@ -1,4 +1,4 @@
-import { assertEquals } from "@std/assert";
+import { assertEquals, assertMatch } from "@std/assert";
 import { ingestHandler } from "../serve_ingest.ts";
 import type { IngestDb, SourceAdapter } from "../types.ts";
 
@@ -48,6 +48,7 @@ Deno.test("ingestHandler runs for the service-role key and returns the summary a
     request(SERVICE_KEY),
   );
   assertEquals(res.status, 200);
+  assertMatch(res.headers.get("Server-Timing") ?? "", /^total;dur=\d+\.\d$/);
   const body = await res.json();
   assertEquals(body.source, "sotawatch");
   assertEquals(body.fetched, 0);

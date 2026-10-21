@@ -606,6 +606,11 @@ page" canvas); its Copy section is the copy source for `/health`.
   partial indexes; `last_failed_at` is set only by the `deliveries_last_failed_at` trigger.
 - A cron job that calls a function goes through `cron_call_function(job, function, body,
   timeout)`, never a bare `net.http_post`, so the page can show its HTTP status.
+- A cron-called function's run time is its own `Server-Timing` total (`_shared/timing.ts`, wrapped
+  in `ingestHandler`, `handleArchive` and `handleImportCty`), copied by `record_health_sample`
+  into `cron_http_requests.run_seconds`; never time a run from `net._http_response.created`, which
+  is when pg_net stored a batch. A new cron-called function wraps its handler in `timed`. Job
+  statistics and the `unusual` rules (last hour against the 7 days before it) are SQL's.
 - "Oldest ready delivery" is per destination (the age of each destination's newest ready row, then
   the largest), because deliveries go newest first under a budget. `health_oldest_ready_seconds`
   repeats `claim_deliveries`' `ready` predicate; change them together.

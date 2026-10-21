@@ -1,7 +1,7 @@
 // Words for the Health page. Every status and figure is SQL's (health_snapshot);
 // this module only says them, in the copy of the spec's Copy section.
 
-import type { CheckId, HealthChecks, HealthJob, HealthPayload, HealthRange, HealthStatus, Series, SourceAge } from "./types";
+import type { CheckId, HealthChecks, HealthJob, HealthPayload, HealthRange, HealthStatus, JobUnusual, Series, SourceAge } from "./types";
 
 export const RANGES: { id: HealthRange; label: string }[] = [
   { id: "1h", label: "1 hour" },
@@ -10,14 +10,18 @@ export const RANGES: { id: HealthRange; label: string }[] = [
 ];
 
 /** Table order, which is also the banner's. */
-export const CHECKS: { id: CheckId; name: string; caption?: string; rule: string; title: string }[] = [
+export const CHECKS: { id: CheckId; name: string; caption?: string; rule: string; title: string; delayedTitle?: string }[] = [
   { id: "pulled", name: "Pulled sources", caption: "POTA, SOTAwatch, WWFF", rule: "Delayed after 3 min without a success", title: "Pulled sources are behind" },
   { id: "relay", name: "Relay feeds", caption: "RBN, DX Cluster, APRS-IS", rule: "Delayed after 3 min without a push", title: "A relay feed is behind" },
   { id: "match_queue", name: "Match queue", caption: "spot_events", rule: "Delayed when the oldest waits over 2 min", title: "Matching is behind" },
   { id: "delivery_queue", name: "Delivery queue", caption: "deliveries_queue", rule: "Delayed when the oldest ready waits over 2 min", title: "Outbound is slower than usual" },
   { id: "sender", name: "Sender", caption: "Fly.io, longlines-sender", rule: "Failing after 2 min without progress", title: "The sender has stopped" },
   { id: "database", name: "Database", rule: "Delayed over 80% of either", title: "The database is nearly full" },
-  { id: "jobs", name: "Scheduled jobs", rule: "Failing when a job fails 3 runs in a row", title: "A scheduled job keeps failing" },
+  {
+    id: "jobs", name: "Scheduled jobs",
+    rule: "Failing when a job fails 3 runs in a row; delayed when one is slower or fails more than usual",
+    title: "A scheduled job keeps failing", delayedTitle: "A scheduled job is not running as usual",
+  },
   { id: "archive", name: "Archive", rule: "Delayed after 2 hours", title: "The archive is behind" },
 ];
 
@@ -37,6 +41,12 @@ export const STATUS_LABEL: Record<HealthStatus, string> = {
 
 /** A job's chip: its "delayed" is one failed run, not a delay. */
 export const JOB_STATUS_LABEL: Record<HealthStatus, string> = { ...STATUS_LABEL, delayed: "Last run failed" };
+
+/** A job's second chip, from SQL's comparison of the last hour with the 7 days before it. */
+export const JOB_UNUSUAL_LABEL: Record<JobUnusual, string> = {
+  slow: "Slower than usual",
+  failures: "Failing more than usual",
+};
 
 const SOURCE_NAMES: Record<string, string> = {
   pota: "POTA",
@@ -106,8 +116,11 @@ export function checkNow(id: CheckId, checks: HealthChecks): string {
       const { connections, max_connections, bytes, disk_limit_bytes } = checks.database;
       return `${connections} of ${max_connections} connections · disk ${Math.round((100 * bytes) / disk_limit_bytes)}% full`;
     }
-    case "jobs":
-      return `${plural(checks.jobs.count, "job")} · ${plural(checks.jobs.failed_1h, "failed run")} in the last hour`;
+    case "jobs": {
+      const head = `${plural(checks.jobs.count, "job")} · ${plural(checks.jobs.failed_1h, "failed run")} in the last hour`;
+      const unusual = checks.jobs.unusual ?? 0;
+      return unusual > 0 ? `${head} · ${plural(unusual, "job")} not running as usual` : head;
+    }
     case "archive":
       return checks.archive.seconds === null ? "Nothing written yet" : `Last slice written ${duration(checks.archive.seconds)} ago`;
   }
@@ -128,7 +141,7 @@ export function banner(checks: HealthChecks): Banner | null {
   if (!first) return null;
   return {
     severity: bad.some((c) => checks[c.id].status === "failing") ? "error" : "warning",
-    title: first.title,
+    title: checks[first.id].status === "delayed" ? first.delayedTitle ?? first.title : first.title,
     body: checkNow(first.id, checks),
     more: bad.length > 1 ? `${bad.length} checks need attention.` : null,
   };
@@ -159,11 +172,19 @@ export function scheduleText(schedule: string): string {
   return day ? `${day} at ${at}` : schedule;
 }
 
+/** A statistics cell: two places under 10 s, so sub-second jobs still differ, then one; a dash when none. */
+export function runSeconds(seconds: number | null | undefined): string {
+  if (seconds === null || seconds === undefined) return "–";
+  return `${seconds.toFixed(seconds < 10 ? 2 : 1)} s`;
+}
+
 /** The Last result caption. */
 export function resultText(result: HealthJob["result"]): string {
   if (!result) return "No runs yet";
   if (result.timed_out) return "Timed out";
-  if (result.http_status !== null) return `HTTP ${result.http_status}`;
+  if (result.http_status !== null) {
+    return result.seconds === null ? `HTTP ${result.http_status}` : `HTTP ${result.http_status} in ${result.seconds.toFixed(1)} s`;
+  }
   if (!result.ok) return "Failed";
   return `Done in ${(result.seconds ?? 0).toFixed(1)} s`;
 }

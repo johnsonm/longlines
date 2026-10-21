@@ -1,12 +1,13 @@
--- pgTAP: the Health page (20261021000100_health, 20261021000200_health_storage). Pins the payload shape
+-- pgTAP: the Health page (20261021000100_health, 20261021000200_health_storage,
+-- 20261021000400_job_timings). Pins the payload shape
 -- (HealthPayload in web/src/health/types.ts), every check's threshold (the
 -- page's rule copy), the per-destination oldest ready delivery, job outcomes
--- from cron_http_requests, the series buckets, the sampler, heartbeats, the
+-- from cron_http_requests, job run statistics and the unusual rules, the series buckets, the sampler, heartbeats, the
 -- failure trigger, the 30-second cache and access.
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(45);
+select plan(53);
 
 create function pg_temp.checks() returns jsonb
 language sql as $$ select public.health_snapshot('1h') -> 'checks' $$;
@@ -158,18 +159,20 @@ select is(pg_temp.checks() -> 'archive' ->> 'status', 'delayed', 'archive: delay
 
 -- Jobs: a cron_call_function job's runs are its HTTP responses.
 select cron.schedule('health-test-job', '*/5 * * * *', $$ select public.cron_call_function('health-test-job', 'x'); $$);
-insert into cron_http_requests (request_id, job, sent_at, status_code, timed_out, answered_at) values
-  (-1, 'health-test-job', pg_temp.ago(900), 500, false, pg_temp.ago(899)),
-  (-2, 'health-test-job', pg_temp.ago(600), null, true, pg_temp.ago(570)),
-  (-3, 'health-test-job', pg_temp.ago(300), 502, false, pg_temp.ago(299)),
-  (-4, 'health-test-job', pg_temp.ago(5), null, null, null);
+insert into cron_http_requests (request_id, job, sent_at, status_code, timed_out, answered_at, run_seconds) values
+  (-1, 'health-test-job', pg_temp.ago(900), 500, false, pg_temp.ago(899), 0.8),
+  (-2, 'health-test-job', pg_temp.ago(600), null, true, pg_temp.ago(570), 30.0016),
+  (-3, 'health-test-job', pg_temp.ago(300), 502, false, pg_temp.ago(299), 1.04),
+  (-4, 'health-test-job', pg_temp.ago(5), null, null, null, null);
 create function pg_temp.job() returns jsonb
 language sql as $$ select j from jsonb_array_elements(public.health_snapshot('1h') -> 'jobs') j where j ->> 'name' = 'health-test-job' $$;
 select is(pg_temp.job(),
   jsonb_build_object('name', 'health-test-job', 'schedule', '*/5 * * * *', 'last_run_at', pg_temp.ago(5),
     'result', '{"ok": false, "http_status": 502, "timed_out": false, "seconds": 1.0}'::jsonb,
-    'status', 'failing', 'failed_24h', 3, 'failed_1h', 3),
-  'jobs: three failed responses in a row is failing; an unanswered request is only the last run');
+    'status', 'failing', 'failed_24h', 3, 'failed_1h', 3,
+    'timing', '{"runs": 3, "failed": 3, "average": null, "sd": null, "p95": null}'::jsonb, 'unusual', null),
+  'jobs: three failed responses in a row is failing; an unanswered request is only the last run; '
+  'seconds are the run''s own; times are successful runs'' only');
 select is(pg_temp.checks() -> 'jobs' ->> 'status', 'failing', 'jobs: failing when any job is');
 update cron_http_requests set status_code = 200 where request_id = -1;
 update cron_http_requests set sent_at = pg_temp.ago(1000), answered_at = pg_temp.ago(999) where request_id = -1;
@@ -179,6 +182,39 @@ update cron_http_requests set status_code = 200, timed_out = true where request_
 select is(pg_temp.job() ->> 'status', 'failing', 'jobs: a timed-out request failed, whatever its status');
 update cron_http_requests set status_code = null, timed_out = false where request_id = -4;
 select is(pg_temp.job() ->> 'status', 'failing', 'jobs: no status and no time-out (a connection error) failed');
+
+-- Run statistics and the unusual rules: the last hour against the 7 days before it.
+select cron.unschedule('health-test-job');
+select count(cron.alter_job(jobid, active := false)) from cron.job where jobname <> 'health-stats-job';
+select cron.schedule('health-stats-job', '* * * * *', $$ select public.cron_call_function('health-stats-job', 'x'); $$);
+-- Ten baseline runs two hours ago, 1.0 to 1.9 s (mean 1.45, sd 0.30), and two 1.5 s runs in the last hour.
+insert into cron_http_requests (request_id, job, sent_at, status_code, timed_out, answered_at, run_seconds)
+select -100 - i, 'health-stats-job', pg_temp.ago(7200 + 60 * i), 200, false, pg_temp.ago(7200 + 60 * i), 1 + i / 10.0
+from generate_series(0, 9) i
+union all
+select -200 - i, 'health-stats-job', pg_temp.ago(60 * i), 200, false, pg_temp.ago(60 * i), 1.5
+from generate_series(1, 2) i;
+create function pg_temp.stats_job(p_range text default '1h') returns jsonb
+language sql as $$ select j from jsonb_array_elements(public.health_snapshot(p_range) -> 'jobs') j where j ->> 'name' = 'health-stats-job' $$;
+select is(pg_temp.stats_job('24h') -> 'timing',
+  '{"runs": 12, "failed": 0, "average": 1.46, "sd": 0.27, "p95": 1.85}'::jsonb,
+  'timing: runs, failures and the average, sample sd and p95 of the range''s successful runs');
+update cron_http_requests set run_seconds = 2.4 where request_id in (-201, -202);
+select is(pg_temp.stats_job() -> 'unusual', 'null'::jsonb,
+  'slow: not when the last hour is over 3 sd above the 7-day average but by under a second');
+update cron_http_requests set run_seconds = 3.0 where request_id in (-201, -202);
+select is(pg_temp.stats_job() ->> 'unusual', 'slow', 'slow: the last hour''s average over 3 sd and a second above usual');
+select is(pg_temp.checks() -> 'jobs', '{"status": "delayed", "count": 1, "unusual": 1, "failed_1h": 0}'::jsonb,
+  'jobs: delayed while a job is unusual, with the count');
+update cron_http_requests set run_seconds = 1.5 where request_id in (-201, -202);
+insert into cron_http_requests (request_id, job, sent_at, status_code, timed_out, answered_at, run_seconds) values
+  (-203, 'health-stats-job', pg_temp.ago(180), 500, false, pg_temp.ago(180), 0.5),
+  (-204, 'health-stats-job', pg_temp.ago(240), null, true, pg_temp.ago(210), 30.0);
+select is(pg_temp.stats_job() -> 'unusual', 'null'::jsonb, 'failures: not under 3 in the last hour');
+insert into cron_http_requests (request_id, job, sent_at, status_code, timed_out, answered_at, run_seconds) values
+  (-205, 'health-stats-job', pg_temp.ago(300), 503, false, pg_temp.ago(300), 0.5);
+select is(pg_temp.stats_job() ->> 'unusual', 'failures',
+  'failures: 3 in the last hour, well over what the 7-day rate predicts');
 
 -- Spots per bucket are the differences of the running totals.
 insert into health_samples (sampled_at, match_waiting, delivery_waiting, throttled_destinations, db_connections, db_bytes, spots_total)
@@ -198,13 +234,22 @@ delete from health_samples;
 insert into health_samples (sampled_at, match_waiting, delivery_waiting, throttled_destinations, db_connections, db_bytes, spots_total)
 values (now() - interval '9 days', 0, 0, 0, 0, 0, '{}');
 insert into cron_http_requests (request_id, job) values (-5, 'health-test-job');
+insert into cron_http_requests (request_id, job) values (-6, 'health-test-job'), (-7, 'health-test-job');
 insert into net._http_response (id, status_code, timed_out, created) values (-5, 204, null, now());
+insert into net._http_response (id, status_code, headers, timed_out, created)
+values (-6, 200, '{"server-timing": "total;dur=1234.5"}', false, now());
+insert into net._http_response (id, status_code, timed_out, error_msg, created)
+values (-7, null, true, 'Timeout of 30000 ms reached. Total time: 30001.6 ms (DNS time: 1.5 ms)', now());
 select public.record_health_sample();
 select public.record_health_sample();
 select is((select array_agg(sampled_at) from health_samples), array[date_trunc('minute', now())],
   'the sampler writes one row a minute and prunes rows over 8 days old');
 select is((select (status_code, timed_out, answered_at)::text from cron_http_requests where request_id = -5),
   (204, false, now())::text, 'the sampler copies the response status');
+select is((select run_seconds from cron_http_requests where request_id = -6), 1.2345,
+  'the sampler copies the function''s Server-Timing total as seconds');
+select is((select array_agg(run_seconds order by request_id) from cron_http_requests where request_id in (-7, -5)),
+  array[30.0016, null], 'without a response it takes pg_net''s total time; no header leaves it null');
 
 -- Heartbeats: checked, and at most one a worker per 30 seconds.
 delete from worker_heartbeats;
