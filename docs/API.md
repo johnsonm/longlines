@@ -78,7 +78,7 @@ Names are unique per account across every type, ignoring case. A name already in
 | GET | `/destinations` | | All your destinations. |
 | POST | `/destinations` | `{"type": "discord" or "webhook", "name", "url"}`, or `{"type": "push", "name"}` | The destination. A webhook also gets `signing_secret`, shown only here, and the default payload and delivery settings. A new push destination has the default notification settings and no devices. |
 | GET | `/destinations/{id}` | | The destination. |
-| PATCH | `/destinations/{id}` | `{"name"?, "url"?, "enabled"?}` | The destination. The type can't change, and a push destination takes no `url`. A new `url` clears `failing` health and the failure count. `"enabled": false` stops new spots going to it and drops the ones already queued; connections that use it keep their other destinations. `"enabled": true` on a webhook that paused itself after repeated failures resumes it and starts its failure counts again. |
+| PATCH | `/destinations/{id}` | `{"name"?, "url"?, "enabled"?}` | The destination. The type can't change: a `type` other than the stored one is a `400`, and the same type is ignored. A push destination takes no `url`. A new `url` clears `failing` health and the failure count. `"enabled": false` stops new spots going to it and drops the ones already queued; connections that use it keep their other destinations. `"enabled": true` on a webhook that paused itself after repeated failures resumes it and starts its failure counts again. |
 | DELETE | `/destinations/{id}` | | `{"deleted": true}`, or `409` while a connection uses it. |
 | POST | `/destinations/{id}/rotate-secret` | | `{"signing_secret"}`, for webhooks. The old secret stops working. |
 | POST | `/destinations/{id}/test` | | `{"ok": true}` once a sample spot is delivered (for push, to at least one of its devices, with the notification text its saved fields build; for Discord, as the message its saved settings build, marked as a test; for a webhook, as the body its saved settings build, with its extra headers and `X-LongLines-Test: true`), or `502` with `{"error"}`. A webhook's answer also has `status`, the HTTP status the receiver answered (`{"ok": true, "status": 204}`, or `{"error": "Webhook HTTP 500", "status": 500}`); a request that got no answer has none. |
@@ -171,8 +171,8 @@ A connection says which spots you want and where to send them.
 | `enabled` | boolean | Defaults to `true`. |
 | `sources` | strings | `pota`, `sotawatch`, `wwff`, `rbn`, `dxcluster`; any other value is refused. Empty means any. A DX Cluster spot only matches a connection that lists `dxcluster`, and a WWFF spot one that lists `wwff`. |
 | `rules` | list of lists | The filter. See Rules. Defaults to `[]`, which passes every spot. |
-| `quiet_minutes` | integer | 0, 5, 10, 30 or 60. Defaults to 10. |
-| `destinations` | UUIDs | Zero or more. With none, the connection stays off whatever `enabled` says, and starts once it has one. |
+| `quiet_minutes` | integer | 0, 5, 10, 30 or 60. Defaults to 10. A number written with more precision than a double holds (`5.0000000000000001`, `1e-400`) is refused rather than rounded. |
+| `destinations` | UUIDs | Zero or more; an id that is not a UUID is a `400`. With none, the connection stays off whatever `enabled` says, and starts once it has one. |
 
 | Method | Path | Body | Returns |
 |---|---|---|---|
@@ -230,8 +230,8 @@ callsign refuses the whole request with `400` and "Not a callsign: …", and not
 | GET | `/groups/{id}` | | The group. |
 | PATCH | `/groups/{id}` | `{"name"?, "callsigns"?: [...]}` | The group. A `callsigns` list replaces the whole member list. A `name` left out, or sent as `null`, stays. |
 | DELETE | `/groups/{id}` | | `{"deleted": true}`, or `409` while a connection uses it. |
-| POST | `/groups/{id}/members` | `{"callsigns": [...]}` | The group, after adding. Calls already in the group are skipped. |
-| POST | `/groups/{id}/members/remove` | `{"callsigns": [...]}` | The group, after removing. Calls not in the group are ignored. |
+| POST | `/groups/{id}/members` | `{"callsigns": [...]}` | The group, after adding. `callsigns` needs at least one call. Calls already in the group are skipped. |
+| POST | `/groups/{id}/members/remove` | `{"callsigns": [...]}` | The group, after removing. `callsigns` needs at least one call. Calls not in the group are ignored. |
 
 The two `members` routes change the list in one step, so two scripts adding members at the same
 time don't lose each other's changes.

@@ -10,7 +10,14 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { errorStatus } from "../api/errors.ts";
-import { apiPath, checkBody, type JsonObject, matchRoute, routeArgs } from "../api/routes.ts";
+import {
+  apiPath,
+  checkBody,
+  type JsonObject,
+  matchRoute,
+  parseBody,
+  routeArgs,
+} from "../api/routes.ts";
 import { apiToken, hashApiToken } from "../api/token.ts";
 import { corsHeaders, json } from "../cors.ts";
 import { type SendTestDeps, sendTestTo } from "./test_delivery.ts";
@@ -88,7 +95,7 @@ export async function handleApi(
     if (new TextEncoder().encode(text).length > MAX_BODY_BYTES) {
       return json({ error: BODY_TOO_LARGE }, 413);
     }
-    const parsed = parseObject(text);
+    const parsed = parseBody(text);
     if (!parsed) return json({ error: BAD_BODY }, 400);
     body = parsed;
     const shape = checkBody(route, body);
@@ -110,18 +117,6 @@ export async function handleApi(
     return json({ error: result.error.message }, status);
   }
   return json(result.data, route.status);
-}
-
-/** The body as a JSON object, or null when it is not one. */
-function parseObject(text: string): JsonObject | null {
-  try {
-    const value: unknown = JSON.parse(text);
-    return value !== null && typeof value === "object" && !Array.isArray(value)
-      ? value as JsonObject
-      : null;
-  } catch {
-    return null;
-  }
 }
 
 function serverError(step: string, message: string): Response {

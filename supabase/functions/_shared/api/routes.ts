@@ -8,8 +8,9 @@ export type Scope = "read" | "write";
 
 export type JsonObject = Record<string, unknown>;
 
-// "number" is a finite JSON number: JSON.parse reads 1e400 as Infinity, which JSON.stringify would
-// send on as null (left out). Which numbers are allowed is SQL's call (save_subscription names the
+// "number" is a finite JSON number that parsed exactly: JSON.parse reads 1e400 as Infinity, which
+// JSON.stringify would send on as null (left out), and parseBody turns a number it would round
+// (1e-400 into 0) into NaN. Which numbers are allowed is SQL's call (save_subscription names the
 // allowed quiet_minutes), so a fraction or an out-of-range value gets SQL's message, not one here.
 type Scalar = "string" | "boolean" | "number";
 
@@ -25,7 +26,7 @@ export interface Route {
   lists?: readonly string[];
   /** Scalar keys and their JSON type. Null is allowed: SQL reads it as left out. */
   scalars?: Readonly<Record<string, Scalar>>;
-  /** Keys the body must have. Without them an add or remove would do nothing and still succeed. */
+  /** Lists the body must have, with at least one item. Without one an add or remove would do nothing and still succeed. */
   required?: readonly string[];
   /** 201 for creates, 200 otherwise. */
   status: 200 | 201;
@@ -138,6 +139,7 @@ const SCALARS: Readonly<Record<Scalar, { test: (v: unknown) => boolean; noun: st
 export function checkBody(route: Route, body: JsonObject): string | null {
   for (const key of route.required ?? []) {
     if (body[key] === undefined) return `${key} is required.`;
+    if (Array.isArray(body[key]) && body[key].length === 0) return `${key} can't be empty.`;
   }
   // A null list is refused: SQL would fail on it with a Postgres message rather than read it as empty.
   for (const key of route.arrays ?? []) {
@@ -161,6 +163,44 @@ export function checkBody(route: Route, body: JsonObject): string | null {
     return `${key} must be ${SCALARS[type].noun}.`;
   }
   return null;
+}
+
+/**
+ * Whether a JSON number's source text survives JSON.parse unchanged. A double holds any decimal of
+ * at most 15 significant digits in the normal range exactly enough that JSON.stringify gives the
+ * same value back; longer ones (5.0000000000000001) and tiny ones (1e-400, read as 0) are rounded,
+ * and SQL would then judge a value the client never sent.
+ */
+export function numberSurvivesParse(source: string): boolean {
+  const match = /^-?(\d+)(?:\.(\d+))?(?:[eE]([-+]?\d+))?$/.exec(source);
+  if (!match) return false;
+  const digits = (match[1] + (match[2] ?? "")).replace(/^0+/, "").replace(/0+$/, "");
+  if (digits === "") return true;
+  const value = Math.abs(Number(source));
+  return digits.length <= 15 && value >= 2.2250738585072014e-308 && value <= Number.MAX_VALUE;
+}
+
+/**
+ * The body as a JSON object, or null when it is not one. A number JSON.parse would round becomes
+ * NaN, which the scalar check refuses and JSON.stringify sends on as null rather than a rounded value.
+ */
+export function parseBody(text: string): JsonObject | null {
+  let value: unknown;
+  try {
+    value = JSON.parse(text, exactNumbers);
+  } catch {
+    return null;
+  }
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? value as JsonObject
+    : null;
+}
+
+// The reviver's third argument (JSON.parse source text access) is missing from TypeScript's lib, and
+// from runtimes too old to pass it; without it a number is kept as parsed.
+function exactNumbers(_key: string, value: unknown, context?: { source?: string }): unknown {
+  if (typeof value !== "number" || context?.source === undefined) return value;
+  return numberSurvivesParse(context.source) ? value : Number.NaN;
 }
 
 /** The api_call arguments for a matched route. The path's id always wins over an id in the body. */

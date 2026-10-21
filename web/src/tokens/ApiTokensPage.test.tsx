@@ -84,7 +84,8 @@ describe("ApiTokensPage", () => {
     expect(screen.getByText("Copy this token now. You won't see it again.")).toBeInTheDocument();
     // Only Done closes it: the token can't be shown again.
     await user.keyboard("{Escape}");
-    await user.click(document.querySelector(".MuiBackdrop-root:not(.MuiBackdrop-invisible)")!);
+    // The token dialog's own backdrop: the create dialog's may still be in the DOM, closing.
+    await user.click(screen.getByLabelText("Token").closest(".MuiDialog-root")!.querySelector(".MuiBackdrop-root")!);
     expect(screen.getByLabelText("Token")).toHaveValue("ll_live_secret");
     await user.click(screen.getByRole("button", { name: "Done" }));
     await waitFor(() => expect(screen.queryByLabelText("Token")).not.toBeInTheDocument());

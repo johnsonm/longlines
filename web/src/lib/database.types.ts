@@ -1717,6 +1717,12 @@ isOneToOne: true
 "stats_payload_without_hidden":
 { Args: { "p_payload": Json }; Returns: Json
                            },
+"subscription_quiet_minutes":
+{ Args: Record<PropertyKey, never>; Returns: (number)[]
+                           },
+"subscription_quiet_minutes_text":
+{ Args: Record<PropertyKey, never>; Returns: string
+                           },
 "throttle_destination":
 { Args: { "p_destination_id": string,"p_msg_ids": (number)[],"p_seconds": number }; Returns: number
                            },

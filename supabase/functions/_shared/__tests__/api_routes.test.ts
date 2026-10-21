@@ -4,6 +4,8 @@ import {
   checkBody,
   matchRoute,
   MAX_LIST_ITEMS,
+  numberSurvivesParse,
+  parseBody,
   type Route,
   routeArgs,
   ROUTES,
@@ -148,6 +150,41 @@ Deno.test("checkBody checks scalar types and lets null through", () => {
   assertEquals(checkBody(route("PATCH", `/v1/groups/${ID}`), { name: null }), null);
 });
 
+Deno.test("numberSurvivesParse refuses what a double would round", () => {
+  for (
+    const s of [
+      "0",
+      "-0",
+      "30",
+      "30.0",
+      "1e1",
+      "1.5E+2",
+      "0.1",
+      "123456789012345",
+      "1e-300",
+      "1e308",
+    ]
+  ) {
+    assertEquals(numberSurvivesParse(s), true, s);
+  }
+  for (const s of ["1e-400", "1e400", "5.0000000000000001", "1234567890123456", "1e-310", "x"]) {
+    assertEquals(numberSurvivesParse(s), false, s);
+  }
+});
+
+Deno.test("parseBody turns a rounded number into one checkBody refuses", () => {
+  const sub = route("PATCH", `/v1/connections/${ID}`);
+  for (const text of ['{"quiet_minutes": 1e-400}', '{"quiet_minutes": 5.0000000000000001}']) {
+    const body = parseBody(text);
+    assertEquals(body !== null && checkBody(sub, body), "quiet_minutes must be a number.", text);
+  }
+  assertEquals(parseBody('{"quiet_minutes": 30.0, "rules": [[{"values": [14074]}]]}'), {
+    quiet_minutes: 30,
+    rules: [[{ values: [14074] }]],
+  });
+  for (const text of ["[]", "null", "5", "{", ""]) assertEquals(parseBody(text), null, text);
+});
+
 Deno.test("checkBody requires callsigns on the add and remove routes", () => {
   for (
     const path of [
@@ -165,7 +202,13 @@ Deno.test("checkBody requires callsigns on the add and remove routes", () => {
       "callsigns must be a list of strings.",
       path,
     );
-    assertEquals(checkBody(route("POST", path), { callsigns: [] }), null, path);
+    // An empty list would do nothing and still succeed.
+    assertEquals(
+      checkBody(route("POST", path), { callsigns: [] }),
+      "callsigns can't be empty.",
+      path,
+    );
+    assertEquals(checkBody(route("POST", path), { callsigns: ["KN4XYZ"] }), null, path);
   }
   assertEquals(checkBody(route("PATCH", `/v1/groups/${ID}`), { name: "Club" }), null);
 });
