@@ -26,14 +26,20 @@ Deno.test("hashApiToken is lowercase hex SHA-256", async () => {
   );
 });
 
-Deno.test("errorStatus maps SQL messages and classes", () => {
-  const raised = (message: string) => errorStatus({ code: "P0001", message });
-  assertEquals(raised("Token not found."), 401);
-  assertEquals(raised("This token is read only."), 403);
-  assertEquals(raised("Connection not found."), 404);
-  assertEquals(raised("Group not found."), 404);
-  assertEquals(raised("Remove it from its connections first."), 409);
-  assertEquals(raised("Pick at least one destination."), 400);
+Deno.test("errorStatus maps SQLSTATEs, not messages", () => {
+  assertEquals(errorStatus({ code: "LL401", message: "Token not found." }), 401);
+  assertEquals(errorStatus({ code: "LL403", message: "This token is read only." }), 403);
+  assertEquals(errorStatus({ code: "LL404", message: "Group not found." }), 404);
+  assertEquals(
+    errorStatus({ code: "LL409", message: "Remove it from its connections first." }),
+    409,
+  );
+  // A message alone decides nothing: a destination the body names but the caller doesn't own is a 400.
+  assertEquals(errorStatus({ code: "P0001", message: "Destination not found." }), 400);
+  assertEquals(
+    errorStatus({ code: "P0001", message: "Remove it from its connections first." }),
+    400,
+  );
   assertEquals(errorStatus({ code: "22P02", message: "invalid input syntax for type uuid" }), 400);
   assertEquals(errorStatus({ code: "23514", message: "violates check constraint" }), 400);
   assertEquals(errorStatus({ code: "57014", message: "statement timeout" }), 500);

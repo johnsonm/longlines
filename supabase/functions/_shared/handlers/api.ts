@@ -19,7 +19,7 @@ import {
   routeArgs,
 } from "../api/routes.ts";
 import { apiToken, hashApiToken } from "../api/token.ts";
-import { corsHeaders, json } from "../cors.ts";
+import { json, preflightResponse } from "../cors.ts";
 import { type SendTestDeps, sendTestTo } from "./test_delivery.ts";
 
 export const MAX_REQUESTS_PER_MINUTE = 60;
@@ -56,12 +56,8 @@ export async function handleApi(
   now: Date = new Date(),
 ): Promise<Response> {
   // A browser sends a preflight before any request with an Authorization header; it carries no token.
-  if (req.method === "OPTIONS") {
-    return new Response(null, {
-      status: 204,
-      headers: { ...corsHeaders(), "Access-Control-Allow-Methods": API_METHODS },
-    });
-  }
+  const preflight = preflightResponse(req, API_METHODS);
+  if (preflight) return preflight;
   const url = new URL(req.url);
   const path = apiPath(url.pathname);
   const match = path === null ? { kind: "not_found" as const } : matchRoute(req.method, path);
@@ -91,10 +87,8 @@ export async function handleApi(
 
   let body: JsonObject = {};
   if (route.input === "fields" || route.input === "body") {
-    const text = await req.text();
-    if (new TextEncoder().encode(text).length > MAX_BODY_BYTES) {
-      return json({ error: BODY_TOO_LARGE }, 413);
-    }
+    const text = await readBody(req, MAX_BODY_BYTES);
+    if (text === null) return json({ error: BODY_TOO_LARGE }, 413);
     const parsed = parseBody(text);
     if (!parsed) return json({ error: BAD_BODY }, 400);
     body = parsed;
@@ -117,6 +111,36 @@ export async function handleApi(
     return json({ error: result.error.message }, status);
   }
   return json(result.data, route.status);
+}
+
+/**
+ * The body as text, or null when it is over `limit` bytes. A declared length over the limit is
+ * refused before reading; a chunked body is read only until it passes the limit.
+ */
+export async function readBody(req: Request, limit: number): Promise<string | null> {
+  const declared = Number(req.headers.get("content-length") ?? "");
+  if (Number.isFinite(declared) && declared > limit) return null;
+  if (!req.body) return "";
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  const reader = req.body.getReader();
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > limit) {
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(value);
+  }
+  const all = new Uint8Array(size);
+  let at = 0;
+  for (const chunk of chunks) {
+    all.set(chunk, at);
+    at += chunk.byteLength;
+  }
+  return new TextDecoder().decode(all);
 }
 
 function serverError(step: string, message: string): Response {

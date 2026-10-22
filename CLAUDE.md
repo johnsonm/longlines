@@ -753,7 +753,9 @@ screens and for notification text.
   before 2000, calls and references at most 64 characters, `source_spot_id` at most 256); the
   firehose row builders apply the same bounds, and `withoutNul` also makes strings well formed.
 - New functions start executable by `public`; `revoke all ... from public` leaves only
-  `service_role` (default privileges, `20261012000120`), then grant clients explicitly. New
+  `service_role` (default privileges, `20261012000120`), then grant clients explicitly. That holds
+  only for functions `postgres` owns (`supabase_admin`'s defaults still grant `anon` and
+  `authenticated`); `advisor.test.sql` fails on a public function with another owner. New
   functions pin `search_path` except one-expression SQL helpers that must stay inlinable.
   `supabase/tests/advisor.test.sql` lists the functions clients may call and the unpinned
   helpers, and fails on anything new.

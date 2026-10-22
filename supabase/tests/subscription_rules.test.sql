@@ -321,7 +321,7 @@ select save_subscription(jsonb_build_object('id', (select id from s1), 'name', '
     jsonb_build_object('field', 'group', 'op', 'is_not', 'values', array[(select rivals from grp)])))));
 select is((select group_ids from subscriptions where id = (select id from s1)), array[(select rivals from grp)],
   'group_ids follows the rules on update');
-select throws_ok(format('select delete_callsign_group(%L)', (select rivals from grp)), 'P0001', 'Remove it from its connections first.',
+select throws_ok(format('select delete_callsign_group(%L)', (select rivals from grp)), 'LL409', 'Remove it from its connections first.',
   'a group used only in an is_not rule cannot be deleted');
 select lives_ok(format('select delete_callsign_group(%L)', (select club from grp)),
   'a group the rules no longer name can be deleted');

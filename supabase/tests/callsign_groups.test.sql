@@ -207,7 +207,7 @@ select throws_ok(format($f$ select save_subscription('{"name":"x","sources":["rb
 select lives_ok(format('select delete_subscription(%L)', (select id from s_rbn)), 'RBN subscription removed');
 
 -- Delete guard.
-select throws_ok(format('select delete_callsign_group(%L)', (select id from g1)), 'P0001', 'Remove it from its connections first.',
+select throws_ok(format('select delete_callsign_group(%L)', (select id from g1)), 'LL409', 'Remove it from its connections first.',
   'a group in use cannot be deleted');
 select lives_ok(format('select delete_callsign_group(%L)', (select id from g3)), 'an unused group can be deleted');
 select is((select count(*) from callsign_groups where id = (select id from g3)), 0::bigint, 'deleted group is gone');

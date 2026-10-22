@@ -13,6 +13,13 @@
 --    ("The type can't change.") instead of ignored. The same type, or null, still passes, so a
 --    destination read back whole and PATCHed works.
 --
+-- 4. Error codes (#138): api_call raises its own errors with custom SQLSTATEs (LL401 token,
+--    LL403 read only, LL404 the path's resource is missing, LL409 in use), and the API maps the
+--    code, not the message. Every other raise is a 400, so a destination or group the body names
+--    but the caller doesn't own is a bad request, not a 404.
+-- 5. api_call reads one group through callsign_group_rows(id) instead of filtering every group's
+--    on-air join (#139).
+--
 -- save_subscription is 20261017003000's and api_call 20261019000400's, with only those changes.
 -- Same signatures, so the grants carry over.
 
@@ -148,6 +155,138 @@ begin
 end;
 $$;
 
+-- callsign_group_rows: list_callsign_groups' query (20261015001000) for one group or, with null,
+-- all of them. api_call reads one group without the on-air join for every other group (#139).
+create function public.callsign_group_rows(p_id uuid)
+returns table (id uuid, name text, callsigns text[], member_count bigint, subscription_count bigint,
+               updated_at timestamptz, on_air jsonb)
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_user uuid := auth.uid();
+begin
+  if v_user is null then
+    raise exception 'Not signed in.';
+  end if;
+  return query
+  select
+    g.id,
+    g.name,
+    m.calls,
+    cardinality(m.calls)::bigint,
+    (select count(*) from subscriptions s where s.user_id = v_user and g.id = any (s.group_ids)),
+    g.updated_at,
+    jsonb_build_object('count', a.n, 'latest', a.latest)
+  from callsign_groups g
+  cross join lateral (
+    select coalesce(array_agg(cm.callsign order by cm.callsign), '{}') as calls
+    from callsign_group_members cm
+    where cm.group_id = g.id
+  ) m
+  cross join lateral (
+    select count(distinct r.base_callsign) as n,
+           (array_agg(jsonb_build_object(
+              'callsign', r.callsign, 'frequency_khz', r.frequency_khz, 'band', r.band, 'mode', r.mode,
+              'source', r.source, 'reference', coalesce(r.pota_reference, r.sota_summit_ref, r.wwff_reference),
+              'spot_time', r.spot_time)
+            order by r.spot_time desc, r.id desc))[1] as latest
+    from callsign_group_members cm
+    join raw_spots r on r.base_callsign = cm.callsign and r.spot_time > now() - interval '30 minutes'
+    where cm.group_id = g.id
+  ) a
+  where g.user_id = v_user and (p_id is null or g.id = p_id)
+  order by lower(g.name);
+end;
+$$;
+
+revoke all on function public.callsign_group_rows(uuid) from public;
+
+-- list_callsign_groups: the same rows and order as before, for the web app.
+create or replace function public.list_callsign_groups()
+returns table (id uuid, name text, callsigns text[], member_count bigint, subscription_count bigint,
+               updated_at timestamptz, on_air jsonb)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select * from public.callsign_group_rows(null);
+$$;
+
+-- delete_destination and delete_callsign_group: 20261016000500's, with the conflict raised as
+-- LL409 so the API maps it by code, not by message (#138).
+create or replace function public.delete_destination(p_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in.';
+  end if;
+  delete from destinations d where d.id = p_id and d.user_id = auth.uid();
+  if not found then
+    raise exception 'Destination not found.';
+  end if;
+exception
+  when foreign_key_violation then
+    raise exception 'Remove it from its connections first.' using errcode = 'LL409';
+end;
+$$;
+
+create or replace function public.delete_callsign_group(p_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_user uuid := auth.uid();
+begin
+  if v_user is null then
+    raise exception 'Not signed in.';
+  end if;
+  perform 1 from callsign_groups g where g.id = p_id and g.user_id = v_user for update;
+  if not found then
+    raise exception 'Group not found.';
+  end if;
+  if exists (select 1 from subscriptions s where p_id = any (s.group_ids)) then
+    raise exception 'Remove it from its connections first.' using errcode = 'LL409';
+  end if;
+  delete from callsign_groups g where g.id = p_id;
+end;
+$$;
+
+-- rotate_signing_secret: 20261018000300's, saying why a destination that is not a webhook has no
+-- secret instead of calling it not found.
+create or replace function public.rotate_signing_secret(p_destination_id uuid)
+returns text
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_secret text := 'whsec_' || encode(gen_random_bytes(24), 'hex');
+  v_found boolean;
+begin
+  update destinations d
+  set signing_secret = v_secret, secret_rotated_at = now()
+  where d.id = p_destination_id and d.user_id = auth.uid() and d.type = 'webhook'
+  returning true into v_found;
+  if v_found is null then
+    if exists (select 1 from destinations d where d.id = p_destination_id and d.user_id = auth.uid()) then
+      raise exception 'Only a webhook has a signing secret.';
+    end if;
+    raise exception 'Destination not found.';
+  end if;
+  return v_secret;
+end;
+$$;
+
 create or replace function public.api_call(p_token_id uuid, p_op text, p_args jsonb)
 returns jsonb
 language plpgsql
@@ -167,7 +306,7 @@ begin
   select t.user_id, t.scope into v_user, v_scope from api_tokens t
   where t.id = p_token_id and (t.expires_at is null or t.expires_at > now());
   if v_user is null then
-    raise exception 'Token not found.';
+    raise exception 'Token not found.' using errcode = 'LL401';
   end if;
 
   v_needs := case
@@ -184,7 +323,7 @@ begin
     raise exception 'Unknown operation.';
   end if;
   if v_needs = 'write' and v_scope <> 'write' then
-    raise exception 'This token is read only.';
+    raise exception 'This token is read only.' using errcode = 'LL403';
   end if;
 
   perform set_config('request.jwt.claim.sub', v_user::text, true);
@@ -193,6 +332,19 @@ begin
   perform set_config('longlines.via_api', 'on', true);
 
   v_id := nullif(p_args ->> 'id', '')::uuid;
+
+  -- The resource the path names. Only a missing one is a 404 (LL404); a missing row the body
+  -- refers to (a destination or group id in a connection) is a 400 from the RPC that reads it.
+  if p_op in ('get_destination', 'update_destination', 'delete_destination', 'rotate_signing_secret')
+     and not exists (select 1 from destinations d where d.id = v_id and d.user_id = v_user) then
+    raise exception 'Destination not found.' using errcode = 'LL404';
+  elsif p_op in ('get_subscription', 'replace_subscription', 'patch_subscription', 'delete_subscription')
+     and not exists (select 1 from subscriptions s where s.id = v_id and s.user_id = v_user) then
+    raise exception 'Connection not found.' using errcode = 'LL404';
+  elsif p_op in ('get_group', 'update_group', 'delete_group', 'add_group_members', 'remove_group_members')
+     and not exists (select 1 from callsign_groups g where g.id = v_id and g.user_id = v_user) then
+    raise exception 'Group not found.' using errcode = 'LL404';
+  end if;
 
   case p_op
     -- Destinations
@@ -203,7 +355,7 @@ begin
       select public.api_destination_json(d) into v_result
       from destinations d where d.id = v_id and d.user_id = v_user;
       if v_result is null then
-        raise exception 'Destination not found.';
+        raise exception 'Destination not found.' using errcode = 'LL404';
       end if;
     when 'create_destination' then
       select to_jsonb(c) into v_result
@@ -214,9 +366,6 @@ begin
       if p_args ? 'type' and jsonb_typeof(p_args -> 'type') <> 'null' and not exists (
            select 1 from destinations d
            where d.id = v_id and d.user_id = v_user and d.type = p_args ->> 'type') then
-        if not exists (select 1 from destinations d where d.id = v_id and d.user_id = v_user) then
-          raise exception 'Destination not found.';
-        end if;
         raise exception 'The type can''t change.';
       end if;
       perform public.update_destination(v_id, p_args ->> 'name', p_args ->> 'url',
@@ -236,7 +385,7 @@ begin
       select public.api_subscription_json(s) into v_result
       from subscriptions s where s.id = v_id and s.user_id = v_user;
       if v_result is null then
-        raise exception 'Connection not found.';
+        raise exception 'Connection not found.' using errcode = 'LL404';
       end if;
     when 'create_subscription' then
       v_id := public.save_subscription(coalesce(p_args -> 'body', '{}') - 'id');
@@ -257,25 +406,25 @@ begin
       select coalesce(jsonb_agg(public.api_group_json(to_jsonb(g))), '[]') into v_result
       from public.list_callsign_groups() g;
     when 'get_group' then
-      select public.api_group_json(to_jsonb(g)) into v_result from public.list_callsign_groups() g where g.id = v_id;
+      select public.api_group_json(to_jsonb(g)) into v_result from public.callsign_group_rows(v_id) g;
       if v_result is null then
-        raise exception 'Group not found.';
+        raise exception 'Group not found.' using errcode = 'LL404';
       end if;
     when 'create_group' then
       v_id := public.save_callsign_group(p_args - 'id');
-      select public.api_group_json(to_jsonb(g)) into v_result from public.list_callsign_groups() g where g.id = v_id;
+      select public.api_group_json(to_jsonb(g)) into v_result from public.callsign_group_rows(v_id) g;
     when 'update_group' then
       perform public.patch_callsign_group(v_id, p_args - 'id');
-      select public.api_group_json(to_jsonb(g)) into v_result from public.list_callsign_groups() g where g.id = v_id;
+      select public.api_group_json(to_jsonb(g)) into v_result from public.callsign_group_rows(v_id) g;
     when 'delete_group' then
       perform public.delete_callsign_group(v_id);
       v_result := jsonb_build_object('deleted', true);
     when 'add_group_members' then
       perform public.edit_group_callsigns(v_id, p_args -> 'callsigns', null);
-      select public.api_group_json(to_jsonb(g)) into v_result from public.list_callsign_groups() g where g.id = v_id;
+      select public.api_group_json(to_jsonb(g)) into v_result from public.callsign_group_rows(v_id) g;
     when 'remove_group_members' then
       perform public.edit_group_callsigns(v_id, null, p_args -> 'callsigns');
-      select public.api_group_json(to_jsonb(g)) into v_result from public.list_callsign_groups() g where g.id = v_id;
+      select public.api_group_json(to_jsonb(g)) into v_result from public.callsign_group_rows(v_id) g;
   end case;
 
   perform set_config('request.jwt.claim.sub', coalesce(v_sub, ''), true);

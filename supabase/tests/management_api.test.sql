@@ -2,7 +2,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(75);
+select plan(80);
 
 -- ---------------------------------------------------------------------------
 -- Tokens
@@ -173,7 +173,7 @@ select is(pg_temp.call('patch_subscription', jsonb_build_object('id', (select id
   'body', jsonb_build_object('destinations', jsonb_build_array((select id from dest))))) -> 'destinations',
   jsonb_build_array((select id from dest)), 'and get one back');
 select throws_ok(format($$ select pg_temp.call('delete_destination', '{"id": "%s"}') $$, (select id from dest)),
-  'Remove it from its connections first.');
+  'LL409', 'Remove it from its connections first.', 'a destination in use is LL409');
 
 -- Push: created without a URL, listed as "Your devices", and never given a URL.
 create temp table pushed as
@@ -187,7 +187,15 @@ select throws_ok(format($$ select pg_temp.call('update_destination', '{"id": "%s
 select is(pg_temp.call('update_destination', jsonb_build_object('id', (select id from dest), 'type', 'webhook',
   'name', 'Hook')) ->> 'type', 'webhook', 'a PATCH that repeats the stored type works');
 select throws_ok($$ select pg_temp.call('update_destination', '{"id": "0e7db3d0-52fa-4690-8f4a-79e468d6cf67", "type": "discord"}') $$,
-  'Destination not found.');
+  'LL404', 'Destination not found.', 'a missing path resource is LL404');
+select throws_ok($$ select pg_temp.call('delete_group', '{"id": "0e7db3d0-52fa-4690-8f4a-79e468d6cf67"}') $$,
+  'LL404', 'Group not found.', 'a missing group is LL404');
+select throws_ok($$ select pg_temp.call('patch_subscription', '{"id": "0e7db3d0-52fa-4690-8f4a-79e468d6cf67", "body": {}}') $$,
+  'LL404', 'Connection not found.', 'a missing connection is LL404');
+select throws_ok($$ select pg_temp.call('create_subscription', '{"body": {"name": "x", "destinations": ["0e7db3d0-52fa-4690-8f4a-79e468d6cf67"]}}') $$,
+  'P0001', 'Destination not found.', 'a destination the body names but the caller lacks is a plain 400');
+select throws_ok($$ select pg_temp.read_call('create_group', '{"name":"x"}') $$, 'LL403', 'This token is read only.',
+  'a read-only token is LL403');
 select throws_ok($$ select pg_temp.call('create_subscription', '{"body": {"name": "x", "destinations": ["nope"]}}') $$,
   'Not a destination id: nope.');
 select is(pg_temp.call('create_subscription', '{"body": {"name": "Null list", "destinations": null}}') -> 'destinations',
@@ -209,6 +217,9 @@ select is((select count(*) from jsonb_array_elements(pg_temp.call('list_destinat
   'only push destinations carry push');
 -- Discord destinations (20261018000100) show their message settings, read only.
 select pg_temp.call('create_destination', '{"type": "discord", "name": "Chat", "url": "https://discord.com/api/webhooks/1/a"}');
+select throws_ok(format($$ select pg_temp.call('rotate_signing_secret', '{"id": "%s"}') $$,
+  (select d ->> 'id' from jsonb_array_elements(pg_temp.call('list_destinations')) d where d ->> 'name' = 'Chat')),
+  'P0001', 'Only a webhook has a signing secret.', 'rotating a Discord destination is a 400, not a 404');
 select is((select d -> 'discord' from jsonb_array_elements(pg_temp.call('list_destinations')) d where d ->> 'name' = 'Chat'),
   '{"style": "card", "footer": true, "separator": "dot", "bold_first": true, "card_color": "source", "title_link": "profile",
     "grid_fields": ["band", "spotter"], "line_fields": ["callsign", "frequency", "mode", "source", "reference", "place_name"],
