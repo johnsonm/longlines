@@ -33,8 +33,9 @@ Deno.test("the database client constructs under the image's --allow-env list", a
   // this has to be a child process with exactly the image's permissions.
   const { allowed } = allowEnvList();
   const script = new URL("./construct_client.ts", import.meta.url).pathname;
+  const config = new URL("../deno.json", import.meta.url).pathname;
   const output = await new Deno.Command("deno", {
-    args: ["run", "--no-config", `--allow-env=${allowed.join(",")}`, script],
+    args: ["run", "--config", config, "--no-lock", `--allow-env=${allowed.join(",")}`, script],
     stdin: "null",
     stdout: "piped",
     stderr: "piped",

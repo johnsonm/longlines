@@ -94,7 +94,8 @@
       "jsr:@std/yaml@1",
       "npm:@supabase/supabase-js@2",
       "npm:hyparquet-writer@0.16.10",
-      "npm:hyparquet@1.31.1"
+      "npm:hyparquet@1.31.1",
+      "npm:postgres@3.4.9"
     ]
   }
 }

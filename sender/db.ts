@@ -6,9 +6,9 @@
 // the sender reaches Postgres directly through the Supavisor pooler (every
 // poll through an Edge Function or PostgREST would be an invocation), needs
 // TLS and named-parameter calls, and will LISTEN for the matcher's pg_notify
-// later. jsr:@db/postgres has no LISTEN. Full specifier, no import map, so the
-// image runs with --no-config.
-import postgres, { type JSONValue, type ParameterOrJSON } from "npm:postgres@3.4.9";
+// later. jsr:@db/postgres has no LISTEN. Mapped in sender/deno.json, the image's
+// import map.
+import postgres, { type JSONValue, type ParameterOrJSON } from "postgres";
 import type { DeliveryRpc } from "../supabase/functions/_shared/delivery/run.ts";
 import { RETRY_MAX_MS, RETRY_MIN_MS, type SenderConfig } from "./config.ts";
 
