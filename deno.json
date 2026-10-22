@@ -50,7 +50,9 @@
         "supabase/migrations",
         "deno.json",
         "relay/Dockerfile",
-        "sender/Dockerfile"
+        "relay/deno.json",
+        "sender/Dockerfile",
+        "sender/deno.json"
       ]
     }
   }
