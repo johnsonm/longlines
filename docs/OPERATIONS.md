@@ -54,7 +54,8 @@ Times are UTC.
 | `health-sample` | every minute | `record_health_sample()`, the Health page's history |
 | `archive-aprs` | every 5 minutes | the `archive` function for APRS-IS only (`{"sources": ["aprs"]}`) |
 | `archive-spots` | every 10 minutes | `archive` for POTA, SOTAwatch, DX Cluster, WWFF and RBN |
-| `refresh-stats-snapshot` | :05 hourly | `refresh_stats_snapshot()`, with a 10-minute statement timeout |
+| `rollup-stats-days` | :01 hourly | `refresh_stats_rollups()`: the Stats day rollups (RBN, APRS-IS, countries) and the RBN top stations |
+| `refresh-stats-snapshot` | :05 hourly | `refresh_stats_snapshot()`: one snapshot from the rollups as they stand |
 | `prune-callsign-lookups` | :15 hourly | `prune_callsign_lookups()` |
 | `rollup-callsign-days` | :25 hourly | `backfill_callsign_rollups(2)` |
 | `apply-license-loads` | :50 hourly | `apply_license_loads()` |
@@ -532,22 +533,22 @@ send-test counters, `cron.job_run_details` older than 7 days and `subscription_q
 
 ### Stats snapshot
 
-An hourly job (`refresh-stats-snapshot`, five past every hour) runs `refresh_stats_snapshot()`,
-which inserts one `stats_snapshots` row for the last seven complete UTC days and prunes the table
-to 48 rows. The Stats page shows the newest row; on a fresh project it shows "Not enough data yet"
+Two hourly jobs feed the Stats page. `rollup-stats-days` (one past) runs `refresh_stats_rollups()`:
+it rolls up each window day that lacks a rollup (the RBN, APRS-IS and country day tables), rolls up
+once more a day it rolled up within an hour of its end (for late rows), and recounts the RBN top
+stations when a day changed. That work lands at 00:01 and 01:01 and takes a minute or so; other
+runs do nothing. `refresh-stats-snapshot` (five past) runs `refresh_stats_snapshot()`, which counts
+today's RBN hours, inserts one `stats_snapshots` row for the last seven complete UTC days from the
+rollups as they stand and prunes the table to 48 rows; it never makes a day rollup, so a slow or
+failing rollup shows as its own job on /health and the snapshot keeps the last rollups. The Stats page shows the newest row; on a fresh project it shows "Not enough data yet"
 until the first run. To refresh by hand:
 
 ```sql
-select refresh_stats_snapshot();
+select refresh_stats_snapshot_at(now());   -- the rollups, then the snapshot
 select generated_at, payload->'totals' from stats_snapshots order by generated_at desc limit 1;
 ```
 
-`cron.job_run_details` shows failed runs under that job name. The 00:05 and 01:05 runs roll up the
-previous UTC day (RBN, APRS-IS and countries; 01:05 again, for late rows) and take a minute or two;
-the others take seconds. The job's command sets `statement_timeout` to 10 minutes for that reason
-(`20261022000100`): the cron session's default is 2 minutes, and a function can't extend the
-timeout of the statement that called it. A "canceling statement due to statement timeout" failure
-on those runs means the day rollups have outgrown that budget too.
+`cron.job_run_details` shows failed runs under that job name.
 
 ## Web app on Vercel
 

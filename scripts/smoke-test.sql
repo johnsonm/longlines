@@ -101,9 +101,10 @@ begin
     'the archive bucket should exist and be private';
 
   -- Stats snapshot: cron job exists and the refresh inserts one row.
-  assert exists (select 1 from cron.job where jobname = 'refresh-stats-snapshot' and schedule = '5 * * * *'
-                  and command like '%set local statement_timeout = ''10min''; select public.refresh_stats_snapshot();%'),
-    'refresh-stats-snapshot should run at five past every hour with a 10-minute timeout';
+  assert exists (select 1 from cron.job where jobname = 'refresh-stats-snapshot' and schedule = '5 * * * *'),
+    'refresh-stats-snapshot should run at five past every hour';
+  assert exists (select 1 from cron.job where jobname = 'rollup-stats-days' and schedule = '1 * * * *'),
+    'rollup-stats-days should run at one past every hour';
   select count(*) into n from stats_snapshots;
   perform public.refresh_stats_snapshot();
   assert (select count(*) from stats_snapshots) = least(n + 1, 48),
