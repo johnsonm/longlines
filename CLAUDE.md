@@ -44,6 +44,7 @@ cd web && npm run sender               # the outbound sender against the local s
 supabase gen types typescript --local > web/src/lib/database.types.ts   # after schema changes
 
 SENDER_TEST_DATABASE_URL="$DB_URL" deno test -P sender/__tests__/db.test.ts   # the sender's RPC adapter against the local db (CI does this)
+PROFILE_LOCK_TEST_DATABASE_URL="$DB_URL" deno test -P supabase/functions/_shared/__tests__/profile_lock_db.test.ts   # the profile build lock with two sessions (CI does this)
 
 supabase db push                       # hosted: apply migrations
 supabase functions deploy ingest-pota  # hosted: deploy one function
