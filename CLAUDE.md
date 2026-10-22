@@ -12,8 +12,9 @@ UI, consumers, notifications, cross-source dedup, or new sources without being a
 Everything runs on Supabase: Postgres (pg_cron, pg_net, pgmq) plus Deno Edge Functions in
 strict TypeScript. The exceptions are two Deno processes on Fly.io: `relay/`, which holds the
 inbound telnet streams (see "Relay rules"), and `sender/`, which sends outbound deliveries (see
-"Sender rules"). No JavaScript files, no `any` without a justifying comment, no new runtime
-dependencies without a comment saying why.
+"Sender rules"). No JavaScript files, no `any` without a justifying comment (the Deno code adds
+none: see "TypeScript (supabase/functions, relay, sender, scripts)"), no new runtime dependencies
+without a comment saying why.
 
 ## Commands
 
@@ -24,6 +25,9 @@ deno task coverage    # tests + coverage; fails below 80% lines or if a module i
 deno task check       # type-check the Edge Function entrypoints
 deno task lint
 deno task fmt
+npm ci                # once, at the root: ESLint and the type packages it reads (README "Linting the Deno code")
+npm run lint          # strict typescript-eslint over the Deno code; eslint.config.ts's pendingStyle areas are skipped
+npm run typecheck     # deno check every entrypoint and scripts/*.ts
 
 supabase start                # local stack, applies all migrations
 supabase db reset             # re-apply migrations from scratch locally, then load supabase/seed.sql
@@ -87,12 +91,32 @@ Local invocation: `curl -X POST http://127.0.0.1:54321/functions/v1/ingest-pota 
 
 ## CI
 
-`.github/workflows/ci.yml` runs on every PR and push to main: Deno fmt/lint/check/test, then
+`.github/workflows/ci.yml` runs on every PR and push to main: Deno fmt/lint/check/test, ESLint
+and typecheck (`npm run lint`, `npm run typecheck`), then
 `supabase db start` + `supabase db lint` + `scripts/smoke-test.sql` on a fresh Postgres.
 Migrations already applied to the hosted project must not be edited; add a new migration instead
 (see `20261005000009_*`). Fly's GitHub integration (configured in the Fly dashboard, one binding
 per app with its own `fly.toml`) deploys the relay and the sender on pushes to main; nothing else
 deploys automatically.
+
+## TypeScript (supabase/functions, relay, sender, scripts)
+
+The conventions are `docs/superpowers/specs/2026-10-22-strict-eslint-conventions.md`.
+
+- After every change, run `npm run lint` and `npm run typecheck`. Fix every error before finishing.
+- Never disable lint rules, add `eslint-disable` comments, or edit `eslint.config.ts` /
+  `tsconfig.json` to silence errors. If a rule seems wrong, stop and ask. The one sanctioned
+  edit: the PR that refactors an area removes that area's globs from the ratchet lists
+  (`pendingStyle`, later `zodPending`).
+- External input is `unknown`. Narrow it with explicit checks; never use `as` (enforced per area
+  as Zod lands).
+- New code must not add `as` casts, even where lint allows them; existing casts stay until Part 2.
+- Import packages by bare name. Add new ones to the root `deno.json`, every function/relay/sender
+  `deno.json` that loads them, and `npm i -D`.
+- Request handlers are named functions passed to `Deno.serve(handler);`.
+- The root `package.json` exists only for ESLint and `tsc`; `nodeModulesDir: "none"` keeps Deno
+  off `node_modules`, and `deno.lock` records package.json's dev dependencies too, so commit it
+  after `npm i -D`. `deno.d.ts` is `deno types` output; regenerate it after a Deno upgrade.
 
 ## Phase 2 schema rules
 
