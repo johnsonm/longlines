@@ -4,11 +4,12 @@
 -- 20261016000100 claim_drops_unwanted, 20261016000300 throttle_cap,
 -- 20261016000400 push_destinations_v2 for the enabled sweep, 20261018000100
 -- discord_destinations for the batch hold, 20261018000300 webhook_destinations
--- for the webhook hold, per-claim cap and retry policies).
+-- for the webhook hold, per-claim cap and retry policies, 20261021000600
+-- url_change_health for outcomes claimed before a URL change).
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(133);
+select plan(145);
 select pgmq.purge_queue('spot_events');
 select pgmq.purge_queue('deliveries_queue');
 
@@ -584,6 +585,72 @@ update destinations set claim_tokens = 0, claim_tokens_at = clock_timestamp() - 
 select is((select count(*) from claim_deliveries(200, 60)), 4::bigint, 'the four unattempted rows are claimed again');
 select results_eq($$ select status, dropped_at is not null, count(*) from deliveries group by 1, 2 order by 1 $$,
   $$ values ('dropped'::text, true, 1::bigint), ('pending', false, 4) $$, 'and only the attempted one is dropped');
+
+-- ---------------------------------------------------------------------------
+-- URL changes (20261021000600, #145): a batch claimed against the old URL
+-- marks its rows as before but leaves the new URL's health alone.
+-- ---------------------------------------------------------------------------
+select pg_temp.reset_queue();
+update webhook_destination_settings set batch_seconds = 0, retry_policy = 'three_10m', pause_after_failures = 1
+where destination_id = (select id from dw);
+update destinations set last_success_at = null, last_error = null, last_error_at = null,
+                        pause_failures = 0, pause_failure_at = null
+where id = (select id from dw);
+select pg_temp.queue((select id from dw), 'url-', 2, now());
+update destinations set claim_tokens = 0, claim_tokens_at = clock_timestamp() - interval '1 minute' where id = (select id from dw);
+create temp table uc as select * from claim_deliveries(200, 60);
+select is((select array_agg(distinct d.url_generation) from deliveries d where d.id in (select delivery_id from uc)),
+  array[0], 'the claim stamps the rows with the destination''s URL generation');
+select ok(not has_column_privilege('authenticated', 'public.destinations', 'url_generation', 'select')
+          and not has_column_privilege('authenticated', 'public.deliveries', 'url_generation', 'select'),
+  'url_generation is not in a client grant');
+
+select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
+reset role;
+-- update_destination is not granted to clients (api_call runs it), so call it
+-- as the owner with user 1's claims still set.
+select update_destination((select id from dw), null, 'https://shack.example.com/spots', null);
+select is((select url_generation from destinations where id = (select id from dw)), 0, 'the same URL keeps the generation');
+select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
+reset role;
+select update_destination((select id from dw), null, 'https://new.example.com/spots', null);
+select is((select url_generation from destinations where id = (select id from dw)), 1, 'a new URL bumps the generation');
+
+select mark_deliveries_failed(array(select delivery_id from uc order by delivery_id limit 1),
+                              array(select msg_id from uc order by delivery_id limit 1), 'HTTP 500 from the old URL', 30);
+select results_eq($$ select status, attempts, last_error from deliveries where id = (select min(delivery_id) from uc) $$,
+  $$ values ('failed'::text, 1, 'HTTP 500 from the old URL'::text) $$, 'a stale failure still marks its row');
+select results_eq(
+  $$ select consecutive_failures, last_error, health, pause_failures, enabled, auto_disabled_at is null
+     from destinations where id = (select id from dw) $$,
+  $$ values (0, null::text, 'ok'::text, 0, true, true) $$,
+  'but leaves the new URL''s failure count, error, health and pause count alone');
+select ok(pg_temp.vt_secs((select min(delivery_id) from uc)) between 55 and 60,
+  'and its retry still waits the policy''s delay');
+
+update destinations set throttled_until = now() + interval '1 hour', throttle_level = 2 where id = (select id from dw);
+select mark_deliveries_sent(array(select delivery_id from uc order by delivery_id desc limit 1),
+                            array(select msg_id from uc order by delivery_id desc limit 1));
+select results_eq($$ select status from deliveries where id = (select max(delivery_id) from uc) $$,
+  $$ values ('sent'::text) $$, 'a stale success marks its row sent');
+select ok(not exists (select 1 from pgmq.q_deliveries_queue q
+                      where (q.message ->> 'delivery_id')::bigint = (select max(delivery_id) from uc)),
+  'and archives its message');
+select results_eq($$ select last_success_at is null, throttled_until is not null, throttle_level
+                     from destinations where id = (select id from dw) $$,
+  $$ values (true, true, 2) $$, 'but does not touch the new URL''s success or throttle');
+
+-- Claimed again at the new URL, the outcome counts.
+update destinations set throttled_until = null, throttle_level = 0, claim_tokens = 0,
+                        claim_tokens_at = clock_timestamp() - interval '1 minute'
+where id = (select id from dw);
+update pgmq.q_deliveries_queue set vt = clock_timestamp() - interval '1 second';
+create temp table uc2 as select * from claim_deliveries(200, 60);
+select is((select array_agg(d.url_generation) from deliveries d where d.id in (select delivery_id from uc2)),
+  array[1], 'a row claimed again is stamped with the new generation');
+select mark_deliveries_failed(array(select delivery_id from uc2), array(select msg_id from uc2), 'HTTP 502', 30);
+select results_eq($$ select consecutive_failures, last_error, pause_failures, enabled from destinations where id = (select id from dw) $$,
+  $$ values (1, 'HTTP 502'::text, 1, false) $$, 'a current failure counts, toward the pause too');
 
 select * from finish();
 rollback;
