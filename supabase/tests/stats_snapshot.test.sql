@@ -4,7 +4,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(179);
+select plan(186);
 
 -- Start from empty tables so every count below is exact. Both are empty on a
 -- fresh CI database; locally the cron jobs may have filled them. deliveries
@@ -289,6 +289,15 @@ select is(pg_temp.snap() #> '{rbn,topStations}',
           'rbn.topStations by base call and spots, with distinct skimmers of any form of the call over the week');
 select is((select count(*) from rbn_daily_stations where callsign like 'K1ABC%'), 3::bigint,
           'the daily rollup keeps callsigns as spotted (K1ABC on one day, K1ABC/P on two)');
+-- The top stations' skimmers come from these lists (20261022000100), never from rbn_spots.
+select is_empty($$
+  select d.day, d.callsign from rbn_daily_stations d
+  where d.spotters is distinct from (
+    select array_agg(distinct r.spotter order by r.spotter) from rbn_spots r
+    where r.callsign = d.callsign
+      and r.spot_time >= d.day::timestamp at time zone 'utc'
+      and r.spot_time < (d.day + 1)::timestamp at time zone 'utc')$$,
+  'each daily station row lists that day''s distinct spotters of the call, sorted');
 
 -- The rollup: every window day once, old rollups gone.
 select is((select count(*) from rbn_rollup_days), 7::bigint, 'each window day is rolled up');
@@ -482,6 +491,21 @@ select lives_ok('select refresh_stats_snapshot()', 'refresh_stats_snapshot runs'
 select is(pg_temp.snap() #>> '{hourly,167,hour}',
           to_char(date_trunc('hour', now() at time zone 'utc') - interval '1 hour', 'YYYY-MM-DD"T"HH24":00:00Z"'),
           'refresh_stats_snapshot ends the hourly series at the last complete hour before now()');
+
+-- The two cron jobs (20261022000100): the :05 snapshot never makes a day rollup; rollup-stats-days
+-- at :01 makes them.
+delete from rbn_rollup_days;
+select lives_ok('select refresh_stats_snapshot()', 'the snapshot job runs with no day rolled up');
+select is((select count(*) from rbn_rollup_days), 0::bigint, 'the snapshot job makes no day rollup');
+select lives_ok('select refresh_stats_rollups()', 'refresh_stats_rollups runs');
+select is((select count(*) from rbn_rollup_days), 7::bigint, 'refresh_stats_rollups rolls up each window day');
+select is((select schedule from cron.job where jobname = 'rollup-stats-days'), '1 * * * *',
+          'rollup-stats-days runs at one past every hour');
+select ok(not has_function_privilege('authenticated', 'public.refresh_stats_rollups()', 'execute')
+          and not has_function_privilege('anon', 'public.refresh_stats_rollups()', 'execute')
+          and not has_function_privilege('authenticated', 'public.refresh_stats_rollups_at(timestamptz)', 'execute')
+          and not has_function_privilege('authenticated', 'public.build_stats_snapshot_at(timestamptz)', 'execute'),
+          'clients cannot run the rollups or build a snapshot');
 
 select * from finish();
 rollback;

@@ -783,14 +783,14 @@ isOneToOne: true
                   ]
                 },"rbn_daily_stations": {
                   Row: {
-                    "callsign": string,"day": string,"spots": number
+                    "callsign": string,"day": string,"spots": number,"spotters": (string)[]
                   }
                   ComputedFields: never
                   Insert: {
-                    "callsign": string,"day": string,"spots": number
+                    "callsign": string,"day": string,"spots": number,"spotters"?: (string)[]
                   }
                   Update: {
-                    "callsign"?: string,"day"?: string,"spots"?: number
+                    "callsign"?: string,"day"?: string,"spots"?: number,"spotters"?: (string)[]
                   }
                   Relationships: [
                     
@@ -1158,6 +1158,9 @@ isOneToOne: true
                            },
 "begin_sign_in_attempt":
 { Args: { "p_client": string,"p_identifier": string }; Returns: number
+                           },
+"build_stats_snapshot_at":
+{ Args: { "p_now": string }; Returns: undefined
                            },
 "cached_band_map":
 { Args: Record<PropertyKey, never>; Returns: Json
@@ -1621,6 +1624,12 @@ isOneToOne: true
                            },
 "record_sender_heartbeat":
 { Args: { "p_last_progress_at": string,"p_rss_bytes": number,"p_started_at": string }; Returns: undefined
+                           },
+"refresh_stats_rollups":
+{ Args: Record<PropertyKey, never>; Returns: undefined
+                           },
+"refresh_stats_rollups_at":
+{ Args: { "p_now": string }; Returns: undefined
                            },
 "refresh_stats_snapshot":
 { Args: Record<PropertyKey, never>; Returns: undefined

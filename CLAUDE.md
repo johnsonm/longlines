@@ -116,7 +116,10 @@ deploys automatically.
 ## Phase 3 stats rules
 
 - `stats_snapshots` is written only by `refresh_stats_snapshot()` from pg_cron; clients have
-  `select` only. It is the one table `anon` may read: the Stats page (`/stats`) is public and
+  `select` only. Day rollups (RBN, APRS-IS, countries, the RBN top stations) are a separate job
+  (`rollup-stats-days`, `refresh_stats_rollups()`, :01) so the :05 snapshot never runs one;
+  `refresh_stats_snapshot_at(p_now)` runs both for tests and seed. RBN top-station skimmers come
+  from `rbn_daily_stations.spotters`, never a week of `rbn_spots`. It is the one table `anon` may read: the Stats page (`/stats`) is public and
   renders in `AppShell` either way (signed out, the account sections are disabled). RBN figures come from the
   `rollup_rbn_day` tables (today's hours from `rollup_rbn_hours`), never from `rbn_spots` directly: the refresh runs hourly and the
   firehose is ~1.5M rows a day. APRS figures come from `aprs_packet_hours` and the `aprs_daily_*`

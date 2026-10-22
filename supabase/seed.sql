@@ -276,13 +276,14 @@ perform public.load_cty('seed',
     {"pattern":"JA","exact":false,"entity":"JA","continent":"AS","cq_zone":25,"itu_zone":45}]');
 perform public.backfill_callsign_rollups();
 
--- The first snapshot, so the page has data before the hourly cron runs. The
+-- The first snapshot, with the day rollups (refresh_stats_snapshot() alone makes none), so the
+-- page has data before the hourly cron runs. The
 -- migrations' own refresh already ran on empty tables and marked every window
 -- day as rolled up, so the RBN and country rollups are cleared first. It runs
 -- after load_cty so the world map has countries.
 delete from rbn_rollup_days;
 delete from country_rollup_days;
-perform public.refresh_stats_snapshot();
+perform public.refresh_stats_snapshot_at(now());
 
 -- The branch may reuse this connection, so leave nothing temporary behind.
 drop table seed_days, seed_states, seed_parks, seed_pota_activations, seed_pota_spots,

@@ -103,6 +103,8 @@ begin
   -- Stats snapshot: cron job exists and the refresh inserts one row.
   assert exists (select 1 from cron.job where jobname = 'refresh-stats-snapshot' and schedule = '5 * * * *'),
     'refresh-stats-snapshot should run at five past every hour';
+  assert exists (select 1 from cron.job where jobname = 'rollup-stats-days' and schedule = '1 * * * *'),
+    'rollup-stats-days should run at one past every hour';
   select count(*) into n from stats_snapshots;
   perform public.refresh_stats_snapshot();
   assert (select count(*) from stats_snapshots) = least(n + 1, 48),
