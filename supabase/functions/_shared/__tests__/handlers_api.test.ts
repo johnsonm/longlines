@@ -7,9 +7,11 @@ import {
   BAD_TOKEN,
   BODY_TOO_LARGE,
   handleApi,
+  MAX_BODY_BYTES,
   MAX_REQUESTS_PER_MINUTE,
   NOT_FOUND,
   READ_ONLY,
+  readBody,
   SERVER_ERROR,
   TOO_MANY_REQUESTS,
 } from "../handlers/api.ts";
@@ -86,6 +88,7 @@ Deno.test("handleApi answers a CORS preflight for every method without a token",
     "GET, POST, PUT, PATCH, DELETE, OPTIONS",
   );
   assertEquals(res.headers.get("Access-Control-Allow-Headers")?.includes("authorization"), true);
+  assertEquals(res.headers.get("Access-Control-Max-Age"), "600");
   assertEquals(calls.rpc, []);
 });
 
@@ -155,16 +158,43 @@ Deno.test("handleApi wants a JSON object body of the right shape", async () => {
   assertEquals([big.res.status, big.body], [413, { error: BODY_TOO_LARGE }]);
 });
 
+Deno.test("readBody refuses an oversized body without reading all of it", async () => {
+  const declared = new Request("http://x/", {
+    method: "POST",
+    body: "{}",
+    headers: { "content-length": String(MAX_BODY_BYTES + 1) },
+  });
+  assertEquals(await readBody(declared, MAX_BODY_BYTES), null);
+  await declared.body?.cancel();
+
+  let pulled = 0;
+  const chunk = new Uint8Array(1024).fill(32);
+  const endless = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      pulled++;
+      controller.enqueue(chunk);
+    },
+  });
+  const chunked = new Request("http://x/", { method: "POST", body: endless });
+  assertEquals(await readBody(chunked, 4096), null);
+  assertEquals(pulled <= 6, true, `pulled ${pulled} chunks`);
+
+  const small = new Request("http://x/", { method: "POST", body: '{"a":"é"}' });
+  assertEquals(await readBody(small, 4096), '{"a":"é"}');
+  assertEquals(await readBody(new Request("http://x/"), 4096), "");
+});
+
 Deno.test("handleApi passes SQL messages through with a matching status", async () => {
   const fail = (message: string, code = "P0001") =>
     run(request("DELETE", `/api/v1/destinations/${ID}`), {
       rpc: { api_call: { error: { message, code } } },
     });
-  const inUse = await fail("Remove it from its connections first.");
+  const inUse = await fail("Remove it from its connections first.", "LL409");
   assertEquals([inUse.res.status, inUse.body], [409, {
     error: "Remove it from its connections first.",
   }]);
-  assertEquals((await fail("Destination not found.")).res.status, 404);
+  assertEquals((await fail("Destination not found.", "LL404")).res.status, 404);
+  assertEquals((await fail("Destination not found.")).res.status, 400);
   const broken = await fail("deadlock detected", "40P01");
   assertEquals([broken.res.status, broken.body], [500, { error: SERVER_ERROR }]);
 });

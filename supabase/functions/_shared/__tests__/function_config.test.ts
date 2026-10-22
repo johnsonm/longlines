@@ -29,9 +29,11 @@ Deno.test("every function has a deno.json mapping supabase-js like the root one"
   assertEquals(missing, [], "functions without a deno.json");
 });
 
-Deno.test("archive's deno.json maps hyparquet-writer like the root one", () => {
-  const config = JSON.parse(Deno.readTextFileSync(new URL("archive/deno.json", functionsDir)));
-  assertEquals(config.imports?.["hyparquet-writer"], root.imports["hyparquet-writer"]);
+Deno.test("archive's and convert-archive's deno.json map hyparquet-writer like the root one", () => {
+  for (const name of ["archive", "convert-archive"]) {
+    const config = JSON.parse(Deno.readTextFileSync(new URL(`${name}/deno.json`, functionsDir)));
+    assertEquals(config.imports?.["hyparquet-writer"], root.imports["hyparquet-writer"], name);
+  }
 });
 
 // isServiceRole trusts a JWT's role claim without checking its signature,

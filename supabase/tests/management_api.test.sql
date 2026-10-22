@@ -2,7 +2,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(68);
+select plan(80);
 
 -- ---------------------------------------------------------------------------
 -- Tokens
@@ -123,13 +123,19 @@ select is(pg_temp.call('patch_subscription', jsonb_build_object('id', (select id
 -- Set a reference rule first, in its own statement, so the null patch below has something to keep.
 select pg_temp.call('patch_subscription', jsonb_build_object('id', (select id from sub),
   'body', '{"rules": [[{"field": "reference", "op": "contains", "values": ["US-1234"]}]]}'::jsonb));
+create temp table before_null as select name, enabled, quiet_minutes from subscriptions where id = (select id from sub);
 create temp table nulled as
   select pg_temp.call('patch_subscription', jsonb_build_object('id', (select id from sub),
     'body', '{"name": null, "rules": null, "enabled": null, "quiet_minutes": null, "sources": ["POTA"]}'::jsonb)) as s;
 grant all on nulled to authenticated;
+grant all on before_null to authenticated;
 select is((select s -> 'rules' from nulled), '[[{"field": "reference", "op": "contains", "values": ["US-1234"]}]]'::jsonb,
   'null rules in a patch keep the stored ones');
-select ok((select s ->> 'name' <> '' from nulled), 'a null name in a patch keeps the stored one');
+select is((select s ->> 'name' from nulled), (select name from before_null), 'a null name in a patch keeps the stored one');
+select is((select (s ->> 'enabled')::boolean from nulled), (select enabled from before_null),
+  'a null enabled in a patch keeps the stored value');
+select is((select (s ->> 'quiet_minutes')::int from nulled), (select quiet_minutes from before_null),
+  'a null quiet_minutes in a patch keeps the stored value');
 select is((select s -> 'sources' from nulled), '["pota"]'::jsonb,
   'a patch that mixes nulls with a list still applies the list');
 select is(pg_temp.call('replace_subscription', jsonb_build_object('id', (select id from sub),
@@ -167,7 +173,7 @@ select is(pg_temp.call('patch_subscription', jsonb_build_object('id', (select id
   'body', jsonb_build_object('destinations', jsonb_build_array((select id from dest))))) -> 'destinations',
   jsonb_build_array((select id from dest)), 'and get one back');
 select throws_ok(format($$ select pg_temp.call('delete_destination', '{"id": "%s"}') $$, (select id from dest)),
-  'Remove it from its connections first.');
+  'LL409', 'Remove it from its connections first.', 'a destination in use is LL409');
 
 -- Push: created without a URL, listed as "Your devices", and never given a URL.
 create temp table pushed as
@@ -176,6 +182,24 @@ select is((select j ->> 'url_display' from pushed), 'Your devices', 'the API cre
 select is((select count(*) from jsonb_array_elements(pg_temp.call('list_destinations')) d
            where d ->> 'type' = 'push' and d ->> 'url_display' = 'Your devices'), 1::bigint,
   'push is listed like any other destination');
+select throws_ok(format($$ select pg_temp.call('update_destination', '{"id": "%s", "type": "discord"}') $$,
+  (select id from dest)), 'The type can''t change.');
+select is(pg_temp.call('update_destination', jsonb_build_object('id', (select id from dest), 'type', 'webhook',
+  'name', 'Hook')) ->> 'type', 'webhook', 'a PATCH that repeats the stored type works');
+select throws_ok($$ select pg_temp.call('update_destination', '{"id": "0e7db3d0-52fa-4690-8f4a-79e468d6cf67", "type": "discord"}') $$,
+  'LL404', 'Destination not found.', 'a missing path resource is LL404');
+select throws_ok($$ select pg_temp.call('delete_group', '{"id": "0e7db3d0-52fa-4690-8f4a-79e468d6cf67"}') $$,
+  'LL404', 'Group not found.', 'a missing group is LL404');
+select throws_ok($$ select pg_temp.call('patch_subscription', '{"id": "0e7db3d0-52fa-4690-8f4a-79e468d6cf67", "body": {}}') $$,
+  'LL404', 'Connection not found.', 'a missing connection is LL404');
+select throws_ok($$ select pg_temp.call('create_subscription', '{"body": {"name": "x", "destinations": ["0e7db3d0-52fa-4690-8f4a-79e468d6cf67"]}}') $$,
+  'P0001', 'Destination not found.', 'a destination the body names but the caller lacks is a plain 400');
+select throws_ok($$ select pg_temp.read_call('create_group', '{"name":"x"}') $$, 'LL403', 'This token is read only.',
+  'a read-only token is LL403');
+select throws_ok($$ select pg_temp.call('create_subscription', '{"body": {"name": "x", "destinations": ["nope"]}}') $$,
+  'Not a destination id: nope.');
+select is(pg_temp.call('create_subscription', '{"body": {"name": "Null list", "destinations": null}}') -> 'destinations',
+  '[]'::jsonb, 'a null destinations list reads as left out');
 select throws_ok(format($$ select pg_temp.call('update_destination', '{"id": "%s", "url": "https://example.com/x"}') $$,
   (select j ->> 'id' from pushed)), 'Push notifications don''t use a URL.');
 -- Many push destinations per account (20261016000400), each with its settings and a device count.
@@ -193,6 +217,9 @@ select is((select count(*) from jsonb_array_elements(pg_temp.call('list_destinat
   'only push destinations carry push');
 -- Discord destinations (20261018000100) show their message settings, read only.
 select pg_temp.call('create_destination', '{"type": "discord", "name": "Chat", "url": "https://discord.com/api/webhooks/1/a"}');
+select throws_ok(format($$ select pg_temp.call('rotate_signing_secret', '{"id": "%s"}') $$,
+  (select d ->> 'id' from jsonb_array_elements(pg_temp.call('list_destinations')) d where d ->> 'name' = 'Chat')),
+  'P0001', 'Only a webhook has a signing secret.', 'rotating a Discord destination is a 400, not a 404');
 select is((select d -> 'discord' from jsonb_array_elements(pg_temp.call('list_destinations')) d where d ->> 'name' = 'Chat'),
   '{"style": "card", "footer": true, "separator": "dot", "bold_first": true, "card_color": "source", "title_link": "profile",
     "grid_fields": ["band", "spotter"], "line_fields": ["callsign", "frequency", "mode", "source", "reference", "place_name"],

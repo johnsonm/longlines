@@ -44,6 +44,7 @@ cd web && npm run sender               # the outbound sender against the local s
 supabase gen types typescript --local > web/src/lib/database.types.ts   # after schema changes
 
 SENDER_TEST_DATABASE_URL="$DB_URL" deno test -P sender/__tests__/db.test.ts   # the sender's RPC adapter against the local db (CI does this)
+PROFILE_LOCK_TEST_DATABASE_URL="$DB_URL" deno test -P supabase/functions/_shared/__tests__/profile_lock_db.test.ts   # the profile build lock with two sessions (CI does this)
 
 supabase db push                       # hosted: apply migrations
 supabase functions deploy ingest-pota  # hosted: deploy one function
@@ -441,6 +442,11 @@ The delivery side (retries, pause, attempts, rendering, Vault) is in "Delivery r
   from the `archive` function, configured by the `LONGLINES_ARCHIVE_S3_*` secrets. Its key is
   restricted to the bucket with `writeFiles` only; B2 keys never go in the web app, the relay or
   any other function. Locally the stack's Storage S3 endpoint stands in, so keep one code path.
+- `convert-archive` (issue #174) is a one-off, run by hand: it rewrites the pre-Parquet
+  `.ndjson.gz` slices through `encodeParquet` and `objectPath`, and deletes an NDJSON object only
+  after `archive_repoint_slice` has pointed its log row at the verified Parquet object. It needs a
+  key with `readFiles` and `deleteFiles` while it runs (`docs/OPERATIONS.md`); remove it, its RPCs
+  and the NDJSON notes once no `.ndjson.gz` row is left.
 
 ## Callsign rollup rules
 
@@ -757,7 +763,9 @@ screens and for notification text.
   before 2000, calls and references at most 64 characters, `source_spot_id` at most 256); the
   firehose row builders apply the same bounds, and `withoutNul` also makes strings well formed.
 - New functions start executable by `public`; `revoke all ... from public` leaves only
-  `service_role` (default privileges, `20261012000120`), then grant clients explicitly. New
+  `service_role` (default privileges, `20261012000120`), then grant clients explicitly. That holds
+  only for functions `postgres` owns (`supabase_admin`'s defaults still grant `anon` and
+  `authenticated`); `advisor.test.sql` fails on a public function with another owner. New
   functions pin `search_path` except one-expression SQL helpers that must stay inlinable.
   `supabase/tests/advisor.test.sql` lists the functions clients may call and the unpinned
   helpers, and fails on anything new.

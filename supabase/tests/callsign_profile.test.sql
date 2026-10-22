@@ -4,7 +4,7 @@
 -- Pins the payload shape: CallsignProfile in web/src/profile/types.ts.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(88);
+select plan(89);
 
 create or replace function pg_temp.d(p_offset int) returns date language sql as $$
   select (now() at time zone 'utc')::date + p_offset;
@@ -320,6 +320,9 @@ select is(array[record_profile_lookup('a'), record_profile_lookup('a'), record_p
 insert into lookup_rate_limits (client, window_start, lookups) values ('a', date_trunc('minute', now()) - interval '1 minute', 40);
 insert into callsign_profile_cache (callsign, payload, generated_at) values ('N0OLD', '{}', now() - interval '20 minutes');
 select lives_ok('select prune_callsign_lookups()', 'prune_callsign_lookups runs');
+select is((select count(*) from pg_proc where proname in ('cached_callsign_profile', 'prune_callsign_lookups')
+             and prosrc like '%profile_cache_ttl()%' and prosrc not like '%15 minutes%'), 2::bigint,
+  'the cache and the prune both read profile_cache_ttl()');
 select is((select array_agg((client, lookups)::text order by client) from lookup_rate_limits),
   array['(a,2)', '(b,1)'], 'prune drops finished windows only');
 select is((select array_agg(callsign) from callsign_profile_cache), array['KK4PWJ'], 'and expired cache entries');

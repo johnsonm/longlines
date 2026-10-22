@@ -35,6 +35,7 @@
       "env": [
         "LONGLINES_USER_AGENT_URL",
         "SENDER_TEST_DATABASE_URL",
+        "PROFILE_LOCK_TEST_DATABASE_URL",
         "PGAPPNAME",
         "PGTARGETSESSIONATTRS"
       ],

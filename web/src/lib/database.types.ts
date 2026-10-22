@@ -449,14 +449,14 @@ isOneToOne: false
                   ]
                 },"deliveries": {
                   Row: {
-                    "attempts": number,"created_at": string,"destination_id": string,"dropped_at": string | null,"id": number,"last_error": string | null,"last_failed_at": string | null,"sent_at": string | null,"spot_id": number,"status": string,"subscription_id": string
+                    "attempts": number,"created_at": string,"destination_id": string,"dropped_at": string | null,"id": number,"last_error": string | null,"last_failed_at": string | null,"sent_at": string | null,"spot_id": number,"status": string,"subscription_id": string,"url_generation": number | null
                   }
                   ComputedFields: never
                   Insert: {
-                    "attempts"?: number,"created_at"?: string,"destination_id": string,"dropped_at"?: string | null,"id"?: number,"last_error"?: string | null,"last_failed_at"?: string | null,"sent_at"?: string | null,"spot_id": number,"status"?: string,"subscription_id": string
+                    "attempts"?: number,"created_at"?: string,"destination_id": string,"dropped_at"?: string | null,"id"?: number,"last_error"?: string | null,"last_failed_at"?: string | null,"sent_at"?: string | null,"spot_id": number,"status"?: string,"subscription_id": string,"url_generation"?: number | null
                   }
                   Update: {
-                    "attempts"?: number,"created_at"?: string,"destination_id"?: string,"dropped_at"?: string | null,"id"?: number,"last_error"?: string | null,"last_failed_at"?: string | null,"sent_at"?: string | null,"spot_id"?: number,"status"?: string,"subscription_id"?: string
+                    "attempts"?: number,"created_at"?: string,"destination_id"?: string,"dropped_at"?: string | null,"id"?: number,"last_error"?: string | null,"last_failed_at"?: string | null,"sent_at"?: string | null,"spot_id"?: number,"status"?: string,"subscription_id"?: string,"url_generation"?: number | null
                   }
                   Relationships: [
                     {
@@ -487,14 +487,14 @@ isOneToOne: false
                   ]
                 },"destinations": {
                   Row: {
-                    "auto_disabled_at": string | null,"claim_due_at": string,"claim_tokens": number,"claim_tokens_at": string,"consecutive_failures": number,"created_at": string,"enabled": boolean,"health": string,"id": string,"last_error": string | null,"last_error_at": string | null,"last_success_at": string | null,"name": string,"pause_failure_at": string | null,"pause_failures": number,"secret_rotated_at": string | null,"signing_secret": string | null,"throttle_level": number,"throttled_until": string | null,"type": string,"url": string | null,"url_display": string,"user_id": string,"api_destination_json": Json | null
+                    "auto_disabled_at": string | null,"claim_due_at": string,"claim_tokens": number,"claim_tokens_at": string,"consecutive_failures": number,"created_at": string,"enabled": boolean,"health": string,"id": string,"last_error": string | null,"last_error_at": string | null,"last_success_at": string | null,"name": string,"pause_failure_at": string | null,"pause_failures": number,"secret_rotated_at": string | null,"signing_secret": string | null,"throttle_level": number,"throttled_until": string | null,"type": string,"url": string | null,"url_display": string,"url_generation": number,"user_id": string,"api_destination_json": Json | null
                   }
                   ComputedFields: "api_destination_json"
                   Insert: {
-                    "auto_disabled_at"?: string | null,"claim_due_at"?: string,"claim_tokens"?: number,"claim_tokens_at"?: string,"consecutive_failures"?: number,"created_at"?: string,"enabled"?: boolean,"health"?: string,"id"?: string,"last_error"?: string | null,"last_error_at"?: string | null,"last_success_at"?: string | null,"name": string,"pause_failure_at"?: string | null,"pause_failures"?: number,"secret_rotated_at"?: string | null,"signing_secret"?: string | null,"throttle_level"?: number,"throttled_until"?: string | null,"type": string,"url"?: string | null,"url_display": string,"user_id": string
+                    "auto_disabled_at"?: string | null,"claim_due_at"?: string,"claim_tokens"?: number,"claim_tokens_at"?: string,"consecutive_failures"?: number,"created_at"?: string,"enabled"?: boolean,"health"?: string,"id"?: string,"last_error"?: string | null,"last_error_at"?: string | null,"last_success_at"?: string | null,"name": string,"pause_failure_at"?: string | null,"pause_failures"?: number,"secret_rotated_at"?: string | null,"signing_secret"?: string | null,"throttle_level"?: number,"throttled_until"?: string | null,"type": string,"url"?: string | null,"url_display": string,"url_generation"?: number,"user_id": string
                   }
                   Update: {
-                    "auto_disabled_at"?: string | null,"claim_due_at"?: string,"claim_tokens"?: number,"claim_tokens_at"?: string,"consecutive_failures"?: number,"created_at"?: string,"enabled"?: boolean,"health"?: string,"id"?: string,"last_error"?: string | null,"last_error_at"?: string | null,"last_success_at"?: string | null,"name"?: string,"pause_failure_at"?: string | null,"pause_failures"?: number,"secret_rotated_at"?: string | null,"signing_secret"?: string | null,"throttle_level"?: number,"throttled_until"?: string | null,"type"?: string,"url"?: string | null,"url_display"?: string,"user_id"?: string
+                    "auto_disabled_at"?: string | null,"claim_due_at"?: string,"claim_tokens"?: number,"claim_tokens_at"?: string,"consecutive_failures"?: number,"created_at"?: string,"enabled"?: boolean,"health"?: string,"id"?: string,"last_error"?: string | null,"last_error_at"?: string | null,"last_success_at"?: string | null,"name"?: string,"pause_failure_at"?: string | null,"pause_failures"?: number,"secret_rotated_at"?: string | null,"signing_secret"?: string | null,"throttle_level"?: number,"throttled_until"?: string | null,"type"?: string,"url"?: string | null,"url_display"?: string,"url_generation"?: number,"user_id"?: string
                   }
                   Relationships: [
                     
@@ -1116,10 +1116,18 @@ isOneToOne: true
               "columns": Json,"row_count": number
             }[]
                            },
+"archive_ndjson_slices":
+{ Args: { "p_after_source": string,"p_after_start": string,"p_limit": number }; Returns: {
+              "object_path": string,"row_count": number,"slice_end": string,"slice_start": string,"source": string
+            }[]
+                           },
 "archive_pending_slices":
 { Args: { "p_before": string,"p_limit": number,"p_source": string }; Returns: {
               "slice_end": string,"slice_start": string
             }[]
+                           },
+"archive_repoint_slice":
+{ Args: { "p_bytes": number,"p_from_path": string,"p_row_count": number,"p_slice_start": string,"p_source": string,"p_to_path": string }; Returns: boolean
                            },
 "archive_slice_minutes":
 { Args: { "p_source": string }; Returns: number
@@ -1716,6 +1724,12 @@ isOneToOne: true
                            },
 "stats_payload_without_hidden":
 { Args: { "p_payload": Json }; Returns: Json
+                           },
+"subscription_quiet_minutes":
+{ Args: Record<PropertyKey, never>; Returns: (number)[]
+                           },
+"subscription_quiet_minutes_text":
+{ Args: Record<PropertyKey, never>; Returns: string
                            },
 "throttle_destination":
 { Args: { "p_destination_id": string,"p_msg_ids": (number)[],"p_seconds": number }; Returns: number

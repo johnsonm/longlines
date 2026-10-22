@@ -1,7 +1,10 @@
 import { assertEquals, assertRejects, assertThrows } from "@std/assert";
 import {
   amzDate,
+  deleteObject,
   encodeSegment,
+  getObject,
+  headObject,
   objectUrl,
   putObject,
   type S3Config,
@@ -146,6 +149,61 @@ Deno.test("putObject sends a signed PUT and surfaces the S3 error code", async (
     await assertRejects(() => putObject(cfg, "k", bytes, "x"), Error, "HTTP 403 AccessDenied");
     reply = new Response("bad gateway", { status: 502 });
     await assertRejects(() => putObject(cfg, "k", bytes, "x"), Error, "HTTP 502");
+  } finally {
+    await server.shutdown();
+  }
+});
+
+Deno.test("getObject, headObject and deleteObject send signed requests and read the answers", async () => {
+  const seen: Array<{ method: string; path: string; auth: string; hash: string | null }> = [];
+  let reply: () => Response = () => new Response("");
+  const server = Deno.serve({ hostname: "127.0.0.1", port: 0, onListen() {} }, (req) => {
+    seen.push({
+      method: req.method,
+      path: new URL(req.url).pathname,
+      auth: req.headers.get("authorization") ?? "",
+      hash: req.headers.get("x-amz-content-sha256"),
+    });
+    return reply();
+  });
+  try {
+    const cfg = config(`http://127.0.0.1:${server.addr.port}`);
+    const key = "rbn/2026/10/11/1410.ndjson.gz";
+    const now = new Date("2026-10-21T12:00:00Z");
+
+    reply = () => new Response(new Uint8Array([0x1f, 0x8b, 1]));
+    assertEquals(await getObject(cfg, key, now), new Uint8Array([0x1f, 0x8b, 1]));
+    reply = () => new Response("12345", { headers: { "content-length": "5" } });
+    assertEquals(await headObject(cfg, key, now), 5);
+    reply = () => new Response(null, { status: 204 });
+    await deleteObject(cfg, key, now);
+
+    assertEquals(seen.map((s) => `${s.method} ${s.path}`), [
+      `GET /longlines-archive/${key}`,
+      `HEAD /longlines-archive/${key}`,
+      `DELETE /longlines-archive/${key}`,
+    ]);
+    const emptyHash = await sha256Hex("");
+    for (const s of seen) {
+      assertEquals(s.hash, emptyHash);
+      assertEquals(
+        s.auth.startsWith(
+          "AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE/20261021/us-west-004/s3/aws4_request, " +
+            "SignedHeaders=host;x-amz-content-sha256;x-amz-date, Signature=",
+        ),
+        true,
+      );
+    }
+
+    reply = () => new Response("<Error><Code>NoSuchKey</Code></Error>", { status: 404 });
+    assertEquals(await getObject(cfg, key), null);
+    assertEquals(await headObject(cfg, key), null);
+    await deleteObject(cfg, key);
+
+    reply = () => new Response("<Error><Code>AccessDenied</Code></Error>", { status: 403 });
+    await assertRejects(() => getObject(cfg, key), Error, "HTTP 403 AccessDenied");
+    await assertRejects(() => headObject(cfg, key), Error, "HTTP 403");
+    await assertRejects(() => deleteObject(cfg, key), Error, "HTTP 403 AccessDenied");
   } finally {
     await server.shutdown();
   }

@@ -4,7 +4,7 @@
 -- the dashboard.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(5);
+select plan(6);
 
 create temp view public_functions as
 select p.oid, p.proname, p.proconfig
@@ -55,6 +55,15 @@ select ok(not has_function_privilege('anon', 'public.advisor_probe()', 'execute'
           and not has_function_privilege('authenticated', 'public.advisor_probe()', 'execute')
           and has_function_privilege('service_role', 'public.advisor_probe()', 'execute'),
   'a new function revoked from public is executable by service_role only');
+
+-- That holds only for functions postgres owns: supabase_admin's default privileges still grant new
+-- public functions to anon and authenticated, so one it created would stay callable after the
+-- revoke (#133). Extension members are left out.
+select is_empty(
+  $$select p.proname::text || ' (' || pg_get_userbyid(p.proowner) || ')' from pg_proc p
+    where p.pronamespace = 'public'::regnamespace and p.proowner <> 'postgres'::regrole
+      and not exists (select 1 from pg_depend d where d.objid = p.oid and d.deptype = 'e')$$,
+  'every function in public is owned by postgres');
 
 select * from finish();
 rollback;

@@ -2,7 +2,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(18);
+select plan(25);
 
 select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
 create temp table da as select * from create_destination('discord', 'A discord', 'https://discord.com/api/webhooks/1/a');
@@ -44,6 +44,16 @@ select throws_ok(format($f$ select save_subscription('{"name":" ","destinations"
   'P0001', 'Give the connection a name.', 'needs a name');
 select throws_ok(format($f$ select save_subscription('{"name":"x","quiet_minutes":7,"destinations":["%s"]}') $f$, (select id from db)),
   'P0001', 'quiet_minutes must be 0, 5, 10, 30 or 60.', 'quiet_minutes must be one of the allowed values');
+select throws_ok(format($f$ select save_subscription('{"name":"x","quiet_minutes":"%s"}') $f$, repeat('9', 140000)),
+  'P0001', 'quiet_minutes must be 0, 5, 10, 30 or 60.', 'a long numeric string gets the message, not an overflow');
+select throws_ok($f$ select save_subscription('{"name":"x","quiet_minutes":1e-400}') $f$,
+  'P0001', 'quiet_minutes must be 0, 5, 10, 30 or 60.', 'a tiny number is not read as 0');
+select ok((select save_subscription('{"name":"Quiet string","quiet_minutes":"30"}')) is not null, 'a short numeric string still saves');
+select throws_ok($f$ select save_subscription('{"name":"x","destinations":["nope"]}') $f$,
+  'P0001', 'Not a destination id: nope.', 'a destination id that is not a UUID gets a message');
+select throws_ok($f$ select save_subscription('{"name":"x","destinations":"nope"}') $f$,
+  'P0001', 'destinations must be a list.', 'destinations must be a list');
+select ok((select save_subscription('{"name":"Null destinations","destinations":null}')) is not null, 'a null destinations list saves as empty');
 
 -- A destination in use cannot be deleted.
 select throws_ok(format('delete from destinations where id = %L', (select id from db)), '23503', null, 'destination in use is protected');
@@ -53,6 +63,12 @@ select lives_ok(format('delete from destinations where id = %L', (select id from
 select pg_temp.as_user('22222222-2222-2222-2222-222222222222');
 select is((select count(*) from subscriptions), 0::bigint, 'other user sees no subscriptions');
 select throws_ok(format('select delete_subscription(%L)', (select id from s1)), 'P0001', 'Connection not found.', 'other user cannot delete');
+
+-- The helper is service-role only.
+reset role;
+select is(pg_get_constraintdef((select oid from pg_constraint where conname = 'subscriptions_quiet_minutes_check')),
+  format('CHECK ((quiet_minutes = ANY (ARRAY[%s])))', array_to_string(subscription_quiet_minutes(), ', ')),
+  'subscription_quiet_minutes() is the check constraint''s set');
 
 select * from finish();
 rollback;

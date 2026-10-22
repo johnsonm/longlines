@@ -45,6 +45,9 @@ jobs:
       # The Deno job skips these tests (no database); here they run as the stack's postgres user.
       - name: Sender database adapter
         run: SENDER_TEST_DATABASE_URL="$(supabase status -o env | grep '^DB_URL' | cut -d'"' -f2)" deno test -P sender/__tests__/db.test.ts
+      # cached_callsign_profile's build lock with two sessions (a builder and a waiter). Skipped by the Deno job.
+      - name: Profile build lock
+        run: PROFILE_LOCK_TEST_DATABASE_URL="$(supabase status -o env | grep '^DB_URL' | cut -d'"' -f2)" deno test -P supabase/functions/_shared/__tests__/profile_lock_db.test.ts
 
   web:
     name: Web app

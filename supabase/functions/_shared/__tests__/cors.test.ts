@@ -22,7 +22,21 @@ Deno.test("preflightResponse answers OPTIONS with 204 and the CORS headers", asy
   const res = preflightResponse(new Request("http://x/", { method: "OPTIONS" }));
   assertEquals(res?.status, 204);
   assertEquals(res?.headers.get("Access-Control-Allow-Origin"), "*");
+  assertEquals(res?.headers.get("Access-Control-Max-Age"), "600");
+  assertEquals(res?.headers.get("Access-Control-Allow-Methods"), "GET, POST, OPTIONS");
   await res?.body?.cancel();
+});
+
+Deno.test("preflightResponse takes a function's own methods", async () => {
+  const res = preflightResponse(new Request("http://x/", { method: "OPTIONS" }), "GET, PUT");
+  assertEquals(res?.headers.get("Access-Control-Allow-Methods"), "GET, PUT");
+  await res?.body?.cancel();
+});
+
+Deno.test("json lets browser code read Retry-After and Allow", async () => {
+  const res = json({ error: "slow down" }, 429, { "Retry-After": "15" });
+  assertEquals(res.headers.get("Access-Control-Expose-Headers"), "Retry-After, Allow");
+  await res.body?.cancel();
 });
 
 Deno.test("preflightResponse returns null for non-OPTIONS requests", () => {

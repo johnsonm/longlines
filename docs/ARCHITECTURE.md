@@ -799,8 +799,12 @@ Every spot of every source is kept for analytics as Parquet in a private Backbla
 (specs `docs/superpowers/specs/2026-10-11-rbn-firehose-archive-design.md` with its measurement
 amendment, `docs/superpowers/specs/2026-10-14-archive-parquet-design.md` and
 `docs/superpowers/specs/2026-10-14-archive-b2-design.md`). Slices archived
-before 2026-10-14 are gzipped NDJSON at `<source>/YYYY/MM/DD/HHMM.ndjson.gz` until a one-off
-migration rewrites them.
+before 2026-10-14 are gzipped NDJSON at `<source>/YYYY/MM/DD/HHMM.ndjson.gz` until the one-off
+`convert-archive` function rewrites them (issue #174; `_shared/archive_convert.ts`, RPCs
+`archive_ndjson_slices` and `archive_repoint_slice` in `20261021000700`): it decodes each object,
+checks its rows against `archive_log.row_count`, writes the Parquet the live archive would write
+(same `encodeParquet`, same `objectPath`), repoints the log row, and only then deletes the NDJSON
+object.
 
 - **Slices.** APRS-IS is archived in 5-minute slices, RBN in 10-minute slices, POTA, SOTAwatch,
   DX Cluster and WWFF hourly. The length lives only in `archive_slice_minutes(source)`; slices are aligned with `date_bin` and half-open

@@ -2,6 +2,7 @@ import { assertEquals, assertRejects, assertThrows } from "@std/assert";
 import {
   createAprsDb,
   createArchiveDb,
+  createConvertDb,
   createIngestDb,
   createRbnDb,
   createServiceClient,
@@ -221,5 +222,64 @@ Deno.test("archive RPC errors are thrown with the function name", async () => {
     () => db.logArchive({ source: "rbn", ...SLICE, row_count: 0, bytes: null, object_path: null }),
     Error,
     "log_archive failed: boom",
+  );
+});
+
+Deno.test("the conversion RPCs pass the cursor, the verified count and the new path", async () => {
+  const row = {
+    source: "rbn",
+    slice_start: "2026-10-11T14:10:00+00:00",
+    slice_end: "2026-10-11T14:20:00+00:00",
+    row_count: "3",
+    object_path: "rbn/2026/10/11/1410.ndjson.gz",
+  };
+  const { client, calls } = fakeSupabase({
+    rpc: { archive_ndjson_slices: { data: [row] }, archive_repoint_slice: { data: true } },
+  });
+  const db = createConvertDb(client);
+  const [slice] = await db.ndjsonSlices({ slice_start: row.slice_start, source: "pota" }, 5);
+  assertEquals(slice, { ...row, source: "rbn", row_count: 3 });
+  assertEquals(
+    await db.repointSlice(slice!, {
+      object_path: "rbn/year=2026/month=10/day=11/1410.parquet",
+      bytes: 9,
+    }),
+    true,
+  );
+  assertEquals(calls.rpc, [
+    {
+      fn: "archive_ndjson_slices",
+      args: { p_after_start: row.slice_start, p_after_source: "pota", p_limit: 5 },
+    },
+    {
+      fn: "archive_repoint_slice",
+      args: {
+        p_source: "rbn",
+        p_slice_start: row.slice_start,
+        p_from_path: row.object_path,
+        p_to_path: "rbn/year=2026/month=10/day=11/1410.parquet",
+        p_row_count: 3,
+        p_bytes: 9,
+      },
+    },
+  ]);
+  assertEquals(await createConvertDb(fakeSupabase().client).ndjsonSlices(null, 1), []);
+  assertEquals(
+    await createConvertDb(fakeSupabase({ rpc: { archive_repoint_slice: { data: false } } }).client)
+      .repointSlice(slice!, { object_path: "x", bytes: 1 }),
+    false,
+  );
+  const failing = createConvertDb(
+    fakeSupabase({ rpc: { archive_ndjson_slices: boom, archive_repoint_slice: boom } }).client,
+  );
+  await assertRejects(
+    () => failing.ndjsonSlices(null, 1),
+    Error,
+    "archive_ndjson_slices failed: boom",
+  );
+  await assertRejects(
+    () => failing.repointSlice(slice!, { object_path: "x", bytes: 1 }),
+    Error,
+    "archive_repoint_slice failed: boom",
   );
 });
