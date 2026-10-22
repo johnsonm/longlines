@@ -12,3 +12,4 @@ supabase/.branches/
 
 # Coverage output
 coverage/
+node_modules/

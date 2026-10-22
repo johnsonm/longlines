@@ -3,6 +3,7 @@
     "strict": true,
     "noUncheckedIndexedAccess": true
   },
+  "nodeModulesDir": "none",
   "imports": {
     "@supabase/supabase-js": "npm:@supabase/supabase-js@2",
     "@std/assert": "jsr:@std/assert@1",
@@ -19,6 +20,10 @@
     "coverage": "rm -rf coverage && deno test -P --coverage=coverage supabase/functions/_shared/__tests__/ relay/__tests__/ sender/__tests__/ && deno coverage --exclude=__tests__ coverage && deno coverage --lcov --output=coverage/lcov.info --exclude=__tests__ coverage && deno run --allow-read scripts/check-coverage.ts coverage/lcov.info 80"
   },
   "lint": {
+    "exclude": [
+      "deno.d.ts",
+      "node_modules/"
+    ],
     "rules": {
       "tags": [
         "recommended"
@@ -26,6 +31,10 @@
     }
   },
   "fmt": {
+    "exclude": [
+      "deno.d.ts",
+      "node_modules/"
+    ],
     "lineWidth": 100
   },
   "permissions": {

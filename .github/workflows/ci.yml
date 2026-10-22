@@ -20,6 +20,25 @@ jobs:
       # Runs the tests and fails below 80% line coverage or when a module is never loaded.
       - run: deno task coverage
 
+  deno-eslint:
+    name: Deno ESLint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - run: npm ci
+      # Strict typescript-eslint over supabase/functions, relay, sender and scripts;
+      # areas not yet refactored are on eslint.config.ts's pending list.
+      - run: npm run lint
+      - run: npm run typecheck
+
   migrations:
     name: Migrations on fresh Postgres
     runs-on: ubuntu-latest

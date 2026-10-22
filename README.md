@@ -50,6 +50,39 @@ npm run test:all     # every CI check, with a summary
 `web/package.json` lists the other scripts (`invoke:pota`, `db:match`, `sender`, `supabase:reset`
 and so on).
 
+## Linting the Deno code
+
+The Deno code (`supabase/functions`, `relay/`, `sender/`, `scripts/`) is also checked by strict
+typescript-eslint, from the root `package.json`. The rules and the areas still pending are in
+`eslint.config.ts`; the conventions are
+[docs/superpowers/specs/2026-10-22-strict-eslint-conventions.md](docs/superpowers/specs/2026-10-22-strict-eslint-conventions.md).
+
+```sh
+npm ci               # at the repository root
+npm run lint         # ESLint, zero warnings allowed
+npm run typecheck    # deno check every entrypoint and scripts/*.ts
+```
+
+`deno.d.ts` is the Deno runtime's type declarations for ESLint's type checker. After a Deno
+upgrade, regenerate it with `deno types > deno.d.ts` and commit it. After `npm i -D`, run any
+`deno` command and commit `deno.lock` too: Deno records the root `package.json`'s dependencies
+there.
+
+Why each dev dependency is there (JSON cannot hold comments):
+
+| Package | Why |
+| --- | --- |
+| `eslint` | The linter. |
+| `typescript-eslint` | The TypeScript parser and the `strictTypeChecked` rules. |
+| `typescript` | The type checker typescript-eslint runs on. |
+| `jiti` | Lets ESLint load `eslint.config.ts`, a TypeScript config. |
+| `@types/node` | Deno's timers (`setTimeout`, `clearTimeout`) come from its bundled Node types, which `deno types` leaves out of `deno.d.ts`. |
+| `@supabase/supabase-js`, `hyparquet`, `hyparquet-writer`, `postgres` | Types for the npm packages the code imports, at the versions in `deno.lock`. |
+| `@std/assert`, `@std/yaml` | Types for the JSR packages the tests import, from npm.jsr.io (`.npmrc`), at `deno.lock`'s versions. |
+
+Deno itself never reads `node_modules` (`"nodeModulesDir": "none"` in `deno.json`), and the
+function bundles and the relay and sender images do not include any of this.
+
 ## More
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): design and reasoning
