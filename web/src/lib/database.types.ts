@@ -1116,10 +1116,18 @@ isOneToOne: true
               "columns": Json,"row_count": number
             }[]
                            },
+"archive_ndjson_slices":
+{ Args: { "p_after_source": string,"p_after_start": string,"p_limit": number }; Returns: {
+              "object_path": string,"row_count": number,"slice_end": string,"slice_start": string,"source": string
+            }[]
+                           },
 "archive_pending_slices":
 { Args: { "p_before": string,"p_limit": number,"p_source": string }; Returns: {
               "slice_end": string,"slice_start": string
             }[]
+                           },
+"archive_repoint_slice":
+{ Args: { "p_bytes": number,"p_from_path": string,"p_row_count": number,"p_slice_start": string,"p_source": string,"p_to_path": string }; Returns: boolean
                            },
 "archive_slice_minutes":
 { Args: { "p_source": string }; Returns: number

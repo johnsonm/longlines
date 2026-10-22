@@ -1,5 +1,10 @@
 import { assertEquals, assertRejects, assertThrows } from "@std/assert";
-import { ARCHIVE_S3_ENV, archiveS3Config, createArchiveStore } from "../archive_store.ts";
+import {
+  ARCHIVE_S3_ENV,
+  archiveS3Config,
+  createArchiveObjectStore,
+  createArchiveStore,
+} from "../archive_store.ts";
 
 const ENV: Record<string, string> = {
   [ARCHIVE_S3_ENV.endpoint]: "https://s3.us-west-004.backblazeb2.com",
@@ -69,6 +74,38 @@ Deno.test("createArchiveStore PUTs Parquet to the bucket and names the path on f
       Error,
       "archive upload failed for p: HTTP 500 InternalError",
     );
+  } finally {
+    await server.shutdown();
+  }
+});
+
+Deno.test("createArchiveObjectStore reads, sizes and deletes, naming the path on failure", async () => {
+  const seen: string[] = [];
+  let status = 200;
+  const server = Deno.serve({ hostname: "127.0.0.1", port: 0, onListen() {} }, (req) => {
+    seen.push(`${req.method} ${new URL(req.url).pathname}`);
+    if (status !== 200) return new Response("<Error><Code>AccessDenied</Code></Error>", { status });
+    return new Response(req.method === "DELETE" ? null : "abc", {
+      status: req.method === "DELETE" ? 204 : 200,
+    });
+  });
+  try {
+    const store = createArchiveObjectStore(
+      archiveS3Config(env({ [ARCHIVE_S3_ENV.endpoint]: `http://127.0.0.1:${server.addr.port}` })),
+    );
+    const path = "rbn/2026/10/11/1410.ndjson.gz";
+    assertEquals(await store.read(path), new TextEncoder().encode("abc"));
+    assertEquals(await store.size(path), 3);
+    await store.remove(path);
+    assertEquals(seen, [
+      `GET /longlines-archive/${path}`,
+      `HEAD /longlines-archive/${path}`,
+      `DELETE /longlines-archive/${path}`,
+    ]);
+    status = 403;
+    await assertRejects(() => store.read(path), Error, `archive read failed for ${path}: HTTP 403`);
+    await assertRejects(() => store.size(path), Error, `archive size check failed for ${path}`);
+    await assertRejects(() => store.remove(path), Error, `archive delete failed for ${path}`);
   } finally {
     await server.shutdown();
   }

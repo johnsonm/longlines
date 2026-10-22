@@ -1,0 +1,24 @@
+{
+  "row_count": 1,
+  "columns": {
+    "source": ["dxcluster"],
+    "source_spot_id": ["G1FEF-2:1410:K1ABC"],
+    "content_hash": ["h4"],
+    "spot_time": [1791727800000],
+    "ingested_at": [1791727802000],
+    "callsign": ["VP8/G0ABC"],
+    "spotter": ["K1ABC-#"],
+    "frequency_khz": [14025.000],
+    "band": ["20m"],
+    "mode": [null],
+    "mode_family": [null],
+    "comment": ["UP 2 <script>"],
+    "pota_reference": [null],
+    "pota_park_name": [null],
+    "pota_location": [null],
+    "sota_summit_ref": [null],
+    "wwff_reference": [null],
+    "wwff_reference_name": [null],
+    "raw_payload": ["{\"line\": \"DX de K1ABC-#: 14025.0 VP8/G0ABC UP 2 <script> 1410Z\"}"]
+  }
+}

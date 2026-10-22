@@ -1,0 +1,26 @@
+{
+  "row_count": 1,
+  "columns": {
+    "source": ["sotawatch"],
+    "source_spot_id": ["777"],
+    "content_hash": ["h3"],
+    "spot_time": [1791728400000],
+    "ingested_at": [1791728460500],
+    "callsign": ["G4ABC/P"],
+    "spotter": ["G4ABC"],
+    "frequency_khz": [10118.000],
+    "band": ["30m"],
+    "mode": ["cw"],
+    "mode_family": ["cw"],
+    "comment": ["tnx"],
+    "pota_reference": [null],
+    "pota_park_name": [null],
+    "pota_location": [null],
+    "sota_summit_ref": ["G/LD-001"],
+    "wwff_reference": [null],
+    "wwff_reference_name": [null],
+    "raw_payload": [
+      "{\"id\": 777, \"type\": null, \"summitCode\": \"LD-001\", \"associationCode\": \"G\"}"
+    ]
+  }
+}

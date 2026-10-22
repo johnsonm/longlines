@@ -12,9 +12,12 @@ import type {
   ArchiveDb,
   ArchiveLogEntry,
   ArchiveSlice,
+  ConvertCursor,
+  ConvertDb,
   IngestDb,
   InsertedSpot,
   LicenseDb,
+  NdjsonSlice,
   NormalizedSpot,
   RbnDb,
   RbnSpotRow,
@@ -183,6 +186,34 @@ export function createArchiveDb(client: SupabaseClient): ArchiveDb {
         p_object_path: entry.object_path,
       });
       if (error) throw new Error(`log_archive failed: ${error.message}`);
+    },
+  };
+}
+
+/** The one-off NDJSON conversion's RPCs (20261021000700). */
+export function createConvertDb(client: SupabaseClient): ConvertDb {
+  return {
+    async ndjsonSlices(after: ConvertCursor | null, limit: number): Promise<NdjsonSlice[]> {
+      const { data, error } = await client.rpc("archive_ndjson_slices", {
+        p_after_start: after?.slice_start ?? null,
+        p_after_source: after?.source ?? null,
+        p_limit: limit,
+      });
+      if (error) throw new Error(`archive_ndjson_slices failed: ${error.message}`);
+      return ((data ?? []) as NdjsonSlice[]).map((s) => ({ ...s, row_count: Number(s.row_count) }));
+    },
+
+    async repointSlice(slice: NdjsonSlice, to: { object_path: string; bytes: number }) {
+      const { data, error } = await client.rpc("archive_repoint_slice", {
+        p_source: slice.source,
+        p_slice_start: slice.slice_start,
+        p_from_path: slice.object_path,
+        p_to_path: to.object_path,
+        p_row_count: slice.row_count,
+        p_bytes: to.bytes,
+      });
+      if (error) throw new Error(`archive_repoint_slice failed: ${error.message}`);
+      return data === true;
     },
   };
 }
