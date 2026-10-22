@@ -9,8 +9,9 @@
 //
 // Usage: deno run --allow-read scripts/check-coverage.ts <lcov.info> <min line %>
 
-const [lcovPath, minArg] = Deno.args;
-if (!lcovPath || !minArg) {
+const lcovPath = Deno.args[0];
+const minArg = Deno.args[1];
+if (lcovPath === undefined || lcovPath === "" || minArg === undefined || minArg === "") {
   console.error("usage: check-coverage.ts <lcov.info> <min line %>");
   Deno.exit(2);
 }
@@ -54,34 +55,60 @@ for (const line of (await Deno.readTextFile(lcovPath)).split("\n")) {
   if (line.startsWith("SF:")) {
     const path = line.slice(3);
     const root = ROOTS.find((r) => path.startsWith(r.dir));
-    current = root ? totals.get(root.dir) : undefined;
-    currentRel = root ? path.slice(root.dir.length) : "";
-  } else if (!current) continue;
-  else if (line.startsWith("LF:")) current.found += Number(line.slice(3));
-  else if (line.startsWith("LH:")) current.hit += Number(line.slice(3));
-  else if (line === "end_of_record") current.reported.add(currentRel);
+    if (root === undefined) {
+      current = undefined;
+      currentRel = "";
+    } else {
+      current = totals.get(root.dir);
+      currentRel = path.slice(root.dir.length);
+    }
+  } else if (current === undefined) {
+    continue;
+  } else if (line.startsWith("LF:")) {
+    current.found += Number(line.slice(3));
+  } else if (line.startsWith("LH:")) {
+    current.hit += Number(line.slice(3));
+  } else if (line === "end_of_record") {
+    current.reported.add(currentRel);
+  }
 }
 
 async function* sources(dir: string, prefix = ""): AsyncGenerator<string> {
   for await (const entry of Deno.readDir(dir)) {
     const rel = prefix + entry.name;
-    if (entry.isDirectory) yield* sources(`${dir}${entry.name}/`, `${rel}/`);
-    else if (rel.endsWith(".ts")) yield rel;
+    if (entry.isDirectory) {
+      yield* sources(`${dir}${entry.name}/`, `${rel}/`);
+    } else if (rel.endsWith(".ts")) {
+      yield rel;
+    }
   }
 }
 
 let failed = false;
 for (const root of ROOTS) {
-  const { found, hit, reported } = totals.get(root.dir)!;
+  const total = totals.get(root.dir);
+  if (total === undefined) {
+    throw new Error(`check-coverage.ts: no totals for ${root.dir}`);
+  }
   const missing: string[] = [];
   for await (const rel of sources(root.dir)) {
-    if (!root.skip.some((re) => re.test(rel)) && !reported.has(rel)) missing.push(rel);
+    if (!root.skip.some((re) => re.test(rel)) && !total.reported.has(rel)) {
+      missing.push(rel);
+    }
   }
-  const pct = found === 0 ? 0 : (hit / found) * 100;
-  console.log(`${root.name} line coverage: ${pct.toFixed(1)}% (${hit}/${found}, minimum ${min}%)`);
+  let pct = 0;
+  if (total.found !== 0) {
+    pct = (total.hit / total.found) * 100;
+  }
+  const lines = `${String(total.hit)}/${String(total.found)}`;
+  console.log(`${root.name} line coverage: ${pct.toFixed(1)}% (${lines}, minimum ${String(min)}%)`);
   if (missing.length > 0) {
     console.error(`No test loads these modules:\n  ${missing.sort().join("\n  ")}`);
   }
-  if (pct < min || missing.length > 0) failed = true;
+  if (pct < min || missing.length > 0) {
+    failed = true;
+  }
 }
-if (failed) Deno.exit(1);
+if (failed) {
+  Deno.exit(1);
+}

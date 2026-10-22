@@ -7,7 +7,11 @@
 
 import { generateVapidKeys } from "../supabase/functions/_shared/delivery/webpush.ts";
 
-const subject = Deno.args[0] ?? "";
+let subject = "";
+const first = Deno.args[0];
+if (first !== undefined) {
+  subject = first;
+}
 if (!subject.startsWith("mailto:")) {
   console.error("Usage: deno run scripts/generate-vapid-keys.ts mailto:you@example.com");
   Deno.exit(1);
