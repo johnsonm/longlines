@@ -54,7 +54,7 @@ Times are UTC.
 | `health-sample` | every minute | `record_health_sample()`, the Health page's history |
 | `archive-aprs` | every 5 minutes | the `archive` function for APRS-IS only (`{"sources": ["aprs"]}`) |
 | `archive-spots` | every 10 minutes | `archive` for POTA, SOTAwatch, DX Cluster, WWFF and RBN |
-| `refresh-stats-snapshot` | :05 hourly | `refresh_stats_snapshot()` |
+| `refresh-stats-snapshot` | :05 hourly | `refresh_stats_snapshot()`, with a 10-minute statement timeout |
 | `prune-callsign-lookups` | :15 hourly | `prune_callsign_lookups()` |
 | `rollup-callsign-days` | :25 hourly | `backfill_callsign_rollups(2)` |
 | `apply-license-loads` | :50 hourly | `apply_license_loads()` |
@@ -542,7 +542,12 @@ select refresh_stats_snapshot();
 select generated_at, payload->'totals' from stats_snapshots order by generated_at desc limit 1;
 ```
 
-`cron.job_run_details` shows failed runs under that job name.
+`cron.job_run_details` shows failed runs under that job name. The 00:05 and 01:05 runs roll up the
+previous UTC day (RBN, APRS-IS and countries; 01:05 again, for late rows) and take a minute or two;
+the others take seconds. The job's command sets `statement_timeout` to 10 minutes for that reason
+(`20261022000100`): the cron session's default is 2 minutes, and a function can't extend the
+timeout of the statement that called it. A "canceling statement due to statement timeout" failure
+on those runs means the day rollups have outgrown that budget too.
 
 ## Web app on Vercel
 
