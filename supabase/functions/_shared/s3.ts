@@ -1,4 +1,5 @@
-// Minimal S3 client: one signed PutObject. The archive writes to Backblaze B2
+// Minimal S3 client: signed PutObject, plus GetObject, HeadObject and DeleteObject
+// for the one-off NDJSON conversion (archive_convert.ts). The archive writes to Backblaze B2
 // through its S3-compatible API (local Supabase Storage speaks the same API, so
 // development needs no B2 account). Signature Version 4 over WebCrypto, no
 // dependency; the tests pin AWS's published examples.
@@ -28,7 +29,7 @@ export interface SigV4Request {
   secretAccessKey: string;
 }
 
-const UPLOAD_TIMEOUT_MS = 20_000;
+const REQUEST_TIMEOUT_MS = 20_000;
 const encoder = new TextEncoder();
 
 function hex(bytes: ArrayBuffer): string {
@@ -102,6 +103,51 @@ export function objectUrl(config: S3Config, key: string): URL {
   return new URL(`${config.endpoint.origin}${prefix}/${path}`);
 }
 
+/**
+ * One signed request for an object. The payload hash is the body's real SHA-256
+ * (the empty string's for GET, HEAD and DELETE).
+ */
+async function sendSigned(
+  config: S3Config,
+  method: "PUT" | "GET" | "HEAD" | "DELETE",
+  key: string,
+  now: Date,
+  body?: { bytes: Uint8Array; contentType: string },
+): Promise<Response> {
+  const url = objectUrl(config, key);
+  const signed: Record<string, string> = {
+    ...(body ? { "content-type": body.contentType } : {}),
+    host: url.host,
+    "x-amz-content-sha256": await sha256Hex(body?.bytes ?? ""),
+    "x-amz-date": amzDate(now),
+  };
+  const authorization = await sigV4Authorization({
+    method,
+    path: url.pathname,
+    headers: signed,
+    payloadHash: signed["x-amz-content-sha256"]!,
+    region: config.region,
+    service: "s3",
+    accessKeyId: config.accessKeyId,
+    secretAccessKey: config.secretAccessKey,
+  });
+  // fetch sets Host from the URL; the other signed headers go as signed.
+  const { host: _host, ...headers } = signed;
+  return await fetch(url, {
+    method,
+    headers: { ...headers, Authorization: authorization, "User-Agent": userAgent() },
+    ...(body ? { body: body.bytes as Uint8Array<ArrayBuffer> } : {}),
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  });
+}
+
+/** Throws for a non-2xx answer, naming S3's error code when the body has one. */
+function httpError(response: Response, text: string): Error {
+  // S3 errors are XML with a <Code>; it says more than the status alone.
+  const code = /<Code>([^<]*)<\/Code>/.exec(text)?.[1];
+  return new Error(`HTTP ${response.status}${code ? ` ${code}` : ""}`);
+}
+
 /** PUTs one object, replacing any at that key. Throws on non-2xx or timeout. */
 export async function putObject(
   config: S3Config,
@@ -110,35 +156,53 @@ export async function putObject(
   contentType: string,
   now: Date = new Date(),
 ): Promise<void> {
-  const url = objectUrl(config, key);
-  const signed = {
-    "content-type": contentType,
-    host: url.host,
-    "x-amz-content-sha256": await sha256Hex(body),
-    "x-amz-date": amzDate(now),
-  };
-  const authorization = await sigV4Authorization({
-    method: "PUT",
-    path: url.pathname,
-    headers: signed,
-    payloadHash: signed["x-amz-content-sha256"],
-    region: config.region,
-    service: "s3",
-    accessKeyId: config.accessKeyId,
-    secretAccessKey: config.secretAccessKey,
-  });
-  // fetch sets Host from the URL; the other signed headers go as signed.
-  const { host: _host, ...headers } = signed;
-  const response = await fetch(url, {
-    method: "PUT",
-    headers: { ...headers, Authorization: authorization, "User-Agent": userAgent() },
-    body: body as Uint8Array<ArrayBuffer>,
-    signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
-  });
+  const response = await sendSigned(config, "PUT", key, now, { bytes: body, contentType });
   const text = await response.text();
-  if (!response.ok) {
-    // S3 errors are XML with a <Code>; it says more than the status alone.
-    const code = /<Code>([^<]*)<\/Code>/.exec(text)?.[1];
-    throw new Error(`HTTP ${response.status}${code ? ` ${code}` : ""}`);
+  if (!response.ok) throw httpError(response, text);
+}
+
+/**
+ * GETs one object's bytes as stored, or null when there is none (404).
+ * Throws on any other non-2xx or a timeout.
+ */
+export async function getObject(
+  config: S3Config,
+  key: string,
+  now: Date = new Date(),
+): Promise<Uint8Array | null> {
+  const response = await sendSigned(config, "GET", key, now);
+  if (response.status === 404) {
+    await response.body?.cancel();
+    return null;
   }
+  if (!response.ok) throw httpError(response, await response.text());
+  return new Uint8Array(await response.arrayBuffer());
+}
+
+/** An object's size from a HEAD, or null when there is none (404). Throws otherwise. */
+export async function headObject(
+  config: S3Config,
+  key: string,
+  now: Date = new Date(),
+): Promise<number | null> {
+  const response = await sendSigned(config, "HEAD", key, now);
+  await response.body?.cancel();
+  if (response.status === 404) return null;
+  if (!response.ok) throw httpError(response, "");
+  const length = Number(response.headers.get("content-length"));
+  if (!Number.isSafeInteger(length) || length < 0) {
+    throw new Error("HEAD answered without a Content-Length");
+  }
+  return length;
+}
+
+/** DELETEs one object; an object already gone is not an error. Throws on any other non-2xx. */
+export async function deleteObject(
+  config: S3Config,
+  key: string,
+  now: Date = new Date(),
+): Promise<void> {
+  const response = await sendSigned(config, "DELETE", key, now);
+  const text = await response.text();
+  if (!response.ok && response.status !== 404) throw httpError(response, text);
 }

@@ -441,6 +441,11 @@ The delivery side (retries, pause, attempts, rendering, Vault) is in "Delivery r
   from the `archive` function, configured by the `LONGLINES_ARCHIVE_S3_*` secrets. Its key is
   restricted to the bucket with `writeFiles` only; B2 keys never go in the web app, the relay or
   any other function. Locally the stack's Storage S3 endpoint stands in, so keep one code path.
+- `convert-archive` (issue #174) is a one-off, run by hand: it rewrites the pre-Parquet
+  `.ndjson.gz` slices through `encodeParquet` and `objectPath`, and deletes an NDJSON object only
+  after `archive_repoint_slice` has pointed its log row at the verified Parquet object. It needs a
+  key with `readFiles` and `deleteFiles` while it runs (`docs/OPERATIONS.md`); remove it, its RPCs
+  and the NDJSON notes once no `.ndjson.gz` row is left.
 
 ## Callsign rollup rules
 

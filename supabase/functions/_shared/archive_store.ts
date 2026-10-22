@@ -3,8 +3,8 @@
 // application key restricted to the archive bucket and `writeFiles`; locally,
 // the stack's own Storage S3 endpoint and its `archive` bucket.
 
-import { putObject, type S3Config } from "./s3.ts";
-import type { ArchiveStore } from "./types.ts";
+import { deleteObject, getObject, headObject, putObject, type S3Config } from "./s3.ts";
+import type { ArchiveObjectStore, ArchiveStore } from "./types.ts";
 
 export const ARCHIVE_S3_ENV = {
   endpoint: "LONGLINES_ARCHIVE_S3_ENDPOINT",
@@ -48,14 +48,34 @@ export function archiveS3Config(get: (name: string) => string | undefined): S3Co
 }
 
 export function createArchiveStore(config: S3Config): ArchiveStore {
+  return createArchiveObjectStore(config);
+}
+
+/** Prefixes a store failure with what it was doing and to which path. */
+async function naming<T>(what: string, path: string, run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`archive ${what} failed for ${path}: ${message}`);
+  }
+}
+
+/**
+ * The bucket with read, size and delete as well as upload, for the one-off
+ * NDJSON conversion (archive_convert.ts). Its key needs readFiles and
+ * deleteFiles on top of writeFiles (docs/OPERATIONS.md).
+ */
+export function createArchiveObjectStore(config: S3Config): ArchiveObjectStore {
   return {
-    async upload(path: string, bytes: Uint8Array): Promise<void> {
-      try {
-        await putObject(config, path, bytes, "application/vnd.apache.parquet");
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        throw new Error(`archive upload failed for ${path}: ${message}`);
-      }
-    },
+    read: (path) => naming("read", path, () => getObject(config, path)),
+    size: (path) => naming("size check", path, () => headObject(config, path)),
+    remove: (path) => naming("delete", path, () => deleteObject(config, path)),
+    upload: (path, bytes) =>
+      naming(
+        "upload",
+        path,
+        () => putObject(config, path, bytes, "application/vnd.apache.parquet"),
+      ),
   };
 }

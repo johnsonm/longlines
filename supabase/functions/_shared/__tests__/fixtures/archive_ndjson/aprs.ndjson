@@ -1,0 +1,3 @@
+{"received_at":"2026-10-11T17:55:00.25+00:00","source_call":"N0CALL-9","destination":"APRS","path":"WIDE1-1,WIDE2-1","q_construct":"qAR","igate":"W1ABC-10","packet_type":"position","line":"N0CALL-9>APRS,WIDE1-1,WIDE2-1,qAR,W1ABC-10:!4237.14N/07120.83W>"}
+{"received_at":"2026-10-11T17:56:30+00:00","source_call":"K1XYZ","destination":"APDR16","path":"","q_construct":null,"igate":null,"packet_type":"status","line":"K1XYZ>APDR16:>back,\"raw_payload\":soon"}
+{"received_at":"2026-10-11T17:59:59.999999+00:00","source_call":"VK2ABC","destination":"APRS","path":"TCPIP*","q_construct":"qAC","igate":"T2SYDNEY","packet_type":"message","line":"VK2ABC>APRS,TCPIP*,qAC,T2SYDNEY::N0CALL   :hi {1"}

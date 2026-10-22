@@ -1,0 +1,22 @@
+{
+  "row_count": 3,
+  "columns": {
+    "spot_time": [1791727800000, 1791727920000, 1791728399000],
+    "received_at": [1791727801001, 1791727923123, 1791728400000],
+    "spotter": ["W3LPL-#", "DK8NE-#", "EA8BFK-#"],
+    "callsign": ["K1ABC", "JA1XYZ/P", "ÖH2XX"],
+    "frequency_khz": [14035.100, 7074.000, 3525.000],
+    "band": ["20m", "40m", null],
+    "mode": ["cw", "ft8", null],
+    "mode_family": ["cw", "digital", null],
+    "snr": [12, -14, 3],
+    "speed": [22, 0, 18],
+    "speed_unit": ["WPM", "BPS", "WPM"],
+    "spot_type": ["CQ", "CQ", "BEACON"],
+    "line": [
+      "DX de W3LPL-#:  14035.1  K1ABC  CW 12 dB 22 WPM CQ 1410Z",
+      "DX de DK8NE-#:   7074.0  JA1XYZ/P FT8 -14 dB CQ \"quoted\" 1412Z",
+      "DX de EA8BFK-#: tab\there"
+    ]
+  }
+}

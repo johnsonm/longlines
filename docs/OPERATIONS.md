@@ -918,6 +918,72 @@ select source, count(*), sum(bytes) from archive_log where object_path is not nu
 rclone size b2:<bucket>    # object count matches the log's total (plus any old .ndjson.gz)
 ```
 
+## Converting the NDJSON slices to Parquet (one-off)
+
+Slices archived before 2026-10-14 are gzipped NDJSON at `<source>/YYYY/MM/DD/HHMM.ndjson.gz`.
+The `convert-archive` function (issue #174) rewrites each as Parquet at its live path, so the
+bucket holds one dataset. Start only once Parquet is deployed and "Is it keeping up?" (below) is
+clean. For each slice, oldest first, it reads the object, checks the decoded row count against
+`archive_log.row_count`, uploads the Parquet the live archive would write, checks its size with a
+HEAD, repoints the log row (`archive_repoint_slice`: path and bytes, only while the row still names
+that NDJSON object with that count), and only then deletes the NDJSON object. A failure at any step
+before the repoint leaves the slice as it was. For RBN and APRS-IS days retention has retired, the
+NDJSON object is the only copy, so never delete one by hand before its row points at Parquet.
+
+Before the first run:
+
+1. **The key.** The `archive` function's key has `writeFiles` only. Reading and deleting also need
+   `readFiles` and `deleteFiles` (a HEAD counts as a read). Either create a temporary key and point
+   the five `LONGLINES_ARCHIVE_S3_*` secrets at it for the duration, or check what the current key
+   allows; B2 shows a key's capabilities with `b2 key list --long`:
+   ```sh
+   b2 key create --bucket <bucket> longlines-archive-convert listFiles,readFiles,writeFiles,deleteFiles
+   supabase secrets set LONGLINES_ARCHIVE_S3_ACCESS_KEY_ID=<keyID> \
+     LONGLINES_ARCHIVE_S3_SECRET_ACCESS_KEY=<applicationKey>
+   ```
+   The secrets are shared with `archive`, which keeps working with the wider key. Put the
+   `writeFiles`-only key back afterwards and delete the temporary one.
+2. **Versions.** A B2 bucket keeps all versions by default, so an S3 delete only hides the NDJSON
+   object and its bytes stay billed. That is a safety net while converting; once done, a lifecycle
+   rule (or `b2 rm --versions`) removes hidden versions if the space matters.
+3. **Deploy.** `supabase db push` (migration `20261021000700`), then
+   `supabase functions deploy convert-archive` (a new function, so the GitHub integration skips it).
+
+Run it by hand with the service-role JWT (no cron job calls it). A batch is 10 slices by default
+(`{"limit": n}`, at most 100) and stops early once it has read 60,000 rows, which keeps a run
+inside the function's CPU budget:
+
+```sh
+curl -sX POST "$SUPABASE_URL/functions/v1/convert-archive" \
+  -H "Authorization: Bearer <service-role JWT>" -H "Content-Type: application/json" \
+  -d '{"limit": 1}'      # try one slice first, then larger batches
+```
+
+The answer says how many slices it `converted` and lists any `failed` slices with the reason
+(`row count mismatch`, `NDJSON object missing`, an S3 error); it answers 500 when any failed.
+Converted slices are not listed again, so the same call simply continues. A failed slice heads
+every batch until it is dealt with; to step past it, send the answer's `next` as the cursor
+(`-d '{"after": {"slice_start": "...", "source": "rbn"}}'`) and keep passing each answer's `next`
+until it is null. A run without `after` retries the failures. `undeleted` lists NDJSON objects
+whose slice was converted and logged but whose delete failed; those are leftovers, safe to delete
+by hand. Progress:
+
+```sql
+select source, count(*), sum(row_count) from archive_log
+where object_path like '%.ndjson.gz' group by 1;   -- what is left
+```
+
+A mismatched slice keeps its NDJSON object and log row. If its rows are still in the database,
+"Re-archive a slice" (below) rewrites it as Parquet from the database; delete the old object by hand
+afterwards. If they are not, the NDJSON object is the only copy: leave it, and note it.
+
+When the query above returns nothing (mismatches aside), remove the tool: delete the function
+(`supabase functions delete convert-archive`), its directory, `_shared/archive_convert.ts`, its
+handler and tests and its `config.toml` entry, and add a migration dropping
+`archive_ndjson_slices` and `archive_repoint_slice`. Then drop the NDJSON notes from "Reading the
+archive", "Re-archive a slice" and "Rebuilding a day from the archive" here and from
+`docs/ARCHITECTURE.md`, and restore the `writeFiles`-only key.
+
 ## Is it keeping up?
 
 ```sql
@@ -938,7 +1004,7 @@ delete from archive_log where source = 'rbn' and slice_start = '2026-10-11 14:10
 
 The next run rewrites the object at the same path. A slice first archived as NDJSON (before
 2026-10-14) comes back as Parquet at its new path; the old `.ndjson.gz` object stays until it is
-deleted by hand or by the NDJSON migration.
+deleted by hand (`convert-archive` no longer sees it, since the log row now names the Parquet object).
 
 ## Retention
 
@@ -970,8 +1036,8 @@ where year = 2026 and month = 10 and day = 14
 group by 1;
 ```
 
-Slices archived before 2026-10-14 are still gzipped NDJSON in the old layout until the one-off
-migration rewrites them; read those with
+Slices archived before 2026-10-14 are still gzipped NDJSON in the old layout until
+`convert-archive` ("Converting the NDJSON slices to Parquet") rewrites them; read those with
 `read_json_auto('s3://<bucket>/rbn/2026/10/11/*.ndjson.gz')`.
 
 B2 keys belong on an operator's machine or in the `archive` function's secrets, never in the web

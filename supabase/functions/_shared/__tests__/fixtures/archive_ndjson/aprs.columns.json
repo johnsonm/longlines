@@ -1,0 +1,17 @@
+{
+  "row_count": 3,
+  "columns": {
+    "received_at": [1791741300250, 1791741390000, 1791741600000],
+    "source_call": ["N0CALL-9", "K1XYZ", "VK2ABC"],
+    "destination": ["APRS", "APDR16", "APRS"],
+    "path": ["WIDE1-1,WIDE2-1", "", "TCPIP*"],
+    "q_construct": ["qAR", null, "qAC"],
+    "igate": ["W1ABC-10", null, "T2SYDNEY"],
+    "packet_type": ["position", "status", "message"],
+    "line": [
+      "N0CALL-9>APRS,WIDE1-1,WIDE2-1,qAR,W1ABC-10:!4237.14N/07120.83W>",
+      "K1XYZ>APDR16:>back,\"raw_payload\":soon",
+      "VK2ABC>APRS,TCPIP*,qAC,T2SYDNEY::N0CALL   :hi {1"
+    ]
+  }
+}

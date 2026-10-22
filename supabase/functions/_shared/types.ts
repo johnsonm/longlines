@@ -183,6 +183,43 @@ export interface ArchiveStore {
   upload(path: string, bytes: Uint8Array): Promise<void>;
 }
 
+/** The archive bucket with reads and deletes, for the one-off NDJSON conversion. */
+export interface ArchiveObjectStore extends ArchiveStore {
+  /** The object's bytes as stored, or null when there is none. */
+  read(path: string): Promise<Uint8Array | null>;
+  /** The object's size in bytes, or null when there is none. */
+  size(path: string): Promise<number | null>;
+  /** Deletes the object; one already gone is not an error. */
+  remove(path: string): Promise<void>;
+}
+
+/** An archive_log row still pointing at a gzipped NDJSON object (archive_ndjson_slices). */
+export interface NdjsonSlice extends ArchiveSlice {
+  source: Source;
+  row_count: number;
+  object_path: string;
+}
+
+/** Where a conversion batch resumes: after this slice, in (slice_start, source) order. */
+export interface ConvertCursor {
+  slice_start: string;
+  source: Source;
+}
+
+/** Database operations the NDJSON conversion needs. Implemented by db.ts (20261021000700). */
+export interface ConvertDb {
+  /** Log rows still on NDJSON after the cursor (all when null), oldest first. */
+  ndjsonSlices(after: ConvertCursor | null, limit: number): Promise<NdjsonSlice[]>;
+  /**
+   * Points the log row at the Parquet object, only while it still names `from`
+   * and has `row_count` rows. False when nothing matched.
+   */
+  repointSlice(
+    slice: NdjsonSlice,
+    to: { object_path: string; bytes: number },
+  ): Promise<boolean>;
+}
+
 /** The FCC license load's staging RPCs (20261012000050). Implemented by db.ts. */
 export interface LicenseDb {
   /** The newest FCC load, or null before the first. */
