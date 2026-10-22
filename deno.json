@@ -6,6 +6,7 @@
   "imports": {
     "@supabase/supabase-js": "npm:@supabase/supabase-js@2",
     "@std/assert": "jsr:@std/assert@1",
+    "@std/yaml": "jsr:@std/yaml@1",
     "hyparquet-writer": "npm:hyparquet-writer@0.16.10",
     "hyparquet": "npm:hyparquet@1.31.1"
   },
@@ -42,6 +43,7 @@
         "deno"
       ],
       "read": [
+        "docs/openapi.yaml",
         "supabase/functions",
         "supabase/config.toml",
         "supabase/migrations",
