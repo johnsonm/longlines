@@ -22,10 +22,12 @@ Deno.test("the Docker image allows every environment variable the sender reads",
   assertEquals([...read].filter((name) => !allowed.includes(name)), []);
   // And nothing more: an allowance no module reads is a variable an import could start reading unseen.
   assertEquals(allowed.filter((name) => !read.has(name)), []);
-  // The image runs the shell with the heap bound the 256 MB machine needs, and no import map.
+  // The image runs the shell with the heap bound the 256 MB machine needs, and sender/deno.json
+  // as its only import map.
   assertEquals(dockerfile.includes("--v8-flags=--max-old-space-size=160"), true);
-  assertEquals(dockerfile.includes('"--no-config"'), true);
-  assertEquals(dockerfile.includes("deno cache --no-config sender/main.ts"), true);
+  assertEquals(dockerfile.includes("COPY sender/deno.json /deno.json"), true);
+  assertEquals(dockerfile.includes('"--config", "/deno.json"'), true);
+  assertEquals(dockerfile.includes("deno cache --config /deno.json sender/main.ts"), true);
 });
 
 Deno.test("the database client constructs under the image's --allow-env list", async () => {
@@ -33,8 +35,9 @@ Deno.test("the database client constructs under the image's --allow-env list", a
   // this has to be a child process with exactly the image's permissions.
   const { allowed } = allowEnvList();
   const script = new URL("./construct_client.ts", import.meta.url).pathname;
+  const config = new URL("../deno.json", import.meta.url).pathname;
   const output = await new Deno.Command("deno", {
-    args: ["run", "--no-config", `--allow-env=${allowed.join(",")}`, script],
+    args: ["run", "--config", config, "--no-lock", `--allow-env=${allowed.join(",")}`, script],
     stdin: "null",
     stdout: "piped",
     stderr: "piped",

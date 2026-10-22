@@ -347,6 +347,8 @@ The delivery side (retries, pause, attempts, rendering, Vault) is in "Delivery r
 
 - `relay/main.ts` is only the process shell (env, signals, exit code); behavior goes in
   `relay/relay.ts`, which tests run against a local telnet server and a local functions server.
+- The image runs with `relay/deno.json` as `--config /deno.json`: an import map of exactly the
+  packages the relay loads, at the root's exact versions (`app_config.test.ts`), nothing else.
 - `relay/` holds one telnet session per feed in `relay/feeds.ts` and pushes to an
   `ingest-<source>` function built with `servePush` in `_shared/serve.ts`. Parsing lives in the
   source adapter under `_shared` (the relay imports `parseRbnLine`); never parse spots in `relay/`.
@@ -387,6 +389,8 @@ The delivery side (retries, pause, attempts, rendering, Vault) is in "Delivery r
   of `relay/`. `sender/main.ts` is only the process shell; behavior goes in `sender/sender.ts`,
   `sender/db.ts` (the only module that imports postgres.js) and the shared loop
   `_shared/delivery/run.ts`, which tests run with fakes and a local `Deno.serve` receiver.
+- The image runs with `sender/deno.json` as `--config /deno.json`: an import map of exactly the
+  packages the sender loads (`postgres`), at the root's exact versions (`app_config.test.ts`).
 - It holds `SENDER_DATABASE_URL` for the `delivery_sender` role (through the Supavisor session
   pooler, TLS) and the VAPID triple, never a Supabase API key. Its whole database surface is the
   RPC allowlist in `sender/db.ts` (`SENDER_RPCS`), the grants in `20261015000200` /
