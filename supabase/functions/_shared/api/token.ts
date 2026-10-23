@@ -10,7 +10,10 @@ const TOKEN_PATTERN = /^ll_live_[a-z2-7]{52}$/;
 /** The API token from the Authorization header, or null when there is none of the right shape. */
 export function apiToken(req: Request): string | null {
   const token = bearerToken(req);
-  return token && TOKEN_PATTERN.test(token) ? token : null;
+  if (token !== null && token !== "" && TOKEN_PATTERN.test(token)) {
+    return token;
+  }
+  return null;
 }
 
 /** Lowercase hex SHA-256 of a token, as stored in api_tokens.token_hash. */

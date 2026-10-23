@@ -17,6 +17,7 @@ import {
   matchRoute,
   parseBody,
   routeArgs,
+  type RouteMatch,
 } from "../api/routes.ts";
 import { apiToken, hashApiToken } from "../api/token.ts";
 import { json, preflightResponse } from "../cors.ts";
@@ -57,26 +58,46 @@ export async function handleApi(
 ): Promise<Response> {
   // A browser sends a preflight before any request with an Authorization header; it carries no token.
   const preflight = preflightResponse(req, API_METHODS);
-  if (preflight) return preflight;
+  if (preflight !== null) {
+    return preflight;
+  }
   const url = new URL(req.url);
   const path = apiPath(url.pathname);
-  const match = path === null ? { kind: "not_found" as const } : matchRoute(req.method, path);
-  if (match.kind === "not_found") return json({ error: NOT_FOUND }, 404);
+  let match: RouteMatch;
+  if (path === null) {
+    match = { kind: "not_found" };
+  } else {
+    match = matchRoute(req.method, path);
+  }
+  if (match.kind === "not_found") {
+    return json({ error: NOT_FOUND }, 404);
+  }
   if (match.kind === "method_not_allowed") {
     return json({ error: "Method not allowed." }, 405, { Allow: match.allow.join(", ") });
   }
-  const { route, id } = match;
+  const route = match.route;
+  const id = match.id;
 
   const token = apiToken(req);
-  if (!token) return json({ error: BAD_TOKEN }, 401);
+  if (token === null || token === "") {
+    return json({ error: BAD_TOKEN }, 401);
+  }
 
   const db = deps.db();
   const auth = await db.rpc("authenticate_api_request", {
     p_token_hash: await hashApiToken(token),
   });
-  if (auth.error) return serverError("authenticate_api_request", auth.error.message);
-  const caller = (auth.data as TokenRow[] | null)?.[0];
-  if (!caller) return json({ error: BAD_TOKEN }, 401);
+  if (auth.error !== null) {
+    return serverError("authenticate_api_request", auth.error.message);
+  }
+  const rows = auth.data as TokenRow[] | null;
+  let caller: TokenRow | undefined;
+  if (rows !== null && rows !== undefined) {
+    caller = rows[0];
+  }
+  if (caller === undefined || caller === null) {
+    return json({ error: BAD_TOKEN }, 401);
+  }
   if (caller.requests > MAX_REQUESTS_PER_MINUTE) {
     const retryAfter = String(60 - now.getUTCSeconds());
     return json({ error: TOO_MANY_REQUESTS }, 429, { "Retry-After": retryAfter });
@@ -88,16 +109,26 @@ export async function handleApi(
   let body: JsonObject = {};
   if (route.input === "fields" || route.input === "body") {
     const text = await readBody(req, MAX_BODY_BYTES);
-    if (text === null) return json({ error: BODY_TOO_LARGE }, 413);
+    if (text === null) {
+      return json({ error: BODY_TOO_LARGE }, 413);
+    }
     const parsed = parseBody(text);
-    if (!parsed) return json({ error: BAD_BODY }, 400);
+    if (parsed === null) {
+      return json({ error: BAD_BODY }, 400);
+    }
     body = parsed;
     const shape = checkBody(route, body);
-    if (shape) return json({ error: shape }, 400);
+    if (shape !== null && shape !== "") {
+      return json({ error: shape }, 400);
+    }
   }
 
   if (route.op === "send_test") {
-    return await sendTestTo(db, caller.user_id, id ?? "", deps.send, now);
+    let destinationId = "";
+    if (id !== undefined && id !== null) {
+      destinationId = id;
+    }
+    return await sendTestTo(db, caller.user_id, destinationId, deps.send, now);
   }
 
   const result = await db.rpc("api_call", {
@@ -105,9 +136,11 @@ export async function handleApi(
     p_op: route.op,
     p_args: routeArgs(route, id, body),
   });
-  if (result.error) {
+  if (result.error !== null) {
     const status = errorStatus(result.error);
-    if (status === 500) return serverError(route.op, result.error.message);
+    if (status === 500) {
+      return serverError(route.op, result.error.message);
+    }
     return json({ error: result.error.message }, status);
   }
   return json(result.data, route.status);
@@ -118,15 +151,27 @@ export async function handleApi(
  * refused before reading; a chunked body is read only until it passes the limit.
  */
 export async function readBody(req: Request, limit: number): Promise<string | null> {
-  const declared = Number(req.headers.get("content-length") ?? "");
-  if (Number.isFinite(declared) && declared > limit) return null;
-  if (!req.body) return "";
+  let length = "";
+  const header = req.headers.get("content-length");
+  if (header !== null) {
+    length = header;
+  }
+  const declared = Number(length);
+  if (Number.isFinite(declared) && declared > limit) {
+    return null;
+  }
+  if (req.body === null) {
+    return "";
+  }
   const chunks: Uint8Array[] = [];
   let size = 0;
   const reader = req.body.getReader();
   for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
+    const result = await reader.read();
+    if (result.done) {
+      break;
+    }
+    const value = result.value;
     size += value.byteLength;
     if (size > limit) {
       await reader.cancel();

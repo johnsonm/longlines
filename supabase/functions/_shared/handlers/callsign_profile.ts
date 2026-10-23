@@ -46,38 +46,91 @@ export interface ProfileDeps {
  * digit, at most 20 characters.
  */
 export function parseCallsign(raw: string | null): string | null {
-  const call = (raw ?? "").trim().toUpperCase();
-  if (call.length > 20 || !/^[A-Z0-9]+(\/[A-Z0-9]+){0,2}$/.test(call)) return null;
-  return /[A-Z]/.test(call) && /[0-9]/.test(call) ? call : null;
+  let text = "";
+  if (raw !== null) {
+    text = raw;
+  }
+  const call = text.trim().toUpperCase();
+  if (call.length > 20 || !/^[A-Z0-9]+(\/[A-Z0-9]+){0,2}$/.test(call)) {
+    return null;
+  }
+  if (/[A-Z]/.test(call) && /[0-9]/.test(call)) {
+    return call;
+  }
+  return null;
 }
 
 function ipv4Octets(text: string): number[] | null {
   const parts = text.split(".");
-  if (parts.length !== 4 || !parts.every((p) => /^\d{1,3}$/.test(p))) return null;
+  if (parts.length !== 4 || !parts.every((p) => /^\d{1,3}$/.test(p))) {
+    return null;
+  }
   const octets = parts.map(Number);
-  return octets.every((o) => o <= 255) ? octets : null;
+  if (octets.every((o) => o <= 255)) {
+    return octets;
+  }
+  return null;
+}
+
+/** The number at index i, or 0 when there is none. */
+function numberAt(values: number[], i: number): number {
+  const value = values[i];
+  if (value === undefined) {
+    return 0;
+  }
+  return value;
+}
+
+/** The colon-separated groups of one side of "::"; none for a missing or empty side. */
+function splitGroups(half: string | undefined): string[] {
+  if (half === undefined || half === "") {
+    return [];
+  }
+  return half.split(":");
 }
 
 function ipv6Groups(text: string): number[] | null {
   let s = text.toLowerCase();
   // An embedded IPv4 tail (::ffff:192.0.2.1) is the last two groups.
-  const tail = /:(\d+\.\d+\.\d+\.\d+)$/.exec(s)?.[1];
-  if (tail) {
+  const tailMatch = /:(\d+\.\d+\.\d+\.\d+)$/.exec(s);
+  let tail: string | undefined;
+  if (tailMatch !== null) {
+    tail = tailMatch[1];
+  }
+  if (tail !== undefined && tail !== "") {
     const o = ipv4Octets(tail);
-    if (!o) return null;
-    const [a = 0, b = 0, c = 0, d = 0] = o;
+    if (o === null) {
+      return null;
+    }
+    const a = numberAt(o, 0);
+    const b = numberAt(o, 1);
+    const c = numberAt(o, 2);
+    const d = numberAt(o, 3);
     s = `${s.slice(0, -tail.length)}${((a << 8) | b).toString(16)}:${((c << 8) | d).toString(16)}`;
   }
   const halves = s.split("::");
-  if (halves.length > 2) return null;
-  const split = (h: string | undefined) => (h ? h.split(":") : []);
-  const head = split(halves[0]);
-  const rest = split(halves[1]);
-  if (![...head, ...rest].every((g) => /^[0-9a-f]{1,4}$/.test(g))) return null;
+  if (halves.length > 2) {
+    return null;
+  }
+  const head = splitGroups(halves[0]);
+  const rest = splitGroups(halves[1]);
+  if (!head.concat(rest).every((g) => /^[0-9a-f]{1,4}$/.test(g))) {
+    return null;
+  }
   const missing = 8 - head.length - rest.length;
-  if (halves.length === 1 ? missing !== 0 : missing < 1) return null;
-  const zeros = Array<string>(halves.length === 2 ? missing : 0).fill("0");
-  return [...head, ...zeros, ...rest].map((g) => parseInt(g, 16));
+  if (halves.length === 1) {
+    if (missing !== 0) {
+      return null;
+    }
+  } else if (missing < 1) {
+    return null;
+  }
+  let zeroCount = 0;
+  if (halves.length === 2) {
+    zeroCount = missing;
+  }
+  const zeros = Array<string>(zeroCount).fill("0");
+  return head.concat(zeros, rest).map((g) => parseInt(g, 16));
 }
 
 /**
@@ -89,10 +142,21 @@ function ipv6Groups(text: string): number[] | null {
 export function rateLimitSubject(raw: string): string | null {
   const value = raw.trim();
   const v4 = ipv4Octets(value.replace(/:\d+$/, ""));
-  if (v4) return v4.join(".");
+  if (v4 !== null) {
+    return v4.join(".");
+  }
   const groups = ipv6Groups(value.replace(/^\[(.*)\](:\d+)?$/, "$1").replace(/%.*$/, ""));
-  if (!groups) return null;
-  const [a, b, c, d, e, f, g = 0, h = 0] = groups;
+  if (groups === null) {
+    return null;
+  }
+  const a = groups[0];
+  const b = groups[1];
+  const c = groups[2];
+  const d = groups[3];
+  const e = groups[4];
+  const f = groups[5];
+  const g = numberAt(groups, 6);
+  const h = numberAt(groups, 7);
   if (a === 0 && b === 0 && c === 0 && d === 0 && e === 0 && f === 0xffff) {
     return [g >> 8, g & 255, h >> 8, h & 255].join(".");
   }
@@ -101,7 +165,14 @@ export function rateLimitSubject(raw: string): string | null {
 
 /** The last entry of a header that may hold a list: the one the nearest proxy wrote. */
 function lastEntry(value: string | null): string {
-  return value?.split(",").at(-1) ?? "";
+  if (value === null) {
+    return "";
+  }
+  const last = value.split(",").at(-1);
+  if (last === undefined) {
+    return "";
+  }
+  return last;
 }
 
 /**
@@ -115,9 +186,14 @@ export function clientSubject(
   trustedHeader: string,
 ): { subject: string; trusted: boolean } {
   const trusted = rateLimitSubject(lastEntry(req.headers.get(trustedHeader)));
-  if (trusted) return { subject: trusted, trusted: true };
+  if (trusted !== null && trusted !== "") {
+    return { subject: trusted, trusted: true };
+  }
   const forwarded = rateLimitSubject(lastEntry(req.headers.get("x-forwarded-for")));
-  return { subject: forwarded ?? "unknown", trusted: false };
+  if (forwarded === null) {
+    return { subject: "unknown", trusted: false };
+  }
+  return { subject: forwarded, trusted: false };
 }
 
 // The fallback warning is logged once per isolate, function and header, not per request.
@@ -135,16 +211,22 @@ export async function rateLimitKey(
   key: CryptoKey,
   fn: string,
 ): Promise<string> {
-  const header = clientIpHeader?.trim() || DEFAULT_CLIENT_IP_HEADER;
-  const { subject, trusted } = clientSubject(req, header);
-  if (!trusted && !warnedFallback.has(`${fn} ${header}`)) {
+  let header = DEFAULT_CLIENT_IP_HEADER;
+  if (clientIpHeader !== undefined) {
+    const trimmed = clientIpHeader.trim();
+    if (trimmed !== "") {
+      header = trimmed;
+    }
+  }
+  const client = clientSubject(req, header);
+  if (!client.trusted && !warnedFallback.has(`${fn} ${header}`)) {
     warnedFallback.add(`${fn} ${header}`);
     console.warn(
       `${fn}: no client address in ${header}; rate limiting on the last x-forwarded-for ` +
         "entry, which may be shared by every client (see LONGLINES_CLIENT_IP_HEADER)",
     );
   }
-  return await hmacSha256Hex(key, subject);
+  return await hmacSha256Hex(key, client.subject);
 }
 
 /**
@@ -161,40 +243,60 @@ export async function lookupLimit(
   unavailable: string,
   headers: Record<string, string> = {},
 ): Promise<Response | null> {
-  if (!deps.key) {
+  if (deps.key === undefined) {
     console.error(`${fn}: missing environment variable SUPABASE_SERVICE_ROLE_KEY`);
     return json({ error: unavailable }, 500, headers);
   }
   const client = await rateLimitKey(req, deps.clientIpHeader, deps.key, fn);
   const lookups = await db.rpc("record_profile_lookup", { p_client: client });
-  if (lookups.error || typeof lookups.data !== "number") {
-    const why = lookups.error?.message ?? `unexpected result ${JSON.stringify(lookups.data)}`;
+  if (lookups.error !== null || typeof lookups.data !== "number") {
+    let why: string;
+    if (lookups.error !== null) {
+      why = lookups.error.message;
+    } else {
+      why = `unexpected result ${JSON.stringify(lookups.data)}`;
+    }
     console.error(`${fn}: rate limit failed: ${why}`);
     return json({ error: unavailable }, 500, headers);
   }
   if (lookups.data > MAX_LOOKUPS_PER_MINUTE) {
-    return json({ error: TOO_MANY_LOOKUPS }, 429, { ...headers, "Retry-After": "60" });
+    const limitedHeaders: Record<string, string> = {};
+    for (const entry of Object.entries(headers)) {
+      limitedHeaders[entry[0]] = entry[1];
+    }
+    limitedHeaders["Retry-After"] = "60";
+    return json({ error: TOO_MANY_LOOKUPS }, 429, limitedHeaders);
   }
   return null;
 }
 
 export async function handleProfile(req: Request, deps: ProfileDeps): Promise<Response> {
   const preflight = preflightResponse(req);
-  if (preflight) return preflight;
-  if (req.method !== "GET") return json({ error: "Method not allowed." }, 405);
+  if (preflight !== null) {
+    return preflight;
+  }
+  if (req.method !== "GET") {
+    return json({ error: "Method not allowed." }, 405);
+  }
 
   const callsign = parseCallsign(new URL(req.url).searchParams.get("callsign"));
-  if (!callsign) return json({ error: INVALID_CALLSIGN }, 400);
+  if (callsign === null || callsign === "") {
+    return json({ error: INVALID_CALLSIGN }, 400);
+  }
 
   const db = deps.db();
   const limited = await lookupLimit(req, db, deps, "callsign-profile", LOOKUP_UNAVAILABLE);
-  if (limited) return limited;
+  if (limited !== null) {
+    return limited;
+  }
 
   const profile = await db.rpc("cached_callsign_profile", { p_callsign: callsign });
-  if (profile.error) {
+  if (profile.error !== null) {
     console.error(`callsign-profile: ${callsign}: ${profile.error.message}`);
     return json({ error: LOOKUP_UNAVAILABLE }, 500);
   }
-  if (profile.data === null) return json({ error: INVALID_CALLSIGN }, 400);
+  if (profile.data === null) {
+    return json({ error: INVALID_CALLSIGN }, 400);
+  }
   return json(profile.data, 200, { "Cache-Control": PROFILE_CACHE_CONTROL });
 }

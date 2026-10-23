@@ -33,7 +33,9 @@ async function importCty(req: Request, deps: ImportCtyDeps): Promise<Response> {
     const data = parseCty(await deps.fetchCty());
     if (data.entities.length < MIN_ENTITIES) {
       throw new Error(
-        `cty.dat has ${data.entities.length} entities, expected at least ${MIN_ENTITIES}`,
+        `cty.dat has ${String(data.entities.length)} entities, expected at least ${
+          String(MIN_ENTITIES)
+        }`,
       );
     }
     await loadCty(deps.db(), data);
@@ -45,7 +47,12 @@ async function importCty(req: Request, deps: ImportCtyDeps): Promise<Response> {
     console.log(JSON.stringify(summary));
     return Response.json(summary);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    let message: string;
+    if (err instanceof Error) {
+      message = err.message;
+    } else {
+      message = String(err);
+    }
     console.error(`import-cty: ${message}`);
     return Response.json({ error: message }, { status: 500 });
   }
