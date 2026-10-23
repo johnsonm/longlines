@@ -9,17 +9,17 @@ import {
   TOO_MANY_ATTEMPTS,
 } from "../signin.ts";
 
-Deno.test("normalizeIdentifier uppercases callsigns and lowercases emails", () => {
+Deno.test("normalizeIdentifier uppercases callsigns and lowercases emails", function (): void {
   assertEquals(normalizeIdentifier("  kk4pwj "), "KK4PWJ");
   assertEquals(normalizeIdentifier(" Brad@Example.com "), "brad@example.com");
 });
 
-Deno.test("isEmailIdentifier keys on the @ sign", () => {
+Deno.test("isEmailIdentifier keys on the @ sign", function (): void {
   assertEquals(isEmailIdentifier("a@b.c"), true);
   assertEquals(isEmailIdentifier("KK4PWJ"), false);
 });
 
-Deno.test("parseSignInBody requires non-empty identifier and password strings", () => {
+Deno.test("parseSignInBody requires non-empty identifier and password strings", function (): void {
   assertEquals(parseSignInBody({ identifier: "kk4pwj", password: "hunter22" }), {
     identifier: "kk4pwj",
     password: "hunter22",
@@ -30,7 +30,7 @@ Deno.test("parseSignInBody requires non-empty identifier and password strings", 
   assertThrows(() => parseSignInBody({ identifier: 5, password: "x" }));
 });
 
-Deno.test("parseSignInBody caps the identifier and password lengths", () => {
+Deno.test("parseSignInBody caps the identifier and password lengths", function (): void {
   const email = `${"a".repeat(MAX_IDENTIFIER_LENGTH - 6)}@b.com`;
   assertEquals(
     parseSignInBody({ identifier: ` ${email} `, password: "x" }).identifier,
@@ -42,7 +42,7 @@ Deno.test("parseSignInBody caps the identifier and password lengths", () => {
   assertThrows(() => parseSignInBody({ identifier: "kk4pwj", password: `${longest}p` }));
 });
 
-Deno.test("the rate-limit message does not say the credentials are wrong", () => {
+Deno.test("the rate-limit message does not say the credentials are wrong", function (): void {
   assertEquals(TOO_MANY_ATTEMPTS.includes(GENERIC_SIGN_IN_ERROR), false);
   assertEquals(/match/.test(TOO_MANY_ATTEMPTS), false);
 });

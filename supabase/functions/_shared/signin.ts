@@ -20,17 +20,30 @@ export function isEmailIdentifier(identifier: string): boolean {
 /** Emails lowercase, callsigns uppercase, both trimmed. */
 export function normalizeIdentifier(identifier: string): string {
   const trimmed = identifier.trim();
-  return isEmailIdentifier(trimmed) ? trimmed.toLowerCase() : trimmed.toUpperCase();
+  if (isEmailIdentifier(trimmed)) {
+    return trimmed.toLowerCase();
+  }
+  return trimmed.toUpperCase();
 }
 
 export function parseSignInBody(body: unknown): SignInBody {
-  if (typeof body !== "object" || body === null) throw new Error("expected an object");
-  const { identifier, password } = body as Record<string, unknown>;
+  if (typeof body !== "object" || body === null) {
+    throw new Error("expected an object");
+  }
+  const fields = body as Record<string, unknown>;
+  const identifier = fields.identifier;
+  const password = fields.password;
   if (typeof identifier !== "string" || identifier.trim() === "") {
     throw new Error("identifier required");
   }
-  if (identifier.trim().length > MAX_IDENTIFIER_LENGTH) throw new Error("identifier too long");
-  if (typeof password !== "string" || password === "") throw new Error("password required");
-  if (password.length > MAX_PASSWORD_LENGTH) throw new Error("password too long");
+  if (identifier.trim().length > MAX_IDENTIFIER_LENGTH) {
+    throw new Error("identifier too long");
+  }
+  if (typeof password !== "string" || password === "") {
+    throw new Error("password required");
+  }
+  if (password.length > MAX_PASSWORD_LENGTH) {
+    throw new Error("password too long");
+  }
   return { identifier, password };
 }
