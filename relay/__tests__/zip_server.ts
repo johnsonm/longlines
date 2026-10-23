@@ -27,13 +27,26 @@ export async function buildZip(files: ZipFile[], comment = ""): Promise<Uint8Arr
   for (const file of files) {
     const name = enc.encode(file.name);
     const data = enc.encode(file.text);
-    const body = file.stored ? data : await deflateRaw(data);
-    const crc = file.crc ?? crc32(data);
+    let body: Uint8Array;
+    let method: number;
+    if (file.stored) {
+      body = data;
+      method = 0;
+    } else {
+      body = await deflateRaw(data);
+      method = 8;
+    }
+    let crc: number;
+    if (file.crc !== undefined && file.crc !== null) {
+      crc = file.crc;
+    } else {
+      crc = crc32(data);
+    }
     const local = new Uint8Array(30 + name.length);
     const l = new DataView(local.buffer);
     l.setUint32(0, 0x04034b50, true);
     l.setUint16(4, 20, true);
-    l.setUint16(8, file.stored ? 0 : 8, true);
+    l.setUint16(8, method, true);
     l.setUint32(14, crc, true);
     l.setUint32(18, body.length, true);
     l.setUint32(22, data.length, true);
@@ -45,7 +58,7 @@ export async function buildZip(files: ZipFile[], comment = ""): Promise<Uint8Arr
     c.setUint32(0, 0x02014b50, true);
     c.setUint16(4, 20, true);
     c.setUint16(6, 20, true);
-    c.setUint16(10, file.stored ? 0 : 8, true);
+    c.setUint16(10, method, true);
     c.setUint32(16, crc, true);
     c.setUint32(20, body.length, true);
     c.setUint32(24, data.length, true);
@@ -57,7 +70,10 @@ export async function buildZip(files: ZipFile[], comment = ""): Promise<Uint8Arr
     central.push(entry);
     offset += local.length + body.length;
   }
-  const dirSize = central.reduce((n, e) => n + e.length, 0);
+  let dirSize = 0;
+  for (const entry of central) {
+    dirSize += entry.length;
+  }
   const note = enc.encode(comment);
   const eocd = new Uint8Array(22 + note.length);
   const e = new DataView(eocd.buffer);
@@ -69,8 +85,12 @@ export async function buildZip(files: ZipFile[], comment = ""): Promise<Uint8Arr
   e.setUint16(20, note.length, true);
   eocd.set(note, 22);
 
-  const all = [...parts, ...central, eocd];
-  const out = new Uint8Array(all.reduce((n, p) => n + p.length, 0));
+  const all = parts.concat(central, [eocd]);
+  let total = 0;
+  for (const part of all) {
+    total += part.length;
+  }
+  const out = new Uint8Array(total);
   let p = 0;
   for (const part of all) {
     out.set(part, p);
@@ -103,11 +123,17 @@ export function serveZip(bytes: Uint8Array, options: ZipServerOptions = {}) {
     userAgent: string | null;
   }[] = [];
   const stalled: ((res: Response) => void)[] = [];
-  let lastModified = options.lastModified === undefined
-    ? "Sun, 11 Oct 2026 13:18:48 GMT"
-    : options.lastModified;
-  let etag = options.etag ?? null;
-  const server = Deno.serve({ hostname: "127.0.0.1", port: 0, onListen: () => {} }, (req) => {
+  let lastModified: string | null;
+  if (options.lastModified === undefined) {
+    lastModified = "Sun, 11 Oct 2026 13:18:48 GMT";
+  } else {
+    lastModified = options.lastModified;
+  }
+  let etag: string | null = null;
+  if (options.etag !== undefined && options.etag !== null) {
+    etag = options.etag;
+  }
+  function handler(req: Request): Response | Promise<Response> {
     const range = req.headers.get("range");
     requests.push({
       method: req.method,
@@ -116,15 +142,35 @@ export function serveZip(bytes: Uint8Array, options: ZipServerOptions = {}) {
       userAgent: req.headers.get("user-agent"),
     });
     const headers: Record<string, string> = { "content-length": String(bytes.length) };
-    if (lastModified) headers["last-modified"] = lastModified;
-    if (etag) headers["etag"] = etag;
-    if (req.method === "HEAD") return new Response(null, { headers });
-    const m = /^bytes=(\d+)-(\d+)$/.exec(range ?? "");
+    if (lastModified) {
+      headers["last-modified"] = lastModified;
+    }
+    if (etag) {
+      headers["etag"] = etag;
+    }
+    if (req.method === "HEAD") {
+      return new Response(null, { headers });
+    }
+    let rangeText = "";
+    if (range !== null && range !== undefined) {
+      rangeText = range;
+    }
+    const m = /^bytes=(\d+)-(\d+)$/.exec(rangeText);
     const ifRange = req.headers.get("if-range");
     const changed = ifRange !== null && ifRange !== lastModified && ifRange !== etag;
-    if (!m || options.ignoreRange || changed) return new Response(bytes as BodyInit, { headers });
-    const first = Number(m[1]) + (options.shiftRange ? 1 : 0);
-    const last = Number(m[2]) + (options.shiftRange ? 1 : 0) - (options.shortBody ? 1 : 0);
+    if (!m || options.ignoreRange || changed) {
+      return new Response(bytes as BodyInit, { headers });
+    }
+    let shift = 0;
+    if (options.shiftRange) {
+      shift = 1;
+    }
+    let short = 0;
+    if (options.shortBody) {
+      short = 1;
+    }
+    const first = Number(m[1]) + shift;
+    const last = Number(m[2]) + shift - short;
     const slice = bytes.slice(first, last + 1);
     const partial = {
       status: 206,
@@ -145,7 +191,8 @@ export function serveZip(bytes: Uint8Array, options: ZipServerOptions = {}) {
       return new Response(body, partial);
     }
     return new Response(slice as BodyInit, partial);
-  });
+  }
+  const server = Deno.serve({ hostname: "127.0.0.1", port: 0, onListen() {} }, handler);
   return {
     // No ".zip" in a plain-http URL: CodeQL reads that as an insecure download.
     url: `http://127.0.0.1:${server.addr.port}/l_amat`,
@@ -153,12 +200,16 @@ export function serveZip(bytes: Uint8Array, options: ZipServerOptions = {}) {
     server,
     /** Answer the requests stallHeaders held (call before server.shutdown(), which waits for them). */
     release() {
-      for (const resolve of stalled.splice(0)) resolve(new Response(null, { status: 503 }));
+      for (const resolve of stalled.splice(0)) {
+        resolve(new Response(null, { status: 503 }));
+      }
     },
     /** The FCC publishes a new file. */
     republish(date: string, newEtag?: string) {
       lastModified = date;
-      if (newEtag !== undefined) etag = newEtag;
+      if (newEtag !== undefined) {
+        etag = newEtag;
+      }
     },
   };
 }
