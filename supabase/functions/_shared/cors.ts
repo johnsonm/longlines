@@ -23,18 +23,22 @@ export function preflightResponse(
   req: Request,
   methods: string = DEFAULT_METHODS,
 ): Response | null {
-  return req.method === "OPTIONS"
-    ? new Response(null, {
-      status: 204,
-      headers: { ...corsHeaders(methods), "Access-Control-Max-Age": PREFLIGHT_MAX_AGE },
-    })
-    : null;
+  if (req.method !== "OPTIONS") {
+    return null;
+  }
+  const preflightHeaders = corsHeaders(methods);
+  preflightHeaders["Access-Control-Max-Age"] = PREFLIGHT_MAX_AGE;
+  return new Response(null, { status: 204, headers: preflightHeaders });
 }
 
 /** JSON response carrying the CORS headers, plus any extra headers. */
 export function json(body: unknown, status = 200, headers: Record<string, string> = {}): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders(), "Content-Type": "application/json", ...headers },
-  });
+  // Built in the order the spread had: CORS, then Content-Type, then the extras,
+  // so an extra header replaces either.
+  const merged = corsHeaders();
+  merged["Content-Type"] = "application/json";
+  for (const entry of Object.entries(headers)) {
+    merged[entry[0]] = entry[1];
+  }
+  return new Response(JSON.stringify(body), { status, headers: merged });
 }
