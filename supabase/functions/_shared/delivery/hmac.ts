@@ -7,5 +7,5 @@ export async function signWebhookBody(
   timestamp: number,
   body: string,
 ): Promise<string> {
-  return `sha256=${await hmacSha256Hex(await hmacKey(secret), `${timestamp}.${body}`)}`;
+  return `sha256=${await hmacSha256Hex(await hmacKey(secret), `${String(timestamp)}.${body}`)}`;
 }

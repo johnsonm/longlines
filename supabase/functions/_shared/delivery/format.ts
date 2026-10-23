@@ -11,6 +11,7 @@ import type {
   PendingDelivery,
   PushNotification,
   PushSettings,
+  WebhookField,
   WebhookHeader,
   WebhookItem,
   WebhookRequest,
@@ -46,12 +47,23 @@ const SOURCE_LABELS: Record<string, string> = {
 };
 
 export function sourceLabel(source: string): string {
-  return SOURCE_LABELS[source] ?? source;
+  const label = SOURCE_LABELS[source];
+  if (label === undefined || label === null) {
+    return source;
+  }
+  return label;
+}
+
+/** True for a string with text: what a truthiness test on an optional string meant. */
+function isNonEmpty(value: string | null | undefined): value is string {
+  return value !== undefined && value !== null && value !== "";
 }
 
 export function chunk<T>(items: readonly T[], size: number): T[][] {
   const out: T[][] = [];
-  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  for (let i = 0; i < items.length; i += size) {
+    out.push(items.slice(i, i + size));
+  }
   return out;
 }
 
@@ -63,16 +75,22 @@ export function utcClock(iso: string): string {
 /** "14062.0 kHz CW (20m)": the Discord description and the legacy push body's first line. */
 export function spotDescription(spot: DeliverySpot): string {
   const parts = [`${spot.frequency_khz.toFixed(1)} kHz`];
-  if (spot.mode) parts.push(spot.mode.toUpperCase());
-  if (spot.band) parts.push(`(${spot.band})`);
+  if (isNonEmpty(spot.mode)) {
+    parts.push(spot.mode.toUpperCase());
+  }
+  if (isNonEmpty(spot.band)) {
+    parts.push(`(${spot.band})`);
+  }
   return parts.join(" ");
 }
 
 export function embedForSpot(spot: DeliverySpot): DiscordEmbed {
   const fields: DiscordEmbedField[] = [];
-  const add = (name: string, value: string | null | undefined) => {
-    if (value) fields.push({ name, value, inline: true });
-  };
+  function add(name: string, value: string | null | undefined): void {
+    if (isNonEmpty(value)) {
+      fields.push({ name, value, inline: true });
+    }
+  }
   add("Reference", spot.pota_reference);
   add("Park", spot.pota_park_name);
   add("Summit", spot.sota_summit_ref);
@@ -103,15 +121,29 @@ function noMentions(): DiscordMessage["allowed_mentions"] {
  * migration) gets the legacy embed.
  */
 export function cardEmbed(spot: DeliverySpot): DiscordEmbed {
-  if (spot.discord_title === undefined) return embedForSpot(spot);
+  if (spot.discord_title === undefined) {
+    return embedForSpot(spot);
+  }
+  let grid: Array<{ name: string; value: string }> = [];
+  if (spot.discord_grid !== undefined && spot.discord_grid !== null) {
+    grid = spot.discord_grid;
+  }
   const embed: DiscordEmbed = {
     title: spot.discord_title,
-    fields: (spot.discord_grid ?? []).map((f) => ({ name: f.name, value: f.value, inline: true })),
+    fields: grid.map((f) => ({ name: f.name, value: f.value, inline: true })),
   };
-  if (spot.discord_description) embed.description = spot.discord_description;
-  if (spot.discord_url) embed.url = spot.discord_url;
-  if (spot.discord_color !== undefined) embed.color = spot.discord_color;
-  if (spot.discord_footer) embed.footer = { text: spot.discord_footer };
+  if (isNonEmpty(spot.discord_description)) {
+    embed.description = spot.discord_description;
+  }
+  if (isNonEmpty(spot.discord_url)) {
+    embed.url = spot.discord_url;
+  }
+  if (spot.discord_color !== undefined) {
+    embed.color = spot.discord_color;
+  }
+  if (isNonEmpty(spot.discord_footer)) {
+    embed.footer = { text: spot.discord_footer };
+  }
   return embed;
 }
 
@@ -140,18 +172,19 @@ export function discordBatches(
   destination: Pick<DeliveryDestination, "discord">,
 ): DiscordBatch[] {
   const settings: DiscordSettings | undefined = destination.discord;
-  if (!settings) {
+  if (settings === undefined || settings === null) {
     return chunk(spots, DISCORD_EMBEDS_PER_MESSAGE).map((group) => ({
       message: { embeds: group.map(embedForSpot), allowed_mentions: noMentions() },
       spots: group.length,
     }));
   }
+  let smallest = DISCORD_EMBEDS_PER_MESSAGE;
+  if (settings.batch_seconds === 0) {
+    smallest = 1;
+  }
   const size = Math.min(
     DISCORD_EMBEDS_PER_MESSAGE,
-    Math.max(
-      settings.batch_seconds === 0 ? 1 : DISCORD_EMBEDS_PER_MESSAGE,
-      Math.ceil(spots.length / DISCORD_MESSAGES_PER_CLAIM),
-    ),
+    Math.max(smallest, Math.ceil(spots.length / DISCORD_MESSAGES_PER_CLAIM)),
   );
   if (settings.style === "plain") {
     return chunk(spots, size).map((group) => ({
@@ -167,9 +200,17 @@ export function discordBatches(
 
 /** What Discord counts toward a message's 6,000 characters for one embed. */
 export function embedChars(embed: DiscordEmbed): number {
-  return embed.title.length + (embed.description?.length ?? 0) +
-    (embed.footer?.text.length ?? 0) +
-    embed.fields.reduce((n, f) => n + f.name.length + f.value.length, 0);
+  let chars = embed.title.length;
+  if (embed.description !== undefined && embed.description !== null) {
+    chars += embed.description.length;
+  }
+  if (embed.footer !== undefined && embed.footer !== null) {
+    chars += embed.footer.text.length;
+  }
+  for (const f of embed.fields) {
+    chars += f.name.length + f.value.length;
+  }
+  return chars;
 }
 
 /**
@@ -195,15 +236,27 @@ function packCards(spots: readonly DeliverySpot[], size: number): DiscordEmbed[]
     current.push(embed);
     chars += n;
   }
-  if (current.length > 0) out.push(current);
+  if (current.length > 0) {
+    out.push(current);
+  }
   return out;
 }
 
+/** A plain spot's line as SQL rendered it, or its call when the claim had no line. */
+function plainLine(spot: DeliverySpot): string {
+  if (spot.discord_line === undefined || spot.discord_line === null) {
+    return spot.callsign;
+  }
+  return spot.discord_line;
+}
+
 function plainMessage(spots: readonly DeliverySpot[], settings: DiscordSettings): DiscordMessage {
+  let separator = "\n";
+  if (settings.separator === "newline") {
+    separator = "\n\n";
+  }
   const message: DiscordMessage = {
-    content: spots.map((s) => s.discord_line ?? s.callsign).join(
-      settings.separator === "newline" ? "\n\n" : "\n",
-    ),
+    content: spots.map(plainLine).join(separator),
     allowed_mentions: noMentions(),
   };
   if (spots.some((s) => s.discord_suppress_embeds === true)) {
@@ -225,24 +278,23 @@ export function discordMessages(
  * webhook fields SQL adds.
  */
 export function webhookSpot(spot: DeliverySpot): DeliverySpot {
-  const {
-    push_title: _title,
-    push_body: _body,
-    push_url: _url,
-    push_source_url: _source,
-    discord_style: _style,
-    discord_title: _discordTitle,
-    discord_description: _description,
-    discord_grid: _grid,
-    discord_footer: _footer,
-    discord_color: _color,
-    discord_url: _discordUrl,
-    discord_line: _line,
-    discord_suppress_embeds: _suppress,
-    webhook_fields: _fields,
-    webhook_connection: _connection,
-    ...rest
-  } = spot;
+  // A shallow copy keeps the stored columns in the claim's key order.
+  const rest = Object.assign({}, spot);
+  delete rest.push_title;
+  delete rest.push_body;
+  delete rest.push_url;
+  delete rest.push_source_url;
+  delete rest.discord_style;
+  delete rest.discord_title;
+  delete rest.discord_description;
+  delete rest.discord_grid;
+  delete rest.discord_footer;
+  delete rest.discord_color;
+  delete rest.discord_url;
+  delete rest.discord_line;
+  delete rest.discord_suppress_embeds;
+  delete rest.webhook_fields;
+  delete rest.webhook_connection;
   return rest;
 }
 
@@ -279,12 +331,20 @@ function isRendered(delivery: PendingDelivery): boolean {
  * value.
  */
 export function webhookItem(delivery: PendingDelivery): WebhookItem {
+  let connection = "";
+  if (
+    delivery.spot.webhook_connection !== undefined && delivery.spot.webhook_connection !== null
+  ) {
+    connection = delivery.spot.webhook_connection;
+  }
+  let fields: WebhookField[] = [];
+  if (delivery.spot.webhook_fields !== undefined && delivery.spot.webhook_fields !== null) {
+    fields = delivery.spot.webhook_fields;
+  }
   return {
     delivery_id: delivery.delivery_id,
-    connection: delivery.spot.webhook_connection ?? "",
-    spot: Object.fromEntries(
-      (delivery.spot.webhook_fields ?? []).map((f) => [f.key, f.value]),
-    ),
+    connection,
+    spot: Object.fromEntries(fields.map((f) => [f.key, f.value])),
   };
 }
 
@@ -300,7 +360,9 @@ export function webhookRequests(
   deliveries: readonly PendingDelivery[],
 ): WebhookRequest[] {
   const settings = destination.webhook;
-  if (!settings || !deliveries.every(isRendered)) return webhookPayloads(deliveries);
+  if (settings === undefined || settings === null || !deliveries.every(isRendered)) {
+    return webhookPayloads(deliveries);
+  }
   if (settings.batch_seconds === 0) {
     return deliveries.map((d) => ({ body: webhookItem(d), count: 1 }));
   }
@@ -337,7 +399,9 @@ const HEADER_VALUE = /^[\x20-\x7e]{1,1024}$/;
 
 /** True when an extra header may use this name (SQL's webhook_header_name_valid). */
 export function extraHeaderAllowed(name: string): boolean {
-  if (!HEADER_NAME.test(name)) return false;
+  if (!HEADER_NAME.test(name)) {
+    return false;
+  }
   const lower = name.toLowerCase();
   return !WEBHOOK_RESERVED_HEADERS.has(lower) &&
     !WEBHOOK_RESERVED_HEADER_PREFIXES.some((prefix) => lower.startsWith(prefix));
@@ -354,8 +418,20 @@ export function webhookExtraHeaders(
 ): WebhookHeader[] {
   const seen = new Set<string>();
   const out: WebhookHeader[] = [];
-  for (const header of destination.webhook?.headers ?? []) {
-    if (typeof header?.name !== "string" || typeof header.value !== "string") continue;
+  let headers: WebhookHeader[] = [];
+  const webhook = destination.webhook;
+  if (webhook !== undefined && webhook !== null) {
+    if (webhook.headers !== undefined && webhook.headers !== null) {
+      headers = webhook.headers;
+    }
+  }
+  for (const header of headers) {
+    if (header === undefined || header === null) {
+      continue;
+    }
+    if (typeof header.name !== "string" || typeof header.value !== "string") {
+      continue;
+    }
     const lower = header.name.toLowerCase();
     if (!extraHeaderAllowed(header.name) || !HEADER_VALUE.test(header.value) || seen.has(lower)) {
       continue;
@@ -392,7 +468,10 @@ export const LEGACY_PUSH_SETTINGS: PushSettings = {
 
 /** The push settings a destination carries, or the legacy ones when the claim had none. */
 export function pushSettingsOf(destination: Pick<DeliveryDestination, "push">): PushSettings {
-  return destination.push ?? LEGACY_PUSH_SETTINGS;
+  if (destination.push === undefined || destination.push === null) {
+    return LEGACY_PUSH_SETTINGS;
+  }
+  return destination.push;
 }
 
 /**
@@ -419,7 +498,7 @@ function legacyPushBody(spot: DeliverySpot): string {
     spot.wwff_reference,
     spot.wwff_reference_name,
   ]
-    .filter((fact): fact is string => !!fact);
+    .filter(isNonEmpty);
   facts.push(sourceLabel(spot.source));
   return `${spotDescription(spot)}\n${facts.join(" · ")}`;
 }
@@ -436,19 +515,45 @@ function pushForSpot(
 ): PushNotification {
   const call = spot.callsign.toUpperCase();
   const silent = !settings.sound || (quietNow && settings.quiet_mode === "silent");
-  const notification: PushNotification = {
-    title: spot.push_title ?? spot.callsign,
-    body: spot.push_body ?? legacyPushBody(spot),
-    tag: settings.replace_same_station ? `spot:${call}` : `spot:${call}:${spot.id}`,
+  let title = spot.callsign;
+  if (spot.push_title !== undefined && spot.push_title !== null) {
+    title = spot.push_title;
+  }
+  let body: string;
+  if (spot.push_body !== undefined && spot.push_body !== null) {
+    body = spot.push_body;
+  } else {
+    body = legacyPushBody(spot);
+  }
+  let tag = `spot:${call}:${String(spot.id)}`;
+  if (settings.replace_same_station) {
+    tag = `spot:${call}`;
+  }
+  let url: string;
+  if (spot.push_url !== undefined && spot.push_url !== null) {
+    url = spot.push_url;
+  } else {
     // The base call comes from SQL; the profile page resolves a typed call itself.
-    url: spot.push_url ?? `/call/${encodeURIComponent(spot.base_callsign ?? spot.callsign)}`,
+    let base = spot.callsign;
+    if (spot.base_callsign !== undefined && spot.base_callsign !== null) {
+      base = spot.base_callsign;
+    }
+    url = `/call/${encodeURIComponent(base)}`;
+  }
+  const notification: PushNotification = {
+    title,
+    body,
+    tag,
+    url,
     silent,
     renotify: !silent,
   };
-  if (spot.push_source_url) notification.sourceUrl = spot.push_source_url;
+  if (isNonEmpty(spot.push_source_url)) {
+    notification.sourceUrl = spot.push_source_url;
+  }
   if (settings.action_buttons) {
     notification.actions = [{ action: "profile", title: "Open profile" }];
-    if (spot.push_source_url) {
+    if (isNonEmpty(spot.push_source_url)) {
       notification.actions.push({ action: "source", title: `Open on ${sourceLabel(spot.source)}` });
     }
   }
@@ -481,5 +586,9 @@ export function pushPayload(notification: PushNotification): string {
  */
 export function backoffSeconds(attempt: number): number {
   const steps = [30, 60, 120, 300, 900];
-  return steps[Math.max(attempt, 1) - 1] ?? 1800;
+  const step = steps[Math.max(attempt, 1) - 1];
+  if (step === undefined || step === null) {
+    return 1800;
+  }
+  return step;
 }

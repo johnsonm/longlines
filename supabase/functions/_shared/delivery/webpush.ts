@@ -42,7 +42,9 @@ const encoder = new TextEncoder();
 
 export function base64UrlEncode(bytes: Uint8Array): string {
   let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
@@ -53,7 +55,11 @@ export function base64UrlDecode(text: string): Uint8Array<ArrayBuffer> {
 }
 
 function concat(...parts: Uint8Array[]): Uint8Array<ArrayBuffer> {
-  const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+  let length = 0;
+  for (const p of parts) {
+    length += p.length;
+  }
+  const out = new Uint8Array(length);
   let offset = 0;
   for (const part of parts) {
     out.set(part, offset);
@@ -67,13 +73,16 @@ function p256Jwk(publicKey: Uint8Array, d?: string): JsonWebKey {
   if (publicKey.length !== 65 || publicKey[0] !== 0x04) {
     throw new Error("Expected an uncompressed P-256 public key");
   }
-  return {
+  const jwk: JsonWebKey = {
     kty: "EC",
     crv: "P-256",
     x: base64UrlEncode(publicKey.slice(1, 33)),
     y: base64UrlEncode(publicKey.slice(33, 65)),
-    ...(d === undefined ? {} : { d }),
   };
+  if (d !== undefined) {
+    jwk.d = d;
+  }
+  return jwk;
 }
 
 async function hkdf(
@@ -95,9 +104,10 @@ async function serverKeyPair(
   options: EncryptOptions,
 ): Promise<{ privateKey: CryptoKey; publicRaw: Uint8Array<ArrayBuffer> }> {
   const ecdh = { name: "ECDH", namedCurve: "P-256" };
-  if (options.serverKey) {
-    const publicRaw = base64UrlDecode(options.serverKey.publicKey);
-    const jwk = p256Jwk(publicRaw, options.serverKey.privateKey);
+  const serverKey = options.serverKey;
+  if (serverKey !== undefined) {
+    const publicRaw = base64UrlDecode(serverKey.publicKey);
+    const jwk = p256Jwk(publicRaw, serverKey.privateKey);
     const privateKey = await crypto.subtle.importKey("jwk", jwk, ecdh, false, ["deriveBits"]);
     return { privateKey, publicRaw };
   }
@@ -118,7 +128,9 @@ export async function encryptPushPayload(
 ): Promise<Uint8Array<ArrayBuffer>> {
   const uaPublic = base64UrlDecode(keys.p256dh);
   const authSecret = base64UrlDecode(keys.auth);
-  if (authSecret.length !== 16) throw new Error("Subscription auth secret must be 16 bytes");
+  if (authSecret.length !== 16) {
+    throw new Error("Subscription auth secret must be 16 bytes");
+  }
   if (uaPublic.length !== 65 || uaPublic[0] !== 0x04) {
     throw new Error("Subscription p256dh must be an uncompressed P-256 key");
   }
@@ -126,7 +138,12 @@ export async function encryptPushPayload(
     throw new Error("Push payload is too large for one record");
   }
 
-  const salt = options.salt ?? crypto.getRandomValues(new Uint8Array(16));
+  let salt: Uint8Array<ArrayBuffer>;
+  if (options.salt === undefined) {
+    salt = crypto.getRandomValues(new Uint8Array(16));
+  } else {
+    salt = options.salt;
+  }
   const server = await serverKeyPair(options);
   const uaKey = await crypto.subtle.importKey(
     "jwk",
@@ -166,14 +183,15 @@ async function vapidSigningKey(keys: VapidKeys): Promise<CryptoKey> {
   if (text.startsWith("{")) {
     jwk = JSON.parse(text) as JsonWebKey;
   } else {
-    if (base64UrlDecode(text).length !== 32) throw new Error("VAPID private key must be 32 bytes");
+    if (base64UrlDecode(text).length !== 32) {
+      throw new Error("VAPID private key must be 32 bytes");
+    }
     jwk = p256Jwk(base64UrlDecode(keys.publicKey), text);
   }
   // Drop the exporter's key_ops/ext so importKey's usages decide.
-  const { kty, crv, x, y, d } = jwk;
   return await crypto.subtle.importKey(
     "jwk",
-    { kty, crv, x, y, d },
+    { kty: jwk.kty, crv: jwk.crv, x: jwk.x, y: jwk.y, d: jwk.d },
     { name: "ECDSA", namedCurve: "P-256" },
     false,
     ["sign"],
@@ -189,7 +207,9 @@ export async function vapidAuthorization(
   keys: VapidKeys,
   now: Date,
 ): Promise<string> {
-  const json = (value: unknown) => base64UrlEncode(encoder.encode(JSON.stringify(value)));
+  function json(value: unknown): string {
+    return base64UrlEncode(encoder.encode(JSON.stringify(value)));
+  }
   const unsigned = `${json({ typ: "JWT", alg: "ES256" })}.${
     json({
       aud: new URL(endpoint).origin,
@@ -212,16 +232,31 @@ export async function generateVapidKeys(subject: string): Promise<VapidKeys> {
     "verify",
   ]);
   const publicRaw = new Uint8Array(await crypto.subtle.exportKey("raw", pair.publicKey));
-  const { d } = await crypto.subtle.exportKey("jwk", pair.privateKey);
-  if (!d) throw new Error("The runtime did not export the private key");
+  const jwk = await crypto.subtle.exportKey("jwk", pair.privateKey);
+  const d = jwk.d;
+  if (d === undefined || d === "") {
+    throw new Error("The runtime did not export the private key");
+  }
   return { publicKey: base64UrlEncode(publicRaw), privateKey: d, subject };
 }
 
 /** The VAPID keys from Edge Function env, or undefined when any is missing. */
 export function vapidKeysFromEnv(get: (name: string) => string | undefined): VapidKeys | undefined {
-  const publicKey = get("LONGLINES_VAPID_PUBLIC_KEY")?.trim();
-  const privateKey = get("LONGLINES_VAPID_PRIVATE_KEY")?.trim();
-  const subject = get("LONGLINES_VAPID_SUBJECT")?.trim();
-  if (!publicKey || !privateKey || !subject) return undefined;
+  const publicKey = trimmedOrUndefined(get("LONGLINES_VAPID_PUBLIC_KEY"));
+  const privateKey = trimmedOrUndefined(get("LONGLINES_VAPID_PRIVATE_KEY"));
+  const subject = trimmedOrUndefined(get("LONGLINES_VAPID_SUBJECT"));
+  if (
+    publicKey === undefined || publicKey === "" || privateKey === undefined ||
+    privateKey === "" || subject === undefined || subject === ""
+  ) {
+    return undefined;
+  }
   return { publicKey, privateKey, subject };
+}
+
+function trimmedOrUndefined(value: string | undefined): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  return value.trim();
 }

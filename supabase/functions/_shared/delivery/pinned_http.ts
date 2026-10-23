@@ -70,7 +70,9 @@ class Reader {
 
   /** Reads more into the buffer; false at end of stream. */
   async fill(): Promise<boolean> {
-    if (this.#eof) return false;
+    if (this.#eof) {
+      return false;
+    }
     const chunk = new Uint8Array(16 * 1024);
     const n = await this.stream.read(chunk);
     if (n === null) {
@@ -94,9 +96,15 @@ class Reader {
 /** Index just past the blank line that ends a head, or -1 when not yet buffered. */
 function headEnd(buf: Uint8Array): number {
   for (let i = 0; i < buf.length; i++) {
-    if (buf[i] !== 0x0a) continue;
-    if (buf[i + 1] === 0x0a) return i + 2;
-    if (buf[i + 1] === 0x0d && buf[i + 2] === 0x0a) return i + 3;
+    if (buf[i] !== 0x0a) {
+      continue;
+    }
+    if (buf[i + 1] === 0x0a) {
+      return i + 2;
+    }
+    if (buf[i + 1] === 0x0d && buf[i + 2] === 0x0a) {
+      return i + 3;
+    }
   }
   return -1;
 }
@@ -108,8 +116,8 @@ function headEnd(buf: Uint8Array): number {
  */
 function latin1(bytes: Uint8Array): string {
   let text = "";
-  for (let i = 0; i < bytes.length; i += 4096) {
-    text += String.fromCharCode(...bytes.subarray(i, i + 4096));
+  for (const byte of bytes) {
+    text += String.fromCharCode(byte);
   }
   return text;
 }
@@ -123,15 +131,30 @@ function latin1(bytes: Uint8Array): string {
  */
 function parseHead(text: string): PinnedResponse {
   const lines = text.split(/\r?\n/);
-  const status = /^HTTP\/1\.[01] ([1-9]\d\d)(?: .*)?$/.exec(lines[0] ?? "");
-  if (!status) throw new Error("malformed HTTP status line");
+  let first = lines[0];
+  if (first === undefined) {
+    first = "";
+  }
+  const status = /^HTTP\/1\.[01] ([1-9]\d\d)(?: .*)?$/.exec(first);
+  if (status === null) {
+    throw new Error("malformed HTTP status line");
+  }
   const headers = new Headers();
   for (const line of lines.slice(1)) {
-    if (line === "") continue;
-    if (/^[ \t]/.test(line)) throw new Error("folded HTTP response header");
+    if (line === "") {
+      continue;
+    }
+    if (/^[ \t]/.test(line)) {
+      throw new Error("folded HTTP response header");
+    }
     const colon = line.indexOf(":");
-    const name = colon > 0 ? line.slice(0, colon) : "";
-    if (!TOKEN.test(name)) continue;
+    let name = "";
+    if (colon > 0) {
+      name = line.slice(0, colon);
+    }
+    if (!TOKEN.test(name)) {
+      continue;
+    }
     try {
       headers.append(name, line.slice(colon + 1).trim());
     } catch {
@@ -148,95 +171,144 @@ async function readResponseHead(reader: Reader): Promise<PinnedResponse> {
     let end = headEnd(reader.buffered);
     while (end < 0) {
       if (headBytes + reader.buffered.length > MAX_RESPONSE_HEAD_BYTES) {
-        throw new Error(`response headers exceed ${MAX_RESPONSE_HEAD_BYTES} bytes`);
+        throw new Error(`response headers exceed ${String(MAX_RESPONSE_HEAD_BYTES)} bytes`);
       }
-      if (!(await reader.fill())) throw new Error("connection closed before the response");
+      if (!(await reader.fill())) {
+        throw new Error("connection closed before the response");
+      }
       end = headEnd(reader.buffered);
     }
     headBytes += end;
     if (headBytes > MAX_RESPONSE_HEAD_BYTES) {
-      throw new Error(`response headers exceed ${MAX_RESPONSE_HEAD_BYTES} bytes`);
+      throw new Error(`response headers exceed ${String(MAX_RESPONSE_HEAD_BYTES)} bytes`);
     }
     const response = parseHead(latin1(reader.consume(end)));
-    if (response.status >= 200) return response;
-    if (response.status === 101) throw new Error("unexpected HTTP 101 response");
+    if (response.status >= 200) {
+      return response;
+    }
+    if (response.status === 101) {
+      throw new Error("unexpected HTTP 101 response");
+    }
   }
 }
 
 /** Discards up to MAX_RESPONSE_BODY_BYTES of body, stopping where the framing ends. */
 async function drainBody(reader: Reader, response: PinnedResponse): Promise<void> {
-  if (response.status === 204 || response.status === 304) return;
+  if (response.status === 204 || response.status === 304) {
+    return;
+  }
   let budget = MAX_RESPONSE_BODY_BYTES;
-  const skip = async (n: number): Promise<boolean> => {
+  async function skip(n: number): Promise<boolean> {
     let left = n;
     while (left > 0) {
-      if (reader.buffered.length === 0 && !(await reader.fill())) return false;
+      if (reader.buffered.length === 0 && !(await reader.fill())) {
+        return false;
+      }
       const take = Math.min(left, reader.buffered.length, budget);
-      if (take === 0) return false; // over budget
+      if (take === 0) {
+        return false; // over budget
+      }
       reader.consume(take);
       left -= take;
       budget -= take;
     }
     return true;
-  };
-  const line = async (): Promise<string | null> => {
+  }
+  async function line(): Promise<string | null> {
     for (;;) {
       const lf = reader.buffered.indexOf(0x0a);
       if (lf >= 0) {
-        if (lf + 1 > budget) return null;
+        if (lf + 1 > budget) {
+          return null;
+        }
         budget -= lf + 1;
         return decoder.decode(reader.consume(lf + 1)).replace(/\r?\n$/, "");
       }
-      if (reader.buffered.length > Math.min(MAX_CHUNK_LINE_BYTES, budget)) return null;
-      if (!(await reader.fill())) return null;
+      if (reader.buffered.length > Math.min(MAX_CHUNK_LINE_BYTES, budget)) {
+        return null;
+      }
+      if (!(await reader.fill())) {
+        return null;
+      }
     }
-  };
+  }
 
   const transferEncoding = response.headers.get("transfer-encoding");
   if (transferEncoding !== null && /(^|,)\s*chunked\s*$/i.test(transferEncoding)) {
     for (;;) {
       const sizeLine = await line();
-      if (sizeLine === null) return;
+      if (sizeLine === null) {
+        return;
+      }
       const size = /^([0-9a-fA-F]{1,8})[ \t]*(;.*)?$/.exec(sizeLine);
-      if (!size) return;
-      const n = parseInt(size[1]!, 16);
-      if (n === 0) break;
-      if (!(await skip(n)) || (await line()) !== "") return;
+      if (size === null) {
+        return;
+      }
+      const digits = size[1];
+      if (digits === undefined) {
+        throw new Error("chunk size line matched without its size, in drainBody");
+      }
+      const n = parseInt(digits, 16);
+      if (n === 0) {
+        break;
+      }
+      if (!(await skip(n)) || (await line()) !== "") {
+        return;
+      }
     }
     // Trailers, up to the blank line.
     for (;;) {
       const trailer = await line();
-      if (trailer === null || trailer === "") return;
+      if (trailer === null || trailer === "") {
+        return;
+      }
     }
   }
   const length = response.headers.get("content-length");
   if (length !== null) {
-    if (/^\d+$/.test(length)) await skip(Number(length));
+    if (/^\d+$/.test(length)) {
+      await skip(Number(length));
+    }
     return;
   }
   await skip(budget); // until close or the cap
 }
 
 function requestHead(url: URL, headers: PinnedHeaders, length: number): string {
-  const lines = [`POST ${url.pathname || "/"}${url.search} HTTP/1.1`, `Host: ${url.host}`];
-  const pairs = Array.isArray(headers)
-    ? headers as ReadonlyArray<readonly [string, string]>
-    : Object.entries(headers);
-  for (const [name, value] of pairs) {
-    if (!TOKEN.test(name)) throw new Error(`invalid request header name ${JSON.stringify(name)}`);
-    if (/[\r\n\0]/.test(value)) throw new Error(`invalid value for request header ${name}`);
+  let path = url.pathname;
+  if (path === "") {
+    path = "/";
+  }
+  const lines = [`POST ${path}${url.search} HTTP/1.1`, `Host: ${url.host}`];
+  let pairs: ReadonlyArray<readonly [string, string]>;
+  if (Array.isArray(headers)) {
+    pairs = headers as ReadonlyArray<readonly [string, string]>;
+  } else {
+    pairs = Object.entries(headers);
+  }
+  for (const pair of pairs) {
+    const name = pair[0];
+    const value = pair[1];
+    if (!TOKEN.test(name)) {
+      throw new Error(`invalid request header name ${JSON.stringify(name)}`);
+    }
+    if (/[\r\n\0]/.test(value)) {
+      throw new Error(`invalid value for request header ${name}`);
+    }
     if (RESERVED_HEADERS.includes(name.toLowerCase())) {
       throw new Error(`request header ${name} is set by the client`);
     }
     lines.push(`${name}: ${value}`);
   }
-  lines.push(`Content-Length: ${length}`, "Connection: close", "", "");
+  lines.push(`Content-Length: ${String(length)}`, "Connection: close", "", "");
   return lines.join("\r\n");
 }
 
 async function writeAll(stream: Stream, bytes: Uint8Array): Promise<void> {
   let offset = 0;
-  while (offset < bytes.length) offset += await stream.write(bytes.subarray(offset));
+  while (offset < bytes.length) {
+    offset += await stream.write(bytes.subarray(offset));
+  }
 }
 
 /**
@@ -253,57 +325,98 @@ export async function pinnedPost(
   init: PinnedPostInit,
 ): Promise<PinnedResponse> {
   const tls = url.protocol === "https:";
-  if (!tls && !(url.protocol === "http:" && init.allowInsecure)) {
+  if (!tls && !(url.protocol === "http:" && init.allowInsecure === true)) {
     throw new Error("Use an https URL.");
   }
-  if (url.username !== "" || url.password !== "") throw new Error("URL has credentials");
-  const port = url.port === "" ? (tls ? 443 : 80) : Number(url.port);
+  if (url.username !== "" || url.password !== "") {
+    throw new Error("URL has credentials");
+  }
+  let port: number;
+  if (url.port !== "") {
+    port = Number(url.port);
+  } else if (tls) {
+    port = 443;
+  } else {
+    port = 80;
+  }
   const hostname = address.replace(/^\[|\]$/g, "");
-  const body = typeof init.body === "string" ? encoder.encode(init.body) : init.body;
+  let body: Uint8Array;
+  if (typeof init.body === "string") {
+    body = encoder.encode(init.body);
+  } else {
+    body = init.body;
+  }
   const head = encoder.encode(requestHead(url, init.headers, body.length));
   const request = new Uint8Array(head.length + body.length);
   request.set(head);
   request.set(body, head.length);
 
   const timeout = AbortSignal.timeout(init.timeoutMs);
-  const signal = init.signal ? AbortSignal.any([timeout, init.signal]) : timeout;
+  let signal = timeout;
+  if (init.signal !== undefined && init.signal !== null) {
+    signal = AbortSignal.any([timeout, init.signal]);
+  }
   let stream: Stream | null = null;
   let closed = false;
-  const close = () => {
-    if (closed || stream === null) return;
+  function close(): void {
+    if (closed || stream === null) {
+      return;
+    }
     closed = true;
     try {
       stream.close();
     } catch {
       // already closed by the peer
     }
-  };
-  const abortError = () =>
-    timeout.aborted ? new Error(`timed out after ${init.timeoutMs} ms`) : new Error("aborted");
+  }
+  function abortError(): Error {
+    if (timeout.aborted) {
+      return new Error(`timed out after ${String(init.timeoutMs)} ms`);
+    }
+    return new Error("aborted");
+  }
   // Aborting closes the connection, which fails whichever read or write is pending.
-  const onAbort = () => close();
-  if (signal.aborted) throw abortError();
+  function onAbort(): void {
+    close();
+  }
+  if (signal.aborted) {
+    throw abortError();
+  }
   signal.addEventListener("abort", onAbort, { once: true });
 
   try {
     const connected = Deno.connect({ hostname, port });
     // Deno.connect takes no signal; race it, and close a connection that lands late.
-    const tcp = await new Promise<Deno.TcpConn>((resolve, reject) => {
-      const late = () => reject(abortError());
+    const tcp = await new Promise<Deno.TcpConn>(function race(resolve, reject): void {
+      function late(): void {
+        reject(abortError());
+      }
       signal.addEventListener("abort", late, { once: true });
-      connected.then(
-        (conn) => {
+      // Settles the race once Deno.connect does; started at once, as .then() would be.
+      async function settle(): Promise<void> {
+        let conn: Deno.TcpConn;
+        try {
+          conn = await connected;
+        } catch (error: unknown) {
           signal.removeEventListener("abort", late);
-          if (signal.aborted) {
-            conn.close();
-            reject(abortError());
-          } else resolve(conn);
-        },
-        (error: unknown) => {
-          signal.removeEventListener("abort", late);
-          reject(new PinnedConnectError(error instanceof Error ? error.message : String(error)));
-        },
-      );
+          let message: string;
+          if (error instanceof Error) {
+            message = error.message;
+          } else {
+            message = String(error);
+          }
+          reject(new PinnedConnectError(message));
+          return;
+        }
+        signal.removeEventListener("abort", late);
+        if (signal.aborted) {
+          conn.close();
+          reject(abortError());
+        } else {
+          resolve(conn);
+        }
+      }
+      void settle();
     });
     stream = tcp;
     if (tls) {
@@ -325,8 +438,13 @@ export async function pinnedPost(
     }
     return response;
   } catch (error) {
-    if (signal.aborted) throw abortError();
-    throw error instanceof Error ? error : new Error(String(error));
+    if (signal.aborted) {
+      throw abortError();
+    }
+    if (error instanceof Error) {
+      throw error;
+    }
+    throw new Error(String(error));
   } finally {
     signal.removeEventListener("abort", onAbort);
     close();

@@ -84,18 +84,21 @@ export interface SendResult {
  */
 export function pushBookkeeping(result: SendResult): Array<[string, Record<string, unknown>]> {
   const calls: Array<[string, Record<string, unknown>]> = [];
-  if (result.expiredEndpoints && result.expiredEndpoints.length > 0) {
+  if (result.expiredEndpoints !== undefined && result.expiredEndpoints.length > 0) {
     calls.push(["prune_push_devices", { p_endpoints: result.expiredEndpoints }]);
   }
   const devices = result.deviceResults;
-  if (devices && (devices.ok.length > 0 || Object.keys(devices.errors).length > 0)) {
+  if (devices !== undefined && (devices.ok.length > 0 || Object.keys(devices.errors).length > 0)) {
     calls.push(["record_push_results", { p_ok: devices.ok, p_errors: devices.errors }]);
   }
   return calls;
 }
 
 function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
 }
 
 // Redirects are never followed: a safe public hostname could otherwise send
@@ -110,8 +113,10 @@ export async function sendDiscord(
   deliveries: readonly PendingDelivery[],
   options: SendOptions = {},
 ): Promise<SendResult> {
-  if (destination.url === null) return { ok: false, sent: 0, error: NO_URL };
-  if (!options.allowInsecure) {
+  if (destination.url === null) {
+    return { ok: false, sent: 0, error: NO_URL };
+  }
+  if (options.allowInsecure !== true) {
     try {
       assertSafeDestinationUrl("discord", destination.url);
     } catch (error) {
@@ -124,7 +129,10 @@ export async function sendDiscord(
   url.searchParams.set("wait", "false");
   let sent = 0;
 
-  for (const [index, { message, spots }] of batches.entries()) {
+  for (const entry of batches.entries()) {
+    const index = entry[0];
+    const message = entry[1].message;
+    const spots = entry[1].spots;
     if (index >= DISCORD_MESSAGES_PER_RUN) {
       return {
         ok: false,
@@ -146,11 +154,13 @@ export async function sendDiscord(
       return { ok: false, sent, error: `Discord request failed: ${errorMessage(error)}` };
     }
     if (isRedirect(response)) {
-      await response.body?.cancel();
+      if (response.body !== null) {
+        await response.body.cancel();
+      }
       return {
         ok: false,
         sent,
-        error: `Discord redirected (HTTP ${response.status}); redirects are not followed`,
+        error: `Discord redirected (HTTP ${String(response.status)}); redirects are not followed`,
       };
     }
     if (response.status === 429) {
@@ -162,9 +172,11 @@ export async function sendDiscord(
         retryAfterSeconds: retryAfter,
       };
     }
-    await response.body?.cancel();
+    if (response.body !== null) {
+      await response.body.cancel();
+    }
     if (!response.ok) {
-      return { ok: false, sent, error: `Discord HTTP ${response.status}` };
+      return { ok: false, sent, error: `Discord HTTP ${String(response.status)}` };
     }
     sent += spots;
   }
@@ -177,12 +189,17 @@ export async function sendDiscord(
  * number. An HTTP-date reads as null and the caller's fallback applies.
  */
 export function retryAfterSeconds(value: unknown): number | null {
-  const seconds = typeof value === "number"
-    ? value
-    : typeof value === "string" && value.trim() !== ""
-    ? Number(value)
-    : NaN;
-  if (!Number.isFinite(seconds) || seconds <= 0) return null;
+  let seconds: number;
+  if (typeof value === "number") {
+    seconds = value;
+  } else if (typeof value === "string" && value.trim() !== "") {
+    seconds = Number(value);
+  } else {
+    seconds = NaN;
+  }
+  if (!Number.isFinite(seconds) || seconds <= 0) {
+    return null;
+  }
   return Math.min(Math.ceil(seconds), MAX_RETRY_AFTER_SECONDS);
 }
 
@@ -198,10 +215,15 @@ async function retryAfterSecondsOf(response: Response): Promise<number | null> {
   } catch {
     // no JSON body
   }
-  const fromBody = typeof body === "object" && body !== null
-    ? (body as { retry_after?: unknown }).retry_after
-    : undefined;
-  return retryAfterSeconds(fromBody) ?? retryAfterSeconds(header);
+  let fromBody: unknown = undefined;
+  if (typeof body === "object" && body !== null) {
+    fromBody = (body as { retry_after?: unknown }).retry_after;
+  }
+  const bodySeconds = retryAfterSeconds(fromBody);
+  if (bodySeconds !== null) {
+    return bodySeconds;
+  }
+  return retryAfterSeconds(header);
 }
 
 /** Checked addresses a webhook send tries, in order, when connecting is refused. */
@@ -217,7 +239,7 @@ async function webhookTarget(
   rawUrl: string,
   options: SendOptions,
 ): Promise<{ url: URL; addresses: string[] }> {
-  if (options.allowInsecure) {
+  if (options.allowInsecure === true) {
     let url: URL;
     try {
       url = new URL(rawUrl);
@@ -227,7 +249,11 @@ async function webhookTarget(
     const host = hostOf(url);
     // Deno.connect takes only the first answer for a name; fetch tried both loopbacks.
     const loopback = host === "localhost" || host.endsWith(".localhost");
-    return { url, addresses: loopback ? ["127.0.0.1", "::1"] : [host] };
+    let addresses = [host];
+    if (loopback) {
+      addresses = ["127.0.0.1", "::1"];
+    }
+    return { url, addresses };
   }
   const url = assertSafeDestinationUrl("webhook", rawUrl);
   const addresses = await assertSafeResolvedHost(hostOf(url), options.resolver);
@@ -249,7 +275,11 @@ export async function sendWebhook(
   options: SendOptions = {},
 ): Promise<SendResult> {
   const requests = webhookRequests(destination, deliveries);
-  const firstCount = requests[0]?.count ?? 0;
+  let firstCount = 0;
+  const first = requests[0];
+  if (first !== undefined) {
+    firstCount = first.count;
+  }
   if (destination.url === null) {
     return { ok: false, sent: 0, attempted: firstCount, error: NO_URL };
   }
@@ -259,7 +289,10 @@ export async function sendWebhook(
   } catch (error) {
     return { ok: false, sent: 0, attempted: firstCount, error: errorMessage(error) };
   }
-  if (!destination.signing_secret) {
+  if (
+    destination.signing_secret === undefined || destination.signing_secret === null ||
+    destination.signing_secret === ""
+  ) {
     return {
       ok: false,
       sent: 0,
@@ -267,7 +300,10 @@ export async function sendWebhook(
       error: "Webhook destination has no signing secret",
     };
   }
-  const post = options.webhookPost ?? pinnedPost;
+  let post = pinnedPost;
+  if (options.webhookPost !== undefined) {
+    post = options.webhookPost;
+  }
   const test = deliveries.some((d) => d.test === true);
   const extra = webhookExtraHeaders(destination).map((h): [string, string] => [h.name, h.value]);
 
@@ -277,11 +313,6 @@ export async function sendWebhook(
   let at = 0;
   for (const request of requests) {
     const attempted = sent + request.count;
-    const failed = (error: string, more: Partial<SendResult> = {}): SendResult => {
-      const result: SendResult = { ok: false, sent, attempted, error, ...more };
-      if (status !== undefined) result.status = status;
-      return result;
-    };
     const body = JSON.stringify(request.body);
     const timestamp = Math.floor(Date.now() / 1000);
     const signature = await signWebhookBody(destination.signing_secret, timestamp, body);
@@ -292,13 +323,21 @@ export async function sendWebhook(
       ["X-LongLines-Timestamp", String(timestamp)],
       ["X-LongLines-Signature", signature],
     ];
-    if (test) headers.push(["X-LongLines-Test", "true"]);
-    headers.push(...extra);
+    if (test) {
+      headers.push(["X-LongLines-Test", "true"]);
+    }
+    for (const header of extra) {
+      headers.push(header);
+    }
     let response: PinnedResponse;
     try {
       for (;;) {
         try {
-          response = await post(target.url, target.addresses[at]!, {
+          const address = target.addresses[at];
+          if (address === undefined) {
+            throw new Error("sendWebhook: no address to connect to");
+          }
+          response = await post(target.url, address, {
             headers,
             body,
             timeoutMs: WEBHOOK_TIMEOUT_MS,
@@ -314,27 +353,58 @@ export async function sendWebhook(
         }
       }
     } catch (error) {
-      return failed(`Webhook request failed: ${errorMessage(error)}`);
+      return webhookFailure(
+        sent,
+        attempted,
+        status,
+        `Webhook request failed: ${errorMessage(error)}`,
+      );
     }
     status = response.status;
     if (response.status >= 300 && response.status < 400) {
-      return failed(
-        `Webhook redirected (HTTP ${response.status}); redirects are not followed`,
+      return webhookFailure(
+        sent,
+        attempted,
+        status,
+        `Webhook redirected (HTTP ${String(response.status)}); redirects are not followed`,
       );
     }
     if (response.status === 429) {
       // Alive, just too fast: the destination is throttled, never failed.
-      return failed("Webhook HTTP 429 (rate limited)", {
+      return webhookFailure(sent, attempted, status, "Webhook HTTP 429 (rate limited)", {
         retryAfterSeconds: retryAfterSeconds(response.headers.get("retry-after")),
       });
     }
     if (response.status < 200 || response.status >= 300) {
-      return failed(`Webhook HTTP ${response.status}`);
+      return webhookFailure(sent, attempted, status, `Webhook HTTP ${String(response.status)}`);
     }
     sent += request.count;
   }
   const result: SendResult = { ok: true, sent, attempted: sent };
-  if (status !== undefined) result.status = status;
+  if (status !== undefined) {
+    result.status = status;
+  }
+  return result;
+}
+
+/**
+ * A failed webhook send's result: status only when a request got one, and
+ * retryAfterSeconds only with a throttle (a 429).
+ */
+function webhookFailure(
+  sent: number,
+  attempted: number,
+  status: number | undefined,
+  error: string,
+  throttle: { retryAfterSeconds: number | null } | null = null,
+): SendResult {
+  const result: SendResult = { ok: false, sent, attempted, error };
+  if (throttle !== null) {
+    result.retryAfterSeconds = throttle.retryAfterSeconds;
+  }
+  if (status !== undefined) {
+    result.status = status;
+  }
   return result;
 }
 
@@ -382,11 +452,22 @@ async function pushToDevice(
 ): Promise<DeviceOutcome> {
   let accepted = 0;
   try {
-    if (!options.allowInsecure) assertSafePushEndpoint(device.endpoint);
+    if (options.allowInsecure !== true) {
+      assertSafePushEndpoint(device.endpoint);
+    }
     const vapid = authorization(device.endpoint);
-    if (vapid === undefined) throw new Error("Use a browser push service.");
-    for (const [index, payload] of payloads.entries()) {
+    if (vapid === undefined) {
+      throw new Error("Use a browser push service.");
+    }
+    for (const entry of payloads.entries()) {
+      const index = entry[0];
+      const payload = entry[1];
       const body = await encryptPushPayload(payload, device);
+      let topic = "";
+      const indexedTopic = topics[index];
+      if (indexedTopic !== undefined) {
+        topic = indexedTopic;
+      }
       let response: Response;
       try {
         response = await fetch(device.endpoint, {
@@ -397,7 +478,7 @@ async function pushToDevice(
             "Content-Type": "application/octet-stream",
             "TTL": String(settings.ttl_seconds),
             "Urgency": settings.urgency,
-            "Topic": topics[index] ?? "",
+            "Topic": topic,
             "User-Agent": USER_AGENT,
           },
           body,
@@ -407,15 +488,19 @@ async function pushToDevice(
       } catch (error) {
         return { kind: "error", accepted, error: `Push request failed: ${errorMessage(error)}` };
       }
-      await response.body?.cancel();
+      if (response.body !== null) {
+        await response.body.cancel();
+      }
       if (isRedirect(response)) {
         return {
           kind: "error",
           accepted,
-          error: `Push redirected (HTTP ${response.status}); redirects are not followed`,
+          error: `Push redirected (HTTP ${String(response.status)}); redirects are not followed`,
         };
       }
-      if (response.status === 404 || response.status === 410) return { kind: "gone", accepted };
+      if (response.status === 404 || response.status === 410) {
+        return { kind: "gone", accepted };
+      }
       if (response.status === 429) {
         return {
           kind: "rate_limited",
@@ -425,7 +510,7 @@ async function pushToDevice(
         };
       }
       if (response.status !== 201 && response.status !== 202) {
-        return { kind: "error", accepted, error: `Push HTTP ${response.status}` };
+        return { kind: "error", accepted, error: `Push HTTP ${String(response.status)}` };
       }
       accepted++;
     }
@@ -453,7 +538,9 @@ async function vapidHeaders(
     } catch {
       continue; // the device's own allowlist check reports it
     }
-    if (headers.has(origin)) continue;
+    if (headers.has(origin)) {
+      continue;
+    }
     try {
       headers.set(origin, await vapidAuthorization(origin, vapid, now));
     } catch {
@@ -461,6 +548,26 @@ async function vapidHeaders(
     }
   }
   return headers;
+}
+
+/**
+ * vapidHeaders with the configured keys and clock (now when none is pinned);
+ * null when no VAPID keys are configured.
+ */
+async function optionalVapidHeaders(
+  devices: readonly PushDevice[],
+  options: SendOptions,
+): Promise<Map<string, string> | null> {
+  if (options.vapid === undefined) {
+    return null;
+  }
+  let now: Date;
+  if (options.now !== undefined) {
+    now = options.now;
+  } else {
+    now = new Date();
+  }
+  return await vapidHeaders(devices, options.vapid, now);
 }
 
 /**
@@ -478,23 +585,38 @@ export async function sendPush(
   deliveries: readonly PendingDelivery[],
   options: SendOptions = {},
 ): Promise<SendResult> {
-  if (pushSkipped(destination)) return { ok: true, sent: deliveries.length };
+  if (pushSkipped(destination)) {
+    return { ok: true, sent: deliveries.length };
+  }
   const settings = pushSettingsOf(destination);
-  const devices = destination.devices ?? [];
-  if (devices.length === 0) return { ok: false, sent: 0, error: NO_DEVICES };
-  const headers = options.vapid
-    ? await vapidHeaders(devices, options.vapid, options.now ?? new Date())
-    : null;
-  if (!headers) return { ok: false, sent: 0, error: "Push isn't configured on the server." };
+  let devices: PushDevice[] = [];
+  if (destination.devices !== undefined && destination.devices !== null) {
+    devices = destination.devices;
+  }
+  if (devices.length === 0) {
+    return { ok: false, sent: 0, error: NO_DEVICES };
+  }
+  const headers = await optionalVapidHeaders(devices, options);
+  if (headers === null) {
+    return { ok: false, sent: 0, error: "Push isn't configured on the server." };
+  }
 
+  let quietNow = false;
+  if (destination.quiet_now !== undefined && destination.quiet_now !== null) {
+    quietNow = destination.quiet_now;
+  }
   const notifications = pushNotifications(
     deliveries.map((d) => d.spot),
     settings,
-    destination.quiet_now ?? false,
+    quietNow,
   );
   const payloads = notifications.map((n) => new TextEncoder().encode(pushPayload(n)));
   const topics = notifications.map((n) => pushTopic(n.tag));
-  const authorization = (endpoint: string) => headers.get(new URL(endpoint).origin);
+  // A function declaration does not keep the null check's narrowing, so it reads a non-null copy.
+  const originHeaders: Map<string, string> = headers;
+  function authorization(endpoint: string): string | undefined {
+    return originHeaders.get(new URL(endpoint).origin);
+  }
   const outcomes = await Promise.all(
     devices.map((device) =>
       pushToDevice(device, payloads, topics, authorization, settings, options)
@@ -509,27 +631,55 @@ export async function sendPush(
   let rateLimited = false;
   let retryAfter: number | null = null;
   let firstError: string | undefined;
-  for (const [index, outcome] of outcomes.entries()) {
-    const endpoint = devices[index]!.endpoint;
-    if (outcome.accepted > 0) reached = true;
-    if (outcome.kind === "accepted") deviceResults.ok.push(endpoint);
-    else if (outcome.kind === "gone") expiredEndpoints.push(endpoint);
-    else if (outcome.kind === "rate_limited") {
+  for (const entry of outcomes.entries()) {
+    const index = entry[0];
+    const outcome = entry[1];
+    const device = devices[index];
+    if (device === undefined) {
+      throw new Error("sendPush: no device for a push outcome");
+    }
+    const endpoint = device.endpoint;
+    if (outcome.accepted > 0) {
+      reached = true;
+    }
+    if (outcome.kind === "accepted") {
+      deviceResults.ok.push(endpoint);
+    } else if (outcome.kind === "gone") {
+      expiredEndpoints.push(endpoint);
+    } else if (outcome.kind === "rate_limited") {
       deviceResults.errors[endpoint] = RATE_LIMITED;
       rateLimited = true;
       if (outcome.retryAfterSeconds !== null) {
-        retryAfter = Math.max(retryAfter ?? 0, outcome.retryAfterSeconds);
+        let longest = 0;
+        if (retryAfter !== null) {
+          longest = retryAfter;
+        }
+        retryAfter = Math.max(longest, outcome.retryAfterSeconds);
       }
     } else {
       deviceResults.errors[endpoint] = outcome.error;
-      firstError ??= outcome.error;
+      if (firstError === undefined) {
+        firstError = outcome.error;
+      }
     }
   }
 
-  const reported = { expiredEndpoints, deviceResults };
-  if (reached) return { ok: true, sent: deliveries.length, ...reported };
-  if (rateLimited) {
-    return { ok: false, sent: 0, error: RATE_LIMITED, retryAfterSeconds: retryAfter, ...reported };
+  if (reached) {
+    return { ok: true, sent: deliveries.length, expiredEndpoints, deviceResults };
   }
-  return { ok: false, sent: 0, error: firstError ?? NO_DEVICES, ...reported };
+  if (rateLimited) {
+    return {
+      ok: false,
+      sent: 0,
+      error: RATE_LIMITED,
+      retryAfterSeconds: retryAfter,
+      expiredEndpoints,
+      deviceResults,
+    };
+  }
+  let error = NO_DEVICES;
+  if (firstError !== undefined) {
+    error = firstError;
+  }
+  return { ok: false, sent: 0, error, expiredEndpoints, deviceResults };
 }

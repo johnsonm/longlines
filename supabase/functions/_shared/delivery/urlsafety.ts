@@ -6,18 +6,37 @@ export type Resolver = (host: string) => Promise<string[] | null>;
 
 function parseIpv4(ip: string): number | null {
   const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(ip);
-  if (!m) return null;
+  if (m === null) {
+    return null;
+  }
   const octets = m.slice(1).map(Number);
-  if (octets.some((o) => o > 255)) return null;
-  return octets.reduce((acc, o) => acc * 256 + o, 0);
+  if (octets.some((o) => o > 255)) {
+    return null;
+  }
+  let value = 0;
+  for (const o of octets) {
+    value = value * 256 + o;
+  }
+  return value;
 }
 
 function inIpv4Range(value: number, cidr: string): boolean {
-  const [base, bitsText] = cidr.split("/");
-  const baseValue = parseIpv4(base ?? "");
+  const parts = cidr.split("/");
+  const base = parts[0];
+  const bitsText = parts[1];
+  let baseText = "";
+  if (base !== undefined) {
+    baseText = base;
+  }
+  const baseValue = parseIpv4(baseText);
   const bits = Number(bitsText);
-  if (baseValue === null) return false;
-  const mask = bits === 0 ? 0 : (0xffffffff << (32 - bits)) >>> 0;
+  if (baseValue === null) {
+    return false;
+  }
+  let mask = 0;
+  if (bits !== 0) {
+    mask = (0xffffffff << (32 - bits)) >>> 0;
+  }
   return ((value & mask) >>> 0) === ((baseValue & mask) >>> 0);
 }
 
@@ -39,10 +58,24 @@ function isPrivateIpv4(value: number): boolean {
   return PRIVATE_IPV4.some((cidr) => inIpv4Range(value, cidr));
 }
 
+/** The byte at an index, or 0 past the end. */
+function byteAt(b: readonly number[], at: number): number {
+  const value = b[at];
+  if (value === undefined) {
+    return 0;
+  }
+  return value;
+}
+
 /** The IPv4 address in four bytes of an IPv6 address, as a number. */
 function ipv4At(b: readonly number[], at: number): number {
-  return (b[at] ?? 0) * 16777216 + (b[at + 1] ?? 0) * 65536 + (b[at + 2] ?? 0) * 256 +
-    (b[at + 3] ?? 0);
+  return byteAt(b, at) * 16777216 + byteAt(b, at + 1) * 65536 + byteAt(b, at + 2) * 256 +
+    byteAt(b, at + 3);
+}
+
+/** True when every byte from `from` up to `to` is zero. */
+function zerosIn(b: readonly number[], from: number, to: number): boolean {
+  return b.slice(from, to).every((x) => x === 0);
 }
 
 /** The 16 bytes of an IPv6 address, or null when it does not parse. */
@@ -50,21 +83,42 @@ function parseIpv6(ip: string): number[] | null {
   let text = ip.trim();
   // Embedded IPv4 (::ffff:1.2.3.4) becomes two hex groups.
   const v4 = /^(.*:)(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/.exec(text);
-  if (v4) {
-    const value = parseIpv4(v4[2] ?? "");
-    if (value === null) return null;
-    text = `${v4[1]}${(value >>> 16).toString(16)}:${(value & 0xffff).toString(16)}`;
+  if (v4 !== null) {
+    let v4Text = "";
+    const embedded = v4[2];
+    if (embedded !== undefined) {
+      v4Text = embedded;
+    }
+    const value = parseIpv4(v4Text);
+    if (value === null) {
+      return null;
+    }
+    text = `${String(v4[1])}${(value >>> 16).toString(16)}:${(value & 0xffff).toString(16)}`;
   }
   const halves = text.split("::");
-  if (halves.length > 2) return null;
-  const head = halves[0] ? halves[0].split(":") : [];
-  const tail = halves.length === 2 && halves[1] ? halves[1].split(":") : [];
+  if (halves.length > 2) {
+    return null;
+  }
+  const first = halves[0];
+  let head: string[] = [];
+  if (first !== undefined && first !== "") {
+    head = first.split(":");
+  }
+  const second = halves[1];
+  let tail: string[] = [];
+  if (halves.length === 2 && second !== undefined && second !== "") {
+    tail = second.split(":");
+  }
   const missing = 8 - head.length - tail.length;
-  if (missing < 0 || (halves.length === 1 && missing !== 0)) return null;
-  const groups = [...head, ...Array<string>(missing).fill("0"), ...tail];
+  if (missing < 0 || (halves.length === 1 && missing !== 0)) {
+    return null;
+  }
+  const groups = head.concat(Array<string>(missing).fill("0"), tail);
   const bytes: number[] = [];
   for (const g of groups) {
-    if (!/^[0-9a-fA-F]{1,4}$/.test(g)) return null;
+    if (!/^[0-9a-fA-F]{1,4}$/.test(g)) {
+      return null;
+    }
     const n = parseInt(g, 16);
     bytes.push(n >> 8, n & 0xff);
   }
@@ -83,23 +137,52 @@ export function isIpLiteral(host: string): boolean {
  */
 export function isPrivateIp(ip: string): boolean {
   const v4 = parseIpv4(ip);
-  if (v4 !== null) return isPrivateIpv4(v4);
+  if (v4 !== null) {
+    return isPrivateIpv4(v4);
+  }
   const b = parseIpv6(ip);
-  if (b === null) return true; // not an address we understand: refuse
-  const zeros = (from: number, to: number) => b.slice(from, to).every((x) => x === 0);
+  if (b === null) {
+    // not an address we understand: refuse
+    return true;
+  }
   // ::ffff:a.b.c.d (mapped), ::a.b.c.d (compatible, which also covers :: and
   // ::1) and 64:ff9b::a.b.c.d (NAT64): judge the embedded IPv4.
-  if (zeros(0, 10) && b[10] === 0xff && b[11] === 0xff) return isPrivateIpv4(ipv4At(b, 12));
-  if (zeros(0, 12)) return isPrivateIpv4(ipv4At(b, 12)); // :: and ::1 are in 0.0.0.0/8
-  if (b[0] === 0x00 && b[1] === 0x64 && b[2] === 0xff && b[3] === 0x9b) {
-    if (zeros(4, 12)) return isPrivateIpv4(ipv4At(b, 12));
-    if (b[4] === 0x00 && b[5] === 0x01) return true; // 64:ff9b:1::/48, local-use NAT64
+  if (zerosIn(b, 0, 10) && b[10] === 0xff && b[11] === 0xff) {
+    return isPrivateIpv4(ipv4At(b, 12));
   }
-  if (b[0] === 0x20 && b[1] === 0x02) return isPrivateIpv4(ipv4At(b, 2)); // 2002::/16, 6to4
-  if (b[0] === 0x01 && b[1] === 0x00 && zeros(2, 8)) return true; // 100::/64, discard
-  if (((b[0] ?? 0) & 0xfe) === 0xfc) return true; // fc00::/7
-  if ((b[0] ?? 0) === 0xfe && (((b[1] ?? 0) & 0x80) === 0x80)) return true; // fe80::/10, fec0::/10
-  if (b[0] === 0xff) return true; // ff00::/8, multicast
+  if (zerosIn(b, 0, 12)) {
+    // :: and ::1 are in 0.0.0.0/8
+    return isPrivateIpv4(ipv4At(b, 12));
+  }
+  if (b[0] === 0x00 && b[1] === 0x64 && b[2] === 0xff && b[3] === 0x9b) {
+    if (zerosIn(b, 4, 12)) {
+      return isPrivateIpv4(ipv4At(b, 12));
+    }
+    if (b[4] === 0x00 && b[5] === 0x01) {
+      // 64:ff9b:1::/48, local-use NAT64
+      return true;
+    }
+  }
+  if (b[0] === 0x20 && b[1] === 0x02) {
+    // 2002::/16, 6to4
+    return isPrivateIpv4(ipv4At(b, 2));
+  }
+  if (b[0] === 0x01 && b[1] === 0x00 && zerosIn(b, 2, 8)) {
+    // 100::/64, discard
+    return true;
+  }
+  if ((byteAt(b, 0) & 0xfe) === 0xfc) {
+    // fc00::/7
+    return true;
+  }
+  if (byteAt(b, 0) === 0xfe && ((byteAt(b, 1) & 0x80) === 0x80)) {
+    // fe80::/10, fec0::/10
+    return true;
+  }
+  if (b[0] === 0xff) {
+    // ff00::/8, multicast
+    return true;
+  }
   return false;
 }
 
@@ -136,7 +219,9 @@ export function assertSafeDestinationUrl(type: "discord" | "webhook", url: strin
   } catch {
     throw new Error("Use an https URL.");
   }
-  if (parsed.protocol !== "https:") throw new Error("Use an https URL.");
+  if (parsed.protocol !== "https:") {
+    throw new Error("Use an https URL.");
+  }
   const host = hostOf(parsed);
   if (type === "discord") {
     if (
@@ -186,15 +271,24 @@ export function assertSafePushEndpoint(url: string): URL {
 }
 
 /** Resolves A and AAAA records. Null when the runtime cannot resolve DNS at all. */
-export const defaultResolver: Resolver = async (host) => {
-  if (typeof Deno.resolveDns !== "function") return null;
+export async function defaultResolver(host: string): Promise<string[] | null> {
+  if (typeof Deno.resolveDns !== "function") {
+    return null;
+  }
   const lookups = await Promise.allSettled([
     Deno.resolveDns(host, "A"),
     Deno.resolveDns(host, "AAAA"),
   ]);
-  const addresses = lookups.flatMap((r) => (r.status === "fulfilled" ? r.value : []));
+  const addresses: string[] = [];
+  for (const r of lookups) {
+    if (r.status === "fulfilled") {
+      for (const address of r.value) {
+        addresses.push(address);
+      }
+    }
+  }
   return addresses;
-};
+}
 
 /**
  * Refuse a hostname that resolves to any private address, and return the
@@ -208,13 +302,19 @@ export async function assertSafeResolvedHost(
   host: string,
   resolve: Resolver = defaultResolver,
 ): Promise<string[]> {
-  if (isIpLiteral(host)) return [host];
+  if (isIpLiteral(host)) {
+    return [host];
+  }
   const addresses = await resolve(host);
   if (addresses === null) {
     // Fail closed: without DNS we cannot rule out a private address.
     throw new Error("DNS resolution is unavailable in this runtime; webhook not sent");
   }
-  if (addresses.length === 0) throw new Error(`${host} did not resolve`);
-  if (addresses.some(isPrivateIp)) throw new Error(`${host} resolves to a private address`);
+  if (addresses.length === 0) {
+    throw new Error(`${host} did not resolve`);
+  }
+  if (addresses.some(isPrivateIp)) {
+    throw new Error(`${host} resolves to a private address`);
+  }
   return addresses;
 }
