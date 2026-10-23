@@ -23,7 +23,10 @@ import type { IngestSummary, Source } from "./types.ts";
 const RELAY_SECRET_ENV = "LONGLINES_RELAY_SECRET";
 
 function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
 }
 
 export async function respond(
@@ -52,14 +55,18 @@ export function pushIngestHandler<D>(
   run: (body: unknown, db: D) => Promise<IngestSummary>,
   deps: PushDeps<D>,
 ): (req: Request) => Promise<Response> {
-  return async (req: Request): Promise<Response> => {
+  async function handler(req: Request): Promise<Response> {
     const expected = deps.secret();
-    if (!expected) {
+    if (expected === undefined || expected === "") {
       const message = `missing environment variable ${RELAY_SECRET_ENV}`;
       console.error(`ingest-${source}: ${message}`);
       return Response.json({ source, error: message }, { status: 500 });
     }
-    if (!await secretsMatch(req.headers.get("x-relay-secret") ?? "", expected)) {
+    let provided = req.headers.get("x-relay-secret");
+    if (provided === null || provided === undefined) {
+      provided = "";
+    }
+    if (!await secretsMatch(provided, expected)) {
       return Response.json({ source, error: "unauthorized" }, { status: 401 });
     }
 
@@ -74,17 +81,19 @@ export function pushIngestHandler<D>(
     }
 
     return Response.json({ source, error: "method not allowed" }, { status: 405 });
-  };
+  }
+  return handler;
 }
 
 /** The database ingest-rbn needs: raw_spots, the watchlist and rbn_spots. */
 export function createRbnPushDb(client: SupabaseClient): RbnPushDb {
-  return { ...createIngestDb(client), ...createWatchlistDb(client), ...createRbnDb(client) };
+  // Object.assign copies the same own keys in the same order as the spread did.
+  return Object.assign({}, createIngestDb(client), createWatchlistDb(client), createRbnDb(client));
 }
 
 /** The database ingest-aprs needs: aprs_packets, ingest_failures and ingest_state. */
 export function createAprsPushDb(client: SupabaseClient): AprsPushDb {
-  return { ...createIngestDb(client), ...createAprsDb(client) };
+  return Object.assign({}, createIngestDb(client), createAprsDb(client));
 }
 
 /** Serve a pushed source; makeDb builds only the database surface its run needs. */
@@ -93,8 +102,12 @@ export function servePush<D>(
   run: (body: unknown, db: D) => Promise<IngestSummary>,
   makeDb: (client: SupabaseClient) => D,
 ): void {
-  Deno.serve(pushIngestHandler(source, run, {
+  const push = pushIngestHandler(source, run, {
     db: () => makeDb(createServiceClient()),
     secret: () => Deno.env.get(RELAY_SECRET_ENV),
-  }));
+  });
+  async function handler(req: Request): Promise<Response> {
+    return await push(req);
+  }
+  Deno.serve(handler);
 }
