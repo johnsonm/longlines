@@ -9,8 +9,8 @@
 
 // hyparquet-writer: pure-JS Parquet encoder with built-in snappy and one
 // dependency (its reader, hyparquet). No WASM, so it bundles into an Edge Function.
-import { ByteWriter, parquetWrite } from "hyparquet-writer";
-import type { SchemaElement } from "hyparquet-writer";
+import { parquetWriteBuffer } from "hyparquet-writer";
+import type { ColumnSource, SchemaElement } from "hyparquet-writer";
 import type { ArchiveColumns, ArchiveDb, ArchiveSlice, ArchiveStore, Source } from "./types.ts";
 
 /**
@@ -20,7 +20,7 @@ import type { ArchiveColumns, ArchiveDb, ArchiveSlice, ArchiveStore, Source } fr
  */
 export const ARCHIVE_ORDER: readonly Source[] = ["pota", "sotawatch", "dxcluster", "wwff", "rbn"];
 /** Every source a request may name. */
-export const ARCHIVE_SOURCES: readonly Source[] = [...ARCHIVE_ORDER, "aprs"];
+export const ARCHIVE_SOURCES: readonly Source[] = ARCHIVE_ORDER.concat(["aprs"]);
 /** Only slices that ended this long ago are archived, so late relay batches land first. */
 export const LAG_MS = 2 * 60 * 60 * 1000;
 /** A run starts no new slice once it has archived this many rows. */
@@ -64,12 +64,16 @@ export interface ArchiveSummary {
  * when the body is empty or names none. Throws on anything else.
  */
 export function archiveSources(body: unknown): readonly Source[] {
-  if (body === null || body === undefined) return ARCHIVE_ORDER;
+  if (body === null || body === undefined) {
+    return ARCHIVE_ORDER;
+  }
   if (typeof body !== "object" || Array.isArray(body)) {
     throw new Error("expected a JSON object");
   }
   const sources = (body as Record<string, unknown>)["sources"];
-  if (sources === undefined) return ARCHIVE_ORDER;
+  if (sources === undefined) {
+    return ARCHIVE_ORDER;
+  }
   if (!Array.isArray(sources) || sources.length === 0) {
     throw new Error('"sources" must be a non-empty array');
   }
@@ -82,7 +86,10 @@ export function archiveSources(body: unknown): readonly Source[] {
 }
 
 function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
 }
 
 type ColumnType = "timestamp" | "string" | "json" | "double" | "int32";
@@ -125,11 +132,14 @@ export const ARCHIVE_SCHEMAS: Readonly<
   wwff: SPOT_COLUMNS,
 };
 
+function two(n: number): string {
+  return String(n).padStart(2, "0");
+}
+
 /** Hive-partitioned: `<source>/year=YYYY/month=MM/day=DD/HHMM.parquet` from the slice start in UTC. */
 export function objectPath(source: Source, sliceStart: string): string {
   const d = new Date(sliceStart);
-  const two = (n: number) => String(n).padStart(2, "0");
-  return `${source}/year=${d.getUTCFullYear()}/month=${two(d.getUTCMonth() + 1)}/` +
+  return `${source}/year=${String(d.getUTCFullYear())}/month=${two(d.getUTCMonth() + 1)}/` +
     `day=${two(d.getUTCDate())}/${two(d.getUTCHours())}${two(d.getUTCMinutes())}.parquet`;
 }
 
@@ -139,19 +149,38 @@ function schemaElement(name: string, type: ColumnType): SchemaElement {
     case "timestamp":
       // Epoch milliseconds from SQL, marked UTC so readers return instants.
       return {
-        ...optional,
+        name: optional.name,
+        repetition_type: optional.repetition_type,
         type: "INT64",
         logical_type: { type: "TIMESTAMP", isAdjustedToUTC: true, unit: "MILLIS" },
       };
     case "string":
-      return { ...optional, type: "BYTE_ARRAY", converted_type: "UTF8" };
+      return {
+        name: optional.name,
+        repetition_type: optional.repetition_type,
+        type: "BYTE_ARRAY",
+        converted_type: "UTF8",
+      };
     case "json":
-      return { ...optional, type: "BYTE_ARRAY", converted_type: "JSON" };
+      return {
+        name: optional.name,
+        repetition_type: optional.repetition_type,
+        type: "BYTE_ARRAY",
+        converted_type: "JSON",
+      };
     case "double":
-      return { ...optional, type: "DOUBLE" };
+      return { name: optional.name, repetition_type: optional.repetition_type, type: "DOUBLE" };
     case "int32":
-      return { ...optional, type: "INT32" };
+      return { name: optional.name, repetition_type: optional.repetition_type, type: "INT32" };
   }
+}
+
+/** A timestamp column value (epoch milliseconds) as the bigint the writer takes for INT64. */
+function timestampValue(v: unknown): bigint | null {
+  if (v === null) {
+    return null;
+  }
+  return BigInt(v as number);
 }
 
 /** One slice's columns as a Parquet file, in a single row group. Throws on a missing or short column. */
@@ -161,28 +190,31 @@ export function encodeParquet(
   rowCount: number,
 ): Uint8Array {
   const schema = ARCHIVE_SCHEMAS[source];
-  const columnData = schema.map(([name, type]) => {
+  const columnData: ColumnSource[] = [];
+  for (const column of schema) {
+    const name = column[0];
     const data = columns[name];
     if (!Array.isArray(data) || data.length !== rowCount) {
-      throw new Error(`column ${name}: expected ${rowCount} values`);
+      throw new Error(`column ${name}: expected ${String(rowCount)} values`);
     }
     // The writer takes INT64 values as bigint.
-    if (type === "timestamp") {
-      return { name, data: data.map((v) => v === null ? null : BigInt(v as number)) };
+    if (column[1] === "timestamp") {
+      columnData.push({ name, data: data.map(timestampValue) });
+    } else {
+      columnData.push({ name, data });
     }
-    return { name, data };
-  });
-  const writer = new ByteWriter();
-  parquetWrite({
-    writer,
+  }
+  const elements: SchemaElement[] = [{ name: "root", num_children: schema.length }];
+  for (const column of schema) {
+    elements.push(schemaElement(column[0], column[1]));
+  }
+  // parquetWriteBuffer is parquetWrite into a ByteWriter, which writes synchronously.
+  const buffer = parquetWriteBuffer({
     columnData,
-    schema: [
-      { name: "root", num_children: schema.length },
-      ...schema.map(([name, type]) => schemaElement(name, type)),
-    ],
+    schema: elements,
     rowGroupSize: Math.max(rowCount, 1),
   });
-  return new Uint8Array(writer.getBuffer());
+  return new Uint8Array(buffer);
 }
 
 export async function runArchive(
@@ -211,24 +243,39 @@ export async function runArchive(
       continue;
     }
     for (const slice of slices) {
-      if (summary.rows >= MAX_ROWS_PER_RUN) break sources;
+      if (summary.rows >= MAX_ROWS_PER_RUN) {
+        break sources;
+      }
       try {
-        const { row_count, columns } = await db.sliceColumns(source, slice);
-        if (row_count === 0) {
-          await db.logArchive({ source, ...slice, row_count: 0, bytes: null, object_path: null });
+        const sliceData = await db.sliceColumns(source, slice);
+        const rowCount = sliceData.row_count;
+        if (rowCount === 0) {
+          await db.logArchive({
+            source,
+            slice_start: slice.slice_start,
+            slice_end: slice.slice_end,
+            row_count: 0,
+            bytes: null,
+            object_path: null,
+          });
           summary.empty += 1;
         } else {
-          const bytes = encodeParquet(source, columns ?? {}, row_count);
+          let columns: ArchiveColumns = {};
+          if (sliceData.columns !== null && sliceData.columns !== undefined) {
+            columns = sliceData.columns;
+          }
+          const bytes = encodeParquet(source, columns, rowCount);
           const path = objectPath(source, slice.slice_start);
           await store.upload(path, bytes);
           await db.logArchive({
             source,
-            ...slice,
-            row_count,
+            slice_start: slice.slice_start,
+            slice_end: slice.slice_end,
+            row_count: rowCount,
             bytes: bytes.length,
             object_path: path,
           });
-          summary.rows += row_count;
+          summary.rows += rowCount;
           summary.bytes += bytes.length;
         }
         summary.slices += 1;
