@@ -17,21 +17,42 @@ export const ARCHIVE_S3_ENV = {
 /** Hosts allowed over plain http: the local stack, seen from the host or from the functions container. */
 const LOCAL_HOSTS = new Set(["127.0.0.1", "localhost", "kong", "host.docker.internal"]);
 
+type ArchiveS3Field = keyof typeof ARCHIVE_S3_ENV;
+
+/** A setting archiveS3Config stored; a missing one has already thrown. */
+function required(values: Partial<Record<ArchiveS3Field, string>>, field: ArchiveS3Field): string {
+  const value = values[field];
+  if (value === undefined) {
+    throw new Error(`archiveS3Config: no value for ${field}`);
+  }
+  return value;
+}
+
 /** The store's settings from the environment. Throws naming every missing or bad variable. */
 export function archiveS3Config(get: (name: string) => string | undefined): S3Config {
   const values: Partial<Record<keyof typeof ARCHIVE_S3_ENV, string>> = {};
   const missing: string[] = [];
-  for (const [field, name] of Object.entries(ARCHIVE_S3_ENV)) {
-    const value = get(name)?.trim();
-    if (value) values[field as keyof typeof ARCHIVE_S3_ENV] = value;
-    else missing.push(name);
+  for (const entry of Object.entries(ARCHIVE_S3_ENV)) {
+    const field = entry[0];
+    const name = entry[1];
+    const raw = get(name);
+    let value = "";
+    if (raw !== undefined) {
+      value = raw.trim();
+    }
+    if (value !== "") {
+      values[field as keyof typeof ARCHIVE_S3_ENV] = value;
+    } else {
+      missing.push(name);
+    }
   }
   if (missing.length > 0) {
     throw new Error(`archive store not configured: missing ${missing.join(", ")}`);
   }
+  const endpointText = required(values, "endpoint");
   let endpoint: URL;
   try {
-    endpoint = new URL(values.endpoint!);
+    endpoint = new URL(endpointText);
   } catch {
     throw new Error(`${ARCHIVE_S3_ENV.endpoint} is not a URL`);
   }
@@ -40,10 +61,10 @@ export function archiveS3Config(get: (name: string) => string | undefined): S3Co
   }
   return {
     endpoint,
-    region: values.region!,
-    bucket: values.bucket!,
-    accessKeyId: values.accessKeyId!,
-    secretAccessKey: values.secretAccessKey!,
+    region: required(values, "region"),
+    bucket: required(values, "bucket"),
+    accessKeyId: required(values, "accessKeyId"),
+    secretAccessKey: required(values, "secretAccessKey"),
   };
 }
 
@@ -56,7 +77,12 @@ async function naming<T>(what: string, path: string, run: () => Promise<T>): Pro
   try {
     return await run();
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    let message: string;
+    if (error instanceof Error) {
+      message = error.message;
+    } else {
+      message = String(error);
+    }
     throw new Error(`archive ${what} failed for ${path}: ${message}`);
   }
 }
