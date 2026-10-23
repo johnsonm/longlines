@@ -38,24 +38,42 @@ export interface GroupPageDeps {
 
 export async function handleGroupPage(req: Request, deps: GroupPageDeps): Promise<Response> {
   const preflight = preflightResponse(req);
-  if (preflight) return preflight;
-  if (req.method !== "GET") return json({ error: "Method not allowed." }, 405, NO_STORE);
+  if (preflight !== null) {
+    return preflight;
+  }
+  if (req.method !== "GET") {
+    return json({ error: "Method not allowed." }, 405, NO_STORE);
+  }
 
   const params = new URL(req.url).searchParams;
-  const slug = params.get("slug") ?? "";
-  const period = params.get("period") ?? "30d";
-  if (!SLUG.test(slug) || !PERIODS.has(period)) return json({ error: PAGE_PRIVATE }, 404, NO_STORE);
+  let slug = "";
+  const slugParam = params.get("slug");
+  if (slugParam !== null) {
+    slug = slugParam;
+  }
+  let period = "30d";
+  const periodParam = params.get("period");
+  if (periodParam !== null) {
+    period = periodParam;
+  }
+  if (!SLUG.test(slug) || !PERIODS.has(period)) {
+    return json({ error: PAGE_PRIVATE }, 404, NO_STORE);
+  }
 
   const db = deps.db();
   const limited = await lookupLimit(req, db, deps, "group-page", GROUP_PAGE_UNAVAILABLE, NO_STORE);
-  if (limited) return limited;
+  if (limited !== null) {
+    return limited;
+  }
 
   const page = await db.rpc("public_group_statistics", { p_slug: slug, p_period: period });
-  if (page.error) {
+  if (page.error !== null) {
     // The code is a capability: never log it.
     console.error(`group-page: ${page.error.message}`);
     return json({ error: GROUP_PAGE_UNAVAILABLE }, 500, NO_STORE);
   }
-  if (page.data === null) return json({ error: PAGE_PRIVATE }, 404, NO_STORE);
+  if (page.data === null) {
+    return json({ error: PAGE_PRIVATE }, 404, NO_STORE);
+  }
   return json(page.data, 200, NO_STORE);
 }
