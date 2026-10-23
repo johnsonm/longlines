@@ -54,7 +54,10 @@ export interface ConvertSummary {
 }
 
 function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
 }
 
 /**
@@ -63,9 +66,15 @@ function errorMessage(error: unknown): string {
  * a cursor (a slice that keeps failing would otherwise head every batch).
  */
 export function convertRequest(body: unknown): ConvertRequest {
-  if (body === null || body === undefined) return { after: null, limit: DEFAULT_SLICES_PER_RUN };
-  if (typeof body !== "object" || Array.isArray(body)) throw new Error("expected a JSON object");
-  const { after, limit } = body as Record<string, unknown>;
+  if (body === null || body === undefined) {
+    return { after: null, limit: DEFAULT_SLICES_PER_RUN };
+  }
+  if (typeof body !== "object" || Array.isArray(body)) {
+    throw new Error("expected a JSON object");
+  }
+  const fields = body as Record<string, unknown>;
+  const after = fields["after"];
+  const limit = fields["limit"];
   let cursor: ConvertCursor | null = null;
   if (after !== undefined && after !== null) {
     const a = after as Record<string, unknown>;
@@ -82,9 +91,14 @@ export function convertRequest(body: unknown): ConvertRequest {
     limit !== undefined &&
     (!Number.isInteger(limit) || (limit as number) < 1 || (limit as number) > MAX_SLICES_PER_RUN)
   ) {
-    throw new Error(`"limit" must be an integer from 1 to ${MAX_SLICES_PER_RUN}`);
+    throw new Error(`"limit" must be an integer from 1 to ${String(MAX_SLICES_PER_RUN)}`);
   }
-  return { after: cursor, limit: (limit as number | undefined) ?? DEFAULT_SLICES_PER_RUN };
+  const requested = limit as number | undefined;
+  let slicesLimit = DEFAULT_SLICES_PER_RUN;
+  if (requested !== undefined && requested !== null) {
+    slicesLimit = requested;
+  }
+  return { after: cursor, limit: slicesLimit };
 }
 
 /** The stored bytes as text, gunzipped when they carry the gzip magic number. */
@@ -97,7 +111,9 @@ export async function ndjsonText(bytes: Uint8Array): Promise<string> {
     .pipeThrough(new DecompressionStream("gzip"))
     .pipeThrough(new TextDecoderStream("utf-8", { fatal: true }));
   let text = "";
-  for await (const chunk of stream) text += chunk;
+  for await (const chunk of stream) {
+    text += chunk;
+  }
   return text;
 }
 
@@ -110,13 +126,39 @@ export function epochMillis(value: string): number {
   const m =
     /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{1,6}))?(?:Z|([+-])(\d{2})(?::(\d{2}))?(?::(\d{2}))?)$/
       .exec(value);
-  const wall = m ? Date.parse(`${m[1]}Z`) : NaN;
-  if (!m || Number.isNaN(wall)) throw new Error(`not a timestamp: ${JSON.stringify(value)}`);
-  const [, , fraction, sign, hh, mm, ss] = m;
-  const offsetSeconds = sign === undefined
-    ? 0
-    : (sign === "-" ? -1 : 1) * (Number(hh) * 3600 + Number(mm ?? 0) * 60 + Number(ss ?? 0));
-  const micros = Number((fraction ?? "").padEnd(6, "0"));
+  let wall = NaN;
+  if (m !== null) {
+    wall = Date.parse(`${String(m[1])}Z`);
+  }
+  if (m === null || Number.isNaN(wall)) {
+    throw new Error(`not a timestamp: ${JSON.stringify(value)}`);
+  }
+  const fraction = m[2];
+  const sign = m[3];
+  const hh = m[4];
+  const mm = m[5];
+  const ss = m[6];
+  let offsetSeconds = 0;
+  if (sign !== undefined) {
+    let direction = 1;
+    if (sign === "-") {
+      direction = -1;
+    }
+    let minutes = 0;
+    if (mm !== undefined) {
+      minutes = Number(mm);
+    }
+    let seconds = 0;
+    if (ss !== undefined) {
+      seconds = Number(ss);
+    }
+    offsetSeconds = direction * (Number(hh) * 3600 + minutes * 60 + seconds);
+  }
+  let digits = "";
+  if (fraction !== undefined) {
+    digits = fraction;
+  }
+  const micros = Number(digits.padEnd(6, "0"));
   return wall - offsetSeconds * 1000 + Math.round(micros / 1000);
 }
 
@@ -131,11 +173,18 @@ function rawJsonText(line: string, parsed: unknown): string {
   const key = ',"raw_payload":';
   const at = line.indexOf(key);
   const end = line.lastIndexOf("}");
-  const text = at < 0 ? "" : line.slice(at + key.length, end).trim();
+  let text = "";
+  if (at >= 0) {
+    text = line.slice(at + key.length, end).trim();
+  }
   if (at < 0 || JSON.stringify(JSON.parse(text)) !== JSON.stringify(parsed)) {
     throw new Error("could not locate raw_payload in the line");
   }
   return text;
+}
+
+function badValue(where: string, name: string, type: string, value: unknown): Error {
+  return new Error(`${where}: ${name} is not a ${type}: ${JSON.stringify(value)}`);
 }
 
 /**
@@ -149,13 +198,15 @@ export function ndjsonColumns(
   text: string,
 ): { rowCount: number; columns: ArchiveColumns } {
   const schema = ARCHIVE_SCHEMAS[source];
-  const known = new Set(schema.map(([name]) => name));
-  const columns: ArchiveColumns = Object.fromEntries(schema.map(([name]) => [name, []]));
+  const known = new Set(schema.map((c) => c[0]));
+  const columns: ArchiveColumns = Object.fromEntries(schema.map((c) => [c[0], []]));
   let rowCount = 0;
   for (const line of text.split("\n")) {
-    if (line.trim() === "") continue;
+    if (line.trim() === "") {
+      continue;
+    }
     rowCount += 1;
-    const where = `line ${rowCount}`;
+    const where = `line ${String(rowCount)}`;
     let row: unknown;
     try {
       row = JSON.parse(line);
@@ -167,36 +218,55 @@ export function ndjsonColumns(
     }
     const record = row as Record<string, unknown>;
     for (const key of Object.keys(record)) {
-      if (!known.has(key)) throw new Error(`${where}: unknown column ${key}`);
+      if (!known.has(key)) {
+        throw new Error(`${where}: unknown column ${key}`);
+      }
     }
-    for (const [name, type] of schema) {
+    for (const column of schema) {
+      const name = column[0];
+      const type = column[1];
       if (!Object.hasOwn(record, name) && !LATER_COLUMNS.has(name)) {
         throw new Error(`${where}: missing column ${name}`);
       }
-      const value = record[name] ?? null;
+      let value: unknown = null;
+      const stored = record[name];
+      if (stored !== null && stored !== undefined) {
+        value = stored;
+      }
       let out: unknown = value;
       if (value !== null) {
-        const bad = () => new Error(`${where}: ${name} is not a ${type}: ${JSON.stringify(value)}`);
         switch (type) {
           case "timestamp":
-            if (typeof value !== "string") throw bad();
+            if (typeof value !== "string") {
+              throw badValue(where, name, type, value);
+            }
             out = epochMillis(value);
             break;
           case "json":
             out = rawJsonText(line, value);
             break;
           case "string":
-            if (typeof value !== "string") throw bad();
+            if (typeof value !== "string") {
+              throw badValue(where, name, type, value);
+            }
             break;
           case "double":
-            if (typeof value !== "number") throw bad();
+            if (typeof value !== "number") {
+              throw badValue(where, name, type, value);
+            }
             break;
           case "int32":
-            if (!Number.isInteger(value)) throw bad();
+            if (!Number.isInteger(value)) {
+              throw badValue(where, name, type, value);
+            }
             break;
         }
       }
-      columns[name]!.push(out);
+      const values = columns[name];
+      if (values === undefined) {
+        throw new Error(`ndjsonColumns: no column array for ${name}`);
+      }
+      values.push(out);
     }
   }
   return { rowCount, columns };
@@ -212,19 +282,30 @@ async function convertSlice(
     throw new Error(`not an NDJSON object: ${slice.object_path}`);
   }
   const stored = await store.read(slice.object_path);
-  if (stored === null) throw new Error(`NDJSON object missing: ${slice.object_path}`);
-  const { rowCount, columns } = ndjsonColumns(slice.source, await ndjsonText(stored));
-  if (rowCount !== slice.row_count) {
-    throw new Error(`row count mismatch: the object has ${rowCount}, the log ${slice.row_count}`);
+  if (stored === null) {
+    throw new Error(`NDJSON object missing: ${slice.object_path}`);
   }
-  if (rowCount === 0) throw new Error("the NDJSON object has no rows");
-  const parquet = encodeParquet(slice.source, columns, rowCount);
+  const decoded = ndjsonColumns(slice.source, await ndjsonText(stored));
+  const rowCount = decoded.rowCount;
+  if (rowCount !== slice.row_count) {
+    throw new Error(
+      `row count mismatch: the object has ${String(rowCount)}, the log ${String(slice.row_count)}`,
+    );
+  }
+  if (rowCount === 0) {
+    throw new Error("the NDJSON object has no rows");
+  }
+  const parquet = encodeParquet(slice.source, decoded.columns, rowCount);
   const path = objectPath(slice.source, slice.slice_start);
   // A crash after this upload leaves a Parquet object the next run overwrites.
   await store.upload(path, parquet);
   const size = await store.size(path);
   if (size !== parquet.length) {
-    throw new Error(`uploaded ${path} reads back as ${size ?? "missing"}, not ${parquet.length}`);
+    let readBack = "missing";
+    if (size !== null && size !== undefined) {
+      readBack = String(size);
+    }
+    throw new Error(`uploaded ${path} reads back as ${readBack}, not ${String(parquet.length)}`);
   }
   if (!await db.repointSlice(slice, { object_path: path, bytes: parquet.length })) {
     throw new Error("the log row changed since it was listed; left as it is");
@@ -272,11 +353,13 @@ export async function runConvert(
     read += slice.row_count;
     last = slice;
     try {
-      const { bytes, undeleted } = await convertSlice(db, store, slice);
+      const result = await convertSlice(db, store, slice);
       summary.converted += 1;
       summary.rows += slice.row_count;
-      summary.bytes += bytes;
-      if (undeleted) summary.undeleted.push(undeleted);
+      summary.bytes += result.bytes;
+      if (result.undeleted !== null && result.undeleted !== "") {
+        summary.undeleted.push(result.undeleted);
+      }
     } catch (error) {
       summary.failed.push({
         source: slice.source,
