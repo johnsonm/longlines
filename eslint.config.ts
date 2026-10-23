@@ -4,9 +4,6 @@ import tseslint from "typescript-eslint";
 // Ratchet: areas whose style refactor has not landed. The PR that fixes an area removes its
 // globs, and nothing else edits this list. Deleted when empty.
 const pendingStyle = [
-  // relay
-  "relay/*.ts",
-  "relay/__tests__/*.ts",
   // sender
   "sender/*.ts",
   "sender/__tests__/*.ts",
