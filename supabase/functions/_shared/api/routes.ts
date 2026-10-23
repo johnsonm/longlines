@@ -43,13 +43,33 @@ export const MAX_LIST_ITEMS = 2000;
 const SUBSCRIPTION_ARRAYS = ["sources", "destinations"];
 const CALLSIGN_ARRAYS = ["callsigns"];
 
-const read = (op: string): Route => ({ op, scope: "read", input: "none", status: 200 });
+function read(op: string): Route {
+  return { op, scope: "read", input: "none", status: 200 };
+}
 
-const write = (
+function write(
   op: string,
   input: Route["input"] = "none",
   more: Partial<Pick<Route, "arrays" | "lists" | "scalars" | "required" | "status">> = {},
-): Route => ({ op, scope: "write", input, status: 200, ...more });
+): Route {
+  const route: Route = { op, scope: "write", input, status: 200 };
+  if (more.arrays !== undefined) {
+    route.arrays = more.arrays;
+  }
+  if (more.lists !== undefined) {
+    route.lists = more.lists;
+  }
+  if (more.scalars !== undefined) {
+    route.scalars = more.scalars;
+  }
+  if (more.required !== undefined) {
+    route.required = more.required;
+  }
+  if (more.status !== undefined) {
+    route.status = more.status;
+  }
+  return route;
+}
 
 // rules is a list of AND groups, each a list of rules; normalize_subscription_rules checks the rest.
 const SUB = {
@@ -66,7 +86,7 @@ const CREATED = { status: 201 } as const;
 // deno-fmt-ignore
 export const ROUTES: ReadonlyArray<readonly [string, string, Route]> = [
   ["GET",    "/v1/destinations",                   read("list_destinations")],
-  ["POST",   "/v1/destinations",                   write("create_destination", "fields", { ...DEST, ...CREATED })],
+  ["POST",   "/v1/destinations",                   write("create_destination", "fields", { scalars: DEST.scalars, status: CREATED.status })],
   ["GET",    "/v1/destinations/:id",               read("get_destination")],
   ["PATCH",  "/v1/destinations/:id",               write("update_destination", "fields", DEST_PATCH)],
   ["DELETE", "/v1/destinations/:id",               write("delete_destination")],
@@ -74,14 +94,14 @@ export const ROUTES: ReadonlyArray<readonly [string, string, Route]> = [
   ["POST",   "/v1/destinations/:id/test",          write("send_test")],
 
   ["GET",    "/v1/connections",                    read("list_subscriptions")],
-  ["POST",   "/v1/connections",                    write("create_subscription", "body", { ...SUB, ...CREATED })],
+  ["POST",   "/v1/connections",                    write("create_subscription", "body", { arrays: SUB.arrays, lists: SUB.lists, scalars: SUB.scalars, status: CREATED.status })],
   ["GET",    "/v1/connections/:id",                read("get_subscription")],
   ["PUT",    "/v1/connections/:id",                write("replace_subscription", "body", SUB)],
   ["PATCH",  "/v1/connections/:id",                write("patch_subscription", "body", SUB)],
   ["DELETE", "/v1/connections/:id",                write("delete_subscription")],
 
   ["GET",    "/v1/groups",                         read("list_groups")],
-  ["POST",   "/v1/groups",                         write("create_group", "fields", { ...GROUP, ...CREATED })],
+  ["POST",   "/v1/groups",                         write("create_group", "fields", { arrays: GROUP.arrays, scalars: GROUP.scalars, status: CREATED.status })],
   ["GET",    "/v1/groups/:id",                     read("get_group")],
   ["PATCH",  "/v1/groups/:id",                     write("update_group", "fields", GROUP)],
   ["DELETE", "/v1/groups/:id",                     write("delete_group")],
@@ -103,29 +123,68 @@ export function isUuid(value: string): boolean {
  */
 export function apiPath(pathname: string): string | null {
   const match = /^(?:\/functions\/v1)?\/api(\/.*)?$/.exec(pathname);
-  if (!match) return null;
-  return (match[1] ?? "").replace(/\/+$/, "");
+  if (match === null) {
+    return null;
+  }
+  let rest = "";
+  if (match[1] !== undefined && match[1] !== null) {
+    rest = match[1];
+  }
+  return rest.replace(/\/+$/, "");
 }
 
 /** The route for a method and API path, with the path's id when it has one. */
 export function matchRoute(method: string, path: string): RouteMatch {
   const segments = path.split("/");
   const allow: string[] = [];
-  for (const [routeMethod, pattern, route] of ROUTES) {
+  for (const entry of ROUTES) {
+    const routeMethod = entry[0];
+    const pattern = entry[1];
+    const route = entry[2];
     const parts = pattern.split("/");
-    if (parts.length !== segments.length) continue;
+    if (parts.length !== segments.length) {
+      continue;
+    }
     let id: string | undefined;
-    const fits = parts.every((part, i) => {
-      const segment = segments[i] ?? "";
-      if (part !== ":id") return part === segment;
+    // Every part must fit its segment; stops at the first that doesn't, as every() did.
+    let fits = true;
+    let i = 0;
+    for (const part of parts) {
+      let segment = "";
+      const value = segments[i];
+      if (value !== undefined && value !== null) {
+        segment = value;
+      }
+      i++;
+      if (part !== ":id") {
+        if (part !== segment) {
+          fits = false;
+          break;
+        }
+        continue;
+      }
       id = segment;
-      return isUuid(segment);
-    });
-    if (!fits) continue;
-    if (routeMethod === method) return { kind: "route", route, id: id?.toLowerCase() };
+      if (!isUuid(segment)) {
+        fits = false;
+        break;
+      }
+    }
+    if (!fits) {
+      continue;
+    }
+    if (routeMethod === method) {
+      let lowered: string | undefined;
+      if (id !== undefined && id !== null) {
+        lowered = id.toLowerCase();
+      }
+      return { kind: "route", route, id: lowered };
+    }
     allow.push(routeMethod);
   }
-  return allow.length > 0 ? { kind: "method_not_allowed", allow } : { kind: "not_found" };
+  if (allow.length > 0) {
+    return { kind: "method_not_allowed", allow };
+  }
+  return { kind: "not_found" };
 }
 
 /** Each scalar type's test and the phrase its error message uses. */
@@ -137,14 +196,20 @@ const SCALARS: Readonly<Record<Scalar, { test: (v: unknown) => boolean; noun: st
 
 /** A message for the first body field of the wrong shape, or null when the body is acceptable. */
 export function checkBody(route: Route, body: JsonObject): string | null {
-  for (const key of route.required ?? []) {
-    if (body[key] === undefined) return `${key} is required.`;
-    if (Array.isArray(body[key]) && body[key].length === 0) return `${key} can't be empty.`;
+  for (const key of keysOrNone(route.required)) {
+    if (body[key] === undefined) {
+      return `${key} is required.`;
+    }
+    if (Array.isArray(body[key]) && body[key].length === 0) {
+      return `${key} can't be empty.`;
+    }
   }
   // A null list is refused: SQL would fail on it with a Postgres message rather than read it as empty.
-  for (const key of route.arrays ?? []) {
+  for (const key of keysOrNone(route.arrays)) {
     const value = body[key];
-    if (value === undefined) continue;
+    if (value === undefined) {
+      continue;
+    }
     if (!Array.isArray(value) || !value.every((v) => typeof v === "string")) {
       return `${key} must be a list of strings.`;
     }
@@ -152,17 +217,37 @@ export function checkBody(route: Route, body: JsonObject): string | null {
       return `${key} can hold at most ${MAX_LIST_ITEMS.toLocaleString("en-US")} items per request.`;
     }
   }
-  for (const key of route.lists ?? []) {
+  for (const key of keysOrNone(route.lists)) {
     const value = body[key];
-    if (value !== undefined && !Array.isArray(value)) return `${key} must be a list.`;
+    if (value !== undefined && !Array.isArray(value)) {
+      return `${key} must be a list.`;
+    }
   }
-  for (const [key, type] of Object.entries(route.scalars ?? {})) {
+  let scalars: Readonly<Record<string, Scalar>> = {};
+  if (route.scalars !== undefined && route.scalars !== null) {
+    scalars = route.scalars;
+  }
+  for (const entry of Object.entries(scalars)) {
+    const key = entry[0];
+    const type = entry[1];
     const value = body[key];
-    if (value === undefined || value === null) continue;
-    if (SCALARS[type].test(value)) continue;
+    if (value === undefined || value === null) {
+      continue;
+    }
+    if (SCALARS[type].test(value)) {
+      continue;
+    }
     return `${key} must be ${SCALARS[type].noun}.`;
   }
   return null;
+}
+
+/** A route's optional key list, or none when it is left out. */
+function keysOrNone(keys: readonly string[] | undefined): readonly string[] {
+  if (keys === undefined || keys === null) {
+    return [];
+  }
+  return keys;
 }
 
 /**
@@ -173,9 +258,18 @@ export function checkBody(route: Route, body: JsonObject): string | null {
  */
 export function numberSurvivesParse(source: string): boolean {
   const match = /^-?(\d+)(?:\.(\d+))?(?:[eE]([-+]?\d+))?$/.exec(source);
-  if (!match) return false;
-  const digits = (match[1] + (match[2] ?? "")).replace(/^0+/, "").replace(/0+$/, "");
-  if (digits === "") return true;
+  if (match === null) {
+    return false;
+  }
+  let fraction = "";
+  if (match[2] !== undefined && match[2] !== null) {
+    fraction = match[2];
+  }
+  // The pattern always captures the integer part; String() only satisfies the type.
+  const digits = (String(match[1]) + fraction).replace(/^0+/, "").replace(/0+$/, "");
+  if (digits === "") {
+    return true;
+  }
   const value = Math.abs(Number(source));
   return digits.length <= 15 && value >= 2.2250738585072014e-308 && value <= Number.MAX_VALUE;
 }
@@ -191,27 +285,51 @@ export function parseBody(text: string): JsonObject | null {
   } catch {
     return null;
   }
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? value as JsonObject
-    : null;
+  if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+    return value as JsonObject;
+  }
+  return null;
 }
 
 // The reviver's third argument (JSON.parse source text access) is missing from TypeScript's lib, and
 // from runtimes too old to pass it; without it a number is kept as parsed.
 function exactNumbers(_key: string, value: unknown, context?: { source?: string }): unknown {
-  if (typeof value !== "number" || context?.source === undefined) return value;
-  return numberSurvivesParse(context.source) ? value : Number.NaN;
+  if (typeof value !== "number" || context === undefined || context === null) {
+    return value;
+  }
+  if (context.source === undefined) {
+    return value;
+  }
+  if (numberSurvivesParse(context.source)) {
+    return value;
+  }
+  return Number.NaN;
 }
 
 /** The api_call arguments for a matched route. The path's id always wins over an id in the body. */
 export function routeArgs(route: Route, id: string | undefined, body: JsonObject): JsonObject {
-  const withId = id === undefined ? {} : { id };
+  const withId: JsonObject = {};
+  if (id !== undefined) {
+    withId.id = id;
+  }
   switch (route.input) {
     case "none":
       return withId;
-    case "fields":
-      return { ...body, ...withId };
-    case "body":
-      return { ...withId, body };
+    case "fields": {
+      // fromEntries defines keys as the spread did, so a "__proto__" field stays a plain key.
+      const args: JsonObject = Object.fromEntries(Object.entries(body));
+      if (id !== undefined) {
+        args.id = id;
+      }
+      return args;
+    }
+    case "body": {
+      const args: JsonObject = {};
+      if (id !== undefined) {
+        args.id = id;
+      }
+      args.body = body;
+      return args;
+    }
   }
 }
