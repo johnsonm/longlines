@@ -35,9 +35,13 @@ async function archive(req: Request, deps: ArchiveDeps, now: Date): Promise<Resp
   let sources: readonly Source[];
   try {
     const text = await req.text();
-    sources = archiveSources(text.trim() === "" ? undefined : JSON.parse(text));
+    let body: unknown = undefined;
+    if (text.trim() !== "") {
+      body = JSON.parse(text);
+    }
+    sources = archiveSources(body);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = errorMessage(error);
     return Response.json({ error: `Bad request: ${message}` }, { status: 400 });
   }
   let store: ArchiveStore;
@@ -45,11 +49,22 @@ async function archive(req: Request, deps: ArchiveDeps, now: Date): Promise<Resp
     store = deps.store();
   } catch (error) {
     // Nothing is lost: every slice stays pending until a run can upload it.
-    const message = error instanceof Error ? error.message : String(error);
+    const message = errorMessage(error);
     console.error(message);
     return Response.json({ error: message }, { status: 500 });
   }
   const summary = await runArchive(createArchiveDb(deps.db()), store, now, sources);
   console.log(JSON.stringify(summary));
-  return Response.json(summary, { status: summary.errors.length > 0 ? 500 : 200 });
+  let status = 200;
+  if (summary.errors.length > 0) {
+    status = 500;
+  }
+  return Response.json(summary, { status });
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
 }
