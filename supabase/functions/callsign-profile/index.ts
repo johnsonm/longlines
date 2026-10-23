@@ -6,12 +6,17 @@ import { hmacKey } from "../_shared/hmac.ts";
 // has it and it never leaves the server. Rotating it only resets the current
 // minute. The key is imported once per isolate, not per request.
 const secret = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-const key = secret ? await hmacKey(secret) : undefined;
+let key: CryptoKey | undefined;
+if (secret !== undefined && secret !== "") {
+  key = await hmacKey(secret);
+}
 
-Deno.serve((req) =>
-  handleProfile(req, {
+async function handler(req: Request): Promise<Response> {
+  return await handleProfile(req, {
     db: createServiceClient,
     clientIpHeader: Deno.env.get("LONGLINES_CLIENT_IP_HEADER"),
     key,
-  })
-);
+  });
+}
+
+Deno.serve(handler);
