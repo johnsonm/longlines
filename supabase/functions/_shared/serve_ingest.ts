@@ -24,18 +24,25 @@ export function ingestHandler(
   adapter: SourceAdapter,
   deps: IngestDeps,
 ): (req: Request) => Promise<Response> {
-  return (req: Request) =>
-    timed(async () => {
+  function handler(req: Request): Promise<Response> {
+    async function run(): Promise<Response> {
       if (!await isServiceRole(req, deps.serviceRoleKey)) {
         return Response.json({ error: "Forbidden" }, { status: 403 });
       }
       return await respond(adapter.source, () => runIngest(adapter, deps.db()));
-    });
+    }
+    return timed(run);
+  }
+  return handler;
 }
 
 export function serveIngest(adapter: SourceAdapter): void {
-  Deno.serve(ingestHandler(adapter, {
+  const ingest = ingestHandler(adapter, {
     serviceRoleKey: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"),
     db: () => createIngestDb(createServiceClient()),
-  }));
+  });
+  async function handler(req: Request): Promise<Response> {
+    return await ingest(req);
+  }
+  Deno.serve(handler);
 }
