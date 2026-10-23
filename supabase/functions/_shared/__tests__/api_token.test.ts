@@ -5,10 +5,13 @@ import { apiToken, hashApiToken } from "../api/token.ts";
 const TOKEN = `ll_live_${"7hq2abcd".repeat(6)}m4zk`;
 
 function withAuth(value: string | null): Request {
-  return new Request("http://x/", value === null ? {} : { headers: { Authorization: value } });
+  if (value === null) {
+    return new Request("http://x/", {});
+  }
+  return new Request("http://x/", { headers: { Authorization: value } });
 }
 
-Deno.test("apiToken accepts only ll_live_ plus 52 base32 characters", () => {
+Deno.test("apiToken accepts only ll_live_ plus 52 base32 characters", function (): void {
   assertEquals(apiToken(withAuth(`Bearer ${TOKEN}`)), TOKEN);
   assertEquals(apiToken(withAuth(null)), null);
   assertEquals(apiToken(withAuth(`Bearer ${TOKEN.toUpperCase()}`)), null);
@@ -19,14 +22,14 @@ Deno.test("apiToken accepts only ll_live_ plus 52 base32 characters", () => {
 });
 
 // The SHA-256 test vector; SQL stores encode(digest(token, 'sha256'), 'hex'), the same lowercase hex.
-Deno.test("hashApiToken is lowercase hex SHA-256", async () => {
+Deno.test("hashApiToken is lowercase hex SHA-256", async function (): Promise<void> {
   assertEquals(
     await hashApiToken("abc"),
     "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
   );
 });
 
-Deno.test("errorStatus maps SQLSTATEs, not messages", () => {
+Deno.test("errorStatus maps SQLSTATEs, not messages", function (): void {
   assertEquals(errorStatus({ code: "LL401", message: "Token not found." }), 401);
   assertEquals(errorStatus({ code: "LL403", message: "This token is read only." }), 403);
   assertEquals(errorStatus({ code: "LL404", message: "Group not found." }), 404);
