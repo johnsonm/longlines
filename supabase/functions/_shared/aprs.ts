@@ -71,22 +71,51 @@ const Q_CONSTRUCT = /^q[A-Z]{2}$/;
 
 /** The header of one packet line, or null for a server comment or anything that is not a packet. */
 export function parseAprsLine(line: string): AprsLine | null {
-  if (line.startsWith("#")) return null;
+  if (line.startsWith("#")) {
+    return null;
+  }
   const colon = line.indexOf(":");
-  if (colon < 0) return null;
+  if (colon < 0) {
+    return null;
+  }
   const header = line.slice(0, colon);
   const gt = header.indexOf(">");
-  if (gt < 0) return null;
+  if (gt < 0) {
+    return null;
+  }
   const sourceCall = header.slice(0, gt);
-  const [destination = "", ...hops] = header.slice(gt + 1).split(",");
-  if (![sourceCall, destination, ...hops].every((f) => FIELD.test(f))) return null;
+  const fields = header.slice(gt + 1).split(",");
+  let destination = "";
+  const first = fields[0];
+  if (first !== undefined) {
+    destination = first;
+  }
+  const hops = fields.slice(1);
+  if (!FIELD.test(sourceCall) || !FIELD.test(destination) || !hops.every((f) => FIELD.test(f))) {
+    return null;
+  }
   const q = hops.findIndex((h) => Q_CONSTRUCT.test(h));
+  let path = hops.join(",");
+  let qConstruct: string | null = null;
+  let igate: string | null = null;
+  if (q >= 0) {
+    path = hops.slice(0, q).join(",");
+    const construct = hops[q];
+    if (construct === undefined) {
+      throw new Error(`parseAprsLine: no hop at the q-construct index ${String(q)}`);
+    }
+    qConstruct = construct;
+    const next = hops[q + 1];
+    if (next !== undefined) {
+      igate = next;
+    }
+  }
   return {
     sourceCall,
     destination,
-    path: (q < 0 ? hops : hops.slice(0, q)).join(","),
-    qConstruct: q < 0 ? null : hops[q]!,
-    igate: q < 0 ? null : hops[q + 1] ?? null,
+    path,
+    qConstruct,
+    igate,
     info: line.slice(colon + 1),
   };
 }
@@ -139,12 +168,18 @@ export function aprsPacketType(info: string): AprsPacketType {
 export function aprsPacketRow(raw: JsonObject, now: Date): AprsPacketRow {
   const line = requireString(raw, "line");
   // jsonb rejects U+0000 and lone surrogates, so either would fail the whole batch in Postgres.
-  if (line.includes("\u0000")) throw new Error("line contains a NUL character");
-  if (!line.isWellFormed()) throw new Error("line contains a lone surrogate");
+  if (line.includes("\u0000")) {
+    throw new Error("line contains a NUL character");
+  }
+  if (!line.isWellFormed()) {
+    throw new Error("line contains a lone surrogate");
+  }
   const receivedAt = parseUtc(requireString(raw, "received_at"));
   assertPlausibleTime(receivedAt, now, "received_at");
   const parsed = parseAprsLine(line);
-  if (!parsed) throw new Error("not an APRS packet line");
+  if (parsed === null) {
+    throw new Error("not an APRS packet line");
+  }
   // aprs_packets indexes source_call.
   assertMaxLength(parsed.sourceCall, MAX_CALLSIGN_LENGTH, "source call");
   return {
@@ -164,7 +199,10 @@ export type AprsPushDb =
   & Pick<IngestDb, "recordSpotFailures" | "recordSuccess" | "recordFailure">;
 
 function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
 }
 
 /**
@@ -192,8 +230,12 @@ export async function runAprsPush(
         failures.push({ source: "aprs", error: errorMessage(error), raw_payload: withoutNul(raw) });
       }
     }
-    if (rows.length > 0) stored = await db.ingestAprsPackets(rows);
-    if (failures.length > 0) await db.recordSpotFailures(failures);
+    if (rows.length > 0) {
+      stored = await db.ingestAprsPackets(rows);
+    }
+    if (failures.length > 0) {
+      await db.recordSpotFailures(failures);
+    }
     await db.recordSuccess("aprs", stored, null);
   } catch (error) {
     return await recordFailureAndThrow(db, "aprs", error);
