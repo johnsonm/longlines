@@ -27,8 +27,12 @@ export function functionPoster(
   fetchFn: typeof fetch = fetch,
 ): (body: unknown, signal?: AbortSignal) => Promise<unknown> {
   const url = `${functionsUrl}/${functionName}`;
-  return async (body: unknown, signal?: AbortSignal): Promise<unknown> => {
+  async function post(body: unknown, signal?: AbortSignal): Promise<unknown> {
     const timeout = AbortSignal.timeout(TIMEOUT_MS);
+    let requestSignal = timeout;
+    if (signal !== undefined) {
+      requestSignal = AbortSignal.any([timeout, signal]);
+    }
     const res = await fetchFn(url, {
       method: "POST",
       headers: {
@@ -37,12 +41,15 @@ export function functionPoster(
         "Content-Type": "application/json",
       },
       body: JSON.stringify(body),
-      signal: signal === undefined ? timeout : AbortSignal.any([timeout, signal]),
+      signal: requestSignal,
     });
     const text = await res.text();
-    if (!res.ok) throw new Error(`POST ${functionName}: HTTP ${res.status} ${text}`);
+    if (!res.ok) {
+      throw new Error(`POST ${functionName}: HTTP ${String(res.status)} ${text}`);
+    }
     return JSON.parse(text);
-  };
+  }
+  return post;
 }
 
 export function functionClient(

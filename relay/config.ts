@@ -20,9 +20,19 @@ export function isLocalHost(hostname: string): boolean {
   return ["127.0.0.1", "localhost", "host.docker.internal"].includes(hostname);
 }
 
+/** The trimmed value, or "" when unset. */
+function trimmed(value: string | undefined): string {
+  if (value === undefined) {
+    return "";
+  }
+  return value.trim();
+}
+
 function required(env: (name: string) => string | undefined, name: string): string {
-  const value = env(name)?.trim();
-  if (!value) throw new Error(`missing environment variable ${name}`);
+  const value = trimmed(env(name));
+  if (value === "") {
+    throw new Error(`missing environment variable ${name}`);
+  }
   return value;
 }
 
@@ -41,9 +51,16 @@ export function portNumber(value: string, name: string): number {
  * download 160 MB from the FCC unless asked to (RELAY_LICENSES=<FCC URL>).
  */
 function licenseZipUrl(value: string | undefined, localFunctions: boolean): string | null {
-  const v = value?.trim();
-  if (!v) return localFunctions ? null : FCC_AMATEUR_ZIP;
-  if (v.toLowerCase() === "off") return null;
+  const v = trimmed(value);
+  if (v === "") {
+    if (localFunctions) {
+      return null;
+    }
+    return FCC_AMATEUR_ZIP;
+  }
+  if (v.toLowerCase() === "off") {
+    return null;
+  }
   let url: URL;
   try {
     url = new URL(v);
@@ -63,7 +80,11 @@ export function loadConfig(env: (name: string) => string | undefined): RelayConf
   if (url.protocol !== "https:" && !local) {
     throw new Error("LONGLINES_FUNCTIONS_URL must use https outside local development");
   }
-  const port = portNumber(env("RELAY_HEALTH_PORT") ?? "8080", "RELAY_HEALTH_PORT");
+  let healthPort = env("RELAY_HEALTH_PORT");
+  if (healthPort === undefined || healthPort === null) {
+    healthPort = "8080";
+  }
+  const port = portNumber(healthPort, "RELAY_HEALTH_PORT");
   return {
     functionsUrl,
     relaySecret: required(env, "LONGLINES_RELAY_SECRET"),

@@ -32,6 +32,30 @@ export interface Feed {
   maxBuffer?: number;
 }
 
+/** The trimmed value, or "" when unset. */
+function trimmed(value: string | undefined): string {
+  if (value === undefined) {
+    return "";
+  }
+  return value.trim();
+}
+
+/** `value`, or `fallback` when it is empty. */
+function orDefault(value: string, fallback: string): string {
+  if (value === "") {
+    return fallback;
+  }
+  return value;
+}
+
+/** The port in `value`, or `fallback` when it is empty. */
+function portOrDefault(value: string, name: string, fallback: number): number {
+  if (value === "") {
+    return fallback;
+  }
+  return portNumber(value, name);
+}
+
 export const RBN_FEED: Feed = {
   id: "rbn",
   host: "telnet.reversebeacon.net",
@@ -53,11 +77,11 @@ export const DXCLUSTER_DEFAULT_PORT = 7300;
  * relays are not spots (parseDxLine), so they are never forwarded.
  */
 export function dxclusterFeed(env: (name: string) => string | undefined): Feed {
-  const port = env("DXCLUSTER_PORT")?.trim();
+  const port = trimmed(env("DXCLUSTER_PORT"));
   return {
     id: "dxcluster",
-    host: env("DXCLUSTER_HOST")?.trim() || DXCLUSTER_DEFAULT_HOST,
-    port: port ? portNumber(port, "DXCLUSTER_PORT") : DXCLUSTER_DEFAULT_PORT,
+    host: orDefault(trimmed(env("DXCLUSTER_HOST")), DXCLUSTER_DEFAULT_HOST),
+    port: portOrDefault(port, "DXCLUSTER_PORT", DXCLUSTER_DEFAULT_PORT),
     // DXSpider and AR-Cluster ask "login:"; CC Cluster asks for the call.
     loginPrompt: /login:|enter your call/i,
     functionName: "ingest-dxcluster",
@@ -94,13 +118,15 @@ export function aprsLoginCall(value: string): string {
  * buffer holds about 25 minutes of the feed at 100 packets/s.
  */
 export function aprsFeed(env: (name: string) => string | undefined): Feed | null {
-  const call = env("APRS_LOGIN_CALL")?.trim();
-  if (!call) return null;
-  const port = env("APRS_PORT")?.trim();
+  const call = trimmed(env("APRS_LOGIN_CALL"));
+  if (call === "") {
+    return null;
+  }
+  const port = trimmed(env("APRS_PORT"));
   return {
     id: "aprs",
-    host: env("APRS_HOST")?.trim() || APRS_DEFAULT_HOST,
-    port: port ? portNumber(port, "APRS_PORT") : APRS_DEFAULT_PORT,
+    host: orDefault(trimmed(env("APRS_HOST")), APRS_DEFAULT_HOST),
+    port: portOrDefault(port, "APRS_PORT", APRS_DEFAULT_PORT),
     // The server's first line ("# aprsc 2.1.19-g730c5c0") is the cue to log in.
     loginPrompt: /^# /,
     functionName: "ingest-aprs",
