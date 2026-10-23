@@ -95,7 +95,8 @@ export function convertRequest(body: unknown): ConvertRequest {
   }
   const requested = limit as number | undefined;
   let slicesLimit = DEFAULT_SLICES_PER_RUN;
-  if (requested !== undefined && requested !== null) {
+  // A null limit already failed the integer check above.
+  if (requested !== undefined) {
     slicesLimit = requested;
   }
   return { after: cursor, limit: slicesLimit };

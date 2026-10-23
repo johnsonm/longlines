@@ -111,10 +111,15 @@ function cursorKey(s: { slice_start: string; source: string }): string {
 }
 
 function byCursorKey(a: NdjsonSlice, b: NdjsonSlice): number {
-  if (cursorKey(a) < cursorKey(b)) {
+  const left = cursorKey(a);
+  const right = cursorKey(b);
+  if (left < right) {
     return -1;
   }
-  return 1;
+  if (left > right) {
+    return 1;
+  }
+  return 0;
 }
 
 /** A log row as ndjsonSlices lists it, without the log's bytes. */
