@@ -23,8 +23,15 @@ export function handleConvertArchive(req: Request, deps: ConvertArchiveDeps): Pr
 }
 
 function failure(error: unknown, status: number, prefix = ""): Response {
-  const message = error instanceof Error ? error.message : String(error);
-  if (status >= 500) console.error(message);
+  let message: string;
+  if (error instanceof Error) {
+    message = error.message;
+  } else {
+    message = String(error);
+  }
+  if (status >= 500) {
+    console.error(message);
+  }
   return Response.json({ error: `${prefix}${message}` }, { status });
 }
 
@@ -35,7 +42,11 @@ async function convert(req: Request, deps: ConvertArchiveDeps): Promise<Response
   let request: ConvertRequest;
   try {
     const text = await req.text();
-    request = convertRequest(text.trim() === "" ? undefined : JSON.parse(text));
+    let body: unknown = undefined;
+    if (text.trim() !== "") {
+      body = JSON.parse(text);
+    }
+    request = convertRequest(body);
   } catch (error) {
     return failure(error, 400, "Bad request: ");
   }
@@ -48,7 +59,11 @@ async function convert(req: Request, deps: ConvertArchiveDeps): Promise<Response
   try {
     const summary = await runConvert(createConvertDb(deps.db()), store, request);
     console.log(JSON.stringify(summary));
-    return Response.json(summary, { status: summary.failed.length > 0 ? 500 : 200 });
+    let status = 200;
+    if (summary.failed.length > 0) {
+      status = 500;
+    }
+    return Response.json(summary, { status });
   } catch (error) {
     return failure(error, 500);
   }
