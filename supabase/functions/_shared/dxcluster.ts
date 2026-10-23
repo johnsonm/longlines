@@ -60,75 +60,94 @@ export interface DxLine {
 /** Parse one telnet line. Null for anything that is not a human spot. */
 export function parseDxLine(line: string): DxLine | null {
   const m = SPOT_LINE.exec(line.replace(CONTROL, "").trim());
-  if (!m) return null;
+  if (m === null) {
+    return null;
+  }
   // Groups 1-5 are mandatory, so a match always has them.
-  const group = (i: number): string => m[i] ?? "";
-  const spotter = group(1).toUpperCase();
-  const comment = group(4).trim();
-  const tail = group(6).trim();
-  if (spotter.endsWith("-#") || SKIMMER_COMMENT.test(comment)) return null;
+  const spotter = group(m, 1).toUpperCase();
+  const comment = group(m, 4).trim();
+  const tail = group(m, 6).trim();
+  if (spotter.endsWith("-#") || SKIMMER_COMMENT.test(comment)) {
+    return null;
+  }
+  let locator: string | null = null;
+  if (LOCATOR.test(tail)) {
+    locator = tail.toUpperCase();
+  }
   return {
     spotter,
-    frequency: group(2),
-    callsign: cleanCallsign(group(3)),
+    frequency: group(m, 2),
+    callsign: cleanCallsign(group(m, 3)),
     comment,
-    hhmm: group(5),
-    locator: LOCATOR.test(tail) ? tail.toUpperCase() : null,
+    hhmm: group(m, 5),
+    locator,
   };
+}
+
+/** A capture group's text, or "" when the group did not take part in the match. */
+function group(m: RegExpExecArray, i: number): string {
+  const text = m[i];
+  if (text === undefined) {
+    return "";
+  }
+  return text;
 }
 
 /** An adapter whose feed is one relay request body. */
 export function dxclusterAdapter(body: unknown): SourceAdapter {
-  return relayAdapter(
-    "dxcluster",
-    body,
-    async (raw: JsonObject, now: Date): Promise<NormalizeResult> => {
-      const line = requireString(raw, "line");
-      const receivedAt = parseUtc(requireString(raw, "received_at"));
-      const parsed = parseDxLine(line);
-      if (!parsed) throw new Error("not a DX Cluster spot line");
+  return relayAdapter("dxcluster", body, normalizeDxSpot);
+}
 
-      const spotTime = spotTimeFromHhmm(parsed.hhmm, receivedAt);
-      if (isTooOld(spotTime, now, MAX_AGE_MS)) return { kind: "skip", reason: "too_old" };
+/** Normalizes one relay item (a telnet line and when the relay received it). */
+async function normalizeDxSpot(raw: JsonObject, now: Date): Promise<NormalizeResult> {
+  const line = requireString(raw, "line");
+  const receivedAt = parseUtc(requireString(raw, "received_at"));
+  const parsed = parseDxLine(line);
+  if (parsed === null) {
+    throw new Error("not a DX Cluster spot line");
+  }
 
-      const spotTimeIso = spotTime.toISOString();
-      // Field order is fixed; changing it would make every stored spot look new.
-      const hash = await contentHash([
-        spotTimeIso,
-        parsed.spotter,
-        parsed.callsign,
-        parsed.frequency,
-        parsed.comment,
-      ]);
+  const spotTime = spotTimeFromHhmm(parsed.hhmm, receivedAt);
+  if (isTooOld(spotTime, now, MAX_AGE_MS)) {
+    return { kind: "skip", reason: "too_old" };
+  }
 
-      const frequencyKhz = parseKhz(parsed.frequency, "khz");
-      const mode = resolveDxMode(parsed.comment, frequencyKhz);
+  const spotTimeIso = spotTime.toISOString();
+  // Field order is fixed; changing it would make every stored spot look new.
+  const hash = await contentHash([
+    spotTimeIso,
+    parsed.spotter,
+    parsed.callsign,
+    parsed.frequency,
+    parsed.comment,
+  ]);
 
-      return {
-        kind: "spot",
-        spot: {
-          source: "dxcluster",
-          source_spot_id: `${spotTimeIso}|${parsed.spotter}|${parsed.callsign}|${parsed.frequency}`,
-          content_hash: hash,
-          spot_time: spotTimeIso,
-          callsign: parsed.callsign,
-          spotter: parsed.spotter,
-          frequency_khz: frequencyKhz,
-          band: bandForFrequency(frequencyKhz),
-          mode,
-          mode_family: modeFamily(mode),
-          comment: parsed.comment,
-          pota_reference: null,
-          pota_park_name: null,
-          pota_location: null,
-          sota_summit_ref: null,
-          wwff_reference: null,
-          wwff_reference_name: null,
-          raw_payload: raw,
-        },
-      };
+  const frequencyKhz = parseKhz(parsed.frequency, "khz");
+  const mode = resolveDxMode(parsed.comment, frequencyKhz);
+
+  return {
+    kind: "spot",
+    spot: {
+      source: "dxcluster",
+      source_spot_id: `${spotTimeIso}|${parsed.spotter}|${parsed.callsign}|${parsed.frequency}`,
+      content_hash: hash,
+      spot_time: spotTimeIso,
+      callsign: parsed.callsign,
+      spotter: parsed.spotter,
+      frequency_khz: frequencyKhz,
+      band: bandForFrequency(frequencyKhz),
+      mode,
+      mode_family: modeFamily(mode),
+      comment: parsed.comment,
+      pota_reference: null,
+      pota_park_name: null,
+      pota_location: null,
+      sota_summit_ref: null,
+      wwff_reference: null,
+      wwff_reference_name: null,
+      raw_payload: raw,
     },
-  );
+  };
 }
 
 /** One relay batch for ingest-dxcluster. An empty batch still records the heartbeat. */
