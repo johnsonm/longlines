@@ -1,4 +1,10 @@
 import { createServiceClient } from "../_shared/db.ts";
-import { handleDeleteAccount } from "../_shared/handlers/delete_account.ts";
+import { type DeleteAccountDeps, handleDeleteAccount } from "../_shared/handlers/delete_account.ts";
 
-Deno.serve((req) => handleDeleteAccount(req, { admin: createServiceClient }));
+const deps: DeleteAccountDeps = { admin: createServiceClient };
+
+async function handler(req: Request): Promise<Response> {
+  return await handleDeleteAccount(req, deps);
+}
+
+Deno.serve(handler);
