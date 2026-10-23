@@ -1,4 +1,10 @@
 import { createServiceClient } from "../_shared/db.ts";
-import { handleHealth } from "../_shared/handlers/health.ts";
+import { handleHealth, type HealthDeps } from "../_shared/handlers/health.ts";
 
-Deno.serve((req) => handleHealth(req, { db: createServiceClient }));
+const deps: HealthDeps = { db: createServiceClient };
+
+async function handler(req: Request): Promise<Response> {
+  return await handleHealth(req, deps);
+}
+
+Deno.serve(handler);

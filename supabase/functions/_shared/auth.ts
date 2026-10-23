@@ -2,9 +2,19 @@ import type { SupabaseClient, User } from "@supabase/supabase-js";
 
 /** The bearer token from the Authorization header, or null. */
 export function bearerToken(req: Request): string | null {
-  const header = req.headers.get("authorization") ?? "";
+  let header = req.headers.get("authorization");
+  if (header === null || header === undefined) {
+    header = "";
+  }
   const match = /^Bearer\s+(\S+)$/i.exec(header);
-  return match?.[1] ?? null;
+  if (match === null || match === undefined) {
+    return null;
+  }
+  const token = match[1];
+  if (token === null || token === undefined) {
+    return null;
+  }
+  return token;
 }
 
 /**
@@ -22,22 +32,34 @@ export async function isServiceRole(
   serviceRoleKey: string | undefined,
 ): Promise<boolean> {
   const token = bearerToken(req);
-  if (!token) return false;
+  if (token === null || token === "") {
+    return false;
+  }
   // Constant time, like the relay secret: the key is a long-lived credential.
-  if (serviceRoleKey && await secretsMatch(token, serviceRoleKey)) return true;
+  if (
+    serviceRoleKey !== undefined && serviceRoleKey !== "" &&
+    await secretsMatch(token, serviceRoleKey)
+  ) {
+    return true;
+  }
   return jwtRole(token) === "service_role";
 }
 
 /** The role claim of a JWT-shaped token, or null when it is not one. */
 function jwtRole(token: string): string | null {
   const parts = token.split(".");
-  if (parts.length !== 3 || !parts[1]) return null;
+  if (parts.length !== 3 || parts[1] === undefined || parts[1] === "") {
+    return null;
+  }
   const b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
   try {
     const payload = JSON.parse(atob(b64.padEnd(Math.ceil(b64.length / 4) * 4, "="))) as {
       role?: unknown;
     };
-    return typeof payload.role === "string" ? payload.role : null;
+    if (typeof payload.role === "string") {
+      return payload.role;
+    }
+    return null;
   } catch {
     return null;
   }
@@ -46,17 +68,35 @@ function jwtRole(token: string): string | null {
 /** The user behind the request's bearer token, verified with the Auth server, or null. */
 export async function userFromRequest(req: Request, admin: SupabaseClient): Promise<User | null> {
   const token = bearerToken(req);
-  if (!token) return null;
-  const { data, error } = await admin.auth.getUser(token);
-  return error ? null : data.user;
+  if (token === null || token === "") {
+    return null;
+  }
+  const result = await admin.auth.getUser(token);
+  if (result.error !== null) {
+    return null;
+  }
+  return result.data.user;
 }
 
 /** Compare two secrets in time independent of where they differ. */
 export async function secretsMatch(provided: string, expected: string): Promise<boolean> {
-  const digest = async (s: string) =>
-    new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)));
-  const [a, b] = await Promise.all([digest(provided), digest(expected)]);
+  async function digest(s: string): Promise<Uint8Array> {
+    return new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)));
+  }
+  const digests = await Promise.all([digest(provided), digest(expected)]);
+  const a = digests[0];
+  const b = digests[1];
   let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= (a[i] ?? 0) ^ (b[i] ?? 0);
+  for (let i = 0; i < a.length; i++) {
+    let left = a[i];
+    if (left === null || left === undefined) {
+      left = 0;
+    }
+    let right = b[i];
+    if (right === null || right === undefined) {
+      right = 0;
+    }
+    diff |= left ^ right;
+  }
   return diff === 0;
 }

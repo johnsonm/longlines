@@ -8,33 +8,49 @@ import { assertEquals } from "@std/assert";
 const functionsDir = new URL("../../", import.meta.url);
 const root = JSON.parse(Deno.readTextFileSync(new URL("../../../../deno.json", import.meta.url)));
 
-Deno.test("every function has a deno.json mapping supabase-js like the root one", () => {
-  const missing: string[] = [];
-  for (const entry of Deno.readDirSync(functionsDir)) {
-    if (!entry.isDirectory || entry.name.startsWith("_")) continue;
-    const path = new URL(`${entry.name}/deno.json`, functionsDir);
-    let config;
-    try {
-      config = JSON.parse(Deno.readTextFileSync(path));
-    } catch {
-      missing.push(entry.name);
-      continue;
+Deno.test(
+  "every function has a deno.json mapping supabase-js like the root one",
+  function (): void {
+    const missing: string[] = [];
+    for (const entry of Deno.readDirSync(functionsDir)) {
+      if (!entry.isDirectory || entry.name.startsWith("_")) {
+        continue;
+      }
+      const path = new URL(`${entry.name}/deno.json`, functionsDir);
+      let config;
+      try {
+        config = JSON.parse(Deno.readTextFileSync(path));
+      } catch {
+        missing.push(entry.name);
+        continue;
+      }
+      let mapped: unknown = undefined;
+      if (config.imports !== null && config.imports !== undefined) {
+        mapped = config.imports["@supabase/supabase-js"];
+      }
+      assertEquals(
+        mapped,
+        root.imports["@supabase/supabase-js"],
+        `${entry.name}/deno.json maps @supabase/supabase-js differently`,
+      );
     }
-    assertEquals(
-      config.imports?.["@supabase/supabase-js"],
-      root.imports["@supabase/supabase-js"],
-      `${entry.name}/deno.json maps @supabase/supabase-js differently`,
-    );
-  }
-  assertEquals(missing, [], "functions without a deno.json");
-});
+    assertEquals(missing, [], "functions without a deno.json");
+  },
+);
 
-Deno.test("archive's and convert-archive's deno.json map hyparquet-writer like the root one", () => {
-  for (const name of ["archive", "convert-archive"]) {
-    const config = JSON.parse(Deno.readTextFileSync(new URL(`${name}/deno.json`, functionsDir)));
-    assertEquals(config.imports?.["hyparquet-writer"], root.imports["hyparquet-writer"], name);
-  }
-});
+Deno.test(
+  "archive's and convert-archive's deno.json map hyparquet-writer like the root one",
+  function (): void {
+    for (const name of ["archive", "convert-archive"]) {
+      const config = JSON.parse(Deno.readTextFileSync(new URL(`${name}/deno.json`, functionsDir)));
+      let mapped: unknown = undefined;
+      if (config.imports !== null && config.imports !== undefined) {
+        mapped = config.imports["hyparquet-writer"];
+      }
+      assertEquals(mapped, root.imports["hyparquet-writer"], name);
+    }
+  },
+);
 
 // isServiceRole trusts a JWT's role claim without checking its signature,
 // because the gateway has already verified it. A function deployed with
@@ -55,11 +71,26 @@ interface ModuleImport {
 
 /** Every import, re-export and dynamic import in a module's source. */
 function importsOf(source: string): ModuleImport[] {
-  return [...source.matchAll(importPattern)].map(([, clause, specifier, dynamic]) =>
-    dynamic
-      ? { specifier: dynamic, clause: "*" }
-      : { specifier: specifier ?? "", clause: clause ?? "" }
-  );
+  const imports: ModuleImport[] = [];
+  for (const match of source.matchAll(importPattern)) {
+    const clause = match[1];
+    const specifier = match[2];
+    const dynamic = match[3];
+    if (dynamic) {
+      imports.push({ specifier: dynamic, clause: "*" });
+      continue;
+    }
+    let staticSpecifier = specifier;
+    if (staticSpecifier === null || staticSpecifier === undefined) {
+      staticSpecifier = "";
+    }
+    let staticClause = clause;
+    if (staticClause === null || staticClause === undefined) {
+      staticClause = "";
+    }
+    imports.push({ specifier: staticSpecifier, clause: staticClause });
+  }
+  return imports;
 }
 
 /**
@@ -77,9 +108,18 @@ function functionsWithoutJwt(): string[] {
   let section: string | null = null;
   for (const line of config.split("\n")) {
     const header = /^\[functions\.([\w-]+)\]/.exec(line);
-    if (header) section = header[1] ?? null;
-    else if (line.startsWith("[")) section = null;
-    else if (section && /^verify_jwt\s*=\s*false\b/.test(line)) open.push(section);
+    if (header) {
+      const name = header[1];
+      if (name === null || name === undefined) {
+        section = null;
+      } else {
+        section = name;
+      }
+    } else if (line.startsWith("[")) {
+      section = null;
+    } else if (section && /^verify_jwt\s*=\s*false\b/.test(line)) {
+      open.push(section);
+    }
   }
   return open;
 }
@@ -91,20 +131,28 @@ function modulesUsingIsServiceRole(fn: string): string[] {
   const queue = [new URL(`${fn}/index.ts`, functionsDir).href];
   while (queue.length > 0) {
     const href = queue.pop()!;
-    if (seen.has(href)) continue;
+    if (seen.has(href)) {
+      continue;
+    }
     seen.add(href);
     const source = Deno.readTextFileSync(new URL(href));
-    for (const { specifier, clause } of importsOf(source)) {
-      if (!specifier.startsWith(".")) continue;
+    for (const moduleImport of importsOf(source)) {
+      const specifier = moduleImport.specifier;
+      const clause = moduleImport.clause;
+      if (!specifier.startsWith(".")) {
+        continue;
+      }
       const target = new URL(specifier, href).href;
-      if (target === sharedAuth && exposesIsServiceRole(clause)) found.push(href);
+      if (target === sharedAuth && exposesIsServiceRole(clause)) {
+        found.push(href);
+      }
       queue.push(target);
     }
   }
   return found;
 }
 
-Deno.test("the isServiceRole check recognizes every way to reach it", () => {
+Deno.test("the isServiceRole check recognizes every way to reach it", function (): void {
   for (
     const clause of [
       "{ isServiceRole }",
@@ -120,7 +168,7 @@ Deno.test("the isServiceRole check recognizes every way to reach it", () => {
   }
 });
 
-Deno.test("the import walker sees side-effect, re-export and dynamic imports", () => {
+Deno.test("the import walker sees side-effect, re-export and dynamic imports", function (): void {
   const source = [
     'import "./setup.ts";',
     'import { a, b } from "./a.ts";',
@@ -144,13 +192,13 @@ Deno.test("the import walker sees side-effect, re-export and dynamic imports", (
   ]);
 });
 
-Deno.test("the isServiceRole check finds the functions that use it", () => {
+Deno.test("the isServiceRole check finds the functions that use it", function (): void {
   for (const fn of ["archive", "import-cty"]) {
     assertEquals(modulesUsingIsServiceRole(fn).length > 0, true, `${fn} uses isServiceRole`);
   }
 });
 
-Deno.test("no verify_jwt = false function imports isServiceRole", () => {
+Deno.test("no verify_jwt = false function imports isServiceRole", function (): void {
   const open = functionsWithoutJwt();
   for (const fn of ["sign-in", "ingest-rbn", "callsign-profile", "band-map", "group-page"]) {
     assertEquals(open.includes(fn), true, `config.toml lists ${fn} with verify_jwt = false`);

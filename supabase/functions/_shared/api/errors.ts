@@ -21,8 +21,16 @@ const CODES: Readonly<Record<string, number>> = {
 const BAD_INPUT_CLASSES = ["22", "23"];
 
 export function errorStatus(error: DbError): number {
-  const status = CODES[error.code ?? ""];
-  if (status !== undefined) return status;
-  if (BAD_INPUT_CLASSES.includes(error.code?.slice(0, 2) ?? "")) return 400;
+  let code = "";
+  if (error.code !== undefined && error.code !== null) {
+    code = error.code;
+  }
+  const status = CODES[code];
+  if (status !== undefined) {
+    return status;
+  }
+  if (BAD_INPUT_CLASSES.includes(code.slice(0, 2))) {
+    return 400;
+  }
   return 500;
 }

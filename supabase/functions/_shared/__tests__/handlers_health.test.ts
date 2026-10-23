@@ -10,49 +10,58 @@ async function run(req: Request, options: FakeSupabaseOptions = {}) {
   return { res, calls: fake.calls };
 }
 
-Deno.test("serves the cached payload for 24 hours by default, with a short public cache", async () => {
-  const { res, calls } = await run(new Request("http://x/health"), {
-    rpc: { cached_health: { data: PAYLOAD } },
-  });
-  assertEquals(res.status, 200);
-  assertEquals(await res.json(), PAYLOAD);
-  assertEquals(res.headers.get("Cache-Control"), HEALTH_CACHE_CONTROL);
-  assertEquals(res.headers.get("Access-Control-Allow-Origin"), "*");
-  assertEquals(calls.rpc, [{ fn: "cached_health", args: { p_range: "24h" } }]);
-});
-
-Deno.test("passes a known range through", async () => {
-  for (const range of ["1h", "7d"]) {
-    const { res, calls } = await run(new Request(`http://x/health?range=${range}`), {
+Deno.test(
+  "serves the cached payload for 24 hours by default, with a short public cache",
+  async function (): Promise<void> {
+    const result = await run(new Request("http://x/health"), {
       rpc: { cached_health: { data: PAYLOAD } },
     });
-    assertEquals(res.status, 200);
-    assertEquals(calls.rpc, [{ fn: "cached_health", args: { p_range: range } }]);
+    assertEquals(result.res.status, 200);
+    assertEquals(await result.res.json(), PAYLOAD);
+    assertEquals(result.res.headers.get("Cache-Control"), HEALTH_CACHE_CONTROL);
+    assertEquals(result.res.headers.get("Access-Control-Allow-Origin"), "*");
+    assertEquals(result.calls.rpc, [{ fn: "cached_health", args: { p_range: "24h" } }]);
+  },
+);
+
+Deno.test("passes a known range through", async function (): Promise<void> {
+  for (const range of ["1h", "7d"]) {
+    const result = await run(new Request(`http://x/health?range=${range}`), {
+      rpc: { cached_health: { data: PAYLOAD } },
+    });
+    assertEquals(result.res.status, 200);
+    assertEquals(result.calls.rpc, [{ fn: "cached_health", args: { p_range: range } }]);
   }
 });
 
-Deno.test("refuses an unknown range without touching the database", async () => {
-  const { res, calls } = await run(new Request("http://x/health?range=30d"));
-  assertEquals(res.status, 400);
-  assertEquals(await res.json(), { error: "Unknown range." });
-  assertEquals(calls.rpc, []);
-});
+Deno.test(
+  "refuses an unknown range without touching the database",
+  async function (): Promise<void> {
+    const result = await run(new Request("http://x/health?range=30d"));
+    assertEquals(result.res.status, 400);
+    assertEquals(await result.res.json(), { error: "Unknown range." });
+    assertEquals(result.calls.rpc, []);
+  },
+);
 
-Deno.test("answers a preflight and refuses anything but GET", async () => {
+Deno.test("answers a preflight and refuses anything but GET", async function (): Promise<void> {
   const preflight = await run(new Request("http://x/health", { method: "OPTIONS" }));
   assertEquals(preflight.res.status, 204);
   const post = await run(new Request("http://x/health", { method: "POST" }));
   assertEquals(post.res.status, 405);
-  assertEquals([...preflight.calls.rpc, ...post.calls.rpc], []);
+  assertEquals(preflight.calls.rpc.concat(post.calls.rpc), []);
 });
 
-Deno.test("a database error or a null result is a 500 that names no detail", async () => {
-  for (const responder of [{ error: { message: "permission denied" } }, { data: null }]) {
-    const { res } = await run(new Request("http://x/health"), {
-      rpc: { cached_health: responder },
-    });
-    assertEquals(res.status, 500);
-    assertEquals(await res.json(), { error: HEALTH_UNAVAILABLE });
-    assertEquals(res.headers.get("Cache-Control"), null);
-  }
-});
+Deno.test(
+  "a database error or a null result is a 500 that names no detail",
+  async function (): Promise<void> {
+    for (const responder of [{ error: { message: "permission denied" } }, { data: null }]) {
+      const result = await run(new Request("http://x/health"), {
+        rpc: { cached_health: responder },
+      });
+      assertEquals(result.res.status, 500);
+      assertEquals(await result.res.json(), { error: HEALTH_UNAVAILABLE });
+      assertEquals(result.res.headers.get("Cache-Control"), null);
+    }
+  },
+);

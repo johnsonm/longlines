@@ -44,13 +44,31 @@ export interface SignInDeps {
   sleep?: (ms: number) => Promise<void>;
 }
 
+function monotonicNow(): number {
+  return performance.now();
+}
+
+function sleepMs(ms: number): Promise<void> {
+  return new Promise<void>((r) => setTimeout(r, ms));
+}
+
 export async function handleSignIn(req: Request, deps: SignInDeps): Promise<Response> {
-  const clock = deps.clock ?? (() => performance.now());
-  const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  let clock = monotonicNow;
+  if (deps.clock !== undefined) {
+    clock = deps.clock;
+  }
+  let sleep = sleepMs;
+  if (deps.sleep !== undefined) {
+    sleep = deps.sleep;
+  }
   const started = clock();
   const preflight = preflightResponse(req);
-  if (preflight) return preflight;
-  if (req.method !== "POST") return json({ error: "Method not allowed." }, 405);
+  if (preflight !== null) {
+    return preflight;
+  }
+  if (req.method !== "POST") {
+    return json({ error: "Method not allowed." }, 405);
+  }
 
   let body: SignInBody;
   try {
@@ -60,7 +78,7 @@ export async function handleSignIn(req: Request, deps: SignInDeps): Promise<Resp
   }
   const identifier = normalizeIdentifier(body.identifier);
 
-  if (!deps.key) {
+  if (deps.key === undefined) {
     console.error("sign-in: missing environment variable SUPABASE_SERVICE_ROLE_KEY");
     return json({ error: SIGN_IN_UNAVAILABLE }, 500);
   }
@@ -68,52 +86,88 @@ export async function handleSignIn(req: Request, deps: SignInDeps): Promise<Resp
 
   const admin = deps.admin();
   const lookup = await admin.rpc("email_for_identifier", { p_identifier: identifier });
-  if (lookup.error) {
+  if (lookup.error !== null) {
     console.error(`sign-in: lookup failed: ${lookup.error.message}`);
     return json({ error: SIGN_IN_UNAVAILABLE }, 500);
   }
-  const resolved = typeof lookup.data === "string" ? lookup.data.toLowerCase() : null;
+  let resolved: string | null = null;
+  if (typeof lookup.data === "string") {
+    resolved = lookup.data.toLowerCase();
+  }
 
   // One budget per account: the resolved email whether the user typed it or
   // their callsign. An unknown callsign keeps its own, as typed.
+  let budgetIdentifier = identifier;
+  if (resolved !== null) {
+    budgetIdentifier = resolved;
+  }
   const attempt = await admin.rpc("begin_sign_in_attempt", {
-    p_identifier: resolved ?? identifier,
+    p_identifier: budgetIdentifier,
     p_client: client,
   });
-  if (attempt.error) {
+  if (attempt.error !== null) {
     console.error(`sign-in: attempt log failed: ${attempt.error.message}`);
     return json({ error: SIGN_IN_UNAVAILABLE }, 500);
   }
-  if (typeof attempt.data !== "number") return json({ error: TOO_MANY_ATTEMPTS }, 429);
+  if (typeof attempt.data !== "number") {
+    return json({ error: TOO_MANY_ATTEMPTS }, 429);
+  }
   const attemptId = attempt.data;
 
   // Anything but a wrong password leaves the attempt uncounted.
-  const forget = async () => {
-    const { error } = await admin.rpc("forget_sign_in_attempt", { p_attempt_id: attemptId });
-    if (error) console.error(`sign-in: forgetting an attempt failed: ${error.message}`);
-  };
+  async function forget(): Promise<void> {
+    const result = await admin.rpc("forget_sign_in_attempt", { p_attempt_id: attemptId });
+    if (result.error !== null) {
+      console.error(`sign-in: forgetting an attempt failed: ${result.error.message}`);
+    }
+  }
 
   // Unknown callsigns still go through a password check, and every wrong
   // password waits out the floor, so the response does not reveal whether
   // the account exists.
-  const email = resolved ?? `unknown-${crypto.randomUUID()}@invalid`;
+  let email: string;
+  if (resolved !== null) {
+    email = resolved;
+  } else {
+    email = `unknown-${crypto.randomUUID()}@invalid`;
+  }
 
-  const { data, error } = await deps.anon().auth.signInWithPassword({
+  const auth = await deps.anon().auth.signInWithPassword({
     email,
     password: body.password,
   });
-  if (error?.code === "invalid_credentials") {
+  const data = auth.data;
+  const error = auth.error;
+  // The error's code and status, undefined when there is no error.
+  let errorCode: string | undefined;
+  let errorStatus: number | undefined;
+  if (error !== null && error !== undefined) {
+    errorCode = error.code;
+    errorStatus = error.status;
+  }
+  if (errorCode === "invalid_credentials") {
     const wait = FAILED_SIGN_IN_FLOOR_MS - (clock() - started);
-    if (wait > 0) await sleep(wait);
+    if (wait > 0) {
+      await sleep(wait);
+    }
     return json({ error: GENERIC_SIGN_IN_ERROR }, 401);
   }
   await forget();
-  if (error?.code === "email_not_confirmed") return json({ error: EMAIL_NOT_CONFIRMED }, 403);
-  if (error?.status === 429 || error?.code === "over_request_rate_limit") {
+  if (errorCode === "email_not_confirmed") {
+    return json({ error: EMAIL_NOT_CONFIRMED }, 403);
+  }
+  if (errorStatus === 429 || errorCode === "over_request_rate_limit") {
     return json({ error: TOO_MANY_ATTEMPTS }, 429);
   }
-  if (error || !data.session) {
-    const why = error ? `${error.code ?? error.name}: ${error.message}` : "no session";
+  if ((error !== null && error !== undefined) || data.session === null) {
+    let why = "no session";
+    if (error !== null && error !== undefined) {
+      let code = error.name;
+      if (error.code !== undefined && error.code !== null) {
+        code = error.code;
+      }
+      why = `${code}: ${error.message}`;
+    }
     console.error(`sign-in: auth failed: ${why}`);
     return json({ error: SIGN_IN_UNAVAILABLE }, 500);
   }
