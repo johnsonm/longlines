@@ -144,35 +144,29 @@ export function objectPath(source: Source, sliceStart: string): string {
 }
 
 function schemaElement(name: string, type: ColumnType): SchemaElement {
-  const optional = { name, repetition_type: "OPTIONAL" } as const;
+  const element: SchemaElement = { name, repetition_type: "OPTIONAL" };
   switch (type) {
     case "timestamp":
       // Epoch milliseconds from SQL, marked UTC so readers return instants.
-      return {
-        name: optional.name,
-        repetition_type: optional.repetition_type,
-        type: "INT64",
-        logical_type: { type: "TIMESTAMP", isAdjustedToUTC: true, unit: "MILLIS" },
-      };
+      element.type = "INT64";
+      element.logical_type = { type: "TIMESTAMP", isAdjustedToUTC: true, unit: "MILLIS" };
+      break;
     case "string":
-      return {
-        name: optional.name,
-        repetition_type: optional.repetition_type,
-        type: "BYTE_ARRAY",
-        converted_type: "UTF8",
-      };
+      element.type = "BYTE_ARRAY";
+      element.converted_type = "UTF8";
+      break;
     case "json":
-      return {
-        name: optional.name,
-        repetition_type: optional.repetition_type,
-        type: "BYTE_ARRAY",
-        converted_type: "JSON",
-      };
+      element.type = "BYTE_ARRAY";
+      element.converted_type = "JSON";
+      break;
     case "double":
-      return { name: optional.name, repetition_type: optional.repetition_type, type: "DOUBLE" };
+      element.type = "DOUBLE";
+      break;
     case "int32":
-      return { name: optional.name, repetition_type: optional.repetition_type, type: "INT32" };
+      element.type = "INT32";
+      break;
   }
+  return element;
 }
 
 /** A timestamp column value (epoch milliseconds) as the bigint the writer takes for INT64. */
