@@ -33,7 +33,9 @@ export const BANDS: ReadonlyArray<{ from: number; to: number; band: string }> = 
 /** Band name for a frequency in kHz, or null when it falls outside every known band. */
 export function bandForFrequency(freqKhz: number): string | null {
   for (const b of BANDS) {
-    if (freqKhz >= b.from && freqKhz <= b.to) return b.band;
+    if (freqKhz >= b.from && freqKhz <= b.to) {
+      return b.band;
+    }
   }
   return null;
 }
