@@ -23,12 +23,21 @@ export interface BandMapDeps {
 
 export async function handleBandMap(req: Request, deps: BandMapDeps): Promise<Response> {
   const preflight = preflightResponse(req);
-  if (preflight) return preflight;
-  if (req.method !== "GET") return json({ error: "Method not allowed." }, 405);
+  if (preflight !== null) {
+    return preflight;
+  }
+  if (req.method !== "GET") {
+    return json({ error: "Method not allowed." }, 405);
+  }
 
   const result = await deps.db().rpc("cached_band_map");
-  if (result.error || result.data === null || typeof result.data !== "object") {
-    const why = result.error?.message ?? `unexpected result ${JSON.stringify(result.data)}`;
+  if (result.error !== null || result.data === null || typeof result.data !== "object") {
+    let why: string;
+    if (result.error !== null) {
+      why = result.error.message;
+    } else {
+      why = `unexpected result ${JSON.stringify(result.data)}`;
+    }
     console.error(`band-map: ${why}`);
     return json({ error: BAND_MAP_UNAVAILABLE }, 500);
   }
