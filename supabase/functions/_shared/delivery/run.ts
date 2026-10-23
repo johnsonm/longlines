@@ -107,7 +107,6 @@ export interface DeliveryBatchResult {
 export class ClaimError extends Error {
   override readonly name = "ClaimError";
 }
-
 /**
  * Claims up to `claimLimit` deliveries and sends them, one batch per
  * destination, up to `concurrency` destinations at a time. Successful ids are
@@ -132,17 +131,38 @@ export async function runDeliveryBatch(
     destinations: [],
   };
 
+  let claimLimit = CLAIM_LIMIT;
+  if (options.claimLimit !== null && options.claimLimit !== undefined) {
+    claimLimit = options.claimLimit;
+  }
+  let visibilitySeconds = VISIBILITY_SECONDS;
+  if (options.visibilitySeconds !== null && options.visibilitySeconds !== undefined) {
+    visibilitySeconds = options.visibilitySeconds;
+  }
   const claimed = await db.rpc("claim_deliveries", {
-    p_limit: options.claimLimit ?? CLAIM_LIMIT,
-    p_vt: options.visibilitySeconds ?? VISIBILITY_SECONDS,
+    p_limit: claimLimit,
+    p_vt: visibilitySeconds,
   });
-  if (claimed.error !== null) throw new ClaimError(claimed.error);
-  const progress = options.onProgress ?? (() => {});
-  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
-  const bookkeep = (fn: string, args: Record<string, unknown>) =>
-    rpcOrLog(db, result, fn, args, progress, sleep);
+  if (claimed.error !== null) {
+    throw new ClaimError(claimed.error);
+  }
+  let progress: (step: ProgressStep) => void = noProgress;
+  if (options.onProgress !== null && options.onProgress !== undefined) {
+    progress = options.onProgress;
+  }
+  let sleep: (ms: number) => Promise<void> = defaultSleep;
+  if (options.sleep !== null && options.sleep !== undefined) {
+    sleep = options.sleep;
+  }
+  function bookkeep(fn: string, args: Record<string, unknown>): Promise<void> {
+    return rpcOrLog(db, result, fn, args, progress, sleep);
+  }
   progress("claim");
-  const rows = (claimed.data ?? []) as PendingDelivery[];
+  let data = claimed.data;
+  if (data === null || data === undefined) {
+    data = [];
+  }
+  const rows = data as PendingDelivery[];
   result.claimed = rows.length;
 
   // Rows arrive in claim order (newest first per destination); keep that
@@ -150,35 +170,55 @@ export async function runDeliveryBatch(
   // the way SQL ranked them.
   const groups = new Map<string, PendingDelivery[]>();
   for (const row of rows) {
-    const list = groups.get(row.destination.id) ?? [];
+    let list = groups.get(row.destination.id);
+    if (list === null || list === undefined) {
+      list = [];
+    }
     list.push(row);
     groups.set(row.destination.id, list);
   }
 
-  const outcomes = await mapBounded(
-    [...groups.values()],
-    Math.max(1, Math.floor(options.concurrency ?? DEFAULT_CONCURRENCY)),
-    async (batch): Promise<Outcome> => {
-      const destination = batch[0]!.destination;
-      // The claim leaves paused destinations out; this is the belt to its braces.
-      // Their messages reappear after the visibility timeout.
-      if (destination.health === "paused") return { batch, sent: null };
-      let sent: SendResult;
-      try {
-        sent = await send(destination, batch, now);
-      } catch (error) {
-        // A send function reports its own failures; a throw is a bug in what
-        // runs around the request (formatting, signing). It fails this
-        // destination's rows like any other failure (no `attempted`, so the whole
-        // batch counts an attempt and a webhook row's retries run out) instead of
-        // rejecting the cycle before the ack and re-sending every other
-        // destination's delivered rows.
-        const message = error instanceof Error ? error.message : String(error);
-        sent = { ok: false, sent: 0, error: `send threw: ${message}` };
+  async function sendBatch(batch: PendingDelivery[]): Promise<Outcome> {
+    const first = batch[0];
+    if (first === undefined) {
+      throw new Error("runDeliveryBatch: a destination batch has no rows");
+    }
+    const destination = first.destination;
+    // The claim leaves paused destinations out; this is the belt to its braces.
+    // Their messages reappear after the visibility timeout.
+    if (destination.health === "paused") {
+      return { batch, sent: null };
+    }
+    let sent: SendResult;
+    try {
+      sent = await send(destination, batch, now);
+    } catch (error) {
+      // A send function reports its own failures; a throw is a bug in what
+      // runs around the request (formatting, signing). It fails this
+      // destination's rows like any other failure (no `attempted`, so the whole
+      // batch counts an attempt and a webhook row's retries run out) instead of
+      // rejecting the cycle before the ack and re-sending every other
+      // destination's delivered rows.
+      let message: string;
+      if (error instanceof Error) {
+        message = error.message;
+      } else {
+        message = String(error);
       }
-      progress("send");
-      return { batch, sent };
-    },
+      sent = { ok: false, sent: 0, error: `send threw: ${message}` };
+    }
+    progress("send");
+    return { batch, sent };
+  }
+
+  let concurrency = DEFAULT_CONCURRENCY;
+  if (options.concurrency !== null && options.concurrency !== undefined) {
+    concurrency = options.concurrency;
+  }
+  const outcomes = await mapBounded(
+    Array.from(groups.values()),
+    Math.max(1, Math.floor(concurrency)),
+    sendBatch,
   );
 
   // Bookkeeping in claim order so a cycle's RPCs are the same whatever the
@@ -186,10 +226,17 @@ export async function runDeliveryBatch(
   // throttled_until, so the other order would lose a 429 that followed a
   // partial success.
   const done: PendingDelivery[] = [];
-  for (const { batch, sent } of outcomes) {
-    if (sent === null) continue;
-    for (const [fn, args] of pushBookkeeping(sent)) await bookkeep(fn, args);
-    done.push(...batch.slice(0, sent.sent));
+  for (const outcome of outcomes) {
+    const sent = outcome.sent;
+    if (sent === null) {
+      continue;
+    }
+    for (const call of pushBookkeeping(sent)) {
+      await bookkeep(call[0], call[1]);
+    }
+    for (const row of outcome.batch.slice(0, sent.sent)) {
+      done.push(row);
+    }
   }
   if (done.length > 0) {
     await bookkeep("mark_deliveries_sent", {
@@ -198,8 +245,14 @@ export async function runDeliveryBatch(
     });
   }
 
-  for (const { batch, sent } of outcomes) {
-    const destination = batch[0]!.destination;
+  for (const outcome of outcomes) {
+    const batch = outcome.batch;
+    const sent = outcome.sent;
+    const first = batch[0];
+    if (first === undefined) {
+      throw new Error("runDeliveryBatch: a destination batch has no rows");
+    }
+    const destination = first.destination;
     const per: DestinationResult = {
       id: destination.id,
       type: destination.type,
@@ -220,7 +273,9 @@ export async function runDeliveryBatch(
     per.sent = Math.min(sent.sent, batch.length);
     result.sent += per.sent;
     const rest = batch.slice(sent.sent);
-    if (rest.length === 0) continue;
+    if (rest.length === 0) {
+      continue;
+    }
 
     if (sent.retryAfterSeconds !== undefined) {
       // Rate limited, not broken: SQL hides the destination and these
@@ -235,15 +290,27 @@ export async function runDeliveryBatch(
     } else {
       // Only the rows that were in a request count an attempt (a webhook's
       // `attempted`); the rest are left for the claim's visibility timeout.
-      const attempted = Math.min(Math.max(sent.attempted ?? batch.length, sent.sent), batch.length);
+      let reported = batch.length;
+      if (sent.attempted !== null && sent.attempted !== undefined) {
+        reported = sent.attempted;
+      }
+      const attempted = Math.min(Math.max(reported, sent.sent), batch.length);
       const failedRows = batch.slice(sent.sent, attempted);
       const skipped = batch.length - attempted;
       per.unattempted = skipped;
       result.unattempted += skipped;
-      const error = sent.error ?? "unknown error";
+      let error = "unknown error";
+      if (sent.error !== null && sent.error !== undefined) {
+        error = sent.error;
+      }
       per.error = error;
       if (failedRows.length > 0) {
-        const attempt = Math.max(...failedRows.map((r) => r.attempts)) + 1;
+        // Math.max over every row's attempts, folded one row at a time.
+        let maxAttempts = -Infinity;
+        for (const row of failedRows) {
+          maxAttempts = Math.max(maxAttempts, row.attempts);
+        }
+        const attempt = maxAttempts + 1;
         // Discord and push wait backoffSeconds; SQL's retry policy wins for a webhook.
         await bookkeep("mark_deliveries_failed", {
           p_delivery_ids: failedRows.map((r) => r.delivery_id),
@@ -267,6 +334,16 @@ interface Outcome {
   sent: SendResult | null;
 }
 
+/** The default onProgress: nobody is watching. */
+function noProgress(): void {
+  // Nothing to report to.
+}
+
+/** The default wait between bookkeeping attempts. */
+function defaultSleep(ms: number): Promise<void> {
+  return new Promise<void>((r) => setTimeout(r, ms));
+}
+
 /** `Promise.all` with at most `limit` calls of `fn` in flight; results keep the input order. */
 async function mapBounded<T, R>(
   items: readonly T[],
@@ -278,7 +355,11 @@ async function mapBounded<T, R>(
   async function worker(): Promise<void> {
     while (next < items.length) {
       const index = next++;
-      results[index] = await fn(items[index]!);
+      const item = items[index];
+      if (item === undefined) {
+        throw new Error(`mapBounded: no item at index ${String(index)}`);
+      }
+      results[index] = await fn(item);
     }
   }
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
@@ -299,17 +380,26 @@ async function rpcOrLog(
   progress: (step: ProgressStep) => void,
   sleep: (ms: number) => Promise<void>,
 ): Promise<void> {
-  const waits = REPEATABLE_RPCS.has(fn) ? BOOKKEEPING_RETRY_MS : [];
+  let waits: readonly number[];
+  if (REPEATABLE_RPCS.has(fn)) {
+    waits = BOOKKEEPING_RETRY_MS;
+  } else {
+    waits = [];
+  }
   for (let attempt = 0;; attempt++) {
-    const { error } = await db.rpc(fn, args);
-    if (error === null) return progress("bookkeeping");
+    const answer = await db.rpc(fn, args);
+    const error = answer.error;
+    if (error === null) {
+      progress("bookkeeping");
+      return;
+    }
     const wait = waits[attempt];
     if (wait === undefined) {
       result.errors.push(`${fn}: ${error}`);
       console.error(`deliver: ${fn} failed: ${error}`);
       return;
     }
-    console.error(`deliver: ${fn} failed: ${error}; retrying in ${wait} ms`);
+    console.error(`deliver: ${fn} failed: ${error}; retrying in ${String(wait)} ms`);
     await sleep(wait);
   }
 }
