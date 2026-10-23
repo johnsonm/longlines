@@ -9,19 +9,31 @@ export interface FetchOptions {
 
 /** "LongLines/0.1 (+<project url>)", project url from LONGLINES_USER_AGENT_URL. */
 export function userAgent(): string {
-  const projectUrl = Deno.env.get("LONGLINES_USER_AGENT_URL")?.trim() || DEFAULT_PROJECT_URL;
+  let projectUrl = DEFAULT_PROJECT_URL;
+  const configured = Deno.env.get("LONGLINES_USER_AGENT_URL");
+  if (configured !== undefined) {
+    const trimmed = configured.trim();
+    if (trimmed !== "") {
+      projectUrl = trimmed;
+    }
+  }
   return `LongLines/0.1 (+${projectUrl})`;
 }
 
 async function fetchOk(url: string, accept: string, options: FetchOptions): Promise<Response> {
-  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  let timeoutMs = DEFAULT_TIMEOUT_MS;
+  if (options.timeoutMs !== undefined) {
+    timeoutMs = options.timeoutMs;
+  }
   const response = await fetch(url, {
     headers: { "User-Agent": userAgent(), Accept: accept },
     signal: AbortSignal.timeout(timeoutMs),
   });
   if (!response.ok) {
-    await response.body?.cancel();
-    throw new Error(`GET ${url} failed: HTTP ${response.status}`);
+    if (response.body !== null) {
+      await response.body.cancel();
+    }
+    throw new Error(`GET ${url} failed: HTTP ${String(response.status)}`);
   }
   return response;
 }

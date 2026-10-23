@@ -34,7 +34,10 @@ export const SOTAWATCH_SPOTS_URL = "https://api-db2.sota.org.uk/api/spots/50/all
 const MAX_AGE_MS = 5 * 60 * 1000;
 
 function optionalString(value: unknown): string | null {
-  return typeof value === "string" ? value : null;
+  if (typeof value === "string") {
+    return value;
+  }
+  return null;
 }
 
 function requireString(raw: JsonObject, field: string): string {
@@ -47,14 +50,21 @@ function requireString(raw: JsonObject, field: string): string {
 
 function requireId(raw: JsonObject, field: string): string {
   const value = raw[field];
-  if (typeof value === "number" && Number.isFinite(value)) return String(value);
-  if (typeof value === "string" && value.trim() !== "") return value.trim();
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return String(value);
+  }
+  if (typeof value === "string" && value.trim() !== "") {
+    return value.trim();
+  }
   throw new Error(`missing field "${field}"`);
 }
 
 function idOf(item: JsonObject): number {
   const id = item["id"];
-  return typeof id === "number" ? id : Number(id);
+  if (typeof id === "number") {
+    return id;
+  }
+  return Number(id);
 }
 
 export const sotawatch: SourceAdapter = {
@@ -69,13 +79,17 @@ export const sotawatch: SourceAdapter = {
   },
 
   parseFeed(body: unknown): JsonObject[] {
-    if (!Array.isArray(body)) throw new Error("expected a JSON array from SOTAwatch");
-    const items = body.map((item: unknown, i) => {
+    if (!Array.isArray(body)) {
+      throw new Error("expected a JSON array from SOTAwatch");
+    }
+    const items: JsonObject[] = [];
+    for (let i = 0; i < body.length; i++) {
+      const item: unknown = body[i];
       if (typeof item !== "object" || item === null || Array.isArray(item)) {
-        throw new Error(`SOTAwatch feed item ${i} is not an object`);
+        throw new Error(`SOTAwatch feed item ${String(i)} is not an object`);
       }
-      return item as JsonObject;
-    });
+      items.push(item as JsonObject);
+    }
     // Upstream order is arbitrary; process oldest first.
     return items.sort((a, b) => idOf(a) - idOf(b));
   },
@@ -92,7 +106,9 @@ export const sotawatch: SourceAdapter = {
     ]);
 
     const spotTime = parseUtc(raw["timeStamp"]);
-    if (isTooOld(spotTime, now, MAX_AGE_MS)) return { kind: "skip", reason: "too_old" };
+    if (isTooOld(spotTime, now, MAX_AGE_MS)) {
+      return { kind: "skip", reason: "too_old" };
+    }
 
     const type = raw["type"];
     if (type !== null && type !== undefined && type !== "NORMAL") {
@@ -100,11 +116,19 @@ export const sotawatch: SourceAdapter = {
     }
 
     const comment = cleanSotaComment(optionalString(raw["comments"]));
-    if (isTestComment(comment)) return { kind: "skip", reason: "test_comment" };
+    if (isTestComment(comment)) {
+      return { kind: "skip", reason: "test_comment" };
+    }
 
     const frequencyKhz = parseKhz(raw["frequency"], "mhz");
 
     const mode = resolveMode(optionalString(raw["mode"]), comment);
+
+    let summitRef: string | null = null;
+    const summitCode = optionalString(raw["summitCode"]);
+    if (summitCode !== null) {
+      summitRef = summitCode.trim().toUpperCase();
+    }
 
     return {
       kind: "spot",
@@ -123,7 +147,7 @@ export const sotawatch: SourceAdapter = {
         pota_reference: null,
         pota_park_name: null,
         pota_location: null,
-        sota_summit_ref: optionalString(raw["summitCode"])?.trim().toUpperCase() ?? null,
+        sota_summit_ref: summitRef,
         wwff_reference: null,
         wwff_reference_name: null,
         raw_payload: raw,

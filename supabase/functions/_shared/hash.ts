@@ -9,7 +9,21 @@ import { hex } from "./hmac.ts";
  * them; null and undefined become "".
  */
 export async function contentHash(fields: ReadonlyArray<unknown>): Promise<string> {
-  const text = fields.map((v) => (v === null || v === undefined ? "" : String(v))).join("\n");
+  const parts: string[] = [];
+  for (const v of fields) {
+    if (v === null || v === undefined) {
+      parts.push("");
+    } else {
+      parts.push(upstreamText(v));
+    }
+  }
+  const text = parts.join("\n");
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
   return hex(digest);
+}
+
+// String() of a field as upstream sent it. The parameter is unknown on purpose:
+// fields are unvalidated feed values, and narrowing them is Part 2's job.
+function upstreamText(value: unknown): string {
+  return String(value);
 }

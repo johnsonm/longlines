@@ -22,12 +22,19 @@ function storable(text: string): string {
 }
 
 function stripNul(value: unknown): unknown {
-  if (typeof value === "string") return storable(value);
-  if (Array.isArray(value)) return value.map(stripNul);
+  if (typeof value === "string") {
+    return storable(value);
+  }
+  if (Array.isArray(value)) {
+    return value.map(stripNul);
+  }
   if (typeof value === "object" && value !== null) {
-    return Object.fromEntries(
-      Object.entries(value).map(([key, v]) => [storable(key), stripNul(v)]),
-    );
+    // fromEntries, not assignment, so a "__proto__" key stays an own property.
+    const entries: Array<[string, unknown]> = [];
+    for (const entry of Object.entries(value)) {
+      entries.push([storable(entry[0]), stripNul(entry[1])]);
+    }
+    return Object.fromEntries(entries);
   }
   return value;
 }

@@ -14,7 +14,10 @@ import type {
 } from "./types.ts";
 
 function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
 }
 
 /**
@@ -67,7 +70,7 @@ export async function runIngest(
 
   try {
     let epoch: string | null = null;
-    if (adapter.fetchEpoch) {
+    if (adapter.fetchEpoch !== undefined) {
       epoch = await adapter.fetchEpoch();
       if (epoch === await db.getLastEpoch(adapter.source)) {
         summary.epoch_unchanged = true;

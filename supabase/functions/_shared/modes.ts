@@ -26,29 +26,30 @@ const PHONE = new Set([
   "fusion",
   "phone",
 ]);
-const DIGITAL = new Set([
-  ...GENERIC_DIGITAL,
-  "ft8",
-  "ft4",
-  "js8",
-  "rtty",
-  "psk",
-  "psk31",
-  "psk63",
-  "olivia",
-  "msk144",
-  "jt65",
-  "jt9",
-  "q65",
-  "fst4",
-  "fst4w",
-  "wspr",
-  "sstv",
-  "hell",
-  "contestia",
-  "thor",
-  "mfsk",
-]);
+const DIGITAL = new Set(
+  Array.from(GENERIC_DIGITAL).concat([
+    "ft8",
+    "ft4",
+    "js8",
+    "rtty",
+    "psk",
+    "psk31",
+    "psk63",
+    "olivia",
+    "msk144",
+    "jt65",
+    "jt9",
+    "q65",
+    "fst4",
+    "fst4w",
+    "wspr",
+    "sstv",
+    "hell",
+    "contestia",
+    "thor",
+    "mfsk",
+  ]),
+);
 
 /**
  * Specific digital modes an operator might name in a comment when the
@@ -60,15 +61,27 @@ const COMMENT_HINT =
 
 /** Lowercase with whitespace and hyphens removed ("FT-8" -> "ft8"). Null when blank. */
 export function canonicalMode(value: string | null | undefined): string | null {
-  if (!value) return null;
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
   const cleaned = value.toLowerCase().replace(/[\s-]/g, "");
-  return cleaned === "" ? null : cleaned;
+  if (cleaned === "") {
+    return null;
+  }
+  return cleaned;
 }
 
 /** The first specific digital mode named in a comment, canonical. Null when none. */
 export function modeHintFromComment(comment: string): string | null {
   const match = COMMENT_HINT.exec(comment);
-  return match?.[1] ? canonicalMode(match[1]) : null;
+  if (match === null) {
+    return null;
+  }
+  const named = match[1];
+  if (named === undefined || named === "") {
+    return null;
+  }
+  return canonicalMode(named);
 }
 
 /** Sideband is a detail of SSB; band-plan guesses and filters both say "ssb". */
@@ -84,16 +97,32 @@ const SIDEBAND: Record<string, string> = { usb: "ssb", lsb: "ssb" };
 export function resolveMode(upstream: string | null | undefined, comment: string): string | null {
   const canonical = canonicalMode(upstream);
   if (canonical === null || GENERIC_DIGITAL.has(canonical)) {
-    return modeHintFromComment(comment) ?? canonical;
+    const hint = modeHintFromComment(comment);
+    if (hint !== null) {
+      return hint;
+    }
+    return canonical;
   }
-  return SIDEBAND[canonical] ?? canonical;
+  const folded = SIDEBAND[canonical];
+  if (folded !== undefined) {
+    return folded;
+  }
+  return canonical;
 }
 
 export function modeFamily(mode: string | null): ModeFamily | null {
-  if (mode === null) return null;
-  if (CW.has(mode)) return "cw";
-  if (PHONE.has(mode)) return "phone";
-  if (DIGITAL.has(mode)) return "digital";
+  if (mode === null) {
+    return null;
+  }
+  if (CW.has(mode)) {
+    return "cw";
+  }
+  if (PHONE.has(mode)) {
+    return "phone";
+  }
+  if (DIGITAL.has(mode)) {
+    return "digital";
+  }
   return null;
 }
 
@@ -113,8 +142,22 @@ const DX_COMMENT_MODE =
 /** The first mode named in a DX Cluster comment, canonical. Null when none. */
 export function modeFromComment(comment: string): string | null {
   const match = DX_COMMENT_MODE.exec(comment);
-  const mode = match?.[1] ? canonicalMode(match[1]) : null;
-  return mode === null ? null : SIDEBAND[mode] ?? mode;
+  if (match === null) {
+    return null;
+  }
+  const named = match[1];
+  if (named === undefined || named === "") {
+    return null;
+  }
+  const mode = canonicalMode(named);
+  if (mode === null) {
+    return null;
+  }
+  const folded = SIDEBAND[mode];
+  if (folded !== undefined) {
+    return folded;
+  }
+  return mode;
 }
 
 /** FT8 and FT4 dial frequencies in kHz; a signal sits up to 3 kHz above the dial. */
@@ -153,14 +196,30 @@ const SEGMENTS: ReadonlyArray<{ from: number; to: number; mode: string }> = [
 
 /** The mode the band plan expects at a frequency. Null where the plan does not say. */
 export function modeFromFrequency(khz: number): string | null {
-  const near = (dials: number[]) => dials.some((d) => khz >= d && khz < d + DIAL_WIDTH_KHZ);
   // FT4 first: the 80m windows overlap (3575-3576) and FT4's dial is the exact one there.
-  if (near(FT4_DIALS)) return "ft4";
-  if (near(FT8_DIALS)) return "ft8";
-  return SEGMENTS.find((s) => khz >= s.from && khz < s.to)?.mode ?? null;
+  if (nearDial(FT4_DIALS, khz)) {
+    return "ft4";
+  }
+  if (nearDial(FT8_DIALS, khz)) {
+    return "ft8";
+  }
+  const segment = SEGMENTS.find((s) => khz >= s.from && khz < s.to);
+  if (segment === undefined) {
+    return null;
+  }
+  return segment.mode;
+}
+
+/** True when khz is within DIAL_WIDTH_KHZ above one of the dials. */
+function nearDial(dials: number[], khz: number): boolean {
+  return dials.some((d) => khz >= d && khz < d + DIAL_WIDTH_KHZ);
 }
 
 /** A DX Cluster spot's mode: named in the comment, else the band plan, else null. */
 export function resolveDxMode(comment: string, khz: number): string | null {
-  return modeFromComment(comment) ?? modeFromFrequency(khz);
+  const named = modeFromComment(comment);
+  if (named !== null) {
+    return named;
+  }
+  return modeFromFrequency(khz);
 }

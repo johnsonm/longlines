@@ -31,7 +31,10 @@ export const POTA_SPOTS_URL = "https://api.pota.app/spot/activator";
 const MAX_AGE_MS = 5 * 60 * 1000;
 
 function optionalString(value: unknown): string | null {
-  return typeof value === "string" ? value : null;
+  if (typeof value === "string") {
+    return value;
+  }
+  return null;
 }
 
 function requireString(raw: JsonObject, field: string): string {
@@ -44,8 +47,12 @@ function requireString(raw: JsonObject, field: string): string {
 
 function requireId(raw: JsonObject, field: string): string {
   const value = raw[field];
-  if (typeof value === "number" && Number.isFinite(value)) return String(value);
-  if (typeof value === "string" && value.trim() !== "") return value.trim();
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return String(value);
+  }
+  if (typeof value === "string" && value.trim() !== "") {
+    return value.trim();
+  }
   throw new Error(`missing field "${field}"`);
 }
 
@@ -57,13 +64,18 @@ export const pota: SourceAdapter = {
   },
 
   parseFeed(body: unknown): JsonObject[] {
-    if (!Array.isArray(body)) throw new Error("expected a JSON array from POTA");
-    return body.map((item: unknown, i) => {
+    if (!Array.isArray(body)) {
+      throw new Error("expected a JSON array from POTA");
+    }
+    const items: JsonObject[] = [];
+    for (let i = 0; i < body.length; i++) {
+      const item: unknown = body[i];
       if (typeof item !== "object" || item === null || Array.isArray(item)) {
-        throw new Error(`POTA feed item ${i} is not an object`);
+        throw new Error(`POTA feed item ${String(i)} is not an object`);
       }
-      return item as JsonObject;
-    });
+      items.push(item as JsonObject);
+    }
+    return items;
   },
 
   async normalize(raw: JsonObject, now: Date): Promise<NormalizeResult> {
@@ -78,10 +90,14 @@ export const pota: SourceAdapter = {
     ]);
 
     const spotTime = parseUtc(raw["spotTime"]);
-    if (isTooOld(spotTime, now, MAX_AGE_MS)) return { kind: "skip", reason: "too_old" };
+    if (isTooOld(spotTime, now, MAX_AGE_MS)) {
+      return { kind: "skip", reason: "too_old" };
+    }
 
     const comment = cleanPotaComment(optionalString(raw["comments"]));
-    if (isTestComment(comment)) return { kind: "skip", reason: "test_comment" };
+    if (isTestComment(comment)) {
+      return { kind: "skip", reason: "test_comment" };
+    }
 
     const frequencyKhz = parseKhz(raw["frequency"], "khz");
 

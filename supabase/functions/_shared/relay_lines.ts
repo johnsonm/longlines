@@ -20,16 +20,23 @@ export function parseRelayBody(body: unknown): JsonObject[] {
     throw new Error("expected a JSON object from the relay");
   }
   const lines = (body as JsonObject)["lines"];
-  if (!Array.isArray(lines)) throw new Error('expected a "lines" array from the relay');
-  if (lines.length > MAX_LINES) {
-    throw new Error(`relay batch has ${lines.length} lines; the limit is ${MAX_LINES}`);
+  if (!Array.isArray(lines)) {
+    throw new Error('expected a "lines" array from the relay');
   }
-  return lines.map((item: unknown, i) => {
+  if (lines.length > MAX_LINES) {
+    throw new Error(
+      `relay batch has ${String(lines.length)} lines; the limit is ${String(MAX_LINES)}`,
+    );
+  }
+  const items: JsonObject[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const item: unknown = lines[i];
     if (typeof item !== "object" || item === null || Array.isArray(item)) {
-      throw new Error(`relay line ${i} is not an object`);
+      throw new Error(`relay line ${String(i)} is not an object`);
     }
-    return item as JsonObject;
-  });
+    items.push(item as JsonObject);
+  }
+  return items;
 }
 
 /**
@@ -70,8 +77,14 @@ export function spotTimeFromHhmm(hhmm: string, receivedAt: Date): Date {
     minutes,
   );
   const candidates = [sameDay - DAY_MS, sameDay, sameDay + DAY_MS];
-  const distance = (t: number) => Math.abs(t - receivedAt.getTime());
-  return new Date(candidates.reduce((best, t) => distance(t) < distance(best) ? t : best));
+  // The first candidate wins a tie.
+  let best = sameDay - DAY_MS;
+  for (const t of candidates) {
+    if (Math.abs(t - receivedAt.getTime()) < Math.abs(best - receivedAt.getTime())) {
+      best = t;
+    }
+  }
+  return new Date(best);
 }
 
 export function requireString(raw: JsonObject, field: string): string {

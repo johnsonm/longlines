@@ -13,9 +13,14 @@ export function cleanCallsign(value: string): string {
 
 /** POTA spotter: uppercase, trimmed, trailing "-#" skimmer marker removed. Null when blank. */
 export function cleanPotaSpotter(value: string | null | undefined): string | null {
-  if (!value) return null;
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
   const cleaned = value.trim().toUpperCase().replace(/-#$/, "");
-  return cleaned === "" ? null : cleaned;
+  if (cleaned === "") {
+    return null;
+  }
+  return cleaned;
 }
 
 /**
@@ -27,26 +32,45 @@ export function cleanSotaSpotter(
   value: string | null | undefined,
   comment: string,
 ): string | null {
-  if (!value) return null;
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
   const cleaned = value.trim().toUpperCase();
-  if (cleaned === "") return null;
+  if (cleaned === "") {
+    return null;
+  }
   if (cleaned === "RBNHOLE") {
     const match = RBNHOLE_SPOTTER.exec(comment);
-    return match?.[1] ? match[1].toUpperCase() : null;
+    if (match === null) {
+      return null;
+    }
+    const spotter = match[1];
+    if (spotter === undefined || spotter === "") {
+      return null;
+    }
+    return spotter.toUpperCase();
   }
   return cleaned;
 }
 
 /** Trimmed; null becomes "". */
 export function cleanPotaComment(value: string | null | undefined): string {
-  return (value ?? "").trim();
+  if (value === null || value === undefined) {
+    return "";
+  }
+  return value.trim();
 }
 
 /** Leading ". " or "*" removed, trimmed; null and the literal "(null)" become "". */
 export function cleanSotaComment(value: string | null | undefined): string {
-  if (!value) return "";
+  if (value === null || value === undefined || value === "") {
+    return "";
+  }
   const cleaned = value.replace(/^(\. |\*)/, "").trim();
-  return cleaned === "(null)" ? "" : cleaned;
+  if (cleaned === "(null)") {
+    return "";
+  }
+  return cleaned;
 }
 
 export function isTestComment(comment: string): boolean {
@@ -63,15 +87,20 @@ const MAX_KHZ = 1_000_000_000;
  * non-numeric, not positive, or too large for the database column.
  */
 export function parseKhz(value: unknown, unit: "khz" | "mhz"): number {
-  const n = typeof value === "number"
-    ? value
-    : typeof value === "string"
-    ? Number.parseFloat(value)
-    : Number.NaN;
+  let n = Number.NaN;
+  if (typeof value === "number") {
+    n = value;
+  } else if (typeof value === "string") {
+    n = Number.parseFloat(value);
+  }
   if (!Number.isFinite(n) || n <= 0) {
     throw new Error(`invalid frequency: ${JSON.stringify(value)}`);
   }
-  const khz = Math.round((unit === "mhz" ? n * 1000 : n) * 1000) / 1000;
+  let inKhz = n;
+  if (unit === "mhz") {
+    inKhz = n * 1000;
+  }
+  const khz = Math.round(inKhz * 1000) / 1000;
   if (khz >= MAX_KHZ) {
     throw new Error(`frequency out of range: ${JSON.stringify(value)} ${unit}`);
   }
@@ -88,7 +117,11 @@ export function parseUtc(value: unknown): Date {
     throw new Error(`invalid timestamp: ${JSON.stringify(value)}`);
   }
   const text = value.trim();
-  const date = new Date(HAS_UTC_OFFSET.test(text) ? text : `${text}Z`);
+  let withOffset = `${text}Z`;
+  if (HAS_UTC_OFFSET.test(text)) {
+    withOffset = text;
+  }
+  const date = new Date(withOffset);
   if (Number.isNaN(date.getTime())) {
     throw new Error(`invalid timestamp: ${JSON.stringify(value)}`);
   }
@@ -114,7 +147,7 @@ const MIN_TIME_MS = Date.UTC(2000, 0, 1);
 /** Throws when the text is longer than max characters. */
 export function assertMaxLength(value: string, max: number, field: string): void {
   if (value.length > max) {
-    throw new Error(`${field} is ${value.length} characters; the limit is ${max}`);
+    throw new Error(`${field} is ${String(value.length)} characters; the limit is ${String(max)}`);
   }
 }
 
@@ -126,9 +159,11 @@ export function assertMaxLength(value: string, max: number, field: string): void
 export function assertPlausibleTime(time: Date, now: Date, field: string): void {
   const ms = time.getTime();
   if (!(ms >= MIN_TIME_MS && ms - now.getTime() <= MAX_FUTURE_MS)) {
-    throw new Error(
-      `${field} out of range: ${Number.isNaN(ms) ? "invalid" : time.toISOString()}`,
-    );
+    let shown = "invalid";
+    if (!Number.isNaN(ms)) {
+      shown = time.toISOString();
+    }
+    throw new Error(`${field} out of range: ${shown}`);
   }
 }
 
@@ -143,7 +178,10 @@ export function assertStorableSpot(spot: NormalizedSpot, now: Date): void {
     ["sota_summit_ref", spot.sota_summit_ref],
     ["wwff_reference", spot.wwff_reference],
   ];
-  for (const [field, value] of bounded) {
-    if (value !== null) assertMaxLength(value, MAX_CALLSIGN_LENGTH, field);
+  for (const pair of bounded) {
+    const value = pair[1];
+    if (value !== null) {
+      assertMaxLength(value, MAX_CALLSIGN_LENGTH, pair[0]);
+    }
   }
 }

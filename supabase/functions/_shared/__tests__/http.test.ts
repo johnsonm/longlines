@@ -19,49 +19,55 @@ async function withServer(
   }
 }
 
-Deno.test("userAgent identifies Long Lines with the configured project URL", () => {
+Deno.test("userAgent identifies Long Lines with the configured project URL", function (): void {
   assertMatch(userAgent(), /^LongLines\/0\.1 \(\+https?:\/\/\S+\)$/);
 });
 
-Deno.test("fetchJson sends the User-Agent header and parses the body", async () => {
-  let seenAgent: string | null = null;
-  await withServer(
-    (req) => {
-      seenAgent = req.headers.get("user-agent");
-      return Response.json([{ ok: true }]);
-    },
-    async (base) => {
-      assertEquals(await fetchJson(`${base}/spots`), [{ ok: true }]);
-      assertEquals(seenAgent, userAgent());
-    },
-  );
-});
+Deno.test(
+  "fetchJson sends the User-Agent header and parses the body",
+  async function (): Promise<void> {
+    let seenAgent: string | null = null;
+    await withServer(
+      function (req) {
+        seenAgent = req.headers.get("user-agent");
+        return Response.json([{ ok: true }]);
+      },
+      async function (base) {
+        assertEquals(await fetchJson(`${base}/spots`), [{ ok: true }]);
+        assertEquals(seenAgent, userAgent());
+      },
+    );
+  },
+);
 
-Deno.test("fetchText returns the trimmed body", async () => {
+Deno.test("fetchText returns the trimmed body", async function (): Promise<void> {
   await withServer(
     () => new Response("  7d7221c8-f4d9-4955-a976-ece92b4735b8\n"),
-    async (base) => {
+    async function (base) {
       assertEquals(await fetchText(`${base}/epoch`), "7d7221c8-f4d9-4955-a976-ece92b4735b8");
     },
   );
 });
 
-Deno.test("fetchJson throws with the status code on a non-2xx response", async () => {
-  await withServer(
-    () => new Response("nope", { status: 503 }),
-    async (base) => {
-      await assertRejects(() => fetchJson(`${base}/spots`), Error, "503");
-    },
-  );
-});
+Deno.test(
+  "fetchJson throws with the status code on a non-2xx response",
+  async function (): Promise<void> {
+    await withServer(
+      () => new Response("nope", { status: 503 }),
+      async function (base) {
+        await assertRejects(() => fetchJson(`${base}/spots`), Error, "503");
+      },
+    );
+  },
+);
 
-Deno.test("fetchText aborts when the server exceeds the timeout", async () => {
+Deno.test("fetchText aborts when the server exceeds the timeout", async function (): Promise<void> {
   await withServer(
-    async (req) => {
+    async function (req) {
       await new Promise<void>((resolve) => req.signal.addEventListener("abort", () => resolve()));
       return new Response("late");
     },
-    async (base) => {
+    async function (base) {
       await assertRejects(() => fetchText(`${base}/slow`, { timeoutMs: 50 }));
     },
   );

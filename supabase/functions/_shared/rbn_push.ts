@@ -19,7 +19,10 @@ import type {
 export type RbnPushDb = IngestDb & WatchlistDb & RbnDb;
 
 function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
 }
 
 export async function runRbnPush(
@@ -44,16 +47,36 @@ export async function runRbnPush(
         failures.push({ source: "rbn", error: errorMessage(error), raw_payload: withoutNul(raw) });
       }
     }
-    if (rows.length > 0) stored = await db.ingestRbnSpots(rows);
-    if (failures.length > 0) await db.recordSpotFailures(failures);
-    const stations = [...new Set(rows.map((row) => row.callsign))];
+    if (rows.length > 0) {
+      stored = await db.ingestRbnSpots(rows);
+    }
+    if (failures.length > 0) {
+      await db.recordSpotFailures(failures);
+    }
+    const stations = Array.from(new Set(rows.map((row) => row.callsign)));
     const watched = new Set(await db.watchedAmong("rbn", stations));
-    watchedItems = kept.filter((_raw, i) => watched.has(rows[i]!.callsign));
+    // kept[i] is the item rows[i] came from.
+    watchedItems = [];
+    for (const entry of kept.entries()) {
+      const row = rows[entry[0]];
+      if (row === undefined) {
+        throw new Error(`rbn push: no row for kept line ${String(entry[0])}`);
+      }
+      if (watched.has(row.callsign)) {
+        watchedItems.push(entry[1]);
+      }
+    }
   } catch (error) {
     return await recordFailureAndThrow(db, "rbn", error);
   }
 
   // Runs even with no watched lines so ingest_state records the heartbeat.
   const summary = await runIngest(rbnAdapter({ lines: watchedItems }), db, now);
-  return { ...summary, fetched: items.length, failed: summary.failed + failures.length, stored };
+  // Same keys in the same order as the summary, with fetched and failed
+  // replaced in place and stored added last.
+  return Object.assign({}, summary, {
+    fetched: items.length,
+    failed: summary.failed + failures.length,
+    stored,
+  });
 }
