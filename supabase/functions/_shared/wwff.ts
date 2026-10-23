@@ -25,9 +25,14 @@ export const WWFF_SPOTS_URL = "https://spots.wwff.co/static/spots.json";
 const MAX_AGE_MS = 5 * 60 * 1000;
 
 function optionalString(value: unknown): string | null {
-  if (typeof value !== "string") return null;
+  if (typeof value !== "string") {
+    return null;
+  }
   const trimmed = value.trim();
-  return trimmed === "" ? null : trimmed;
+  if (trimmed === "") {
+    return null;
+  }
+  return trimmed;
 }
 
 function requireString(raw: JsonObject, field: string): string {
@@ -40,8 +45,12 @@ function requireString(raw: JsonObject, field: string): string {
 
 function requireId(raw: JsonObject, field: string): string {
   const value = raw[field];
-  if (typeof value === "number" && Number.isFinite(value)) return String(value);
-  if (typeof value === "string" && value.trim() !== "") return value.trim();
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return String(value);
+  }
+  if (typeof value === "string" && value.trim() !== "") {
+    return value.trim();
+  }
   throw new Error(`missing field "${field}"`);
 }
 
@@ -61,13 +70,18 @@ export const wwff: SourceAdapter = {
   },
 
   parseFeed(body: unknown): JsonObject[] {
-    if (!Array.isArray(body)) throw new Error("expected a JSON array from WWFF");
-    return body.map((item: unknown, i) => {
+    if (!Array.isArray(body)) {
+      throw new Error("expected a JSON array from WWFF");
+    }
+    const items: JsonObject[] = [];
+    for (let i = 0; i < body.length; i++) {
+      const item: unknown = body[i];
       if (typeof item !== "object" || item === null || Array.isArray(item)) {
-        throw new Error(`WWFF feed item ${i} is not an object`);
+        throw new Error(`WWFF feed item ${String(i)} is not an object`);
       }
-      return item as JsonObject;
-    });
+      items.push(item as JsonObject);
+    }
+    return items;
   },
 
   async normalize(raw: JsonObject, now: Date): Promise<NormalizeResult> {
@@ -82,14 +96,33 @@ export const wwff: SourceAdapter = {
     ]);
 
     const spotTime = parseUnixSeconds(raw["spot_time"]);
-    if (isTooOld(spotTime, now, MAX_AGE_MS)) return { kind: "skip", reason: "too_old" };
+    if (isTooOld(spotTime, now, MAX_AGE_MS)) {
+      return { kind: "skip", reason: "too_old" };
+    }
 
-    const comment = optionalString(raw["remarks"]) ?? "";
-    if (isTestComment(comment)) return { kind: "skip", reason: "test_comment" };
+    let comment = "";
+    const remarks = optionalString(raw["remarks"]);
+    if (remarks !== null) {
+      comment = remarks;
+    }
+    if (isTestComment(comment)) {
+      return { kind: "skip", reason: "test_comment" };
+    }
 
     const frequencyKhz = parseKhz(raw["frequency_khz"], "khz");
 
     const mode = resolveMode(optionalString(raw["mode"]), comment);
+
+    let spotter: string | null = null;
+    const spotterText = optionalString(raw["spotter"]);
+    if (spotterText !== null) {
+      spotter = spotterText.toUpperCase();
+    }
+    let reference: string | null = null;
+    const referenceText = optionalString(raw["reference"]);
+    if (referenceText !== null) {
+      reference = referenceText.toUpperCase();
+    }
 
     return {
       kind: "spot",
@@ -99,7 +132,7 @@ export const wwff: SourceAdapter = {
         content_hash: hash,
         spot_time: spotTime.toISOString(),
         callsign: cleanCallsign(requireString(raw, "activator")),
-        spotter: optionalString(raw["spotter"])?.toUpperCase() ?? null,
+        spotter,
         frequency_khz: frequencyKhz,
         band: bandForFrequency(frequencyKhz),
         mode,
@@ -109,7 +142,7 @@ export const wwff: SourceAdapter = {
         pota_park_name: null,
         pota_location: null,
         sota_summit_ref: null,
-        wwff_reference: optionalString(raw["reference"])?.toUpperCase() ?? null,
+        wwff_reference: reference,
         wwff_reference_name: optionalString(raw["reference_name"]),
         raw_payload: raw,
       },

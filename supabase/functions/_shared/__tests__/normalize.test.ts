@@ -42,16 +42,22 @@ Deno.test("cleanSotaSpotter extracts the real spotter from an RBNHole comment", 
   assertEquals(cleanSotaSpotter("RBNHOLE", "[RBNHole] at WX7V/5 13 WPM 15 dB SNR"), "WX7V/5");
 });
 
-Deno.test("cleanSotaSpotter uppercases the RBNHole spotter and accepts it at the end of the comment", function (): void {
-  assertEquals(cleanSotaSpotter("RBNHOLE", "[RBNHole] at dl1hws 21 WPM 23 dB SNR"), "DL1HWS");
-  assertEquals(cleanSotaSpotter("RBNHOLE", "[RBNHole] at DL1HWS"), "DL1HWS");
-});
+Deno.test(
+  "cleanSotaSpotter uppercases the RBNHole spotter and accepts it at the end of the comment",
+  function (): void {
+    assertEquals(cleanSotaSpotter("RBNHOLE", "[RBNHole] at dl1hws 21 WPM 23 dB SNR"), "DL1HWS");
+    assertEquals(cleanSotaSpotter("RBNHOLE", "[RBNHole] at DL1HWS"), "DL1HWS");
+  },
+);
 
-Deno.test("cleanSotaSpotter returns null for an RBNHole spot whose comment names no skimmer", function (): void {
-  // RBNHOLE is the relay bot, not a station; storing it would count it as a chaser.
-  assertEquals(cleanSotaSpotter("RBNHOLE", "something else"), null);
-  assertEquals(cleanSotaSpotter("rbnhole", ""), null);
-});
+Deno.test(
+  "cleanSotaSpotter returns null for an RBNHole spot whose comment names no skimmer",
+  function (): void {
+    // RBNHOLE is the relay bot, not a station; storing it would count it as a chaser.
+    assertEquals(cleanSotaSpotter("RBNHOLE", "something else"), null);
+    assertEquals(cleanSotaSpotter("rbnhole", ""), null);
+  },
+);
 
 Deno.test("cleanPotaComment trims and maps null to empty string", function (): void {
   assertEquals(cleanPotaComment("  55 LA "), "55 LA");
@@ -129,28 +135,31 @@ Deno.test("assertMaxLength allows the limit and throws past it", function (): vo
   assertThrows(() => assertMaxLength("x".repeat(5), 4, "callsign"), Error, "callsign is 5");
 });
 
-Deno.test("assertPlausibleTime allows up to a day ahead and refuses later, earlier than 2000 or invalid", function (): void {
-  const now = new Date("2026-10-15T18:28:00Z");
-  assertPlausibleTime(new Date("2026-10-16T18:28:00Z"), now, "spot time");
-  assertPlausibleTime(new Date("2000-01-01T00:00:00Z"), now, "spot time");
-  // A milliseconds value read as seconds: year 58763.
-  assertThrows(
-    () => assertPlausibleTime(new Date(1792238400000 * 1000), now, "spot time"),
-    Error,
-    "spot time out of range: +058763",
-  );
-  assertThrows(
-    () => assertPlausibleTime(new Date("2026-10-16T18:28:01Z"), now, "x"),
-    Error,
-    "x out of range",
-  );
-  assertThrows(
-    () => assertPlausibleTime(new Date("1999-12-31T23:59:59Z"), now, "x"),
-    Error,
-    "out of range",
-  );
-  assertThrows(() => assertPlausibleTime(new Date(Number.NaN), now, "x"), Error, "invalid");
-});
+Deno.test(
+  "assertPlausibleTime allows up to a day ahead and refuses later, earlier than 2000 or invalid",
+  function (): void {
+    const now = new Date("2026-10-15T18:28:00Z");
+    assertPlausibleTime(new Date("2026-10-16T18:28:00Z"), now, "spot time");
+    assertPlausibleTime(new Date("2000-01-01T00:00:00Z"), now, "spot time");
+    // A milliseconds value read as seconds: year 58763.
+    assertThrows(
+      () => assertPlausibleTime(new Date(1792238400000 * 1000), now, "spot time"),
+      Error,
+      "spot time out of range: +058763",
+    );
+    assertThrows(
+      () => assertPlausibleTime(new Date("2026-10-16T18:28:01Z"), now, "x"),
+      Error,
+      "x out of range",
+    );
+    assertThrows(
+      () => assertPlausibleTime(new Date("1999-12-31T23:59:59Z"), now, "x"),
+      Error,
+      "out of range",
+    );
+    assertThrows(() => assertPlausibleTime(new Date(Number.NaN), now, "x"), Error, "invalid");
+  },
+);
 
 Deno.test("assertStorableSpot bounds the time, id, calls and references", function (): void {
   const now = new Date("2026-10-05T13:41:00Z");

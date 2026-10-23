@@ -26,12 +26,15 @@ Deno.test("canonicalMode returns null for missing or blank input", function (): 
   assertEquals(canonicalMode(undefined), null);
 });
 
-Deno.test("modeHintFromComment finds a specific digital mode named in the comment", function (): void {
-  assertEquals(modeHintFromComment("FT8 QRP"), "ft8");
-  assertEquals(modeHintFromComment("[SOTA Activator] ft-8 now"), "ft8");
-  assertEquals(modeHintFromComment("trying PSK31 then RTTY"), "psk31");
-  assertEquals(modeHintFromComment("JS8Call tonight"), null);
-});
+Deno.test(
+  "modeHintFromComment finds a specific digital mode named in the comment",
+  function (): void {
+    assertEquals(modeHintFromComment("FT8 QRP"), "ft8");
+    assertEquals(modeHintFromComment("[SOTA Activator] ft-8 now"), "ft8");
+    assertEquals(modeHintFromComment("trying PSK31 then RTTY"), "psk31");
+    assertEquals(modeHintFromComment("JS8Call tonight"), null);
+  },
+);
 
 Deno.test("modeHintFromComment returns null when nothing is named", function (): void {
   assertEquals(modeHintFromComment("cq POTA"), null);
@@ -98,29 +101,35 @@ Deno.test("modeFromComment ignores callsigns, locators and fm/am as words", func
   assertEquals(modeFromComment(""), null);
 });
 
-Deno.test("modeFromFrequency puts FT8 and FT4 dial windows ahead of the segments", function (): void {
-  assertEquals(modeFromFrequency(14074), "ft8");
-  assertEquals(modeFromFrequency(14076.9), "ft8");
-  assertEquals(modeFromFrequency(14077), null);
-  assertEquals(modeFromFrequency(24915.8), "ft8");
-  assertEquals(modeFromFrequency(7047.5), "ft4");
-  assertEquals(modeFromFrequency(3575.5), "ft4");
-  assertEquals(modeFromFrequency(3573.5), "ft8");
-  assertEquals(modeFromFrequency(50313), "ft8");
-});
+Deno.test(
+  "modeFromFrequency puts FT8 and FT4 dial windows ahead of the segments",
+  function (): void {
+    assertEquals(modeFromFrequency(14074), "ft8");
+    assertEquals(modeFromFrequency(14076.9), "ft8");
+    assertEquals(modeFromFrequency(14077), null);
+    assertEquals(modeFromFrequency(24915.8), "ft8");
+    assertEquals(modeFromFrequency(7047.5), "ft4");
+    assertEquals(modeFromFrequency(3575.5), "ft4");
+    assertEquals(modeFromFrequency(3573.5), "ft8");
+    assertEquals(modeFromFrequency(50313), "ft8");
+  },
+);
 
-Deno.test("modeFromFrequency reads the CW and phone segments and leaves gaps unknown", function (): void {
-  assertEquals(modeFromFrequency(14025), "cw");
-  assertEquals(modeFromFrequency(7031.5), "cw");
-  assertEquals(modeFromFrequency(14238), "ssb");
-  assertEquals(modeFromFrequency(7146), "ssb");
-  assertEquals(modeFromFrequency(28450), "ssb");
-  assertEquals(modeFromFrequency(29600), "fm");
-  assertEquals(modeFromFrequency(14095.6), null);
-  assertEquals(modeFromFrequency(5357.5), "ft8");
-  assertEquals(modeFromFrequency(5403.5), null);
-  assertEquals(modeFromFrequency(144200), null);
-});
+Deno.test(
+  "modeFromFrequency reads the CW and phone segments and leaves gaps unknown",
+  function (): void {
+    assertEquals(modeFromFrequency(14025), "cw");
+    assertEquals(modeFromFrequency(7031.5), "cw");
+    assertEquals(modeFromFrequency(14238), "ssb");
+    assertEquals(modeFromFrequency(7146), "ssb");
+    assertEquals(modeFromFrequency(28450), "ssb");
+    assertEquals(modeFromFrequency(29600), "fm");
+    assertEquals(modeFromFrequency(14095.6), null);
+    assertEquals(modeFromFrequency(5357.5), "ft8");
+    assertEquals(modeFromFrequency(5403.5), null);
+    assertEquals(modeFromFrequency(144200), null);
+  },
+);
 
 Deno.test("resolveDxMode prefers the comment over the band plan", function (): void {
   assertEquals(resolveDxMode("FT8", 14025), "ft8");
