@@ -55,19 +55,43 @@ export interface CtyData {
 /** A zone number: a positive integer (Number("") would be 0). */
 function zone(text: string, what: string): number {
   const n = Number(text);
-  if (!/^\d+$/.test(text) || n < 1) throw new Error(`cty.dat: bad ${what} "${text}"`);
+  if (!/^\d+$/.test(text) || n < 1) {
+    throw new Error(`cty.dat: bad ${what} "${text}"`);
+  }
   return n;
 }
 
 function num(text: string, what: string): number {
   const n = Number(text);
-  if (text === "" || !Number.isFinite(n)) throw new Error(`cty.dat: bad ${what} "${text}"`);
+  if (text === "" || !Number.isFinite(n)) {
+    throw new Error(`cty.dat: bad ${what} "${text}"`);
+  }
   return n;
 }
 
 function continent(text: string, where: string): string {
-  if (!CONTINENTS.has(text)) throw new Error(`cty.dat: bad continent "${text}" in ${where}`);
+  if (!CONTINENTS.has(text)) {
+    throw new Error(`cty.dat: bad continent "${text}" in ${where}`);
+  }
   return text;
+}
+
+/** Header field i, trimmed, or "" when the record has fewer fields. */
+function field(fields: string[], i: number): string {
+  const f = fields[i];
+  if (f === undefined) {
+    return "";
+  }
+  return f.trim();
+}
+
+/** The first capture group of re in text, or undefined when re does not match. */
+function capture(re: RegExp, text: string): string | undefined {
+  const m = re.exec(text);
+  if (m === null) {
+    return undefined;
+  }
+  return m[1];
 }
 
 /** Parses a whole cty.dat. Throws on a malformed record rather than loading part of a file. */
@@ -83,23 +107,25 @@ export function parseCty(text: string): CtyData {
 
   for (const raw of text.split(";")) {
     const record = raw.trim();
-    if (record === "") continue;
+    if (record === "") {
+      continue;
+    }
     const fields = record.split(":");
     if (fields.length !== 9) {
       throw new Error(`cty.dat: expected 8 header fields in "${record.slice(0, 60)}"`);
     }
-    const [
-      name = "",
-      cq = "",
-      itu = "",
-      cont = "",
-      lat = "",
-      lon = "",
-      ,
-      primary = "",
-      aliasText = "",
-    ] = fields.map((f) => f.trim());
-    if (primary.startsWith("*")) continue;
+    // Field 6 is the UTC offset, which nothing stores.
+    const name = field(fields, 0);
+    const cq = field(fields, 1);
+    const itu = field(fields, 2);
+    const cont = field(fields, 3);
+    const lat = field(fields, 4);
+    const lon = field(fields, 5);
+    const primary = field(fields, 7);
+    const aliasText = field(fields, 8);
+    if (primary.startsWith("*")) {
+      continue;
+    }
 
     const entity: CtyEntity = {
       prefix: primary,
@@ -114,33 +140,54 @@ export function parseCty(text: string): CtyData {
 
     for (const token of aliasText.split(",").map((t) => t.trim()).filter((t) => t !== "")) {
       const m = ALIAS.exec(token);
-      if (!m) throw new Error(`cty.dat: bad alias "${token}" in ${name}`);
+      if (m === null) {
+        throw new Error(`cty.dat: bad alias "${token}" in ${name}`);
+      }
       const exact = m[1] === "=";
       const pattern = m[2] as string;
       const overrides = m[3] as string;
       if (exact) {
         const v = VERSION.exec(pattern);
-        if (v) {
+        if (v !== null) {
           version = v[1] as string;
           continue;
         }
-        if (pattern === "VERSION") continue;
+        if (pattern === "VERSION") {
+          continue;
+        }
       }
       // A pattern listed twice keeps its first entity, as loggers do.
-      const key = `${exact ? "=" : ""}${pattern}`;
-      if (seen.has(key)) continue;
+      let key = pattern;
+      if (exact) {
+        key = `=${pattern}`;
+      }
+      if (seen.has(key)) {
+        continue;
+      }
       seen.add(key);
 
-      const cqOverride = /\((\d+)\)/.exec(overrides)?.[1];
-      const ituOverride = /\[(\d+)\]/.exec(overrides)?.[1];
-      const contOverride = /\{([A-Z]{2})\}/.exec(overrides)?.[1];
+      const cqOverride = capture(/\((\d+)\)/, overrides);
+      const ituOverride = capture(/\[(\d+)\]/, overrides);
+      const contOverride = capture(/\{([A-Z]{2})\}/, overrides);
+      let prefixContinent = entity.continent;
+      if (contOverride !== undefined && contOverride !== "") {
+        prefixContinent = continent(contOverride, token);
+      }
+      let cqZone = entity.cq_zone;
+      if (cqOverride !== undefined && cqOverride !== "") {
+        cqZone = Number(cqOverride);
+      }
+      let ituZone = entity.itu_zone;
+      if (ituOverride !== undefined && ituOverride !== "") {
+        ituZone = Number(ituOverride);
+      }
       prefixes.push({
         pattern,
         exact,
         entity: entity.prefix,
-        continent: contOverride ? continent(contOverride, token) : entity.continent,
-        cq_zone: cqOverride ? Number(cqOverride) : entity.cq_zone,
-        itu_zone: ituOverride ? Number(ituOverride) : entity.itu_zone,
+        continent: prefixContinent,
+        cq_zone: cqZone,
+        itu_zone: ituZone,
       });
     }
   }

@@ -13,10 +13,16 @@ const ENV: Record<string, string> = {
   [ARCHIVE_S3_ENV.accessKeyId]: "key-id",
   [ARCHIVE_S3_ENV.secretAccessKey]: " secret ",
 };
-const env = (overrides: Record<string, string | undefined> = {}) => (name: string) =>
-  name in overrides ? overrides[name] : ENV[name];
+function env(overrides: Record<string, string | undefined> = {}) {
+  return function (name: string) {
+    if (name in overrides) {
+      return overrides[name];
+    }
+    return ENV[name];
+  };
+}
 
-Deno.test("archiveS3Config reads the five secrets, trimmed", () => {
+Deno.test("archiveS3Config reads the five secrets, trimmed", function (): void {
   const config = archiveS3Config(env());
   assertEquals(config.endpoint.href, "https://s3.us-west-004.backblazeb2.com/");
   assertEquals(
@@ -25,7 +31,7 @@ Deno.test("archiveS3Config reads the five secrets, trimmed", () => {
   );
 });
 
-Deno.test("archiveS3Config names every missing secret", () => {
+Deno.test("archiveS3Config names every missing secret", function (): void {
   assertThrows(
     () =>
       archiveS3Config(env({ [ARCHIVE_S3_ENV.bucket]: undefined, [ARCHIVE_S3_ENV.region]: " " })),
@@ -34,7 +40,7 @@ Deno.test("archiveS3Config names every missing secret", () => {
   );
 });
 
-Deno.test("archiveS3Config wants an https URL except for the local stack", () => {
+Deno.test("archiveS3Config wants an https URL except for the local stack", function (): void {
   assertThrows(
     () => archiveS3Config(env({ [ARCHIVE_S3_ENV.endpoint]: "s3 please" })),
     Error,
@@ -50,63 +56,78 @@ Deno.test("archiveS3Config wants an https URL except for the local stack", () =>
   }
 });
 
-Deno.test("createArchiveStore PUTs Parquet to the bucket and names the path on failure", async () => {
-  const seen: string[] = [];
-  let status = 200;
-  const server = Deno.serve({ hostname: "127.0.0.1", port: 0, onListen() {} }, (req) => {
-    seen.push(`${req.method} ${new URL(req.url).pathname} ${req.headers.get("content-type")}`);
-    return new Response(status === 200 ? "" : "<Error><Code>InternalError</Code></Error>", {
-      status,
+Deno.test(
+  "createArchiveStore PUTs Parquet to the bucket and names the path on failure",
+  async function (): Promise<void> {
+    const seen: string[] = [];
+    let status = 200;
+    const server = Deno.serve({ hostname: "127.0.0.1", port: 0, onListen() {} }, function (req) {
+      seen.push(`${req.method} ${new URL(req.url).pathname} ${req.headers.get("content-type")}`);
+      let body = "";
+      if (status !== 200) {
+        body = "<Error><Code>InternalError</Code></Error>";
+      }
+      return new Response(body, { status });
     });
-  });
-  try {
-    const store = createArchiveStore(
-      archiveS3Config(env({ [ARCHIVE_S3_ENV.endpoint]: `http://127.0.0.1:${server.addr.port}` })),
-    );
-    await store.upload("rbn/year=2026/month=10/day=11/1410.parquet", new Uint8Array([1]));
-    assertEquals(seen, [
-      "PUT /longlines-archive/rbn/year%3D2026/month%3D10/day%3D11/1410.parquet " +
-      "application/vnd.apache.parquet",
-    ]);
-    status = 500;
-    await assertRejects(
-      () => store.upload("p", new Uint8Array([1])),
-      Error,
-      "archive upload failed for p: HTTP 500 InternalError",
-    );
-  } finally {
-    await server.shutdown();
-  }
-});
+    try {
+      const store = createArchiveStore(
+        archiveS3Config(env({ [ARCHIVE_S3_ENV.endpoint]: `http://127.0.0.1:${server.addr.port}` })),
+      );
+      await store.upload("rbn/year=2026/month=10/day=11/1410.parquet", new Uint8Array([1]));
+      assertEquals(seen, [
+        "PUT /longlines-archive/rbn/year%3D2026/month%3D10/day%3D11/1410.parquet " +
+        "application/vnd.apache.parquet",
+      ]);
+      status = 500;
+      await assertRejects(
+        () => store.upload("p", new Uint8Array([1])),
+        Error,
+        "archive upload failed for p: HTTP 500 InternalError",
+      );
+    } finally {
+      await server.shutdown();
+    }
+  },
+);
 
-Deno.test("createArchiveObjectStore reads, sizes and deletes, naming the path on failure", async () => {
-  const seen: string[] = [];
-  let status = 200;
-  const server = Deno.serve({ hostname: "127.0.0.1", port: 0, onListen() {} }, (req) => {
-    seen.push(`${req.method} ${new URL(req.url).pathname}`);
-    if (status !== 200) return new Response("<Error><Code>AccessDenied</Code></Error>", { status });
-    return new Response(req.method === "DELETE" ? null : "abc", {
-      status: req.method === "DELETE" ? 204 : 200,
+Deno.test(
+  "createArchiveObjectStore reads, sizes and deletes, naming the path on failure",
+  async function (): Promise<void> {
+    const seen: string[] = [];
+    let status = 200;
+    const server = Deno.serve({ hostname: "127.0.0.1", port: 0, onListen() {} }, function (req) {
+      seen.push(`${req.method} ${new URL(req.url).pathname}`);
+      if (status !== 200) {
+        return new Response("<Error><Code>AccessDenied</Code></Error>", { status });
+      }
+      if (req.method === "DELETE") {
+        return new Response(null, { status: 204 });
+      }
+      return new Response("abc", { status: 200 });
     });
-  });
-  try {
-    const store = createArchiveObjectStore(
-      archiveS3Config(env({ [ARCHIVE_S3_ENV.endpoint]: `http://127.0.0.1:${server.addr.port}` })),
-    );
-    const path = "rbn/2026/10/11/1410.ndjson.gz";
-    assertEquals(await store.read(path), new TextEncoder().encode("abc"));
-    assertEquals(await store.size(path), 3);
-    await store.remove(path);
-    assertEquals(seen, [
-      `GET /longlines-archive/${path}`,
-      `HEAD /longlines-archive/${path}`,
-      `DELETE /longlines-archive/${path}`,
-    ]);
-    status = 403;
-    await assertRejects(() => store.read(path), Error, `archive read failed for ${path}: HTTP 403`);
-    await assertRejects(() => store.size(path), Error, `archive size check failed for ${path}`);
-    await assertRejects(() => store.remove(path), Error, `archive delete failed for ${path}`);
-  } finally {
-    await server.shutdown();
-  }
-});
+    try {
+      const store = createArchiveObjectStore(
+        archiveS3Config(env({ [ARCHIVE_S3_ENV.endpoint]: `http://127.0.0.1:${server.addr.port}` })),
+      );
+      const path = "rbn/2026/10/11/1410.ndjson.gz";
+      assertEquals(await store.read(path), new TextEncoder().encode("abc"));
+      assertEquals(await store.size(path), 3);
+      await store.remove(path);
+      assertEquals(seen, [
+        `GET /longlines-archive/${path}`,
+        `HEAD /longlines-archive/${path}`,
+        `DELETE /longlines-archive/${path}`,
+      ]);
+      status = 403;
+      await assertRejects(
+        () => store.read(path),
+        Error,
+        `archive read failed for ${path}: HTTP 403`,
+      );
+      await assertRejects(() => store.size(path), Error, `archive size check failed for ${path}`);
+      await assertRejects(() => store.remove(path), Error, `archive delete failed for ${path}`);
+    } finally {
+      await server.shutdown();
+    }
+  },
+);

@@ -67,28 +67,70 @@ const CALLSIGN = /^[A-Z0-9]{3,10}$/;
 const DATE = /^(\d{2})\/(\d{2})\/(\d{4})$/;
 
 function text(value: string | undefined): string | null {
-  const trimmed = value?.replace(/\s+/g, " ").trim();
-  return trimmed ? trimmed : null;
+  if (value === undefined) {
+    return null;
+  }
+  const trimmed = value.replace(/\s+/g, " ").trim();
+  if (trimmed === "") {
+    return null;
+  }
+  return trimmed;
 }
 
 /** A code's label, the code itself when unknown, null when blank. */
 function label(labels: Record<string, string>, value: string | undefined): string | null {
   const code = text(value);
-  return code === null ? null : labels[code] ?? code;
+  if (code === null) {
+    return null;
+  }
+  const named = labels[code];
+  if (named === undefined) {
+    return code;
+  }
+  return named;
+}
+
+/** Capture group i of a DATE match; DATE's groups always take part, so "" is never used. */
+function group(m: RegExpExecArray, i: number): string {
+  const g = m[i];
+  if (g === undefined) {
+    return "";
+  }
+  return g;
 }
 
 /** mm/dd/yyyy as yyyy-mm-dd; null when blank or not a calendar date. */
 export function ulsDate(value: string | undefined): string | null {
-  const m = DATE.exec(value?.trim() ?? "");
-  if (!m) return null;
-  const [, mm, dd, yyyy] = m;
+  let trimmed = "";
+  if (value !== undefined) {
+    trimmed = value.trim();
+  }
+  const m = DATE.exec(trimmed);
+  if (m === null) {
+    return null;
+  }
+  const mm = group(m, 1);
+  const dd = group(m, 2);
+  const yyyy = group(m, 3);
   const iso = `${yyyy}-${mm}-${dd}`;
   const date = new Date(`${iso}T00:00:00Z`);
-  return !isNaN(date.getTime()) && date.toISOString().startsWith(iso) ? iso : null;
+  if (isNaN(date.getTime())) {
+    return null;
+  }
+  if (!date.toISOString().startsWith(iso)) {
+    return null;
+  }
+  return iso;
 }
 
 function usi(value: string | undefined): number | null {
-  return value && /^\d{1,15}$/.test(value) ? Number(value) : null;
+  if (value === undefined || value === "") {
+    return null;
+  }
+  if (!/^\d{1,15}$/.test(value)) {
+    return null;
+  }
+  return Number(value);
 }
 
 /**
@@ -98,14 +140,24 @@ function usi(value: string | undefined): number | null {
  */
 export function parseUlsRecord(kind: UlsKind, record: string): UlsRow | null {
   const f = record.split("|");
-  if (f[0] !== kind) return null;
+  if (f[0] !== kind) {
+    return null;
+  }
   const id = usi(f[1]);
-  if (id === null) return null;
+  if (id === null) {
+    return null;
+  }
 
   switch (kind) {
     case "HD": {
-      const callsign = f[4]?.trim().toUpperCase() ?? "";
-      if (!CALLSIGN.test(callsign)) return null;
+      let callsign = "";
+      const callField = f[4];
+      if (callField !== undefined) {
+        callsign = callField.trim().toUpperCase();
+      }
+      if (!CALLSIGN.test(callsign)) {
+        return null;
+      }
       return {
         usi: id,
         callsign,
@@ -115,18 +167,35 @@ export function parseUlsRecord(kind: UlsKind, record: string): UlsRow | null {
       };
     }
     case "EN": {
-      if (f[5]?.trim() !== "L") return null;
+      const entityType = f[5];
+      if (entityType === undefined || entityType.trim() !== "L") {
+        return null;
+      }
       const person = [f[8], f[9], f[10], f[11]].map(text).filter((p) => p !== null);
       const first = text(f[8]);
       const last = text(f[10]);
-      const state = text(f[17])?.toUpperCase() ?? null;
+      let state: string | null = null;
+      const stateText = text(f[17]);
+      if (stateText !== null) {
+        state = stateText.toUpperCase();
+      }
+      // Individuals have first and last names; clubs only an entity name.
+      let name: string | null;
+      if ((first !== null && first !== "") || (last !== null && last !== "")) {
+        name = person.join(" ");
+      } else {
+        name = text(f[7]);
+      }
+      let stateCode: string | null = null;
+      if (state !== null && state !== "" && /^[A-Z]{2}$/.test(state)) {
+        stateCode = state;
+      }
       return {
         usi: id,
-        // Individuals have first and last names; clubs only an entity name.
-        name: first || last ? person.join(" ") : text(f[7]),
+        name,
         first_name: first,
         last_name: last,
-        state: state && /^[A-Z]{2}$/.test(state) ? state : null,
+        state: stateCode,
       };
     }
     case "AM":
@@ -156,9 +225,14 @@ export class UlsRecords {
   /** Records completed by this chunk. */
   push(chunk: string): string[] {
     const lines = (this.#partial + chunk).split("\n");
-    this.#partial = lines.pop() ?? "";
+    const last = lines.pop();
+    if (last === undefined) {
+      this.#partial = "";
+    } else {
+      this.#partial = last;
+    }
     if (this.#partial.length > MAX_ULS_RECORD) {
-      throw new Error(`ULS line longer than ${MAX_ULS_RECORD} characters`);
+      throw new Error(`ULS line longer than ${String(MAX_ULS_RECORD)} characters`);
     }
     return this.#take(lines);
   }
@@ -167,7 +241,9 @@ export class UlsRecords {
   flush(): string[] {
     const out = this.#take([this.#partial]);
     this.#partial = "";
-    if (this.#record !== null) out.push(this.#record);
+    if (this.#record !== null) {
+      out.push(this.#record);
+    }
     this.#record = null;
     return out;
   }
@@ -177,13 +253,15 @@ export class UlsRecords {
     for (const raw of lines) {
       const line = raw.replace(/\r$/, "");
       if (line.startsWith(this.#prefix)) {
-        if (this.#record !== null) out.push(this.#record);
+        if (this.#record !== null) {
+          out.push(this.#record);
+        }
         this.#record = line;
       } else if (line !== "" && this.#record !== null) {
         this.#record += ` ${line}`;
       }
-      if ((this.#record?.length ?? 0) > MAX_ULS_RECORD) {
-        throw new Error(`ULS record longer than ${MAX_ULS_RECORD} characters`);
+      if (this.#record !== null && this.#record.length > MAX_ULS_RECORD) {
+        throw new Error(`ULS record longer than ${String(MAX_ULS_RECORD)} characters`);
       }
     }
     return out;

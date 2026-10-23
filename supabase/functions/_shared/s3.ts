@@ -37,7 +37,12 @@ function hex(bytes: ArrayBuffer): string {
 }
 
 export async function sha256Hex(data: Uint8Array | string): Promise<string> {
-  const bytes = typeof data === "string" ? encoder.encode(data) : data;
+  let bytes: Uint8Array;
+  if (typeof data === "string") {
+    bytes = encoder.encode(data);
+  } else {
+    bytes = data;
+  }
   return hex(await crypto.subtle.digest("SHA-256", bytes as Uint8Array<ArrayBuffer>));
 }
 
@@ -73,15 +78,16 @@ export async function sigV4Authorization(req: SigV4Request): Promise<string> {
   }
   const names = Object.keys(req.headers).sort();
   const signedHeaders = names.join(";");
-  const canonicalRequest = [
-    req.method,
-    req.path,
-    "",
-    ...names.map((n) => `${n}:${req.headers[n]!.trim()}`),
-    "",
-    signedHeaders,
-    req.payloadHash,
-  ].join("\n");
+  const lines = [req.method, req.path, ""];
+  for (const n of names) {
+    const value = req.headers[n];
+    if (value === undefined) {
+      throw new Error(`sigV4Authorization: no value for header ${n}`);
+    }
+    lines.push(`${n}:${value.trim()}`);
+  }
+  lines.push("", signedHeaders, req.payloadHash);
+  const canonicalRequest = lines.join("\n");
   const scope = `${date.slice(0, 8)}/${req.region}/${req.service}/aws4_request`;
   const stringToSign = [
     "AWS4-HMAC-SHA256",
@@ -90,7 +96,9 @@ export async function sigV4Authorization(req: SigV4Request): Promise<string> {
     await sha256Hex(canonicalRequest),
   ].join("\n");
   let key: ArrayBuffer = await hmac(encoder.encode(`AWS4${req.secretAccessKey}`), date.slice(0, 8));
-  for (const part of [req.region, req.service, "aws4_request"]) key = await hmac(key, part);
+  for (const part of [req.region, req.service, "aws4_request"]) {
+    key = await hmac(key, part);
+  }
   const signature = hex(await hmac(key, stringToSign));
   return `AWS4-HMAC-SHA256 Credential=${req.accessKeyId}/${scope}, ` +
     `SignedHeaders=${signedHeaders}, Signature=${signature}`;
@@ -99,7 +107,7 @@ export async function sigV4Authorization(req: SigV4Request): Promise<string> {
 /** The path-style URL of an object: `<endpoint>/<bucket>/<key>`. */
 export function objectUrl(config: S3Config, key: string): URL {
   const prefix = config.endpoint.pathname.replace(/\/+$/, "");
-  const path = [config.bucket, ...key.split("/")].map(encodeSegment).join("/");
+  const path = [config.bucket].concat(key.split("/")).map(encodeSegment).join("/");
   return new URL(`${config.endpoint.origin}${prefix}/${path}`);
 }
 
@@ -115,37 +123,55 @@ async function sendSigned(
   body?: { bytes: Uint8Array; contentType: string },
 ): Promise<Response> {
   const url = objectUrl(config, key);
-  const signed: Record<string, string> = {
-    ...(body ? { "content-type": body.contentType } : {}),
-    host: url.host,
-    "x-amz-content-sha256": await sha256Hex(body?.bytes ?? ""),
-    "x-amz-date": amzDate(now),
-  };
+  let payload: Uint8Array | string = "";
+  const signed: Record<string, string> = {};
+  if (body !== undefined) {
+    signed["content-type"] = body.contentType;
+    payload = body.bytes;
+  }
+  signed["host"] = url.host;
+  const payloadHash = await sha256Hex(payload);
+  signed["x-amz-content-sha256"] = payloadHash;
+  signed["x-amz-date"] = amzDate(now);
   const authorization = await sigV4Authorization({
     method,
     path: url.pathname,
     headers: signed,
-    payloadHash: signed["x-amz-content-sha256"]!,
+    payloadHash,
     region: config.region,
     service: "s3",
     accessKeyId: config.accessKeyId,
     secretAccessKey: config.secretAccessKey,
   });
   // fetch sets Host from the URL; the other signed headers go as signed.
-  const { host: _host, ...headers } = signed;
-  return await fetch(url, {
-    method,
-    headers: { ...headers, Authorization: authorization, "User-Agent": userAgent() },
-    ...(body ? { body: body.bytes as Uint8Array<ArrayBuffer> } : {}),
-    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-  });
+  const headers: Record<string, string> = {};
+  for (const entry of Object.entries(signed)) {
+    if (entry[0] !== "host") {
+      headers[entry[0]] = entry[1];
+    }
+  }
+  headers["Authorization"] = authorization;
+  headers["User-Agent"] = userAgent();
+  const init: RequestInit = { method, headers };
+  if (body !== undefined) {
+    init.body = body.bytes as Uint8Array<ArrayBuffer>;
+  }
+  init.signal = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+  return await fetch(url, init);
 }
 
 /** Throws for a non-2xx answer, naming S3's error code when the body has one. */
 function httpError(response: Response, text: string): Error {
   // S3 errors are XML with a <Code>; it says more than the status alone.
-  const code = /<Code>([^<]*)<\/Code>/.exec(text)?.[1];
-  return new Error(`HTTP ${response.status}${code ? ` ${code}` : ""}`);
+  const m = /<Code>([^<]*)<\/Code>/.exec(text);
+  let suffix = "";
+  if (m !== null) {
+    const code = m[1];
+    if (code !== undefined && code !== "") {
+      suffix = ` ${code}`;
+    }
+  }
+  return new Error(`HTTP ${String(response.status)}${suffix}`);
 }
 
 /** PUTs one object, replacing any at that key. Throws on non-2xx or timeout. */
@@ -158,7 +184,9 @@ export async function putObject(
 ): Promise<void> {
   const response = await sendSigned(config, "PUT", key, now, { bytes: body, contentType });
   const text = await response.text();
-  if (!response.ok) throw httpError(response, text);
+  if (!response.ok) {
+    throw httpError(response, text);
+  }
 }
 
 /**
@@ -172,10 +200,14 @@ export async function getObject(
 ): Promise<Uint8Array | null> {
   const response = await sendSigned(config, "GET", key, now);
   if (response.status === 404) {
-    await response.body?.cancel();
+    if (response.body !== null) {
+      await response.body.cancel();
+    }
     return null;
   }
-  if (!response.ok) throw httpError(response, await response.text());
+  if (!response.ok) {
+    throw httpError(response, await response.text());
+  }
   return new Uint8Array(await response.arrayBuffer());
 }
 
@@ -186,9 +218,15 @@ export async function headObject(
   now: Date = new Date(),
 ): Promise<number | null> {
   const response = await sendSigned(config, "HEAD", key, now);
-  await response.body?.cancel();
-  if (response.status === 404) return null;
-  if (!response.ok) throw httpError(response, "");
+  if (response.body !== null) {
+    await response.body.cancel();
+  }
+  if (response.status === 404) {
+    return null;
+  }
+  if (!response.ok) {
+    throw httpError(response, "");
+  }
   const length = Number(response.headers.get("content-length"));
   if (!Number.isSafeInteger(length) || length < 0) {
     throw new Error("HEAD answered without a Content-Length");
@@ -204,5 +242,7 @@ export async function deleteObject(
 ): Promise<void> {
   const response = await sendSigned(config, "DELETE", key, now);
   const text = await response.text();
-  if (!response.ok && response.status !== 404) throw httpError(response, text);
+  if (!response.ok && response.status !== 404) {
+    throw httpError(response, text);
+  }
 }

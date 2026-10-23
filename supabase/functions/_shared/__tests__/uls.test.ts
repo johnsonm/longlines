@@ -11,7 +11,7 @@ const CLUB =
   "EN|4000002|||W4XYS|L|L07654321|Example Amateur Radio Club||||||||PO Box 1|Cary|NC|27511||||0007654321|B||||||";
 const AM = "AM|4000001|||KK4XYS|E|D|4|||||||||||";
 
-Deno.test("parseUlsRecord keeps the HD call sign, status and dates", () => {
+Deno.test("parseUlsRecord keeps the HD call sign, status and dates", function (): void {
   assertEquals(parseUlsRecord("HD", HD), {
     usi: 4000001,
     callsign: "KK4XYS",
@@ -36,7 +36,7 @@ Deno.test("parseUlsRecord keeps the HD call sign, status and dates", () => {
   });
 });
 
-Deno.test("parseUlsRecord keeps only the EN names and state", () => {
+Deno.test("parseUlsRecord keeps only the EN names and state", function (): void {
   assertEquals(parseUlsRecord("EN", EN), {
     usi: 4000001,
     name: "Jane Q Doe Jr",
@@ -69,17 +69,17 @@ Deno.test("parseUlsRecord keeps only the EN names and state", () => {
   });
 });
 
-Deno.test("parseUlsRecord drops EN entities other than the licensee", () => {
+Deno.test("parseUlsRecord drops EN entities other than the licensee", function (): void {
   assertEquals(parseUlsRecord("EN", EN.replace("|L|L0", "|CL|L0")), null);
 });
 
-Deno.test("parseUlsRecord labels the AM operator class", () => {
+Deno.test("parseUlsRecord labels the AM operator class", function (): void {
   assertEquals(parseUlsRecord("AM", AM), { usi: 4000001, operator_class: "Amateur Extra" });
   assertEquals(parseUlsRecord("AM", "AM|5|||W4XYS|||10|AA0AW|"), { usi: 5, operator_class: null });
   assertEquals(parseUlsRecord("AM", "AM|5|||W4XYS|Z|"), { usi: 5, operator_class: "Z" });
 });
 
-Deno.test("parseUlsRecord rejects other record types and missing keys", () => {
+Deno.test("parseUlsRecord rejects other record types and missing keys", function (): void {
   assertEquals(parseUlsRecord("HD", EN), null);
   assertEquals(parseUlsRecord("HD", "HD||||K1ABC|A|HA|||"), null);
   assertEquals(parseUlsRecord("HD", "HD|1x|||K1ABC|A|HA|||"), null);
@@ -88,7 +88,7 @@ Deno.test("parseUlsRecord rejects other record types and missing keys", () => {
   assertEquals(parseUlsRecord("AM", "AM"), null);
 });
 
-Deno.test("ulsDate converts mm/dd/yyyy and rejects anything else", () => {
+Deno.test("ulsDate converts mm/dd/yyyy and rejects anything else", function (): void {
   assertEquals(ulsDate("02/29/2024"), "2024-02-29");
   assertEquals(ulsDate(" 12/31/1999 "), "1999-12-31");
   for (const bad of ["02/30/2023", "13/01/2020", "2020-01-01", "", undefined]) {
@@ -96,7 +96,7 @@ Deno.test("ulsDate converts mm/dd/yyyy and rejects anything else", () => {
   }
 });
 
-Deno.test("UlsRecords splits CRLF records across chunks and joins broken lines", () => {
+Deno.test("UlsRecords splits CRLF records across chunks and joins broken lines", function (): void {
   const splitter = new UlsRecords("AM");
   // A record is complete only once the next one starts: a broken line may follow.
   assertEquals(splitter.push("AM|1|||A1A|E|\r\nAM|2|||B"), []);
@@ -108,32 +108,37 @@ Deno.test("UlsRecords splits CRLF records across chunks and joins broken lines",
   assertEquals(splitter.flush(), []);
 });
 
-Deno.test("UlsRecords ignores text before the first record", () => {
+Deno.test("UlsRecords ignores text before the first record", function (): void {
   const splitter = new UlsRecords("HD");
   assertEquals(splitter.push("junk\r\nHD|1|\r\n"), []);
   assertEquals(splitter.flush(), ["HD|1|"]);
 });
 
-Deno.test("UlsRecords throws on a line with no LF past the cap", () => {
+Deno.test("UlsRecords throws on a line with no LF past the cap", function (): void {
   const splitter = new UlsRecords("HD");
   assertEquals(splitter.push("HD|1|"), []);
   assertThrows(() => splitter.push("x".repeat(MAX_ULS_RECORD)), Error, "ULS line longer");
 });
 
-Deno.test("UlsRecords throws on a record grown past the cap by continuation lines", () => {
-  const splitter = new UlsRecords("EN");
-  assertEquals(splitter.push("EN|1|\n"), []);
-  const piece = `${"x".repeat(1023)}\n`;
-  assertThrows(
-    () => {
-      for (let i = 0; i < 100; i++) splitter.push(piece);
-    },
-    Error,
-    "ULS record longer",
-  );
-});
+Deno.test(
+  "UlsRecords throws on a record grown past the cap by continuation lines",
+  function (): void {
+    const splitter = new UlsRecords("EN");
+    assertEquals(splitter.push("EN|1|\n"), []);
+    const piece = `${"x".repeat(1023)}\n`;
+    assertThrows(
+      function () {
+        for (let i = 0; i < 100; i++) {
+          splitter.push(piece);
+        }
+      },
+      Error,
+      "ULS record longer",
+    );
+  },
+);
 
-Deno.test("UlsRecords keeps a record at the cap", () => {
+Deno.test("UlsRecords keeps a record at the cap", function (): void {
   const splitter = new UlsRecords("AM");
   const record = `AM|${"x".repeat(MAX_ULS_RECORD - 3)}`;
   assertEquals(splitter.push(`${record}\n`), []);
