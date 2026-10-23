@@ -24,17 +24,30 @@ export interface HealthDeps {
 
 export async function handleHealth(req: Request, deps: HealthDeps): Promise<Response> {
   const preflight = preflightResponse(req);
-  if (preflight) return preflight;
-  if (req.method !== "GET") return json({ error: "Method not allowed." }, 405);
+  if (preflight !== null) {
+    return preflight;
+  }
+  if (req.method !== "GET") {
+    return json({ error: "Method not allowed." }, 405);
+  }
 
-  const range = new URL(req.url).searchParams.get("range") ?? "24h";
+  let range = "24h";
+  const rangeParam = new URL(req.url).searchParams.get("range");
+  if (rangeParam !== null) {
+    range = rangeParam;
+  }
   if (!(HEALTH_RANGES as readonly string[]).includes(range)) {
     return json({ error: "Unknown range." }, 400);
   }
 
   const result = await deps.db().rpc("cached_health", { p_range: range });
-  if (result.error || result.data === null || typeof result.data !== "object") {
-    const why = result.error?.message ?? `unexpected result ${JSON.stringify(result.data)}`;
+  if (result.error !== null || result.data === null || typeof result.data !== "object") {
+    let why: string;
+    if (result.error !== null) {
+      why = result.error.message;
+    } else {
+      why = `unexpected result ${JSON.stringify(result.data)}`;
+    }
     console.error(`health: ${why}`);
     return json({ error: HEALTH_UNAVAILABLE }, 500);
   }
