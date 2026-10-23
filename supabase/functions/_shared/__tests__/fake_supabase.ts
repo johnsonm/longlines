@@ -39,7 +39,17 @@ export interface FakeCalls {
 function settle(
   result: FakeResult | undefined,
 ): Promise<{ data: unknown; error: FakeError | null }> {
-  return Promise.resolve({ data: result?.data ?? null, error: result?.error ?? null });
+  let data: unknown = null;
+  let error: FakeError | null = null;
+  if (result !== null && result !== undefined) {
+    if (result.data !== null && result.data !== undefined) {
+      data = result.data;
+    }
+    if (result.error !== null && result.error !== undefined) {
+      error = result.error;
+    }
+  }
+  return Promise.resolve({ data, error });
 }
 
 export function fakeSupabase(
@@ -56,13 +66,22 @@ export function fakeSupabase(
   const fake = {
     rpc(fn: string, args?: Record<string, unknown>) {
       calls.rpc.push({ fn, args });
-      const responder = options.rpc?.[fn];
-      return settle(typeof responder === "function" ? responder(args) : responder);
+      let responder: Responder | undefined = undefined;
+      if (options.rpc !== null && options.rpc !== undefined) {
+        responder = options.rpc[fn];
+      }
+      if (typeof responder === "function") {
+        return settle(responder(args));
+      }
+      return settle(responder);
     },
     from(table: string) {
       const entry = { table, ops: [] as Array<[string, unknown[]]> };
       calls.from.push(entry);
-      const result = options.from?.[table];
+      let result: FakeResult | undefined = undefined;
+      if (options.from !== null && options.from !== undefined) {
+        result = options.from[table];
+      }
       const builder = {
         select(...a: unknown[]) {
           entry.ops.push(["select", a]);
@@ -85,8 +104,8 @@ export function fakeSupabase(
           return settle(result);
         },
         // Awaiting the builder itself (a plain select of many rows).
-        then<T>(onFulfilled: (value: { data: unknown; error: FakeError | null }) => T) {
-          return settle(result).then(onFulfilled);
+        async then<T>(onFulfilled: (value: { data: unknown; error: FakeError | null }) => T) {
+          return onFulfilled(await settle(result));
         },
       };
       return builder;
