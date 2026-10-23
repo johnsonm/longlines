@@ -58,20 +58,34 @@ export interface RbnLine {
 /** Parse one telnet line. Null for anything that is not a spot (banner, prompt, blank). */
 export function parseRbnLine(line: string): RbnLine | null {
   const m = SPOT_LINE.exec(line.trim());
-  if (!m) return null;
+  if (m === null) {
+    return null;
+  }
   // Every group in SPOT_LINE is mandatory, so a match always has all nine.
-  const group = (i: number): string => m[i] ?? "";
+  let speedUnit: "WPM" | "BPS" = "WPM";
+  if (group(m, 7) === "BPS") {
+    speedUnit = "BPS";
+  }
   return {
-    spotter: group(1).toUpperCase(),
-    frequency: group(2),
-    callsign: cleanCallsign(group(3)),
-    mode: group(4),
-    snr: group(5),
-    speed: group(6),
-    speedUnit: group(7) === "BPS" ? "BPS" : "WPM",
-    type: group(8),
-    hhmm: group(9),
+    spotter: group(m, 1).toUpperCase(),
+    frequency: group(m, 2),
+    callsign: cleanCallsign(group(m, 3)),
+    mode: group(m, 4),
+    snr: group(m, 5),
+    speed: group(m, 6),
+    speedUnit,
+    type: group(m, 8),
+    hhmm: group(m, 9),
   };
+}
+
+/** A capture group's text, or "" when the group did not take part in the match. */
+function group(m: RegExpExecArray, i: number): string {
+  const text = m[i];
+  if (text === undefined) {
+    return "";
+  }
+  return text;
 }
 
 /** The comment stored in raw_spots: "<snr> dB <speed> <unit> <type>". */
@@ -87,19 +101,29 @@ function rbnComment(parsed: RbnLine): string {
 export function rbnSpotRow(raw: JsonObject, now: Date): RbnSpotRow {
   const line = requireString(raw, "line");
   // jsonb rejects U+0000 and lone surrogates, so either would fail the whole batch in Postgres.
-  if (line.includes("\u0000")) throw new Error("line contains a NUL character");
-  if (!line.isWellFormed()) throw new Error("line contains a lone surrogate");
+  if (line.includes("\u0000")) {
+    throw new Error("line contains a NUL character");
+  }
+  if (!line.isWellFormed()) {
+    throw new Error("line contains a lone surrogate");
+  }
   const receivedAt = parseUtc(requireString(raw, "received_at"));
   assertPlausibleTime(receivedAt, now, "received_at");
   const parsed = parseRbnLine(line);
-  if (!parsed) throw new Error("not an RBN spot line");
+  if (parsed === null) {
+    throw new Error("not an RBN spot line");
+  }
   // Both are in the rbn_spots unique key and the station in its indexes.
   assertMaxLength(parsed.callsign, MAX_CALLSIGN_LENGTH, "callsign");
   assertMaxLength(parsed.spotter, MAX_CALLSIGN_LENGTH, "spotter");
   const snr = Number(parsed.snr);
   const speed = Number(parsed.speed);
-  if (Math.abs(snr) > SMALLINT_MAX) throw new Error(`snr out of range: ${parsed.snr}`);
-  if (speed > SMALLINT_MAX) throw new Error(`speed out of range: ${parsed.speed}`);
+  if (Math.abs(snr) > SMALLINT_MAX) {
+    throw new Error(`snr out of range: ${parsed.snr}`);
+  }
+  if (speed > SMALLINT_MAX) {
+    throw new Error(`speed out of range: ${parsed.speed}`);
+  }
   const frequencyKhz = parseKhz(parsed.frequency, "khz");
   const mode = resolveMode(parsed.mode, rbnComment(parsed));
   return {
@@ -121,54 +145,61 @@ export function rbnSpotRow(raw: JsonObject, now: Date): RbnSpotRow {
 
 /** An adapter whose feed is one relay request body. */
 export function rbnAdapter(body: unknown): SourceAdapter {
-  return relayAdapter("rbn", body, async (raw: JsonObject, now: Date): Promise<NormalizeResult> => {
-    const line = requireString(raw, "line");
-    const receivedAt = parseUtc(requireString(raw, "received_at"));
-    const parsed = parseRbnLine(line);
-    if (!parsed) throw new Error("not an RBN spot line");
+  return relayAdapter("rbn", body, normalizeRbnSpot);
+}
 
-    const spotTime = spotTimeFromHhmm(parsed.hhmm, receivedAt);
-    if (isTooOld(spotTime, now, MAX_AGE_MS)) return { kind: "skip", reason: "too_old" };
+/** Normalizes one relay item (a telnet line and when the relay received it). */
+async function normalizeRbnSpot(raw: JsonObject, now: Date): Promise<NormalizeResult> {
+  const line = requireString(raw, "line");
+  const receivedAt = parseUtc(requireString(raw, "received_at"));
+  const parsed = parseRbnLine(line);
+  if (parsed === null) {
+    throw new Error("not an RBN spot line");
+  }
 
-    const spotTimeIso = spotTime.toISOString();
-    // Field order is fixed; changing it would make every stored spot look new.
-    const hash = await contentHash([
-      spotTimeIso,
-      parsed.spotter,
-      parsed.callsign,
-      parsed.frequency,
-      parsed.mode,
-      parsed.snr,
-      `${parsed.speed} ${parsed.speedUnit}`,
-      parsed.type,
-    ]);
+  const spotTime = spotTimeFromHhmm(parsed.hhmm, receivedAt);
+  if (isTooOld(spotTime, now, MAX_AGE_MS)) {
+    return { kind: "skip", reason: "too_old" };
+  }
 
-    const frequencyKhz = parseKhz(parsed.frequency, "khz");
-    const comment = rbnComment(parsed);
-    const mode = resolveMode(parsed.mode, comment);
+  const spotTimeIso = spotTime.toISOString();
+  // Field order is fixed; changing it would make every stored spot look new.
+  const hash = await contentHash([
+    spotTimeIso,
+    parsed.spotter,
+    parsed.callsign,
+    parsed.frequency,
+    parsed.mode,
+    parsed.snr,
+    `${parsed.speed} ${parsed.speedUnit}`,
+    parsed.type,
+  ]);
 
-    return {
-      kind: "spot",
-      spot: {
-        source: "rbn",
-        source_spot_id: `${spotTimeIso}|${parsed.spotter}|${parsed.callsign}|${parsed.frequency}`,
-        content_hash: hash,
-        spot_time: spotTimeIso,
-        callsign: parsed.callsign,
-        spotter: parsed.spotter,
-        frequency_khz: frequencyKhz,
-        band: bandForFrequency(frequencyKhz),
-        mode,
-        mode_family: modeFamily(mode),
-        comment,
-        pota_reference: null,
-        pota_park_name: null,
-        pota_location: null,
-        sota_summit_ref: null,
-        wwff_reference: null,
-        wwff_reference_name: null,
-        raw_payload: raw,
-      },
-    };
-  });
+  const frequencyKhz = parseKhz(parsed.frequency, "khz");
+  const comment = rbnComment(parsed);
+  const mode = resolveMode(parsed.mode, comment);
+
+  return {
+    kind: "spot",
+    spot: {
+      source: "rbn",
+      source_spot_id: `${spotTimeIso}|${parsed.spotter}|${parsed.callsign}|${parsed.frequency}`,
+      content_hash: hash,
+      spot_time: spotTimeIso,
+      callsign: parsed.callsign,
+      spotter: parsed.spotter,
+      frequency_khz: frequencyKhz,
+      band: bandForFrequency(frequencyKhz),
+      mode,
+      mode_family: modeFamily(mode),
+      comment,
+      pota_reference: null,
+      pota_park_name: null,
+      pota_location: null,
+      sota_summit_ref: null,
+      wwff_reference: null,
+      wwff_reference_name: null,
+      raw_payload: raw,
+    },
+  };
 }
