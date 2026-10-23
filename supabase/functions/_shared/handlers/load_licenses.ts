@@ -20,35 +20,54 @@ export interface LoadLicensesDeps {
   db: () => LicenseDb;
 }
 
-const isObject = (v: unknown): v is Record<string, unknown> =>
-  typeof v === "object" && v !== null && !Array.isArray(v);
-const isCount = (v: unknown): v is number => Number.isSafeInteger(v) && (v as number) >= 0;
-const isKind = (v: unknown): v is UlsKind => ULS_KINDS.includes(v as UlsKind);
+function isObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+function isCount(v: unknown): v is number {
+  return Number.isSafeInteger(v) && (v as number) >= 0;
+}
+
+function isKind(v: unknown): v is UlsKind {
+  return ULS_KINDS.includes(v as UlsKind);
+}
 
 /** The request, or a message saying what is wrong with it. */
 export function parseLoadRequest(body: unknown): LoadLicensesRequest | string {
-  if (!isObject(body)) return "body must be a JSON object";
+  if (!isObject(body)) {
+    return "body must be a JSON object";
+  }
   switch (body.action) {
     case "status":
       return { action: "status" };
     case "begin":
-      return typeof body.version === "string" && body.version.trim() !== "" &&
-          body.version.length <= 100
-        ? { action: "begin", version: body.version }
-        : "begin needs a version";
-    case "rows": {
-      const { load, kind, rows } = body;
-      if (!isCount(load) || !isKind(kind)) return "rows needs a load and an HD, EN or AM kind";
-      if (!Array.isArray(rows) || rows.length === 0 || rows.length > MAX_ROWS_PER_REQUEST) {
-        return `rows needs 1 to ${MAX_ROWS_PER_REQUEST} rows`;
+      if (
+        typeof body.version === "string" && body.version.trim() !== "" &&
+        body.version.length <= 100
+      ) {
+        return { action: "begin", version: body.version };
       }
-      if (!rows.every(isObject)) return "every row must be an object";
+      return "begin needs a version";
+    case "rows": {
+      const load = body.load;
+      const kind = body.kind;
+      const rows = body.rows;
+      if (!isCount(load) || !isKind(kind)) {
+        return "rows needs a load and an HD, EN or AM kind";
+      }
+      if (!Array.isArray(rows) || rows.length === 0 || rows.length > MAX_ROWS_PER_REQUEST) {
+        return `rows needs 1 to ${String(MAX_ROWS_PER_REQUEST)} rows`;
+      }
+      if (!rows.every(isObject)) {
+        return "every row must be an object";
+      }
       // Field types are checked by the RPC's jsonb_to_recordset, which also reads
       // only the columns it names, so any other key in a row is dropped.
       return { action: "rows", load, kind, rows: rows as unknown as UlsRow[] };
     }
     case "finish": {
-      const { load, counts } = body;
+      const load = body.load;
+      const counts = body.counts;
       if (!isCount(load) || !isObject(counts) || !ULS_KINDS.every((k) => isCount(counts[k]))) {
         return "finish needs a load and a count per kind";
       }
@@ -59,8 +78,11 @@ export function parseLoadRequest(body: unknown): LoadLicensesRequest | string {
       };
     }
     case "abandon": {
-      const { load, error } = body;
-      if (!isCount(load) || typeof error !== "string") return "abandon needs a load and an error";
+      const load = body.load;
+      const error = body.error;
+      if (!isCount(load) || typeof error !== "string") {
+        return "abandon needs a load and an error";
+      }
       return { action: "abandon", load, error: error.slice(0, 1000) };
     }
     default:
@@ -86,14 +108,20 @@ async function run(request: LoadLicensesRequest, db: LicenseDb): Promise<unknown
 }
 
 export async function handleLoadLicenses(req: Request, deps: LoadLicensesDeps): Promise<Response> {
-  if (!deps.secret) {
+  if (deps.secret === undefined || deps.secret === "") {
     console.error("load-licenses: missing environment variable LONGLINES_RELAY_SECRET");
     return Response.json({ error: "relay secret is not configured" }, { status: 500 });
   }
-  if (!await secretsMatch(req.headers.get("x-relay-secret") ?? "", deps.secret)) {
+  let header = req.headers.get("x-relay-secret");
+  if (header === null || header === undefined) {
+    header = "";
+  }
+  if (!await secretsMatch(header, deps.secret)) {
     return Response.json({ error: "unauthorized" }, { status: 401 });
   }
-  if (req.method !== "POST") return Response.json({ error: "method not allowed" }, { status: 405 });
+  if (req.method !== "POST") {
+    return Response.json({ error: "method not allowed" }, { status: 405 });
+  }
 
   let body: unknown;
   try {
@@ -102,14 +130,23 @@ export async function handleLoadLicenses(req: Request, deps: LoadLicensesDeps): 
     return Response.json({ error: "request body is not JSON" }, { status: 400 });
   }
   const request = parseLoadRequest(body);
-  if (typeof request === "string") return Response.json({ error: request }, { status: 400 });
+  if (typeof request === "string") {
+    return Response.json({ error: request }, { status: 400 });
+  }
 
   try {
     const result = await run(request, deps.db());
-    if (request.action !== "rows") console.log(JSON.stringify({ action: request.action, result }));
+    if (request.action !== "rows") {
+      console.log(JSON.stringify({ action: request.action, result }));
+    }
     return Response.json(result);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    let message: string;
+    if (err instanceof Error) {
+      message = err.message;
+    } else {
+      message = String(err);
+    }
     console.error(`load-licenses ${request.action}: ${message}`);
     return Response.json({ error: message }, { status: 500 });
   }
