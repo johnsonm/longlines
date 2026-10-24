@@ -79,8 +79,11 @@ export class TelnetDecoder implements LineDecoder {
       switch (this.#state) {
         case "data":
           // NUL is telnet padding (CR NUL), never content; Postgres jsonb rejects it.
-          if (b === IAC) this.#state = "iac";
-          else if (b !== 0) data.push(b);
+          if (b === IAC) {
+            this.#state = "iac";
+          } else if (b !== 0) {
+            data.push(b);
+          }
           break;
         case "iac":
           if (b === IAC) {
@@ -98,10 +101,16 @@ export class TelnetDecoder implements LineDecoder {
           this.#state = "data";
           break;
         case "sub":
-          if (b === IAC) this.#state = "sub-iac";
+          if (b === IAC) {
+            this.#state = "sub-iac";
+          }
           break;
         case "sub-iac":
-          this.#state = b === SE ? "data" : "sub";
+          if (b === SE) {
+            this.#state = "data";
+          } else {
+            this.#state = "sub";
+          }
           break;
       }
     }
@@ -158,9 +167,12 @@ export function nextDelay(
   backoff: Backoff,
   random: () => number = Math.random,
 ): number {
-  const base = previousMs === null || sessionMs >= backoff.stableMs
-    ? backoff.minMs
-    : Math.min(previousMs * 2, backoff.maxMs);
+  let base: number;
+  if (previousMs === null || sessionMs >= backoff.stableMs) {
+    base = backoff.minMs;
+  } else {
+    base = Math.min(previousMs * 2, backoff.maxMs);
+  }
   const jittered = base * (0.8 + 0.4 * random());
   return Math.max(backoff.minMs, Math.round(jittered));
 }
@@ -195,11 +207,14 @@ export interface TelnetOptions {
 }
 
 export function abortableSleep(ms: number, signal: AbortSignal): Promise<void> {
-  return new Promise((resolve) => {
-    if (signal.aborted) return resolve();
+  return new Promise(function startSleep(resolve): void {
+    if (signal.aborted) {
+      resolve();
+      return;
+    }
     const timer = setTimeout(done, ms);
     signal.addEventListener("abort", done, { once: true });
-    function done() {
+    function done(): void {
       clearTimeout(timer);
       signal.removeEventListener("abort", done);
       resolve();
@@ -215,13 +230,17 @@ async function readWithIdleTimeout(
   signal: AbortSignal,
 ): Promise<number | null> {
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const closeOnAbort = () => conn.close();
+  function closeOnAbort(): void {
+    conn.close();
+  }
   signal.addEventListener("abort", closeOnAbort, { once: true });
   try {
     return await Promise.race([
       conn.read(buf),
-      new Promise<null>((resolve) => {
-        timer = setTimeout(() => resolve(null), idleMs);
+      new Promise<null>(function startIdleTimer(resolve): void {
+        timer = setTimeout(function idle(): void {
+          resolve(null);
+        }, idleMs);
       }),
     ]);
   } finally {
@@ -235,21 +254,30 @@ async function runSession(opts: Required<TelnetOptions>): Promise<void> {
   const conn = await opts.connect(opts.host, opts.port);
   opts.status.connected = true;
   opts.status.connects += 1;
-  opts.log(`connected to ${opts.host}:${opts.port}`);
-  const decoder: LineDecoder = opts.telnet ? new TelnetDecoder() : new TcpLineDecoder();
+  opts.log(`connected to ${opts.host}:${String(opts.port)}`);
+  let decoder: LineDecoder;
+  if (opts.telnet) {
+    decoder = new TelnetDecoder();
+  } else {
+    decoder = new TcpLineDecoder();
+  }
   const buf = new Uint8Array(16 * 1024);
   let loggedIn = false;
   try {
     while (!opts.signal.aborted) {
       const n = await readWithIdleTimeout(conn, buf, opts.idleMs, opts.signal);
       if (n === null) {
-        if (!opts.signal.aborted) opts.log("connection closed or idle; reconnecting");
+        if (!opts.signal.aborted) {
+          opts.log("connection closed or idle; reconnecting");
+        }
         return;
       }
       const receivedAt = opts.now();
       opts.status.lastDataAt = receivedAt;
       const lines = decoder.push(buf.subarray(0, n));
-      for (const line of lines) opts.onLine(line, receivedAt);
+      for (const line of lines) {
+        opts.onLine(line, receivedAt);
+      }
       if (
         !loggedIn &&
         (opts.loginPrompt.test(decoder.pending) || lines.some((l) => opts.loginPrompt.test(l)))
@@ -268,31 +296,86 @@ async function runSession(opts: Required<TelnetOptions>): Promise<void> {
   }
 }
 
+function connectTcp(hostname: string, port: number): Promise<Conn> {
+  return Deno.connect({ hostname, port });
+}
+
+function currentTime(): Date {
+  return new Date();
+}
+
+function logToConsole(message: string): void {
+  console.log(message);
+}
+
 /** Keep a session open until the signal aborts, reconnecting with backoff. */
 export async function runTelnet(options: TelnetOptions): Promise<void> {
+  let telnet = true;
+  if (options.telnet !== undefined && options.telnet !== null) {
+    telnet = options.telnet;
+  }
+  let loginLine = options.loginCall;
+  if (options.loginLine !== undefined && options.loginLine !== null) {
+    loginLine = options.loginLine;
+  }
   const opts: Required<TelnetOptions> = {
+    host: options.host,
+    port: options.port,
+    loginCall: options.loginCall,
+    loginLine,
+    loginPrompt: options.loginPrompt,
+    telnet,
+    onLine: options.onLine,
+    status: options.status,
+    signal: options.signal,
     idleMs: 5 * 60_000,
     backoff: DEFAULT_BACKOFF,
-    connect: (hostname, port) => Deno.connect({ hostname, port }),
+    connect: connectTcp,
     sleep: abortableSleep,
-    now: () => new Date(),
-    log: (message) => console.log(message),
-    ...options,
-    telnet: options.telnet ?? true,
-    loginLine: options.loginLine ?? options.loginCall,
+    now: currentTime,
+    log: logToConsole,
   };
+  // An option left out keeps the default above.
+  if (options.idleMs !== undefined) {
+    opts.idleMs = options.idleMs;
+  }
+  if (options.backoff !== undefined) {
+    opts.backoff = options.backoff;
+  }
+  if (options.connect !== undefined) {
+    opts.connect = options.connect;
+  }
+  if (options.sleep !== undefined) {
+    opts.sleep = options.sleep;
+  }
+  if (options.now !== undefined) {
+    opts.now = options.now;
+  }
+  if (options.log !== undefined) {
+    opts.log = options.log;
+  }
   let delay: number | null = null;
   while (!opts.signal.aborted) {
     const started = opts.now().getTime();
     try {
       await runSession(opts);
     } catch (error) {
-      if (opts.signal.aborted) break;
-      opts.log(`session error: ${error instanceof Error ? error.message : String(error)}`);
+      if (opts.signal.aborted) {
+        break;
+      }
+      let message: string;
+      if (error instanceof Error) {
+        message = error.message;
+      } else {
+        message = String(error);
+      }
+      opts.log(`session error: ${message}`);
     }
-    if (opts.signal.aborted) break;
+    if (opts.signal.aborted) {
+      break;
+    }
     delay = nextDelay(delay, opts.now().getTime() - started, opts.backoff);
-    opts.log(`reconnecting in ${Math.round(delay / 1000)} s`);
+    opts.log(`reconnecting in ${String(Math.round(delay / 1000))} s`);
     await opts.sleep(delay, opts.signal);
   }
 }

@@ -10,16 +10,34 @@ import {
   RBN_FEED,
 } from "../feeds.ts";
 import { functionClient } from "../functions.ts";
-import { healthHandler } from "../health.ts";
+import { type FeedHealth, healthHandler } from "../health.ts";
 
-const env = (values: Record<string, string>) => (name: string) => values[name];
+function env(values: Record<string, string>): (name: string) => string | undefined {
+  return (name: string) => values[name];
+}
+
+/** `base` with `extra`'s values added or replaced, keys in first-seen order. */
+function withValues(
+  base: Record<string, string>,
+  extra: Record<string, string>,
+): Record<string, string> {
+  const values: Record<string, string> = {};
+  for (const key of Object.keys(base)) {
+    values[key] = base[key]!;
+  }
+  for (const key of Object.keys(extra)) {
+    values[key] = extra[key]!;
+  }
+  return values;
+}
+
 const BASE = {
   LONGLINES_FUNCTIONS_URL: "https://abc.supabase.co/functions/v1/",
   LONGLINES_RELAY_SECRET: "s3cret",
   RELAY_LOGIN_CALL: "kk4pwj",
 };
 
-Deno.test("loadConfig reads the environment and normalises values", () => {
+Deno.test("loadConfig reads the environment and normalises values", function (): void {
   assertEquals(loadConfig(env(BASE)), {
     functionsUrl: "https://abc.supabase.co/functions/v1",
     relaySecret: "s3cret",
@@ -29,69 +47,88 @@ Deno.test("loadConfig reads the environment and normalises values", () => {
   });
 });
 
-Deno.test("loadConfig rejects missing values, plain http off localhost and bad ports", () => {
+Deno.test("loadConfig rejects missing values, plain http off localhost and bad ports", function (): void {
   assertThrows(
-    () => loadConfig(env({ ...BASE, LONGLINES_RELAY_SECRET: " " })),
+    () => loadConfig(env(withValues(BASE, { LONGLINES_RELAY_SECRET: " " }))),
     Error,
     "LONGLINES_RELAY_SECRET",
   );
   assertThrows(() =>
-    loadConfig(env({ ...BASE, LONGLINES_FUNCTIONS_URL: "http://abc.supabase.co" }))
+    loadConfig(env(withValues(BASE, { LONGLINES_FUNCTIONS_URL: "http://abc.supabase.co" })))
   );
-  assertThrows(() => loadConfig(env({ ...BASE, RELAY_HEALTH_PORT: "x" })));
+  assertThrows(() => loadConfig(env(withValues(BASE, { RELAY_HEALTH_PORT: "x" }))));
   assertEquals(
-    loadConfig(env({ ...BASE, LONGLINES_FUNCTIONS_URL: "http://127.0.0.1:54321/functions/v1" }))
+    loadConfig(
+      env(withValues(BASE, { LONGLINES_FUNCTIONS_URL: "http://127.0.0.1:54321/functions/v1" })),
+    )
       .functionsUrl,
     "http://127.0.0.1:54321/functions/v1",
   );
 });
 
-Deno.test("loadConfig turns the license load off, off locally, or points it at another file", () => {
-  assertEquals(loadConfig(env({ ...BASE, RELAY_LICENSES: " OFF " })).licenseZipUrl, null);
+Deno.test("loadConfig turns the license load off, off locally, or points it at another file", function (): void {
+  assertEquals(loadConfig(env(withValues(BASE, { RELAY_LICENSES: " OFF " }))).licenseZipUrl, null);
   // Local functions: off unless RELAY_LICENSES asks for a file.
-  const local = { ...BASE, LONGLINES_FUNCTIONS_URL: "http://127.0.0.1:54321/functions/v1" };
+  const local = withValues(BASE, {
+    LONGLINES_FUNCTIONS_URL: "http://127.0.0.1:54321/functions/v1",
+  });
   assertEquals(loadConfig(env(local)).licenseZipUrl, null);
   assertEquals(
-    loadConfig(env({ ...local, RELAY_LICENSES: FCC_AMATEUR_ZIP })).licenseZipUrl,
+    loadConfig(env(withValues(local, { RELAY_LICENSES: FCC_AMATEUR_ZIP }))).licenseZipUrl,
     FCC_AMATEUR_ZIP,
   );
   assertEquals(
-    loadConfig(env({ ...BASE, RELAY_LICENSES: "http://127.0.0.1:8000/l_amat" })).licenseZipUrl,
+    loadConfig(env(withValues(BASE, { RELAY_LICENSES: "http://127.0.0.1:8000/l_amat" })))
+      .licenseZipUrl,
     "http://127.0.0.1:8000/l_amat",
   );
   assertThrows(
-    () => loadConfig(env({ ...BASE, RELAY_LICENSES: "http://mirror.example.org/l_amat" })),
+    () => loadConfig(env(withValues(BASE, { RELAY_LICENSES: "http://mirror.example.org/l_amat" }))),
     Error,
     "https",
   );
-  assertThrows(() => loadConfig(env({ ...BASE, RELAY_LICENSES: "no" })), Error, "RELAY_LICENSES");
+  assertThrows(
+    () => loadConfig(env(withValues(BASE, { RELAY_LICENSES: "no" }))),
+    Error,
+    "RELAY_LICENSES",
+  );
 });
 
-Deno.test("the Docker image allows every environment variable the relay reads", () => {
+Deno.test("the Docker image allows every environment variable the relay reads", function (): void {
   const read = new Set<string>(["LONGLINES_USER_AGENT_URL"]); // read by userAgent() in _shared/http.ts
-  const recorder = (name: string) => {
+  function recorder(name: string) {
     read.add(name);
     return (BASE as Record<string, string>)[name];
-  };
+  }
+  function aprsRecorder(name: string) {
+    read.add(name);
+    if (name === "APRS_LOGIN_CALL") {
+      return "N0CALL-LL";
+    }
+    return undefined;
+  }
   loadConfig(recorder);
   dxclusterFeed(recorder);
-  aprsFeed((name) => {
-    read.add(name);
-    return name === "APRS_LOGIN_CALL" ? "N0CALL-LL" : undefined;
-  });
+  aprsFeed(aprsRecorder);
   const dockerfile = Deno.readTextFileSync(new URL("../Dockerfile", import.meta.url));
-  const allowed = /--allow-env=([^"]+)"/.exec(dockerfile)?.[1]?.split(",") ?? [];
-  assertEquals([...read].filter((name) => !allowed.includes(name)), []);
+  let allowed: string[] = [];
+  const match = /--allow-env=([^"]+)"/.exec(dockerfile);
+  if (match !== null && match[1] !== undefined) {
+    allowed = match[1].split(",");
+  }
+  assertEquals(Array.from(read).filter((name) => !allowed.includes(name)), []);
 });
 
-Deno.test("RBN_FEED.isSpot accepts every fixture spot line and nothing else", () => {
+Deno.test("RBN_FEED.isSpot accepts every fixture spot line and nothing else", function (): void {
   const fixture = Deno.readTextFileSync(
     new URL("../../supabase/functions/_shared/__tests__/fixtures/rbn-telnet.txt", import.meta.url),
   ).split("\n");
-  for (const l of fixture) assertEquals(RBN_FEED.isSpot(l), l.startsWith("DX de"), l);
+  for (const l of fixture) {
+    assertEquals(RBN_FEED.isSpot(l), l.startsWith("DX de"), l);
+  }
 });
 
-Deno.test("dxclusterFeed defaults to G1FEF-2 and takes a host and port from the environment", () => {
+Deno.test("dxclusterFeed defaults to G1FEF-2 and takes a host and port from the environment", function (): void {
   const feed = dxclusterFeed(env({}));
   assertEquals([feed.id, feed.host, feed.port], ["dxcluster", DXCLUSTER_DEFAULT_HOST, 7300]);
   assertEquals(feed.functionName, "ingest-dxcluster");
@@ -104,7 +141,7 @@ Deno.test("dxclusterFeed defaults to G1FEF-2 and takes a host and port from the 
   assertThrows(() => dxclusterFeed(env({ DXCLUSTER_PORT: "70000" })), Error, "DXCLUSTER_PORT");
 });
 
-Deno.test("dxclusterFeed.isSpot accepts every fixture spot line, nothing else and no skimmers", () => {
+Deno.test("dxclusterFeed.isSpot accepts every fixture spot line, nothing else and no skimmers", function (): void {
   const feed = dxclusterFeed(env({}));
   const fixture = Deno.readTextFileSync(
     new URL(
@@ -112,17 +149,19 @@ Deno.test("dxclusterFeed.isSpot accepts every fixture spot line, nothing else an
       import.meta.url,
     ),
   ).split("\n");
-  for (const l of fixture) assertEquals(feed.isSpot(l), l.startsWith("DX de"), l);
+  for (const l of fixture) {
+    assertEquals(feed.isSpot(l), l.startsWith("DX de"), l);
+  }
   const skimmer = "DX de SM1HEV-#: 14038.30  CT1JGA/P       CW     8 dB  24 WPM  CQ      1454Z";
   assertEquals(feed.isSpot(skimmer), false);
 });
 
-Deno.test("aprsFeed is off until APRS_LOGIN_CALL is set", () => {
+Deno.test("aprsFeed is off until APRS_LOGIN_CALL is set", function (): void {
   assertEquals(aprsFeed(env({})), null);
   assertEquals(aprsFeed(env({ APRS_LOGIN_CALL: "  " })), null);
 });
 
-Deno.test("aprsFeed holds the full feed on rotate.aprs2.net with a receive-only login", () => {
+Deno.test("aprsFeed holds the full feed on rotate.aprs2.net with a receive-only login", function (): void {
   const feed = aprsFeed(env({ APRS_LOGIN_CALL: " n0call-ll " }))!;
   assertEquals([feed.id, feed.host, feed.port], ["aprs", APRS_DEFAULT_HOST, APRS_DEFAULT_PORT]);
   assertEquals(APRS_DEFAULT_PORT, 10152);
@@ -130,7 +169,11 @@ Deno.test("aprsFeed holds the full feed on rotate.aprs2.net with a receive-only 
   assertEquals(feed.telnet, false);
   assertEquals(feed.loginCall, "N0CALL-LL");
   // No filter command: the full feed is deliberate.
-  assertEquals(feed.loginLine?.("N0CALL-LL"), "user N0CALL-LL pass -1 vers LongLines 0.1");
+  let loginLine: string | undefined;
+  if (feed.loginLine !== undefined) {
+    loginLine = feed.loginLine("N0CALL-LL");
+  }
+  assertEquals(loginLine, "user N0CALL-LL pass -1 vers LongLines 0.1");
   assertEquals(feed.loginPrompt.test("# aprsc 2.1.19-g730c5c0"), true);
   assertEquals(feed.loginPrompt.test("N0CALL>APRS:# not a comment"), false);
   assertEquals([feed.idleMs, feed.staleMs, feed.maxBuffer], [2 * 60_000, 5 * 60_000, 150_000]);
@@ -145,7 +188,7 @@ Deno.test("aprsFeed holds the full feed on rotate.aprs2.net with a receive-only 
   );
 });
 
-Deno.test("aprsLoginCall accepts a call or call-SSID of at most nine characters", () => {
+Deno.test("aprsLoginCall accepts a call or call-SSID of at most nine characters", function (): void {
   assertEquals(aprsLoginCall("kk4pwj-10"), "KK4PWJ-10");
   assertEquals(aprsLoginCall("N0CALL"), "N0CALL");
   for (
@@ -157,7 +200,7 @@ Deno.test("aprsLoginCall accepts a call or call-SSID of at most nine characters"
   assertThrows(() => aprsLoginCall("KK4PWJA-10"), Error, "nine");
 });
 
-Deno.test("aprsFeed.isSpot accepts every fixture packet and no server comment", () => {
+Deno.test("aprsFeed.isSpot accepts every fixture packet and no server comment", function (): void {
   const feed = aprsFeed(env({ APRS_LOGIN_CALL: "N0CALL" }))!;
   const fixture = Deno.readTextFileSync(
     new URL("../../supabase/functions/_shared/__tests__/fixtures/aprs-is.txt", import.meta.url),
@@ -169,14 +212,14 @@ Deno.test("aprsFeed.isSpot accepts every fixture packet and no server comment", 
 
 function fakeFetch(status: number, body: string) {
   const requests: Request[] = [];
-  const fn = (input: string | URL | Request, init?: RequestInit) => {
+  function fn(input: string | URL | Request, init?: RequestInit): Promise<Response> {
     requests.push(new Request(input, init));
     return Promise.resolve(new Response(body, { status }));
-  };
-  return { fn: fn as typeof fetch, requests };
+  }
+  return { fn, requests };
 }
 
-Deno.test("functionClient POSTs a batch as JSON", async () => {
+Deno.test("functionClient POSTs a batch as JSON", async function (): Promise<void> {
   const f = fakeFetch(200, "{}");
   const lines = [{ line: "DX de ...", received_at: "2026-10-11T00:00:00Z" }];
   await functionClient("https://x", "ingest-rbn", "s", f.fn).push(lines);
@@ -184,22 +227,26 @@ Deno.test("functionClient POSTs a batch as JSON", async () => {
   assertEquals([req.method, req.url], ["POST", "https://x/ingest-rbn"]);
   assertEquals(req.headers.get("content-type"), "application/json");
   assertEquals(req.headers.get("x-relay-secret"), "s");
-  assertEquals(req.headers.get("user-agent")?.startsWith("LongLines/"), true);
+  const userAgent = req.headers.get("user-agent");
+  assertEquals(userAgent !== null && userAgent.startsWith("LongLines/"), true);
   assertEquals(await req.json(), { lines });
 });
 
-Deno.test("functionClient aborts the request when the caller's signal aborts", async () => {
-  const f = fakeFetch(200, "{}");
-  const client = functionClient("https://x", "ingest-rbn", "s", f.fn);
-  await client.push([]);
-  assertEquals(f.requests[0]!.signal.aborted, false);
-  const stop = new AbortController();
-  await client.push([], stop.signal);
-  stop.abort();
-  assertEquals(f.requests[1]!.signal.aborted, true);
-});
+Deno.test(
+  "functionClient aborts the request when the caller's signal aborts",
+  async function (): Promise<void> {
+    const f = fakeFetch(200, "{}");
+    const client = functionClient("https://x", "ingest-rbn", "s", f.fn);
+    await client.push([]);
+    assertEquals(f.requests[0]!.signal.aborted, false);
+    const stop = new AbortController();
+    await client.push([], stop.signal);
+    stop.abort();
+    assertEquals(f.requests[1]!.signal.aborted, true);
+  },
+);
 
-Deno.test("functionClient throws on non-2xx", async () => {
+Deno.test("functionClient throws on non-2xx", async function (): Promise<void> {
   await assertRejects(
     () => functionClient("https://x", "ingest-rbn", "s", fakeFetch(401, "{}").fn).push([]),
     Error,
@@ -207,51 +254,69 @@ Deno.test("functionClient throws on non-2xx", async () => {
   );
 });
 
-Deno.test("healthHandler is healthy while data is fresh and during the startup grace", async () => {
-  const started = new Date("2026-10-11T00:00:00Z");
-  let now = new Date("2026-10-11T00:05:00Z");
-  const status = { connected: true, lastDataAt: null as Date | null, connects: 1 };
-  const handler = healthHandler(
-    [{ id: "rbn", status, dropped: () => 3, buffered: () => 0, pushed: () => 7 }],
-    started,
-    10 * 60_000,
-    () => now,
-  );
-  const get = (path = "/healthz") => handler(new Request(`http://x${path}`));
+Deno.test(
+  "healthHandler is healthy while data is fresh and during the startup grace",
+  async function (): Promise<void> {
+    const started = new Date("2026-10-11T00:00:00Z");
+    let now = new Date("2026-10-11T00:05:00Z");
+    const status = { connected: true, lastDataAt: null as Date | null, connects: 1 };
+    const handler = healthHandler(
+      [{ id: "rbn", status, dropped: () => 3, buffered: () => 0, pushed: () => 7 }],
+      started,
+      10 * 60_000,
+      () => now,
+    );
+    function get(path = "/healthz") {
+      return handler(new Request(`http://x${path}`));
+    }
 
-  assertEquals(get().status, 200); // no data yet, inside grace
-  now = new Date("2026-10-11T00:11:00Z");
-  assertEquals(get().status, 503);
-  status.lastDataAt = new Date("2026-10-11T00:10:30Z");
-  const res = get();
-  assertEquals(res.status, 200);
-  const body = await res.json();
-  assertEquals(body.feeds[0].dropped, 3);
-  assertEquals(body.feeds[0].last_data_at, "2026-10-11T00:10:30.000Z");
-  assertEquals(get("/").status, 404);
-});
+    assertEquals(get().status, 200); // no data yet, inside grace
+    now = new Date("2026-10-11T00:11:00Z");
+    assertEquals(get().status, 503);
+    status.lastDataAt = new Date("2026-10-11T00:10:30Z");
+    const res = get();
+    assertEquals(res.status, 200);
+    const body = await res.json();
+    assertEquals(body.feeds[0].dropped, 3);
+    assertEquals(body.feeds[0].last_data_at, "2026-10-11T00:10:30.000Z");
+    assertEquals(get("/").status, 404);
+  },
+);
 
-Deno.test("healthHandler uses a feed's own stale threshold when it sets one", async () => {
-  const started = new Date("2026-10-11T00:00:00Z");
-  const lastDataAt = new Date("2026-10-11T00:00:00Z");
-  const feed = (id: string, staleMs?: number) => ({
-    id,
-    status: { connected: true, lastDataAt, connects: 1 },
-    dropped: () => 0,
-    buffered: () => 0,
-    pushed: () => 0,
-    ...(staleMs === undefined ? {} : { staleMs }),
-  });
-  const now = () => new Date("2026-10-11T00:15:00Z");
-  const quiet = healthHandler([feed("dxcluster", 20 * 60_000)], started, 10 * 60_000, now);
-  assertEquals(quiet(new Request("http://x/healthz")).status, 200);
-  const both = healthHandler(
-    [feed("rbn"), feed("dxcluster", 20 * 60_000)],
-    started,
-    10 * 60_000,
-    now,
-  );
-  const res = both(new Request("http://x/healthz"));
-  assertEquals(res.status, 503);
-  assertEquals((await res.json()).feeds.map((f: { healthy: boolean }) => f.healthy), [false, true]);
-});
+Deno.test(
+  "healthHandler uses a feed's own stale threshold when it sets one",
+  async function (): Promise<void> {
+    const started = new Date("2026-10-11T00:00:00Z");
+    const lastDataAt = new Date("2026-10-11T00:00:00Z");
+    function feed(id: string, staleMs?: number): FeedHealth {
+      const f: FeedHealth = {
+        id,
+        status: { connected: true, lastDataAt, connects: 1 },
+        dropped: () => 0,
+        buffered: () => 0,
+        pushed: () => 0,
+      };
+      if (staleMs !== undefined) {
+        f.staleMs = staleMs;
+      }
+      return f;
+    }
+    function now() {
+      return new Date("2026-10-11T00:15:00Z");
+    }
+    const quiet = healthHandler([feed("dxcluster", 20 * 60_000)], started, 10 * 60_000, now);
+    assertEquals(quiet(new Request("http://x/healthz")).status, 200);
+    const both = healthHandler(
+      [feed("rbn"), feed("dxcluster", 20 * 60_000)],
+      started,
+      10 * 60_000,
+      now,
+    );
+    const res = both(new Request("http://x/healthz"));
+    assertEquals(res.status, 503);
+    assertEquals((await res.json()).feeds.map((f: { healthy: boolean }) => f.healthy), [
+      false,
+      true,
+    ]);
+  },
+);

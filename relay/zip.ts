@@ -30,20 +30,38 @@ export interface ZipEntry {
 }
 
 /** CRC-32 (IEEE 802.3, reflected 0xEDB88320), the checksum zip stores per entry. */
-const CRC_TABLE = (() => {
+function buildCrcTable(): Uint32Array {
   const table = new Uint32Array(256);
   for (let n = 0; n < 256; n++) {
     let c = n;
-    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    for (let k = 0; k < 8; k++) {
+      if ((c & 1) !== 0) {
+        c = 0xedb88320 ^ (c >>> 1);
+      } else {
+        c = c >>> 1;
+      }
+    }
     table[n] = c >>> 0;
   }
   return table;
-})();
+}
+
+const CRC_TABLE = buildCrcTable();
 
 /** Folds `bytes` into a running CRC-32; start from 0 and pass the previous result to continue. */
 export function crc32(bytes: Uint8Array, previous = 0): number {
   let c = ~previous >>> 0;
-  for (let i = 0; i < bytes.length; i++) c = CRC_TABLE[(c ^ bytes[i]!) & 0xff]! ^ (c >>> 8);
+  for (let i = 0; i < bytes.length; i++) {
+    const b = bytes[i];
+    if (b === undefined) {
+      throw new Error("crc32: byte index out of range");
+    }
+    const t = CRC_TABLE[(c ^ b) & 0xff];
+    if (t === undefined) {
+      throw new Error("crc32: table index out of range");
+    }
+    c = t ^ (c >>> 8);
+  }
   return ~c >>> 0;
 }
 
@@ -65,15 +83,22 @@ export async function readZipDirectory(src: RangeSource): Promise<ZipEntry[]> {
       break;
     }
   }
-  if (eocd < 0) throw new Error("not a zip file: no end of central directory");
+  if (eocd < 0) {
+    throw new Error("not a zip file: no end of central directory");
+  }
   const count = view.getUint16(eocd + 10, true);
   const dirSize = view.getUint32(eocd + 12, true);
   const dirOffset = view.getUint32(eocd + 16, true);
-  if (count === 0xffff || dirOffset === 0xffffffff) throw new Error("zip64 is not supported");
+  if (count === 0xffff || dirOffset === 0xffffffff) {
+    throw new Error("zip64 is not supported");
+  }
 
-  const dir = dirOffset >= tailStart
-    ? tail.subarray(dirOffset - tailStart, dirOffset - tailStart + dirSize)
-    : await src.bytes(dirOffset, dirOffset + dirSize);
+  let dir: Uint8Array;
+  if (dirOffset >= tailStart) {
+    dir = tail.subarray(dirOffset - tailStart, dirOffset - tailStart + dirSize);
+  } else {
+    dir = await src.bytes(dirOffset, dirOffset + dirSize);
+  }
   const d = new DataView(dir.buffer, dir.byteOffset, dir.byteLength);
   const entries: ZipEntry[] = [];
   let p = 0;
@@ -91,7 +116,9 @@ export async function readZipDirectory(src: RangeSource): Promise<ZipEntry[]> {
       headerOffset: d.getUint32(p + 42, true),
       crc32: d.getUint32(p + 16, true),
     };
-    if (flags & 1) throw new Error(`${entry.name} is encrypted`);
+    if ((flags & 1) !== 0) {
+      throw new Error(`${entry.name} is encrypted`);
+    }
     if ([entry.compressedSize, entry.size, entry.headerOffset].includes(0xffffffff)) {
       throw new Error("zip64 is not supported");
     }
@@ -110,7 +137,7 @@ export async function openZipEntry(
   entry: ZipEntry,
 ): Promise<ReadableStream<Uint8Array>> {
   if (entry.method !== 0 && entry.method !== 8) {
-    throw new Error(`${entry.name}: compression method ${entry.method} is not supported`);
+    throw new Error(`${entry.name}: compression method ${String(entry.method)} is not supported`);
   }
   const header = await src.bytes(entry.headerOffset, entry.headerOffset + 30);
   const h = new DataView(header.buffer, header.byteOffset, header.byteLength);
@@ -119,28 +146,33 @@ export async function openZipEntry(
   }
   const start = entry.headerOffset + 30 + h.getUint16(26, true) + h.getUint16(28, true);
   const raw = await src.stream(start, start + entry.compressedSize);
-  const data = entry.method === 8
-    ? raw.pipeThrough(
+  let data: ReadableStream<Uint8Array>;
+  if (entry.method === 8) {
+    data = raw.pipeThrough(
       new DecompressionStream("deflate-raw") as TransformStream<Uint8Array, Uint8Array>,
-    )
-    : raw;
+    );
+  } else {
+    data = raw;
+  }
 
   let seen = 0;
   let crc = 0;
   return data.pipeThrough(
     new TransformStream<Uint8Array, Uint8Array>({
-      transform(chunk, controller) {
+      transform(chunk, controller): void {
         seen += chunk.length;
         if (seen > entry.size) {
-          controller.error(new Error(`${entry.name}: more than ${entry.size} bytes`));
+          controller.error(new Error(`${entry.name}: more than ${String(entry.size)} bytes`));
         } else {
           crc = crc32(chunk, crc);
           controller.enqueue(chunk);
         }
       },
-      flush(controller) {
+      flush(controller): void {
         if (seen !== entry.size) {
-          controller.error(new Error(`${entry.name}: ${seen} of ${entry.size} bytes`));
+          controller.error(
+            new Error(`${entry.name}: ${String(seen)} of ${String(entry.size)} bytes`),
+          );
         } else if (crc !== entry.crc32) {
           controller.error(new Error(`${entry.name}: CRC-32 mismatch`));
         }
@@ -160,8 +192,14 @@ export interface HttpZip extends RangeSource {
 
 /** A strong entity tag (`"..."`), the only kind RFC 9110 allows in If-Range. */
 function strongEtag(etag: string | null): string | null {
-  const tag = etag?.trim() ?? "";
-  return /^"[^"]*"$/.test(tag) ? tag : null;
+  let tag = "";
+  if (etag !== null && etag !== undefined) {
+    tag = etag.trim();
+  }
+  if (/^"[^"]*"$/.test(tag)) {
+    return tag;
+  }
+  return null;
 }
 
 /** How long stream()'s Range request may wait for response headers; the body then has readWithin's idle timeout. */
@@ -180,7 +218,9 @@ export async function openHttpZip(
 ): Promise<HttpZip> {
   // The file is loaded into a public table: never over plain http, except
   // from a local server in tests and development.
-  const { protocol, hostname } = new URL(url);
+  const parsed = new URL(url);
+  const protocol = parsed.protocol;
+  const hostname = parsed.hostname;
   if (protocol !== "https:" && !(protocol === "http:" && isLocalHost(hostname))) {
     throw new Error(`${url}: https is required outside local development`);
   }
@@ -190,42 +230,78 @@ export async function openHttpZip(
     headers,
     signal: AbortSignal.any([signal, AbortSignal.timeout(30_000)]),
   });
-  await head.body?.cancel();
-  if (!head.ok) throw new Error(`HEAD ${url}: HTTP ${head.status}`);
+  if (head.body !== null && head.body !== undefined) {
+    await head.body.cancel();
+  }
+  if (!head.ok) {
+    throw new Error(`HEAD ${url}: HTTP ${String(head.status)}`);
+  }
   const size = Number(head.headers.get("content-length"));
   const lastModified = head.headers.get("last-modified");
   const etag = strongEtag(head.headers.get("etag"));
   if (!Number.isSafeInteger(size) || size <= 0) {
     throw new Error(`HEAD ${url}: no Content-Length`);
   }
-  if (!lastModified && !etag) {
-    throw new Error(
-      head.headers.has("etag")
-        ? `HEAD ${url}: only a weak ETag and no Last-Modified, so If-Range cannot pin the file`
-        : `HEAD ${url}: no Last-Modified or ETag`,
-    );
+  const noLastModified = lastModified === null || lastModified === undefined ||
+    lastModified === "";
+  const noEtag = etag === null || etag === undefined || etag === "";
+  if (noLastModified && noEtag) {
+    let message: string;
+    if (head.headers.has("etag")) {
+      message =
+        `HEAD ${url}: only a weak ETag and no Last-Modified, so If-Range cannot pin the file`;
+    } else {
+      message = `HEAD ${url}: no Last-Modified or ETag`;
+    }
+    throw new Error(message);
   }
-  const version = lastModified ?? etag ?? "";
+  let version = "";
+  if (lastModified !== null && lastModified !== undefined) {
+    version = lastModified;
+  } else if (etag !== null && etag !== undefined) {
+    version = etag;
+  }
   // RFC 9110 13.1.5: send the strong entity tag when there is one, a date otherwise.
-  const ifRange = etag ?? lastModified ?? "";
+  let ifRange = "";
+  if (etag !== null && etag !== undefined) {
+    ifRange = etag;
+  } else if (lastModified !== null && lastModified !== undefined) {
+    ifRange = lastModified;
+  }
 
   // If-Range ties every range to the version HEAD saw: if the FCC replaces the
   // file mid-load, the server answers 200 with the new file, which is refused,
   // rather than mixing two weeks' bytes.
   async function range(start: number, end: number, timeout?: AbortSignal): Promise<Response> {
+    let requestSignal = signal;
+    if (timeout !== undefined) {
+      requestSignal = AbortSignal.any([signal, timeout]);
+    }
     const res = await fetchFn(url, {
-      headers: { ...headers, Range: `bytes=${start}-${end - 1}`, "If-Range": ifRange },
-      signal: timeout ? AbortSignal.any([signal, timeout]) : signal,
+      headers: {
+        "User-Agent": headers["User-Agent"],
+        Range: `bytes=${String(start)}-${String(end - 1)}`,
+        "If-Range": ifRange,
+      },
+      signal: requestSignal,
     });
-    const what = `GET ${url} bytes ${start}-${end - 1}`;
+    const what = `GET ${url} bytes ${String(start)}-${String(end - 1)}`;
     if (res.status !== 206) {
-      await res.body?.cancel();
-      throw new Error(`${what}: HTTP ${res.status}, expected 206`);
+      if (res.body !== null && res.body !== undefined) {
+        await res.body.cancel();
+      }
+      throw new Error(`${what}: HTTP ${String(res.status)}, expected 206`);
     }
     // A shifted or partial range would put the wrong bytes at every offset.
-    const contentRange = res.headers.get("content-range") ?? "";
-    if (!contentRange.startsWith(`bytes ${start}-${end - 1}/`)) {
-      await res.body?.cancel();
+    let contentRange = "";
+    const contentRangeHeader = res.headers.get("content-range");
+    if (contentRangeHeader !== null && contentRangeHeader !== undefined) {
+      contentRange = contentRangeHeader;
+    }
+    if (!contentRange.startsWith(`bytes ${String(start)}-${String(end - 1)}/`)) {
+      if (res.body !== null && res.body !== undefined) {
+        await res.body.cancel();
+      }
       throw new Error(`${what}: Content-Range "${contentRange}" does not match`);
     }
     return res;
@@ -234,39 +310,42 @@ export async function openHttpZip(
   return {
     size,
     version,
-    async bytes(start, end) {
+    async bytes(start, end): Promise<Uint8Array> {
       const res = await range(start, end, AbortSignal.timeout(60_000));
       const body = new Uint8Array(await res.arrayBuffer());
       if (body.length !== end - start) {
         throw new Error(
-          `GET ${url} bytes ${start}-${end - 1}: ${body.length} of ${end - start} bytes`,
+          `GET ${url} bytes ${String(start)}-${String(end - 1)}: ${String(body.length)} of ${
+            String(end - start)
+          } bytes`,
         );
       }
       return body;
     },
-    async stream(start, end) {
+    async stream(start, end): Promise<ReadableStream<Uint8Array>> {
       // No overall timeout: the caller reads slowly, pausing while it pushes rows.
       // Only the wait for headers is bounded; the timer is cleared once they
       // arrive, so it never aborts the body.
       const headerTimeout = new AbortController();
-      const timer = setTimeout(
-        () =>
-          headerTimeout.abort(
-            new Error(
-              `GET ${url} bytes ${start}-${
-                end - 1
-              }: no response within ${streamHeaderTimeoutMs} ms`,
-            ),
+      function abortHeaders(): void {
+        headerTimeout.abort(
+          new Error(
+            `GET ${url} bytes ${String(start)}-${String(end - 1)}: no response within ${
+              String(streamHeaderTimeoutMs)
+            } ms`,
           ),
-        streamHeaderTimeoutMs,
-      );
+        );
+      }
+      const timer = setTimeout(abortHeaders, streamHeaderTimeoutMs);
       let res: Response;
       try {
         res = await range(start, end, headerTimeout.signal);
       } finally {
         clearTimeout(timer);
       }
-      if (!res.body) throw new Error(`GET ${url}: empty body`);
+      if (res.body === null || res.body === undefined) {
+        throw new Error(`GET ${url}: empty body`);
+      }
       return res.body;
     },
   };

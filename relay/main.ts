@@ -8,12 +8,18 @@ import { loadConfig } from "./config.ts";
 import { aprsFeed, dxclusterFeed, type Feed, RBN_FEED } from "./feeds.ts";
 import { startRelay } from "./relay.ts";
 
-const env = (name: string) => Deno.env.get(name);
+function env(name: string): string | undefined {
+  return Deno.env.get(name);
+}
 
 /** RBN and DX Cluster always; APRS-IS once APRS_LOGIN_CALL is set. */
 function defaultFeeds(): Feed[] {
   const aprs = aprsFeed(env);
-  return [RBN_FEED, dxclusterFeed(env), ...(aprs ? [aprs] : [])];
+  const feeds = [RBN_FEED, dxclusterFeed(env)];
+  if (aprs !== null && aprs !== undefined) {
+    feeds.push(aprs);
+  }
+  return feeds;
 }
 
 /** Run the relay until SIGINT/SIGTERM. `feedList` is overridable for local end-to-end runs. */
@@ -24,17 +30,31 @@ export async function main(
 
   // Fly sends SIGINT (the default kill_signal) on deploy and restart. Push what
   // is buffered before exiting so a deploy does not lose spots.
-  const shutdown = () => relay.shutdown().then(() => Deno.exit(0));
-  Deno.addSignalListener("SIGINT", shutdown);
-  Deno.addSignalListener("SIGTERM", shutdown);
+  async function shutdown(): Promise<void> {
+    await relay.shutdown();
+    Deno.exit(0);
+  }
+  function onSignal(): void {
+    void shutdown();
+  }
+  Deno.addSignalListener("SIGINT", onSignal);
+  Deno.addSignalListener("SIGTERM", onSignal);
 
   await relay.done;
 }
 
+function exitOnFailure(error: unknown): void {
+  let message: string;
+  if (error instanceof Error) {
+    message = error.message;
+  } else {
+    message = String(error);
+  }
+  console.error(`relay failed: ${message}`);
+  // Exit non-zero so Fly restarts the machine.
+  Deno.exit(1);
+}
+
 if (import.meta.main) {
-  main().catch((error) => {
-    console.error(`relay failed: ${error instanceof Error ? error.message : String(error)}`);
-    // Exit non-zero so Fly restarts the machine.
-    Deno.exit(1);
-  });
+  main().catch(exitOnFailure);
 }

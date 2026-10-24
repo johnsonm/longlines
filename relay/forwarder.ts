@@ -19,6 +19,25 @@ export interface ForwarderOptions {
   log?: (message: string) => void;
 }
 
+/** `value`, or `fallback` when it is undefined. */
+function orDefault<T>(value: T | undefined, fallback: T): T {
+  if (value === undefined) {
+    return fallback;
+  }
+  return value;
+}
+
+function consoleLog(message: string): void {
+  console.log(message);
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
+}
+
 export class Forwarder {
   readonly #opts: Required<ForwarderOptions>;
   #buffer: RelayLine[] = [];
@@ -37,15 +56,15 @@ export class Forwarder {
 
   constructor(options: ForwarderOptions) {
     this.#opts = {
-      now: Date.now,
-      maxBatch: 1_000,
-      flushMs: 10_000,
-      heartbeatMs: 60_000,
-      maxBuffer: 50_000,
-      retryMinMs: 5_000,
-      retryMaxMs: 5 * 60_000,
-      log: (message) => console.log(message),
-      ...options,
+      now: orDefault(options.now, Date.now),
+      maxBatch: orDefault(options.maxBatch, 1_000),
+      flushMs: orDefault(options.flushMs, 10_000),
+      heartbeatMs: orDefault(options.heartbeatMs, 60_000),
+      maxBuffer: orDefault(options.maxBuffer, 50_000),
+      retryMinMs: orDefault(options.retryMinMs, 5_000),
+      retryMaxMs: orDefault(options.retryMaxMs, 5 * 60_000),
+      log: orDefault(options.log, consoleLog),
+      push: options.push,
     };
     // The first heartbeat goes out right away so a restart shows up quickly.
     this.#lastPushAt = this.#opts.now() - this.#opts.heartbeatMs;
@@ -56,29 +75,39 @@ export class Forwarder {
   }
 
   add(line: RelayLine): void {
-    if (this.#buffer.length === 0) this.#oldestAt = this.#opts.now();
+    if (this.#buffer.length === 0) {
+      this.#oldestAt = this.#opts.now();
+    }
     this.#buffer.push(line);
     if (this.#buffer.length > this.#opts.maxBuffer) {
       this.#buffer.shift();
       this.dropped += 1;
-      if (this.#inFlight !== null) this.#droppedInFlight += 1;
+      if (this.#inFlight !== null) {
+        this.#droppedInFlight += 1;
+      }
     }
   }
 
   /** Push if a batch is due. Call about once a second. */
   async tick(): Promise<void> {
     const now = this.#opts.now();
-    if (this.#inFlight !== null || now < this.#retryAt) return;
+    if (this.#inFlight !== null || now < this.#retryAt) {
+      return;
+    }
     const due = this.#buffer.length >= this.#opts.maxBatch ||
       (this.#oldestAt !== null && now - this.#oldestAt >= this.#opts.flushMs) ||
       now - this.#lastPushAt >= this.#opts.heartbeatMs;
-    if (!due) return;
+    if (!due) {
+      return;
+    }
     await this.flush();
   }
 
   /** Push up to one batch now, regardless of timers. A no-op while a push is in flight. */
   async flush(): Promise<void> {
-    if (this.#inFlight === null) await this.#start();
+    if (this.#inFlight === null) {
+      await this.#start();
+    }
   }
 
   /**
@@ -88,22 +117,42 @@ export class Forwarder {
    * never outlasts timeoutMs; the forwarder pushes nothing after that.
    */
   async drain(timeoutMs: number): Promise<void> {
-    const timer = setTimeout(() => this.#stop.abort(), timeoutMs);
-    const stopped = new Promise<false>((resolve) => {
-      if (this.#stop.signal.aborted) resolve(false);
-      this.#stop.signal.addEventListener("abort", () => resolve(false), { once: true });
-    });
+    const stop = this.#stop;
+    function abortStop(): void {
+      stop.abort();
+    }
+    function waitForStop(resolve: (value: false) => void): void {
+      function onAbort(): void {
+        resolve(false);
+      }
+      if (stop.signal.aborted) {
+        resolve(false);
+      }
+      stop.signal.addEventListener("abort", onAbort, { once: true });
+    }
+    const timer = setTimeout(abortStop, timeoutMs);
+    const stopped = new Promise<false>(waitForStop);
     try {
       while (true) {
-        const pending = this.#inFlight ??
-          (this.#buffer.length > 0 && !this.#stop.signal.aborted ? this.#start() : null);
-        if (pending === null || !(await Promise.race([pending, stopped]))) break;
+        let pending = this.#inFlight;
+        if (pending === null || pending === undefined) {
+          pending = null;
+          if (this.#buffer.length > 0 && !this.#stop.signal.aborted) {
+            pending = this.#start();
+          }
+        }
+        if (pending === null) {
+          break;
+        }
+        if (!(await Promise.race([pending, stopped]))) {
+          break;
+        }
       }
     } finally {
       clearTimeout(timer);
     }
     if (this.#buffer.length > 0) {
-      this.#opts.log(`drain stopped with ${this.#buffer.length} lines unsent`);
+      this.#opts.log(`drain stopped with ${String(this.#buffer.length)} lines unsent`);
     }
   }
 
@@ -111,11 +160,18 @@ export class Forwarder {
   #start(): Promise<boolean> {
     const batch = this.#buffer.slice(0, this.#opts.maxBatch);
     this.#droppedInFlight = 0;
-    const pushing = this.#send(batch).finally(() => {
-      this.#inFlight = null;
-    });
+    const pushing = this.#sendThenClear(batch);
     this.#inFlight = pushing;
     return pushing;
+  }
+
+  /** #send, then clear the push in flight whether it succeeded or not. */
+  async #sendThenClear(batch: RelayLine[]): Promise<boolean> {
+    try {
+      return await this.#send(batch);
+    } finally {
+      this.#inFlight = null;
+    }
   }
 
   async #send(batch: RelayLine[]): Promise<boolean> {
@@ -123,20 +179,28 @@ export class Forwarder {
       await this.#opts.push(batch, this.#stop.signal);
       // Overflow during the push already removed some of this batch from the front.
       this.#buffer.splice(0, Math.max(0, batch.length - this.#droppedInFlight));
-      this.#oldestAt = this.#buffer.length > 0 ? this.#opts.now() : null;
+      if (this.#buffer.length > 0) {
+        this.#oldestAt = this.#opts.now();
+      } else {
+        this.#oldestAt = null;
+      }
       this.#lastPushAt = this.#opts.now();
       this.pushed += batch.length;
       this.#retryMs = 0;
       this.#retryAt = 0;
       return true;
     } catch (error) {
-      this.#retryMs = this.#retryMs === 0
-        ? this.#opts.retryMinMs
-        : Math.min(this.#retryMs * 2, this.#opts.retryMaxMs);
+      if (this.#retryMs === 0) {
+        this.#retryMs = this.#opts.retryMinMs;
+      } else {
+        this.#retryMs = Math.min(this.#retryMs * 2, this.#opts.retryMaxMs);
+      }
       this.#retryAt = this.#opts.now() + this.#retryMs;
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       this.#opts.log(
-        `push failed (${batch.length} lines, retry in ${this.#retryMs / 1000} s): ${message}`,
+        `push failed (${String(batch.length)} lines, retry in ${
+          String(this.#retryMs / 1000)
+        } s): ${message}`,
       );
       return false;
     }

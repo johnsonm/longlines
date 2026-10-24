@@ -20,7 +20,7 @@ import {
   type UlsRow,
 } from "../supabase/functions/_shared/uls.ts";
 import { abortableSleep } from "./telnet.ts";
-import { type HttpZip, openHttpZip, openZipEntry, readZipDirectory } from "./zip.ts";
+import { type HttpZip, openHttpZip, openZipEntry, readZipDirectory, type ZipEntry } from "./zip.ts";
 
 /** Fewer records than this means a truncated or wrong file (the real one has ~1.5M of each). */
 export const MIN_RECORDS: UlsCounts = { HD: 500_000, EN: 500_000, AM: 500_000 };
@@ -41,17 +41,28 @@ export interface LicenseClient {
 export function licenseClient(
   post: (body: LoadLicensesRequest) => Promise<unknown>,
 ): LicenseClient {
-  const field = async (body: LoadLicensesRequest, name: string): Promise<unknown> =>
-    ((await post(body)) as Record<string, unknown> | null)?.[name];
+  async function field(body: LoadLicensesRequest, name: string): Promise<unknown> {
+    const reply = (await post(body)) as Record<string, unknown> | null;
+    if (reply === null || reply === undefined) {
+      return undefined;
+    }
+    return reply[name];
+  }
   return {
-    status: async () => (await field({ action: "status" }, "load") ?? null) as LicenseLoad | null,
+    async status(): Promise<LicenseLoad | null> {
+      let load = await field({ action: "status" }, "load");
+      if (load === undefined) {
+        load = null;
+      }
+      return load as LicenseLoad | null;
+    },
     begin: async (version) => Number(await field({ action: "begin", version }, "load")),
     rows: async (load, kind, rows) =>
       Number(await field({ action: "rows", load, kind, rows }, "staged")),
-    async finish(load, counts) {
+    async finish(load, counts): Promise<void> {
       await post({ action: "finish", load, counts });
     },
-    async abandon(load, error) {
+    async abandon(load, error): Promise<void> {
       await post({ action: "abandon", load, error });
     },
   };
@@ -59,11 +70,15 @@ export function licenseClient(
 
 /** True when `version` should be loaded, given the newest load. */
 export function shouldImport(version: string, latest: LicenseLoad | null, now: Date): boolean {
-  if (!latest) return true;
+  if (latest === null) {
+    return true;
+  }
   if (latest.version === version && (latest.status === "ready" || latest.status === "applied")) {
     return false;
   }
-  if (latest.status === "ready") return true; // a newer file than the one waiting to apply
+  if (latest.status === "ready") {
+    return true; // a newer file than the one waiting to apply
+  }
   return latest.status === "applied" ||
     now.getTime() - new Date(latest.started_at).getTime() >= RETRY_AFTER_MS;
 }
@@ -80,7 +95,10 @@ export interface ImportOptions {
 }
 
 function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
 }
 
 /** Abortable read that fails when the server goes quiet. */
@@ -89,8 +107,10 @@ async function readWithin<T>(
   ms: number,
 ): Promise<ReadableStreamReadResult<T>> {
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`no data for ${ms / 1000} s`)), ms);
+  const timeout = new Promise<never>(function arm(_resolve, reject): void {
+    timer = setTimeout(function fail(): void {
+      reject(new Error(`no data for ${String(ms / 1000)} s`));
+    }, ms);
   });
   try {
     return await Promise.race([reader.read(), timeout]);
@@ -105,17 +125,29 @@ export async function importLicenses(
   client: LicenseClient,
   options: ImportOptions,
 ): Promise<UlsCounts> {
-  const { log, signal } = options;
-  const batchSize = options.batchSize ?? 5_000;
-  const minRecords = options.minRecords ?? MIN_RECORDS;
-  const retryDelays = options.retryDelaysMs ?? [5_000, 30_000];
+  const log = options.log;
+  const signal = options.signal;
+  let batchSize = 5_000;
+  if (options.batchSize !== null && options.batchSize !== undefined) {
+    batchSize = options.batchSize;
+  }
+  let minRecords = MIN_RECORDS;
+  if (options.minRecords !== null && options.minRecords !== undefined) {
+    minRecords = options.minRecords;
+  }
+  let retryDelays = [5_000, 30_000];
+  if (options.retryDelaysMs !== null && options.retryDelaysMs !== undefined) {
+    retryDelays = options.retryDelaysMs;
+  }
 
   const entries = await readZipDirectory(zip);
-  const entryFor = (kind: UlsKind) => {
+  function entryFor(kind: UlsKind): ZipEntry {
     const entry = entries.find((e) => e.name === `${kind}.dat`);
-    if (!entry) throw new Error(`${kind}.dat is not in the zip`);
+    if (entry === undefined) {
+      throw new Error(`${kind}.dat is not in the zip`);
+    }
     return entry;
-  };
+  }
   ULS_KINDS.forEach(entryFor);
 
   const load = await client.begin(zip.version);
@@ -129,7 +161,9 @@ export async function importLicenses(
         return;
       } catch (error) {
         const delay = retryDelays[attempt];
-        if (delay === undefined || signal.aborted) throw error;
+        if (delay === undefined || signal.aborted) {
+          throw error;
+        }
         await abortableSleep(delay, signal);
       }
     }
@@ -142,7 +176,7 @@ export async function importLicenses(
     const records = new UlsRecords(kind);
     let batch: UlsRow[] = [];
     let skipped = 0;
-    const take = async (lines: string[]) => {
+    async function take(lines: string[]): Promise<void> {
       for (const line of lines) {
         const row = parseUlsRecord(kind, line);
         if (row === null) {
@@ -155,35 +189,57 @@ export async function importLicenses(
           batch = [];
         }
       }
-    };
+    }
     try {
       for (;;) {
-        if (signal.aborted) throw new Error("license import aborted");
-        const { done, value } = await readWithin(reader, options.readTimeoutMs ?? 120_000);
-        if (done) break;
-        await take(records.push(value));
+        if (signal.aborted) {
+          throw new Error("license import aborted");
+        }
+        let readTimeoutMs = 120_000;
+        if (options.readTimeoutMs !== null && options.readTimeoutMs !== undefined) {
+          readTimeoutMs = options.readTimeoutMs;
+        }
+        const result = await readWithin(reader, readTimeoutMs);
+        if (result.done) {
+          break;
+        }
+        await take(records.push(result.value));
       }
     } catch (error) {
-      await reader.cancel().catch(() => {});
+      try {
+        await reader.cancel();
+      } catch {
+        // Best effort: the read's own error is the one to report.
+      }
       throw error;
     }
     await take(records.flush());
-    if (batch.length > 0) await push(kind, batch);
-    log(`${kind}.dat: ${staged[kind]} staged, ${skipped} skipped`);
+    if (batch.length > 0) {
+      await push(kind, batch);
+    }
+    log(`${kind}.dat: ${String(staged[kind])} staged, ${String(skipped)} skipped`);
     if (staged[kind] < minRecords[kind]) {
       throw new Error(
-        `${kind}.dat has ${staged[kind]} records, expected at least ${minRecords[kind]}`,
+        `${kind}.dat has ${String(staged[kind])} records, expected at least ${
+          String(minRecords[kind])
+        }`,
       );
     }
   }
 
   try {
-    for (const kind of ULS_KINDS) await stageFile(kind);
+    for (const kind of ULS_KINDS) {
+      await stageFile(kind);
+    }
     await client.finish(load, staged);
   } catch (error) {
     // Free the staged rows now rather than at the next begin, 12 hours on. Best
     // effort: begin empties staging anyway.
-    await client.abandon(load, errorMessage(error)).catch(() => {});
+    try {
+      await client.abandon(load, errorMessage(error));
+    } catch {
+      // Ignored: the load's own error is the one to report.
+    }
     throw error;
   }
   return staged;
@@ -203,7 +259,16 @@ export interface LicenseImportLoop extends ImportOptions {
 export async function checkLicenses(options: LicenseImportLoop): Promise<UlsCounts | null> {
   const zip = await openHttpZip(options.zipUrl, options.signal, options.fetchFn);
   const latest = await options.client.status();
-  if (!shouldImport(zip.version, latest, (options.now ?? (() => new Date()))())) return null;
+  let now: Date;
+  const nowFn = options.now;
+  if (nowFn !== null && nowFn !== undefined) {
+    now = nowFn();
+  } else {
+    now = new Date();
+  }
+  if (!shouldImport(zip.version, latest, now)) {
+    return null;
+  }
   options.log(`loading ${options.zipUrl} (${zip.version})`);
   const staged = await importLicenses(zip, options.client, options);
   options.log(`load finished: ${JSON.stringify(staged)}; pg_cron applies it within the hour`);
@@ -212,8 +277,13 @@ export async function checkLicenses(options: LicenseImportLoop): Promise<UlsCoun
 
 /** Check now and then until `signal` aborts. A failed check is logged and retried next time. */
 export async function runLicenseImports(options: LicenseImportLoop): Promise<void> {
-  const { signal, log } = options;
-  await abortableSleep(options.firstCheckMs ?? 5 * 60_000, signal);
+  const signal = options.signal;
+  const log = options.log;
+  let firstCheckMs = 5 * 60_000;
+  if (options.firstCheckMs !== null && options.firstCheckMs !== undefined) {
+    firstCheckMs = options.firstCheckMs;
+  }
+  await abortableSleep(firstCheckMs, signal);
   while (!signal.aborted) {
     try {
       await checkLicenses(options);
@@ -222,6 +292,10 @@ export async function runLicenseImports(options: LicenseImportLoop): Promise<voi
         log(`load failed: ${errorMessage(error)}`);
       }
     }
-    await abortableSleep(options.checkMs ?? 6 * 3_600_000, signal);
+    let checkMs = 6 * 3_600_000;
+    if (options.checkMs !== null && options.checkMs !== undefined) {
+      checkMs = options.checkMs;
+    }
+    await abortableSleep(checkMs, signal);
   }
 }

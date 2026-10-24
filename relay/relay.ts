@@ -4,12 +4,12 @@
 
 import type { RelayConfig } from "./config.ts";
 import type { Feed } from "./feeds.ts";
-import { Forwarder } from "./forwarder.ts";
-import { functionClient, functionPoster } from "./functions.ts";
+import { Forwarder, type ForwarderOptions } from "./forwarder.ts";
+import { functionClient, functionPoster, type RelayLine } from "./functions.ts";
 import { type FeedHealth, healthHandler } from "./health.ts";
 import { licenseClient, type LicenseImportLoop, runLicenseImports } from "./licenses.ts";
-import { runStatusLoop } from "./status.ts";
-import { abortableSleep, runTelnet, type SessionStatus } from "./telnet.ts";
+import { runStatusLoop, type StatusLoop } from "./status.ts";
+import { abortableSleep, runTelnet, type SessionStatus, type TelnetOptions } from "./telnet.ts";
 
 const STATS_LOG_MS = 10 * 60_000;
 /** /healthz turns 503 when a feed has been silent this long, unless the feed sets its own. */
@@ -26,67 +26,96 @@ function startFeed(
   signal: AbortSignal,
   logLine: (message: string) => void,
 ): { health: FeedHealth; done: Promise<void>; forwarder: Forwarder } {
-  const log = (message: string) => logLine(`[${feed.id}] ${message}`);
+  function log(message: string): void {
+    logLine(`[${feed.id}] ${message}`);
+  }
   const client = functionClient(config.functionsUrl, feed.functionName, config.relaySecret);
-  const forwarder = new Forwarder({
-    push: client.push,
-    log,
-    ...(feed.maxBuffer === undefined ? {} : { maxBuffer: feed.maxBuffer }),
-  });
-  const loginCall = feed.loginCall ?? config.loginCall;
+  function push(batch: RelayLine[], pushSignal: AbortSignal): Promise<unknown> {
+    return client.push(batch, pushSignal);
+  }
+  const forwarderOptions: ForwarderOptions = { push, log };
+  if (feed.maxBuffer !== undefined) {
+    forwarderOptions.maxBuffer = feed.maxBuffer;
+  }
+  const forwarder = new Forwarder(forwarderOptions);
+  let loginCall = config.loginCall;
+  if (feed.loginCall !== undefined && feed.loginCall !== null) {
+    loginCall = feed.loginCall;
+  }
   const status: SessionStatus = { connected: false, lastDataAt: null, connects: 0 };
   let lines = 0;
   let spots = 0;
 
-  async function every(ms: number, fn: () => Promise<unknown> | void): Promise<void> {
+  async function every(ms: number, fn: () => Promise<unknown> | undefined): Promise<void> {
     while (!signal.aborted) {
       await fn();
       await abortableSleep(ms, signal);
     }
   }
 
-  const done = Promise.all([
-    every(1_000, () => forwarder.tick()),
-    every(STATS_LOG_MS, () => {
-      if (lines > 0) {
-        log(
-          `${lines} lines, ${spots} spots, ${forwarder.pushed} pushed, ` +
-            `${forwarder.buffered} buffered, ${forwarder.dropped} dropped`,
-        );
-      }
-    }),
-    runTelnet({
-      host: feed.host,
-      port: feed.port,
-      loginCall,
-      loginPrompt: feed.loginPrompt,
-      ...(feed.loginLine === undefined ? {} : { loginLine: feed.loginLine(loginCall) }),
-      ...(feed.telnet === undefined ? {} : { telnet: feed.telnet }),
-      ...(feed.idleMs === undefined ? {} : { idleMs: feed.idleMs }),
-      status,
-      signal,
-      log,
-      onLine: (line, receivedAt) => {
-        lines += 1;
-        if (!feed.isSpot(line)) return;
-        spots += 1;
-        forwarder.add({ line, received_at: receivedAt.toISOString() });
-      },
-    }),
-  ]).then(() => {});
+  function logStats(): undefined {
+    if (lines > 0) {
+      log(
+        `${String(lines)} lines, ${String(spots)} spots, ${String(forwarder.pushed)} pushed, ` +
+          `${String(forwarder.buffered)} buffered, ${String(forwarder.dropped)} dropped`,
+      );
+    }
+  }
 
-  return {
-    forwarder,
-    done,
-    health: {
-      id: feed.id,
-      status,
-      ...(feed.staleMs === undefined ? {} : { staleMs: feed.staleMs }),
-      dropped: () => forwarder.dropped,
-      buffered: () => forwarder.buffered,
-      pushed: () => forwarder.pushed,
-    },
+  function onLine(line: string, receivedAt: Date): void {
+    lines += 1;
+    if (!feed.isSpot(line)) {
+      return;
+    }
+    spots += 1;
+    forwarder.add({ line, received_at: receivedAt.toISOString() });
+  }
+
+  const telnetOptions: TelnetOptions = {
+    host: feed.host,
+    port: feed.port,
+    loginCall,
+    loginPrompt: feed.loginPrompt,
+    status,
+    signal,
+    log,
+    onLine,
   };
+  if (feed.loginLine !== undefined) {
+    telnetOptions.loginLine = feed.loginLine(loginCall);
+  }
+  if (feed.telnet !== undefined) {
+    telnetOptions.telnet = feed.telnet;
+  }
+  if (feed.idleMs !== undefined) {
+    telnetOptions.idleMs = feed.idleMs;
+  }
+
+  async function run(): Promise<void> {
+    await Promise.all([
+      every(1_000, () => forwarder.tick()),
+      every(STATS_LOG_MS, logStats),
+      runTelnet(telnetOptions),
+    ]);
+  }
+  const done = run();
+
+  const health: FeedHealth = {
+    id: feed.id,
+    status,
+    dropped: () => forwarder.dropped,
+    buffered: () => forwarder.buffered,
+    pushed: () => forwarder.pushed,
+  };
+  if (feed.staleMs !== undefined) {
+    health.staleMs = feed.staleMs;
+  }
+
+  return { forwarder, done, health };
+}
+
+function logToConsole(message: string): void {
+  console.log(message);
 }
 
 export interface RelayOptions {
@@ -116,47 +145,96 @@ export function startRelay(
   feedList: readonly Feed[],
   options: RelayOptions = {},
 ): Relay {
-  const log = options.log ?? ((message: string) => console.log(message));
+  let log: (message: string) => void = logToConsole;
+  if (options.log !== undefined && options.log !== null) {
+    log = options.log;
+  }
   const controller = new AbortController();
   const startedAt = new Date();
   const feeds = feedList.map((feed) => startFeed(feed, config, controller.signal, log));
-  const licenses = config.licenseZipUrl === null ? null : runLicenseImports({
-    ...options.licenses,
-    zipUrl: config.licenseZipUrl,
-    client: licenseClient(
-      functionPoster(config.functionsUrl, "load-licenses", config.relaySecret),
-    ),
-    signal: controller.signal,
-    log: (message) => log(`[licenses] ${message}`),
-  });
 
-  const status = runStatusLoop({
-    ...options.status,
+  function logLicenses(message: string): void {
+    log(`[licenses] ${message}`);
+  }
+  let licenses: Promise<void> | null = null;
+  if (config.licenseZipUrl !== null) {
+    const loop: LicenseImportLoop = {
+      zipUrl: config.licenseZipUrl,
+      client: licenseClient(
+        functionPoster(config.functionsUrl, "load-licenses", config.relaySecret),
+      ),
+      signal: controller.signal,
+      log: logLicenses,
+    };
+    const overrides = options.licenses;
+    if (overrides !== undefined) {
+      loop.batchSize = overrides.batchSize;
+      loop.minRecords = overrides.minRecords;
+      loop.readTimeoutMs = overrides.readTimeoutMs;
+      loop.retryDelaysMs = overrides.retryDelaysMs;
+      loop.firstCheckMs = overrides.firstCheckMs;
+      loop.checkMs = overrides.checkMs;
+      loop.now = overrides.now;
+      loop.fetchFn = overrides.fetchFn;
+    }
+    licenses = runLicenseImports(loop);
+  }
+
+  const statusLoop: StatusLoop = {
     feeds: feeds.map((f) => f.health),
     startedAt,
     post: functionPoster(config.functionsUrl, "relay-status", config.relaySecret),
     sleep: abortableSleep,
     signal: controller.signal,
     log,
-  });
+  };
+  if (options.status !== undefined) {
+    statusLoop.intervalMs = options.status.intervalMs;
+    statusLoop.rss = options.status.rss;
+  }
+  const status = runStatusLoop(statusLoop);
 
+  let hostname = "0.0.0.0";
+  if (options.hostname !== undefined && options.hostname !== null) {
+    hostname = options.hostname;
+  }
+  function onListen(): void {
+    // Quiet: the relay logs its own start line below.
+  }
   const server = Deno.serve(
-    { hostname: options.hostname ?? "0.0.0.0", port: config.healthPort, onListen: () => {} },
+    { hostname, port: config.healthPort, onListen },
     healthHandler(feeds.map((f) => f.health), startedAt, STALE_MS),
   );
-  log(`relay started: ${feedList.map((f) => `${f.id} ${f.host}:${f.port}`).join(", ")}`);
+  log(`relay started: ${feedList.map((f) => `${f.id} ${f.host}:${String(f.port)}`).join(", ")}`);
+
+  async function allDone(): Promise<void> {
+    const waits: Array<Promise<void>> = [];
+    for (const f of feeds) {
+      waits.push(f.done);
+    }
+    // No license load runs without a zip URL.
+    if (licenses !== null) {
+      waits.push(licenses);
+    }
+    waits.push(status);
+    await Promise.all(waits);
+  }
+
+  async function stop(): Promise<void> {
+    log("shutting down");
+    controller.abort();
+    await Promise.all(feeds.map((f) => f.forwarder.drain(DRAIN_MS)));
+    await server.shutdown();
+  }
 
   let stopping: Promise<void> | null = null;
   return {
     addr: server.addr,
-    done: Promise.all([...feeds.map((f) => f.done), licenses, status]).then(() => {}),
-    shutdown() {
-      stopping ??= (async () => {
-        log("shutting down");
-        controller.abort();
-        await Promise.all(feeds.map((f) => f.forwarder.drain(DRAIN_MS)));
-        await server.shutdown();
-      })();
+    done: allDone(),
+    shutdown(): Promise<void> {
+      if (stopping === null || stopping === undefined) {
+        stopping = stop();
+      }
       return stopping;
     },
   };

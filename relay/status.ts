@@ -27,10 +27,14 @@ export function statusBody(
   startedAt: Date,
   rss: number,
 ): RelayStatusBody {
+  let reconnects = 0;
+  for (const f of feeds) {
+    reconnects = reconnects + Math.max(f.status.connects - 1, 0);
+  }
   return {
     started_at: startedAt.toISOString(),
     rss_bytes: rss,
-    reconnects: feeds.reduce((n, f) => n + Math.max(f.status.connects - 1, 0), 0),
+    reconnects,
     feeds: feeds.map((f) => ({ id: f.id, connected: f.status.connected })),
   };
 }
@@ -47,16 +51,34 @@ export interface StatusLoop {
   rss?: () => number;
 }
 
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
+}
+
+function processRss(): number {
+  return Deno.memoryUsage().rss;
+}
+
 export async function runStatusLoop(loop: StatusLoop): Promise<void> {
-  const rss = loop.rss ?? (() => Deno.memoryUsage().rss);
+  let rss = processRss;
+  if (loop.rss !== undefined && loop.rss !== null) {
+    rss = loop.rss;
+  }
+  let intervalMs = STATUS_MS;
+  if (loop.intervalMs !== undefined && loop.intervalMs !== null) {
+    intervalMs = loop.intervalMs;
+  }
   while (!loop.signal.aborted) {
     try {
       await loop.post(statusBody(loop.feeds, loop.startedAt, rss()), loop.signal);
     } catch (error) {
       if (!loop.signal.aborted) {
-        loop.log(`[status] ${error instanceof Error ? error.message : String(error)}`);
+        loop.log(`[status] ${errorMessage(error)}`);
       }
     }
-    await loop.sleep(loop.intervalMs ?? STATUS_MS, loop.signal);
+    await loop.sleep(intervalMs, loop.signal);
   }
 }
