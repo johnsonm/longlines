@@ -187,7 +187,10 @@ export default tseslint.config(
       }],
       "@typescript-eslint/switch-exhaustiveness-check": "error",
       "no-empty": "error",
-      "preserve-caught-error": "error",
+      // The rule checks only the built-in Error classes unless it is given the names of ours.
+      "preserve-caught-error": ["error", {
+        errorClassNames: ["ValidationError", "FunctionCallError", "ConfigError"],
+      }],
       "no-restricted-syntax": ["error", ...styleSyntax, ...zodSyntax],
     },
   },
