@@ -106,11 +106,21 @@ The conventions are `docs/superpowers/specs/2026-10-22-strict-eslint-conventions
 - After every change, run `npm run lint` and `npm run typecheck`. Fix every error before finishing.
 - Never disable lint rules, add `eslint-disable` comments, or edit `eslint.config.ts` /
   `tsconfig.json` to silence errors. If a rule seems wrong, stop and ask. The one sanctioned
-  edit: the PR that refactors an area removes that area's globs from the ratchet lists
-  (`pendingStyle`, later `zodPending`).
-- External input is `unknown`. Narrow it with explicit checks; never use `as` (enforced per area
+  edit: the PR that refactors an area removes that area's globs from the ratchet list
+  (`zodPending`).
+- External input is `unknown`. Narrow it with a Zod schema; never use `as` (enforced per area
   as Zod lands).
 - New code must not add `as` casts, even where lint allows them; existing casts stay until Part 2.
+- Validate all external data with Zod. Declare an interface, then a schema annotated
+  `z.ZodType<ThatInterface>`: `z.strictObject` for our own inputs (request bodies, our functions'
+  replies), `z.looseObject` for third-party data and DB/RPC jsonb that can gain keys across
+  deploys.
+- Throw only Error subclasses (`_shared/errors.ts`); wrap with `{ cause }` when adding context.
+  Catch only at boundaries (handlers, the per-item isolation this file requires, main loops,
+  shutdown). A catch handles specific error classes or rethrows. Never swallow errors.
+- A client that holds configuration is a factory returning an interface implementation or a class
+  with private readonly fields built from one config interface. Inject `fetch`.
+- No default or optional parameters; pass `undefined` explicitly.
 - Import packages by bare name. Add new ones to the root `deno.json`, every function/relay/sender
   `deno.json` that loads them, and `npm i -D`.
 - Request handlers are named functions passed to `Deno.serve(handler);`.
@@ -372,7 +382,8 @@ The delivery side (retries, pause, attempts, rendering, Vault) is in "Delivery r
 - `relay/main.ts` is only the process shell (env, signals, exit code); behavior goes in
   `relay/relay.ts`, which tests run against a local telnet server and a local functions server.
 - The image runs with `relay/deno.json` as `--config /deno.json`: an import map of exactly the
-  packages the relay loads, at the root's exact versions (`app_config.test.ts`), nothing else.
+  packages the relay loads (`zod`, mapped ahead of the Part 2 relay PR), at the root's exact
+  versions (`app_config.test.ts`), nothing else.
 - `relay/` holds one telnet session per feed in `relay/feeds.ts` and pushes to an
   `ingest-<source>` function built with `servePush` in `_shared/serve.ts`. Parsing lives in the
   source adapter under `_shared` (the relay imports `parseRbnLine`); never parse spots in `relay/`.
@@ -414,7 +425,8 @@ The delivery side (retries, pause, attempts, rendering, Vault) is in "Delivery r
   `sender/db.ts` (the only module that imports postgres.js) and the shared loop
   `_shared/delivery/run.ts`, which tests run with fakes and a local `Deno.serve` receiver.
 - The image runs with `sender/deno.json` as `--config /deno.json`: an import map of exactly the
-  packages the sender loads (`postgres`), at the root's exact versions (`app_config.test.ts`).
+  packages the sender loads (`postgres`, and `zod`, mapped ahead of the Part 2 sender PR), at the
+  root's exact versions (`app_config.test.ts`).
 - It holds `SENDER_DATABASE_URL` for the `delivery_sender` role (through the Supavisor session
   pooler, TLS) and the VAPID triple, never a Supabase API key. Its whole database surface is the
   RPC allowlist in `sender/db.ts` (`SENDER_RPCS`), the grants in `20261015000200` /

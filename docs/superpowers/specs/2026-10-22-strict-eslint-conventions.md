@@ -85,13 +85,13 @@ formatting only relay or sender files, pass the root config:
 
 ## The config
 
-- `pendingStyle` in `eslint.config.ts` lists every area whose Part 1 PR has not merged, sources
-  and tests. Pending files are ignored outright. The PR that fixes an area removes its globs, and
-  nothing else edits the list; it goes once it is empty.
+- `pendingStyle` in `eslint.config.ts` listed every area whose Part 1 PR had not merged, sources
+  and tests, and pending files were ignored outright. The sender PR emptied and deleted it.
 - The main block is `strictTypeChecked` plus the style rules (no ternary, braces always, `===`,
   one statement per line, function declarations, explicit return and boundary types, strict
-  boolean expressions, exhaustive switches, and the `no-restricted-syntax` bans).
-- Deferred to Part 2, off everywhere for now: `no-unsafe-argument`, `no-unsafe-assignment`,
+  boolean expressions, exhaustive switches, and the `no-restricted-syntax` bans), and since the
+  Part 2 setup PR the Part 2 rules (see "Part 2" below).
+- Deferred to Part 2, off in `zodPending` areas: `no-unsafe-argument`, `no-unsafe-assignment`,
   `no-unsafe-call`, `no-unsafe-member-access`, `no-unsafe-return`, `consistent-type-assertions`
   and `no-unnecessary-condition`. Each area turns them on as its Zod schemas land.
 - Tests (`**/__tests__/**/*.ts`) keep every syntax and style ban (`no-restricted-syntax`,
@@ -248,3 +248,238 @@ Root `package.json` checks, in a fresh clone with no `node_modules`: `deno task 
 its own handler for the anon key), health (200 with the payload) and api (401 from its handler).
 Both images build, and their exported filesystems match images built from `origin/main`
 file for file.
+
+## Part 2: Zod and errors
+
+### The config
+
+The Part 2 setup PR turned on, in the main block, `no-empty`, `preserve-caught-error` (given our
+three error class names, since it checks only the built-in ones otherwise) and six more
+`no-restricted-syntax` bans: `z.object`, `z.any()`/`z.unknown()`, `z.infer`, default parameter
+values, optional parameters and hand-written type guards (`value is T`). The bans are two named
+arrays, `styleSyntax` (Part 1's) and `zodSyntax` (the six new ones), and the main block uses both.
+
+- `zodPending` lists the six areas (the same globs as "Areas" below). Its block turns off the seven
+  deferred rules, `no-empty` and `preserve-caught-error`, and sets `no-restricted-syntax` to
+  `styleSyntax` alone, so pending files keep every Part 1 rule. scripts/ and the new
+  `_shared/errors.ts`, `_shared/validate.ts` and their tests are outside it and get the full rules.
+- The surface PR moves the default-parameter and optional-parameter selectors into the list the
+  pending block keeps, so they apply everywhere.
+- Each Part 2 area PR removes its globs from `zodPending`, and nothing else edits the list. The
+  wrap-up PR deletes the empty block.
+- The tests block keeps the narrowing rules off for good.
+
+### Interfaces
+
+Every data shape is an interface; unions and function types stay `type`. Each external shape is an
+interface plus a schema annotated `z.ZodType<ThatInterface>`, next to the code that reads it.
+Never use `z.infer`.
+
+### Strict or loose
+
+Use `z.strictObject` for request bodies and our own Edge Function replies. Use `z.looseObject`
+for third-party feeds and replies, and for DB/RPC jsonb that can gain keys across deploys, with a
+one-line comment saying which of those it is. A key the code reads with a fallback is
+`.optional()`, which keeps "ship in either order" working.
+
+### Validation
+
+1. Assign raw input to `unknown` first.
+2. Validate with `parseWith(schema, raw, "<function>: <input>")` from `_shared/validate.ts`,
+   which runs `safeParse` and throws `ValidationError` with the `ZodError` as cause.
+3. The `as` casts and hand checks it replaces are deleted.
+4. Store raw payloads (`raw_payload`, archives) from the raw `unknown`, never from parsed output.
+
+### Where feed validation goes
+
+`parseFeed` checks only the envelope (an array of `unknown`). Each spot is validated in
+`normalize`, so one bad spot becomes one `ingest_failures` row.
+
+### Refinements
+
+Add a refinement only where the existing code already enforces the constraint. Never tighten what
+the code tolerates today: SOTAwatch `type` null, POTA `spotTime` without a zone, QRT null
+frequency. Every refinement that could reject data accepted today goes in the PR body.
+
+### Errors
+
+Use `_shared/errors.ts` (`ValidationError` with `where`, `FunctionCallError` with `status`,
+`ConfigError`) and never edit it. Constructors are `(message, { cause, ...context })`. Add
+context by wrapping: `throw new X("...", { cause: caught })`.
+
+### Boundaries
+
+Boundaries are the only places with `catch`:
+
+- request handlers (`_shared/handlers/*`, `serve.ts`, `serve_ingest.ts`, entrypoints);
+- per-item isolation that CLAUDE.md requires: `runIngest` per spot into `ingest_failures`,
+  `runDeliveryBatch` per destination into mark/throttle, archive per slice;
+- process loops: relay connect and forward loops, sender cycle, watchdog, best-effort heartbeats
+  (CLAUDE.md: "logged, never retried");
+- shutdown paths.
+
+A boundary catch handles specific classes with `instanceof`, then either does the
+CLAUDE.md-mandated record-and-continue or rethrows / answers 500. Elsewhere, use non-throwing APIs
+(`URL.canParse`, `safeParse`) or move the catch to the boundary. If neither keeps behavior, keep a
+narrow `instanceof` catch with a comment and list it in the PR. `finally` is allowed anywhere.
+
+### Behavior
+
+Requests, responses and status codes stay the same. Error types and messages may change. A
+`ValidationError` on request input answers with the status that input used to get.
+
+### Surface
+
+Area chats keep the surface the surface PR left, with two exceptions: they may turn an exported
+object type into an interface of the same shape, and they may add exported interfaces and schemas
+in their own files.
+
+### Unknown shapes
+
+Derive each schema from its producer: the SQL function, the handler or the fixture. If none can
+be found, write `// TODO: confirm shape` and list it in the PR.
+
+### Measured counts
+
+Measured on the setup PR with `zodPending` temporarily emptied (the tests block on): 351 errors,
+261 in sources and 90 in tests. scripts/ (1, a default parameter) was fixed in the PR; the new
+modules have none.
+
+By area:
+
+| Area | Source | Tests | Total |
+| --- | ---: | ---: | ---: |
+| ingest | 30 | 7 | 37 |
+| archive | 31 | 8 | 39 |
+| handlers | 65 | 44 | 109 |
+| delivery | 51 | 12 | 63 |
+| relay | 54 | 11 | 65 |
+| sender | 30 | 8 | 38 |
+| **Total** | 261 | 90 | 351 |
+
+By rule:
+
+| Rule | Errors |
+| --- | ---: |
+| `no-restricted-syntax` | 154 |
+| `no-unnecessary-condition` | 132 |
+| `consistent-type-assertions` | 60 |
+| `preserve-caught-error` | 3 |
+| `no-unsafe-return` | 2 |
+
+`no-restricted-syntax` by pattern: default parameter 120, optional parameter 27, hand-written type
+guard 7. No `no-empty` hits, and no `z.` hits (nothing imports zod yet).
+
+Default and optional parameters by file (default, optional), 147 in 69 files:
+
+| File | Default | Optional |
+| --- | ---: | ---: |
+| `relay/__tests__/forwarder.test.ts` | 1 | 0 |
+| `relay/__tests__/licenses.test.ts` | 3 | 0 |
+| `relay/__tests__/modules.test.ts` | 1 | 2 |
+| `relay/__tests__/zip.test.ts` | 0 | 1 |
+| `relay/__tests__/zip_server.ts` | 2 | 1 |
+| `relay/functions.ts` | 2 | 2 |
+| `relay/health.ts` | 1 | 0 |
+| `relay/main.ts` | 1 | 0 |
+| `relay/relay.ts` | 1 | 0 |
+| `relay/telnet.ts` | 1 | 0 |
+| `relay/zip.ts` | 3 | 1 |
+| `sender/__tests__/db.test.ts` | 1 | 1 |
+| `sender/__tests__/sender.test.ts` | 6 | 0 |
+| `sender/config.ts` | 0 | 1 |
+| `sender/db.ts` | 1 | 0 |
+| `sender/health.ts` | 1 | 0 |
+| `sender/sender.ts` | 1 | 0 |
+| `_shared/__tests__/aprs.test.ts` | 1 | 0 |
+| `_shared/__tests__/archive.test.ts` | 2 | 0 |
+| `_shared/__tests__/archive_convert.test.ts` | 3 | 1 |
+| `_shared/__tests__/archive_store.test.ts` | 1 | 0 |
+| `_shared/__tests__/auth.test.ts` | 0 | 1 |
+| `_shared/__tests__/cty.test.ts` | 1 | 0 |
+| `_shared/__tests__/delivery_format.test.ts` | 5 | 0 |
+| `_shared/__tests__/delivery_run.test.ts` | 5 | 0 |
+| `_shared/__tests__/delivery_send.test.ts` | 2 | 0 |
+| `_shared/__tests__/dxcluster.test.ts` | 1 | 0 |
+| `_shared/__tests__/fake_supabase.ts` | 1 | 1 |
+| `_shared/__tests__/handlers_api.test.ts` | 4 | 1 |
+| `_shared/__tests__/handlers_archive.test.ts` | 1 | 3 |
+| `_shared/__tests__/handlers_band_map.test.ts` | 1 | 0 |
+| `_shared/__tests__/handlers_callsign_profile.test.ts` | 3 | 1 |
+| `_shared/__tests__/handlers_convert_archive.test.ts` | 0 | 2 |
+| `_shared/__tests__/handlers_delete_account.test.ts` | 2 | 0 |
+| `_shared/__tests__/handlers_group_page.test.ts` | 3 | 0 |
+| `_shared/__tests__/handlers_health.test.ts` | 1 | 0 |
+| `_shared/__tests__/handlers_import_cty.test.ts` | 0 | 1 |
+| `_shared/__tests__/handlers_load_licenses.test.ts` | 3 | 0 |
+| `_shared/__tests__/handlers_relay_status.test.ts` | 4 | 0 |
+| `_shared/__tests__/handlers_sign_in.test.ts` | 4 | 0 |
+| `_shared/__tests__/handlers_test_delivery.test.ts` | 3 | 0 |
+| `_shared/__tests__/ingest.test.ts` | 2 | 0 |
+| `_shared/__tests__/profile_lock_db.test.ts` | 0 | 1 |
+| `_shared/__tests__/rbn.test.ts` | 1 | 0 |
+| `_shared/__tests__/rbn_push.test.ts` | 2 | 0 |
+| `_shared/__tests__/serve.test.ts` | 1 | 1 |
+| `_shared/__tests__/serve_ingest.test.ts` | 0 | 1 |
+| `_shared/api/routes.ts` | 2 | 1 |
+| `_shared/aprs.ts` | 1 | 0 |
+| `_shared/archive.ts` | 2 | 0 |
+| `_shared/cors.ts` | 4 | 0 |
+| `_shared/cty.ts` | 1 | 0 |
+| `_shared/db.ts` | 0 | 1 |
+| `_shared/delivery/format.ts` | 3 | 0 |
+| `_shared/delivery/run.ts` | 1 | 0 |
+| `_shared/delivery/send.ts` | 5 | 0 |
+| `_shared/delivery/urlsafety.ts` | 1 | 0 |
+| `_shared/delivery/webpush.ts` | 1 | 1 |
+| `_shared/dxcluster.ts` | 1 | 0 |
+| `_shared/handlers/api.ts` | 1 | 0 |
+| `_shared/handlers/archive.ts` | 1 | 0 |
+| `_shared/handlers/callsign_profile.ts` | 1 | 0 |
+| `_shared/handlers/convert_archive.ts` | 1 | 0 |
+| `_shared/handlers/test_delivery.ts` | 2 | 0 |
+| `_shared/http.ts` | 2 | 0 |
+| `_shared/ingest.ts` | 1 | 0 |
+| `_shared/rbn_push.ts` | 1 | 0 |
+| `_shared/s3.ts` | 4 | 1 |
+| `_shared/timing.ts` | 1 | 0 |
+
+### Canary
+
+A planted `supabase/functions/_shared/_canary.ts`, outside `zodPending`, with `z.object(...)`,
+`z.any()`, `z.infer<...>`, a default parameter, an optional parameter, a `value is T` guard, an
+empty `catch {}`, a catch throwing `new Error` without `{ cause }`, an `as` cast, a member access
+on `JSON.parse`'s result, and `z.looseObject(...)` and `z.strictObject(...)` (lines 32 and 33):
+
+```
+   3:11  error  Use z.strictObject, not z.object                                       no-restricted-syntax
+   4:11  error  No z.any() or z.unknown(). Describe the real shape                     no-restricted-syntax
+   5:10  error  Declare the interface explicitly and annotate the schema as z.ZodType  no-restricted-syntax
+   6:29  error  No default parameter values. Pass every argument explicitly            no-restricted-syntax
+   9:30  error  No optional parameters. Use T | undefined and pass undefined explicitly no-restricted-syntax
+  12:39  error  No hand-written type guards. Validate with a Zod schema                no-restricted-syntax
+  18:11  error  Empty block statement                                                  no-empty
+  24:5   error  There is no `cause` attached to the symptom error being thrown         preserve-caught-error
+  27:21  error  Do not use any type assertions                                         @typescript-eslint/consistent-type-assertions
+  29:9   error  Unsafe assignment of an `any` value                                    @typescript-eslint/no-unsafe-assignment
+  30:22  error  Unsafe member access .field on an `any` value                          @typescript-eslint/no-unsafe-member-access
+```
+
+(plus two `no-unused-vars` and a `no-unnecessary-type-assertion` from the canary itself). The
+same file under `relay/`, a pending area, reported only those three.
+
+A second canary threw our classes inside a catch. `throw new ValidationError("...", { cause:
+caught, where: "..." })` passed; the same without `cause` reported `missingCause`, and
+`FunctionCallError` / `ConfigError` with `cause: undefined` reported `incorrectCause`. Before the
+config named the classes (`errorClassNames`), the rule reported none of them. Both canaries were
+deleted.
+
+### Setup deviations
+
+- **zod is mapped as `npm:zod@4.6.7`, not `npm:zod@4`.** 4.6.7 is what Deno resolves for
+  `npm:zod@4`. `app_config.test.ts` requires the relay's and the sender's mappings to equal the
+  root's and to be exact versions (the images have no `deno.lock`), so the root and every
+  function's `deno.json` use the exact version too.
+- **The relay's and the sender's `deno.json` map zod before either loads it**, so the Part 2
+  areas can import it without touching the app configs.
+- **`preserve-caught-error` takes `errorClassNames`** (see "Canary").
