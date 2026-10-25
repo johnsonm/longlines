@@ -164,8 +164,8 @@ export function aprsPacketType(info: string): AprsPacketType {
 
 /**
  * The aprs_packets row for one relay item. Throws ValidationError when the item
- * is malformed, the line is not a packet, received_at is unusable or implausible against now, or a value would
- * fail the whole batch in Postgres.
+ * is malformed, the line is not a packet, received_at is unusable or implausible
+ * against now, or a value would fail the whole batch in Postgres.
  */
 export function aprsPacketRow(raw: JsonObject, now: Date): AprsPacketRow {
   const item = parseWith(relayLineSchema, raw, "aprsPacketRow: relay line");

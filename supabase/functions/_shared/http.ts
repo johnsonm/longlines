@@ -53,7 +53,10 @@ export async function fetchJson(url: string, options: FetchOptions): Promise<unk
   return body;
 }
 
-/** GET a text document, trimmed. Throws FunctionCallError on non-2xx, and the runtime's error on a timeout. */
+/**
+ * GET a text document, trimmed. Throws FunctionCallError on non-2xx, and the
+ * runtime's error on a timeout.
+ */
 export async function fetchText(url: string, options: FetchOptions): Promise<string> {
   const response = await fetchOk(url, "text/plain, */*", options);
   return (await response.text()).trim();

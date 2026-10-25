@@ -118,9 +118,15 @@ export interface SourceAdapter {
   fetchSpots(): Promise<unknown>;
   /** Only sources with a cheap "anything new?" endpoint implement this. */
   fetchEpoch?(): Promise<string>;
-  /** Validate the response body shape and return the spots in processing order. Throws on bad shape. */
+  /**
+   * Validate the response body's envelope and return the spots, as received, in
+   * processing order. Throws ValidationError on a bad envelope; normalize checks each spot.
+   */
   parseFeed(body: unknown): JsonObject[];
-  /** Normalize one upstream spot. Throws when the spot cannot be processed. */
+  /**
+   * Normalize one upstream spot. Throws ValidationError when the spot cannot be
+   * processed, which runIngest records as one ingest_failures row.
+   */
   normalize(raw: JsonObject, now: Date): Promise<NormalizeResult>;
 }
 

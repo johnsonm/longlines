@@ -46,7 +46,10 @@ export const relayLineSchema: z.ZodType<RelayLineItem> = z.strictObject({
   received_at: requiredTextSchema,
 });
 
-/** Validates a relay request body and returns its items in order, as received. Throws ValidationError on a bad shape. */
+/**
+ * Validates a relay request body and returns its items in order, as received.
+ * Throws ValidationError on a bad shape.
+ */
 export function parseRelayBody(body: unknown): JsonObject[] {
   return parseWith(relayBodySchema, body, "parseRelayBody: relay body").lines;
 }

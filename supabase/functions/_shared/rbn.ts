@@ -97,8 +97,9 @@ function rbnComment(parsed: RbnLine): string {
 
 /**
  * The rbn_spots row for one relay item. No age cutoff: storage keeps late lines.
- * Throws ValidationError when the item is malformed, the line is not a spot, received_at is unusable or implausible
- * against now, or a value would fail the whole batch in Postgres.
+ * Throws ValidationError when the item is malformed, the line is not a spot,
+ * received_at is unusable or implausible against now, or a value would fail the
+ * whole batch in Postgres.
  */
 export function rbnSpotRow(raw: JsonObject, now: Date): RbnSpotRow {
   const item = parseWith(relayLineSchema, raw, "rbnSpotRow: relay line");
