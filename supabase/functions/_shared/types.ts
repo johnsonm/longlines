@@ -1,11 +1,36 @@
+import { z } from "zod";
 import type { AprsPacketType } from "./aprs.ts";
 import type { ModeFamily } from "./modes.ts";
 import type { LicenseLoad, UlsCounts, UlsKind, UlsRow } from "./uls.ts";
 
 export type Source = "pota" | "sotawatch" | "rbn" | "dxcluster" | "aprs" | "wwff";
 
+/** A source name as the database stores it (raw_spots_source_check plus aprs). */
+export const sourceSchema: z.ZodType<Source> = z.enum([
+  "pota",
+  "sotawatch",
+  "rbn",
+  "dxcluster",
+  "aprs",
+  "wwff",
+]);
+
 /** A JSON object as received from an upstream feed. Fields are validated at use. */
 export type JsonObject = Record<string, unknown>;
+
+/**
+ * A feed item that is a JSON object (not null, not an array), passed through as
+ * received. Not z.looseObject: that returns a copy, and the copy loses an own
+ * "__proto__" key, while raw_payload must be the item exactly as upstream sent it.
+ */
+export const jsonObjectSchema: z.ZodType<JsonObject> = z.custom<JsonObject>(
+  isJsonObject,
+  "expected an object",
+);
+
+function isJsonObject(value: unknown): boolean {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
 /**
  * One row to insert into raw_spots. Keys match the column names so the batch
@@ -70,9 +95,19 @@ export interface AprsPacketRow {
 /** Why a well-formed upstream spot was intentionally not stored. */
 export type SkipReason = "too_old" | "test_comment" | "not_normal";
 
-export type NormalizeResult =
-  | { kind: "spot"; spot: NormalizedSpot }
-  | { kind: "skip"; reason: SkipReason };
+/** normalize kept the spot. */
+export interface SpotResult {
+  kind: "spot";
+  spot: NormalizedSpot;
+}
+
+/** normalize dropped the spot on purpose. */
+export interface SkipResult {
+  kind: "skip";
+  reason: SkipReason;
+}
+
+export type NormalizeResult = SpotResult | SkipResult;
 
 /**
  * A source adapter. parseFeed and normalize are pure so they can be tested
@@ -165,15 +200,18 @@ export interface ArchiveLogEntry extends ArchiveSlice {
   object_path: string | null;
 }
 
+/** One slice from archive_columns: its row count and its columns (null when empty). */
+export interface ArchiveSliceColumns {
+  row_count: number;
+  columns: ArchiveColumns | null;
+}
+
 /** Database operations the archive job needs. Implemented by db.ts over the archive RPCs. */
 export interface ArchiveDb {
   /** Slices of a source that ended before `before` and are not logged, oldest first. */
   pendingSlices(source: Source, before: Date, limit: number): Promise<ArchiveSlice[]>;
   /** One slice as column arrays in row order (null when empty) and its row count. */
-  sliceColumns(
-    source: Source,
-    slice: ArchiveSlice,
-  ): Promise<{ row_count: number; columns: ArchiveColumns | null }>;
+  sliceColumns(source: Source, slice: ArchiveSlice): Promise<ArchiveSliceColumns>;
   logArchive(entry: ArchiveLogEntry): Promise<void>;
 }
 
@@ -206,6 +244,12 @@ export interface ConvertCursor {
   source: Source;
 }
 
+/** The Parquet object a converted slice's log row is pointed at. */
+export interface RepointTarget {
+  object_path: string;
+  bytes: number;
+}
+
 /** Database operations the NDJSON conversion needs. Implemented by db.ts (20261021000700). */
 export interface ConvertDb {
   /** Log rows still on NDJSON after the cursor (all when null), oldest first. */
@@ -214,10 +258,7 @@ export interface ConvertDb {
    * Points the log row at the Parquet object, only while it still names `from`
    * and has `row_count` rows. False when nothing matched.
    */
-  repointSlice(
-    slice: NdjsonSlice,
-    to: { object_path: string; bytes: number },
-  ): Promise<boolean>;
+  repointSlice(slice: NdjsonSlice, to: RepointTarget): Promise<boolean>;
 }
 
 /** The FCC license load's staging RPCs (20261012000050). Implemented by db.ts. */
