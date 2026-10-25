@@ -3,6 +3,7 @@
 // subscription names (exactly or by base call, see watched_among) continue through runIngest into raw_spots, the spot_events queue and
 // the matcher, exactly as before the firehose.
 
+import { ValidationError } from "./errors.ts";
 import { recordFailureAndThrow, runIngest } from "./ingest.ts";
 import { rbnAdapter, rbnSpotRow } from "./rbn.ts";
 import { parseRelayBody, withoutNul } from "./relay_lines.ts";
@@ -18,11 +19,10 @@ import type {
 
 export type RbnPushDb = IngestDb & WatchlistDb & RbnDb;
 
-function errorMessage(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return String(error);
+/** A relay item that made an rbn_spots row, and that row. */
+interface StoredLine {
+  raw: JsonObject;
+  row: RbnSpotRow;
 }
 
 export async function runRbnPush(
@@ -30,23 +30,27 @@ export async function runRbnPush(
   db: RbnPushDb,
   now: Date,
 ): Promise<IngestSummary> {
-  const rows: RbnSpotRow[] = [];
-  const kept: JsonObject[] = [];
+  const lines: StoredLine[] = [];
   const failures: SpotFailure[] = [];
+  const watchedItems: JsonObject[] = [];
   let items: JsonObject[];
-  let watchedItems: JsonObject[];
   let stored = 0;
 
   try {
     items = parseRelayBody(body);
     for (const raw of items) {
       try {
-        rows.push(rbnSpotRow(raw, now));
-        kept.push(raw);
+        lines.push({ raw, row: rbnSpotRow(raw, now) });
       } catch (error) {
-        failures.push({ source: "rbn", error: errorMessage(error), raw_payload: withoutNul(raw) });
+        // Per line: an unparseable line becomes one ingest_failures row, and anything
+        // else fails the batch.
+        if (!(error instanceof ValidationError)) {
+          throw error;
+        }
+        failures.push({ source: "rbn", error: error.message, raw_payload: withoutNul(raw) });
       }
     }
+    const rows = lines.map((line) => line.row);
     if (rows.length > 0) {
       stored = await db.ingestRbnSpots(rows);
     }
@@ -55,18 +59,13 @@ export async function runRbnPush(
     }
     const stations = Array.from(new Set(rows.map((row) => row.callsign)));
     const watched = new Set(await db.watchedAmong("rbn", stations));
-    // kept[i] is the item rows[i] came from.
-    watchedItems = [];
-    for (const entry of kept.entries()) {
-      const row = rows[entry[0]];
-      if (row === undefined) {
-        throw new Error(`rbn push: no row for kept line ${String(entry[0])}`);
-      }
-      if (watched.has(row.callsign)) {
-        watchedItems.push(entry[1]);
+    for (const line of lines) {
+      if (watched.has(line.row.callsign)) {
+        watchedItems.push(line.raw);
       }
     }
   } catch (error) {
+    // Records the run's failure in ingest_state, then rethrows it for the handler's 500.
     return await recordFailureAndThrow(db, "rbn", error);
   }
 

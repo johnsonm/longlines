@@ -1,3 +1,4 @@
+import { FunctionCallError, ValidationError } from "../errors.ts";
 import { assertEquals, assertMatch, assertRejects } from "@std/assert";
 import { runRbnPush } from "../rbn_push.ts";
 import type { InsertedSpot, NormalizedSpot, RbnSpotRow, Source, SpotFailure } from "../types.ts";
@@ -155,7 +156,11 @@ Deno.test(
     const fake = fakeDb({});
     const db = fake.db;
     const calls = fake.calls;
-    await assertRejects(() => runRbnPush({ nope: true }, db, NOW), Error, '"lines" array');
+    await assertRejects(
+      () => runRbnPush({ nope: true }, db, NOW),
+      ValidationError,
+      "parseRelayBody: relay body: lines",
+    );
     assertEquals(calls.failure.length, 1);
     assertEquals(calls.stored, []);
   },
@@ -220,7 +225,8 @@ Deno.test(
   async function (): Promise<void> {
     const fake = fakeDb({ storeFails: true });
     const db = fake.db;
-    db.recordFailure = () => Promise.reject(new Error("db down"));
+    db.recordFailure = () =>
+      Promise.reject(new FunctionCallError("db down", { cause: undefined, status: 500 }));
     const errors = await capturingErrors(() =>
       assertRejects(
         () => runRbnPush({ lines: [item(watchedLine, RECEIVED)] }, db, NOW),

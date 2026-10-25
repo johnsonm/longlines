@@ -20,11 +20,12 @@
 // spots here: RBN already covers them.
 
 import { bandForFrequency } from "./bands.ts";
+import { ValidationError } from "./errors.ts";
 import { contentHash } from "./hash.ts";
 import { runIngest } from "./ingest.ts";
 import { modeFamily, resolveDxMode } from "./modes.ts";
 import { cleanCallsign, isTooOld, parseKhz, parseUtc } from "./normalize.ts";
-import { relayAdapter, requireString, spotTimeFromHhmm } from "./relay_lines.ts";
+import { relayAdapter, relayLineSchema, spotTimeFromHhmm } from "./relay_lines.ts";
 import type {
   IngestDb,
   IngestSummary,
@@ -32,6 +33,7 @@ import type {
   NormalizeResult,
   SourceAdapter,
 } from "./types.ts";
+import { parseWith } from "./validate.ts";
 
 const MAX_AGE_MS = 5 * 60 * 1000;
 
@@ -100,11 +102,14 @@ export function dxclusterAdapter(body: unknown): SourceAdapter {
 
 /** Normalizes one relay item (a telnet line and when the relay received it). */
 async function normalizeDxSpot(raw: JsonObject, now: Date): Promise<NormalizeResult> {
-  const line = requireString(raw, "line");
-  const receivedAt = parseUtc(requireString(raw, "received_at"));
-  const parsed = parseDxLine(line);
+  const item = parseWith(relayLineSchema, raw, "normalizeDxSpot: relay line");
+  const receivedAt = parseUtc(item.received_at);
+  const parsed = parseDxLine(item.line);
   if (parsed === null) {
-    throw new Error("not a DX Cluster spot line");
+    throw new ValidationError("not a DX Cluster spot line", {
+      cause: undefined,
+      where: "normalizeDxSpot: line",
+    });
   }
 
   const spotTime = spotTimeFromHhmm(parsed.hhmm, receivedAt);
