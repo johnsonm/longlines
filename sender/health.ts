@@ -40,19 +40,37 @@ export function healthHandler(
   staleMs: number,
   now: () => Date = () => new Date(),
 ): (req: Request) => Response {
-  return (req: Request): Response => {
-    if (new URL(req.url).pathname !== "/healthz") return new Response("not found", { status: 404 });
+  function handler(req: Request): Response {
+    if (new URL(req.url).pathname !== "/healthz") {
+      return new Response("not found", { status: 404 });
+    }
     const s = status();
-    const last = s.lastProgressAt ?? s.startedAt;
+    let last = s.startedAt;
+    if (s.lastProgressAt !== null && s.lastProgressAt !== undefined) {
+      last = s.lastProgressAt;
+    }
     const healthy = now().getTime() - last.getTime() < staleMs;
+    let lastClaimAt: string | null = null;
+    if (s.lastClaimAt !== null && s.lastClaimAt !== undefined) {
+      lastClaimAt = s.lastClaimAt.toISOString();
+    }
+    let lastProgressAt: string | null = null;
+    if (s.lastProgressAt !== null && s.lastProgressAt !== undefined) {
+      lastProgressAt = s.lastProgressAt.toISOString();
+    }
+    let code = 503;
+    if (healthy) {
+      code = 200;
+    }
     return Response.json({
       healthy,
-      last_claim_at: s.lastClaimAt?.toISOString() ?? null,
-      last_progress_at: s.lastProgressAt?.toISOString() ?? null,
+      last_claim_at: lastClaimAt,
+      last_progress_at: lastProgressAt,
       last_error: s.lastError,
       in_flight: s.inFlight,
       totals: s.totals,
       queue: s.queue,
-    }, { status: healthy ? 200 : 503 });
-  };
+    }, { status: code });
+  }
+  return handler;
 }
