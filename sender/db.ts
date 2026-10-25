@@ -12,6 +12,13 @@ import postgres, { type JSONValue, type ParameterOrJSON } from "postgres";
 import type { DeliveryRpc } from "../supabase/functions/_shared/delivery/run.ts";
 import { RETRY_MAX_MS, RETRY_MIN_MS, type SenderConfig } from "./config.ts";
 
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
+}
+
 type SqlType = "int" | "bigint" | "bigint[]" | "text" | "text[]" | "uuid" | "jsonb" | "timestamptz";
 
 /**
@@ -53,13 +60,31 @@ export interface RpcStatement {
  * argument is passed as null. Throws for a function or argument not listed.
  */
 export function rpcStatement(fn: string, args: Record<string, unknown>): RpcStatement {
-  const spec = Object.hasOwn(SENDER_RPCS, fn) ? SENDER_RPCS[fn] : undefined;
-  if (!spec) throw new Error(`${fn} is not in the sender's RPC allowlist`);
-  for (const name of Object.keys(args)) {
-    if (!Object.hasOwn(spec, name)) throw new Error(`${fn} has no parameter ${name}`);
+  let spec: Readonly<Record<string, SqlType>> | undefined = undefined;
+  if (Object.hasOwn(SENDER_RPCS, fn)) {
+    spec = SENDER_RPCS[fn];
   }
-  const params = Object.entries(spec).map(([name, type]) => ({ value: args[name] ?? null, type }));
-  const list = Object.keys(spec).map((name, i) => `${name} => $${i + 1}::${spec[name]}`).join(", ");
+  if (spec === undefined || spec === null) {
+    throw new Error(`${fn} is not in the sender's RPC allowlist`);
+  }
+  for (const name of Object.keys(args)) {
+    if (!Object.hasOwn(spec, name)) {
+      throw new Error(`${fn} has no parameter ${name}`);
+    }
+  }
+  const params: RpcStatement["params"] = [];
+  const placeholders: string[] = [];
+  for (const entry of Object.entries(spec)) {
+    const name = entry[0];
+    const type = entry[1];
+    let value = args[name];
+    if (value === undefined || value === null) {
+      value = null;
+    }
+    params.push({ value, type });
+    placeholders.push(`${name} => $${String(params.length)}::${type}`);
+  }
+  const list = placeholders.join(", ");
   return { text: `select * from public.${fn}(${list})`, params };
 }
 
@@ -88,20 +113,28 @@ export interface SenderDb extends DeliveryRpc {
  * failed call never throws.
  */
 export function senderDb(sql: SqlClient): SenderDb {
+  // A jsonb argument goes through sql.json(); the rest are passed as they are.
+  function paramValue(p: RpcStatement["params"][number]): unknown {
+    if (p.type === "jsonb") {
+      return sql.json(p.value as JSONValue);
+    }
+    return p.value;
+  }
   return {
-    async rpc(fn, args) {
+    async rpc(
+      fn: string,
+      args: Record<string, unknown>,
+    ): Promise<{ data: unknown; error: string | null }> {
       try {
-        const { text, params } = rpcStatement(fn, args);
+        const statement = rpcStatement(fn, args);
         const rows = await sql.unsafe(
-          text,
-          params.map((
-            p,
-          ) => (p.type === "jsonb" ? sql.json(p.value as JSONValue) : p.value)) as SqlParam[],
+          statement.text,
+          statement.params.map(paramValue) as SqlParam[],
           { prepare: true },
         );
         return { data: Array.from(rows), error: null };
       } catch (error) {
-        return { data: null, error: error instanceof Error ? error.message : String(error) };
+        return { data: null, error: errorMessage(error) };
       }
     },
     close: () => sql.end({ timeout: 5 }),
@@ -113,6 +146,22 @@ export type DbConnectionConfig =
   & Pick<SenderConfig, "databaseUrl" | "databaseSsl">
   & Partial<Pick<SenderConfig, "databaseCa" | "databaseVerifyHost">>;
 
+/** A certificate check that accepts any host name (sslmode=verify-ca). */
+function skipHostCheck(): undefined {
+  return undefined;
+}
+
+/** TLS verified against SENDER_DATABASE_CA. */
+interface VerifiedSsl {
+  ca: string;
+  rejectUnauthorized: true;
+  servername: string;
+  checkServerIdentity?: () => undefined;
+}
+
+/** No TLS, TLS without verifying the server, or TLS verified against a CA. */
+type SslOption = false | "require" | VerifiedSsl;
+
 /**
  * The ssl option. postgres.js's "require" encrypts without checking the
  * server's certificate (it sets rejectUnauthorized false); with
@@ -120,15 +169,82 @@ export type DbConnectionConfig =
  * says sslmode=verify-ca, name the host. postgres.js ignores the URL's sslmode
  * because the sender passes options, so config.ts reads it.
  */
-export function sslOption(config: DbConnectionConfig, host: string) {
-  if (!config.databaseSsl) return false as const;
-  if (!config.databaseCa) return "require" as const;
-  return {
+export function sslOption(config: DbConnectionConfig, host: string): SslOption {
+  if (!config.databaseSsl) {
+    return false;
+  }
+  if (config.databaseCa === undefined || config.databaseCa === "") {
+    return "require";
+  }
+  const ssl: VerifiedSsl = {
     ca: config.databaseCa,
-    rejectUnauthorized: true as const,
+    rejectUnauthorized: true,
     servername: host,
-    ...(config.databaseVerifyHost === false ? { checkServerIdentity: () => undefined } : {}),
   };
+  if (config.databaseVerifyHost === false) {
+    ssl.checkServerIdentity = skipHostCheck;
+  }
+  return ssl;
+}
+
+/** A custom postgres.js type: the OID it sends, the OIDs it reads, and both conversions. */
+interface CustomType<T, R> {
+  to: number;
+  from: number[];
+  serialize: (value: T) => string;
+  parse: (raw: string) => R;
+}
+
+/** clientOptions' value: the connection from the URL and every other option set. */
+interface ClientOptions {
+  host: string;
+  port: number;
+  user: string;
+  password: string;
+  database: string;
+  ssl: SslOption;
+  max: number;
+  prepare: boolean;
+  connect_timeout: number;
+  idle_timeout: number;
+  max_lifetime: number;
+  max_pipeline: number;
+  backoff: (retries: number) => number;
+  keep_alive: number;
+  debug: boolean;
+  fetch_types: boolean;
+  publications: string;
+  target_session_attrs: undefined;
+  sslnegotiation: null;
+  connection: { application_name: string };
+  types: {
+    bigint: CustomType<number | bigint, number>;
+    date: CustomType<Date | string, string>;
+  };
+}
+
+/** postgres.js's own reconnect backoff, in seconds. */
+function reconnectBackoff(retries: number): number {
+  return (0.5 + Math.random() / 2) * Math.min(3 ** retries / 100, 20);
+}
+
+function serializeBigint(value: number | bigint): string {
+  return value.toString();
+}
+
+function parseBigint(raw: string): number {
+  return Number(raw);
+}
+
+function serializeDate(value: Date | string): string {
+  if (typeof value === "string") {
+    return value;
+  }
+  return value.toISOString();
+}
+
+function parseDate(raw: string): string {
+  return raw;
 }
 
 /**
@@ -139,14 +255,22 @@ export function sslOption(config: DbConnectionConfig, host: string) {
  * int8 comes back as Number (msg_id and delivery_id are numbers in
  * PendingDelivery), timestamps as strings, as PostgREST returns them.
  */
-export function clientOptions(config: DbConnectionConfig) {
+export function clientOptions(config: DbConnectionConfig): ClientOptions {
   const url = new URL(config.databaseUrl);
+  let port = Number(url.port);
+  if (port === 0 || Number.isNaN(port)) {
+    port = 5432;
+  }
+  let database = decodeURIComponent(url.pathname.slice(1));
+  if (database === "") {
+    database = "postgres";
+  }
   return {
     host: url.hostname,
-    port: Number(url.port) || 5432,
+    port,
     user: decodeURIComponent(url.username),
     password: decodeURIComponent(url.password),
-    database: decodeURIComponent(url.pathname.slice(1)) || "postgres",
+    database,
     ssl: sslOption(config, url.hostname),
     // Two connections: the poll loop and the stats refresh may overlap; LISTEN takes one later.
     max: 2,
@@ -157,7 +281,7 @@ export function clientOptions(config: DbConnectionConfig) {
     // postgres.js's own defaults for the rest, spelled out.
     max_lifetime: 60 * (30 + Math.random() * 30),
     max_pipeline: 100,
-    backoff: (retries: number) => (0.5 + Math.random() / 2) * Math.min(3 ** retries / 100, 20),
+    backoff: reconnectBackoff,
     keep_alive: 60,
     debug: false,
     fetch_types: true,
@@ -169,16 +293,14 @@ export function clientOptions(config: DbConnectionConfig) {
       bigint: {
         to: 20,
         from: [20],
-        serialize: (value: number | bigint) => value.toString(),
-        parse: (raw: string) => Number(raw),
+        serialize: serializeBigint,
+        parse: parseBigint,
       },
       date: {
         to: 1184,
         from: [1082, 1114, 1184],
-        serialize: (
-          value: Date | string,
-        ) => (typeof value === "string" ? value : value.toISOString()),
-        parse: (raw: string) => raw,
+        serialize: serializeDate,
+        parse: parseDate,
       },
     },
   };
@@ -205,13 +327,32 @@ export interface OpenOptions {
   deadlineMs?: number;
 }
 
+function logLine(message: string): void {
+  console.log(message);
+}
+
+function sleepMs(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function ignoreCloseFailure(): void {
+  // Nothing to do: the next attempt opens a new pool.
+}
+
 /** Rejects with `message` after `ms` unless `promise` settles first. */
 export function withTimeout<T>(promise: PromiseLike<T>, ms: number, message: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const expiry = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(message)), ms);
-  });
-  return Promise.race([Promise.resolve(promise), expiry]).finally(() => clearTimeout(timer));
+  function expire(_resolve: unknown, reject: (reason: Error) => void): void {
+    function fire(): void {
+      reject(new Error(message));
+    }
+    timer = setTimeout(fire, ms);
+  }
+  function stop(): void {
+    clearTimeout(timer);
+  }
+  const expiry = new Promise<never>(expire);
+  return Promise.race([Promise.resolve(promise), expiry]).finally(stop);
 }
 
 /**
@@ -225,13 +366,32 @@ export async function openSenderDb(
   config: DbConnectionConfig,
   options: OpenOptions = {},
 ): Promise<SenderDb> {
-  const log = options.log ?? ((message: string) => console.log(message));
-  const now = options.now ?? Date.now;
-  const sleep = options.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)));
-  const connect = options.connect ?? createClient;
-  const probeTimeoutMs = options.probeTimeoutMs ?? PROBE_TIMEOUT_MS;
-  const deadline = now() + (options.deadlineMs ?? OPEN_DEADLINE_MS);
-  if (config.databaseSsl && !config.databaseCa) {
+  let log = logLine;
+  if (options.log !== undefined && options.log !== null) {
+    log = options.log;
+  }
+  let now = Date.now;
+  if (options.now !== undefined && options.now !== null) {
+    now = options.now;
+  }
+  let sleep = sleepMs;
+  if (options.sleep !== undefined && options.sleep !== null) {
+    sleep = options.sleep;
+  }
+  let connect = createClient;
+  if (options.connect !== undefined && options.connect !== null) {
+    connect = options.connect;
+  }
+  let probeTimeoutMs = PROBE_TIMEOUT_MS;
+  if (options.probeTimeoutMs !== undefined && options.probeTimeoutMs !== null) {
+    probeTimeoutMs = options.probeTimeoutMs;
+  }
+  let deadlineMs = OPEN_DEADLINE_MS;
+  if (options.deadlineMs !== undefined && options.deadlineMs !== null) {
+    deadlineMs = options.deadlineMs;
+  }
+  const deadline = now() + deadlineMs;
+  if (config.databaseSsl && (config.databaseCa === undefined || config.databaseCa === "")) {
     log(
       "warning: TLS to the database does not verify the server certificate; " +
         "set SENDER_DATABASE_CA (docs/OPERATIONS.md)",
@@ -245,17 +405,21 @@ export async function openSenderDb(
       const probe = await withTimeout(
         db.rpc("delivery_queue_stats", {}),
         probeTimeoutMs,
-        `no answer within ${probeTimeoutMs} ms`,
+        `no answer within ${String(probeTimeoutMs)} ms`,
       );
-      if (probe.error === null) return db;
+      if (probe.error === null) {
+        return db;
+      }
       error = probe.error;
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      error = errorMessage(e);
     }
     // end() waits at most its own timeout; a close that fails changes nothing here.
-    await db.close().catch(() => {});
-    if (now() + retryMs > deadline) throw new Error(`database probe failed: ${error}`);
-    log(`database probe failed: ${error}; retrying in ${retryMs} ms`);
+    await db.close().catch(ignoreCloseFailure);
+    if (now() + retryMs > deadline) {
+      throw new Error(`database probe failed: ${error}`);
+    }
+    log(`database probe failed: ${error}; retrying in ${String(retryMs)} ms`);
     await sleep(retryMs);
     retryMs = Math.min(retryMs * 2, RETRY_MAX_MS);
   }

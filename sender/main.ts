@@ -30,17 +30,31 @@ export async function main(): Promise<void> {
   // kill_timeout for the exit. Stop claiming, let the cycle in flight finish
   // its marks, then exit; a cycle cut off by the timeout leaves un-acked
   // messages that reappear after the visibility timeout and are sent once more.
-  const shutdown = () => sender.shutdown().then(() => Deno.exit(0));
-  Deno.addSignalListener("SIGINT", shutdown);
-  Deno.addSignalListener("SIGTERM", shutdown);
+  async function shutdown(): Promise<void> {
+    await sender.shutdown();
+    Deno.exit(0);
+  }
+  function onSignal(): void {
+    void shutdown();
+  }
+  Deno.addSignalListener("SIGINT", onSignal);
+  Deno.addSignalListener("SIGTERM", onSignal);
 
   await sender.done;
 }
 
+function exitOnFailure(error: unknown): void {
+  let message: string;
+  if (error instanceof Error) {
+    message = error.message;
+  } else {
+    message = String(error);
+  }
+  console.error(`sender failed: ${message}`);
+  // Exit non-zero so Fly restarts the machine.
+  Deno.exit(1);
+}
+
 if (import.meta.main) {
-  main().catch((error) => {
-    console.error(`sender failed: ${error instanceof Error ? error.message : String(error)}`);
-    // Exit non-zero so Fly restarts the machine.
-    Deno.exit(1);
-  });
+  main().catch(exitOnFailure);
 }

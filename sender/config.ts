@@ -59,9 +59,19 @@ export function isLocalHost(hostname: string): boolean {
   return ["127.0.0.1", "localhost", "host.docker.internal", "[::1]"].includes(hostname);
 }
 
+/** The trimmed value, or "" when unset. */
+function trimmed(value: string | undefined): string {
+  if (value === undefined) {
+    return "";
+  }
+  return value.trim();
+}
+
 function required(env: (name: string) => string | undefined, name: string): string {
-  const value = env(name)?.trim();
-  if (!value) throw new Error(`missing environment variable ${name}`);
+  const value = trimmed(env(name));
+  if (value === "") {
+    throw new Error(`missing environment variable ${name}`);
+  }
   return value;
 }
 
@@ -85,13 +95,17 @@ export function integerAtLeast(
   min: number,
   max?: number,
 ): number {
-  const v = value?.trim();
-  if (!v) return fallback;
+  const v = trimmed(value);
+  if (v === "") {
+    return fallback;
+  }
   const n = Number(v);
   if (!Number.isInteger(n) || n < min) {
-    throw new Error(`${name} must be a whole number of at least ${min}`);
+    throw new Error(`${name} must be a whole number of at least ${String(min)}`);
   }
-  if (max !== undefined && n > max) throw new Error(`${name} must be at most ${max}`);
+  if (max !== undefined && n > max) {
+    throw new Error(`${name} must be at most ${String(max)}`);
+  }
   return n;
 }
 
@@ -100,8 +114,10 @@ export function integerAtLeast(
  * pasted with literal "\n" escapes is accepted too.
  */
 function databaseCa(value: string | undefined): string | undefined {
-  const v = value?.trim().replaceAll("\\n", "\n");
-  if (!v) return undefined;
+  const v = trimmed(value).replaceAll("\\n", "\n");
+  if (v === "") {
+    return undefined;
+  }
   if (!v.includes("-----BEGIN CERTIFICATE-----") || !v.includes("-----END CERTIFICATE-----")) {
     throw new Error("SENDER_DATABASE_CA must be a PEM certificate (-----BEGIN CERTIFICATE-----)");
   }
@@ -122,10 +138,16 @@ function databaseUrl(value: string): { url: string; local: boolean; sslmode: str
   if (url.protocol !== "postgres:" && url.protocol !== "postgresql:") {
     throw new Error("SENDER_DATABASE_URL must be a postgres:// URL");
   }
-  if (!url.hostname) throw new Error("SENDER_DATABASE_URL must name a host");
-  if (!url.username) throw new Error("SENDER_DATABASE_URL must name a user");
+  if (url.hostname === "") {
+    throw new Error("SENDER_DATABASE_URL must name a host");
+  }
+  if (url.username === "") {
+    throw new Error("SENDER_DATABASE_URL must name a user");
+  }
   // postgres.js would fall back to PGPASSWORD, which the image does not allow it to read.
-  if (!url.password) throw new Error("SENDER_DATABASE_URL must carry a password");
+  if (url.password === "") {
+    throw new Error("SENDER_DATABASE_URL must carry a password");
+  }
   const local = isLocalHost(url.hostname);
   const sslmode = url.searchParams.get("sslmode");
   if (!local && (sslmode === "disable" || sslmode === "allow")) {
@@ -144,9 +166,11 @@ export function loadConfig(env: (name: string) => string | undefined): SenderCon
   }
   const ca = databaseCa(env("SENDER_DATABASE_CA"));
   const verify = db.sslmode === "verify-full" || db.sslmode === "verify-ca";
-  if (!db.local && verify && !ca) {
+  if (!db.local && verify && (ca === undefined || ca === "")) {
     throw new Error(
-      `SENDER_DATABASE_URL asks for sslmode=${db.sslmode}, which needs SENDER_DATABASE_CA (the server's CA certificate)`,
+      `SENDER_DATABASE_URL asks for sslmode=${
+        String(db.sslmode)
+      }, which needs SENDER_DATABASE_CA (the server's CA certificate)`,
     );
   }
   const pollMs = integerAtLeast(
@@ -166,20 +190,29 @@ export function loadConfig(env: (name: string) => string | undefined): SenderCon
   const minStaleMs = Math.max(pollMs, RETRY_MAX_MS) + STALE_MARGIN_MS;
   if (staleMs < minStaleMs) {
     throw new Error(
-      `SENDER_STALE_MS must be at least ${minStaleMs} (the longer of SENDER_POLL_MS and the ` +
-        `${RETRY_MAX_MS} ms claim retry, plus ${STALE_MARGIN_MS}), or the watchdog stops a healthy sender`,
+      `SENDER_STALE_MS must be at least ${
+        String(minStaleMs)
+      } (the longer of SENDER_POLL_MS and the ` +
+        `${String(RETRY_MAX_MS)} ms claim retry, plus ${
+          String(STALE_MARGIN_MS)
+        }), or the watchdog stops a healthy sender`,
     );
+  }
+  // TLS is off for a local host, so there is nothing to verify.
+  let verifiedCa: string | undefined = ca;
+  if (db.local) {
+    verifiedCa = undefined;
+  }
+  let healthPort = env("SENDER_HEALTH_PORT");
+  if (healthPort === undefined || healthPort === null) {
+    healthPort = String(DEFAULT_HEALTH_PORT);
   }
   return {
     databaseUrl: db.url,
     databaseSsl: !db.local,
-    // TLS is off for a local host, so there is nothing to verify.
-    databaseCa: db.local ? undefined : ca,
+    databaseCa: verifiedCa,
     databaseVerifyHost: db.sslmode !== "verify-ca",
-    healthPort: portNumber(
-      env("SENDER_HEALTH_PORT") ?? String(DEFAULT_HEALTH_PORT),
-      "SENDER_HEALTH_PORT",
-    ),
+    healthPort: portNumber(healthPort, "SENDER_HEALTH_PORT"),
     pollMs,
     concurrency: integerAtLeast(
       env("SENDER_CONCURRENCY"),
