@@ -42,7 +42,7 @@ export function statusBody(
 export interface StatusLoop {
   feeds: readonly StatusFeed[];
   startedAt: Date;
-  post: (body: unknown, signal?: AbortSignal) => Promise<unknown>;
+  post: (body: unknown, signal: AbortSignal | undefined) => Promise<unknown>;
   sleep: (ms: number, signal: AbortSignal) => Promise<void>;
   signal: AbortSignal;
   log: (message: string) => void;

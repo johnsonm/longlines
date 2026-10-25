@@ -300,7 +300,7 @@ export async function defaultResolver(host: string): Promise<string[] | null> {
  */
 export async function assertSafeResolvedHost(
   host: string,
-  resolve: Resolver = defaultResolver,
+  resolve: Resolver,
 ): Promise<string[]> {
   if (isIpLiteral(host)) {
     return [host];

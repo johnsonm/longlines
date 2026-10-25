@@ -106,7 +106,7 @@ const zodPending = [
   "sender/__tests__/*.ts",
 ];
 
-// Part 1's bans: plain, explicit code.
+// Bans every file keeps, pending or not: Part 1's, plus Part 2's explicit parameters.
 const styleSyntax = [
   { selector: "ObjectPattern", message: "No destructuring. Access fields directly." },
   { selector: "ArrayPattern", message: "No destructuring. Index explicitly." },
@@ -126,9 +126,17 @@ const styleSyntax = [
     selector: "ArrowFunctionExpression > BlockStatement",
     message: "Arrow functions must be one-line expressions. Use a named function.",
   },
+  {
+    selector: "AssignmentPattern",
+    message: "No default parameter values. Pass every argument explicitly.",
+  },
+  {
+    selector: ":function > Identifier[optional=true]",
+    message: "No optional parameters. Use T | undefined and pass undefined explicitly.",
+  },
 ];
 
-// Part 2's bans: Zod schemas and explicit parameters.
+// Part 2's bans: Zod schemas.
 const zodSyntax = [
   {
     selector: "CallExpression[callee.object.name='z'][callee.property.name='object']",
@@ -141,14 +149,6 @@ const zodSyntax = [
   {
     selector: "TSTypeReference[typeName.left.name='z'][typeName.right.name='infer']",
     message: "Declare the interface explicitly and annotate the schema as z.ZodType.",
-  },
-  {
-    selector: "AssignmentPattern",
-    message: "No default parameter values. Pass every argument explicitly.",
-  },
-  {
-    selector: ":function > Identifier[optional=true]",
-    message: "No optional parameters. Use T | undefined and pass undefined explicitly.",
   },
   {
     selector: "TSTypePredicate[asserts=false]",

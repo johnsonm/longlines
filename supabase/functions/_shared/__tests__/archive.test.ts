@@ -44,7 +44,7 @@ function columnValue(name: string, type: ColumnType, t0: number, i: number) {
 }
 
 /** n rows of a source's columns: timestamps one second apart from `at`, numbers from i, strings tagged with i. */
-function columnsFor(source: Source, n: number, at = "2026-10-11T14:10:00Z"): ArchiveColumns {
+function columnsFor(source: Source, n: number, at: string): ArchiveColumns {
   const t0 = new Date(at).getTime();
   const columns: ArchiveColumns = {};
   for (const column of ARCHIVE_SCHEMAS[source]) {
@@ -71,7 +71,7 @@ function fakes(
     pending?: Partial<Record<Source, ArchiveSlice[]>>;
     rows?: (source: Source, s: ArchiveSlice) => number;
     failUpload?: (path: string) => boolean;
-  } = {},
+  },
 ) {
   const calls = {
     pending: [] as Array<[Source, string, number]>,
@@ -168,7 +168,7 @@ Deno.test(
   "encodeParquet round-trips every source's columns in row order",
   async function (): Promise<void> {
     for (const source of ["rbn", "aprs", "pota", "sotawatch", "dxcluster", "wwff"] as const) {
-      const columns = columnsFor(source, 3);
+      const columns = columnsFor(source, 3, "2026-10-11T14:10:00Z");
       const rows = await readParquet(encodeParquet(source, columns, 3));
       assertEquals(rows.length, 3, source);
       assertEquals(Object.keys(rows[0]!), columnNames(source), source);
@@ -187,7 +187,7 @@ Deno.test(
 Deno.test(
   "encodeParquet writes UTC millisecond timestamps, typed numbers and nulls",
   async function (): Promise<void> {
-    const columns = columnsFor("rbn", 2);
+    const columns = columnsFor("rbn", 2, "2026-10-11T14:10:00Z");
     columns["band"] = [null, "20m"];
     columns["snr"] = [-3, null];
     const bytes = encodeParquet("rbn", columns, 2);
@@ -212,7 +212,7 @@ Deno.test(
 );
 
 Deno.test("encodeParquet keeps raw_payload as JSON text", async function (): Promise<void> {
-  const columns = columnsFor("pota", 1);
+  const columns = columnsFor("pota", 1, "2026-10-11T14:10:00Z");
   columns["raw_payload"] = ['{"spotId":1,"activator":"K1ABC"}'];
   const bytes = encodeParquet("pota", columns, 1);
   const schema = parquetMetadata(bytes.slice().buffer).schema;
@@ -224,10 +224,10 @@ Deno.test("encodeParquet keeps raw_payload as JSON text", async function (): Pro
 });
 
 Deno.test("encodeParquet refuses a missing or short column", function (): void {
-  const short = columnsFor("aprs", 2);
+  const short = columnsFor("aprs", 2, "2026-10-11T14:10:00Z");
   short["igate"] = ["x"];
   assertThrows(() => encodeParquet("aprs", short, 2), Error, "column igate: expected 2 values");
-  const missing = columnsFor("aprs", 2);
+  const missing = columnsFor("aprs", 2, "2026-10-11T14:10:00Z");
   delete missing["line"];
   assertThrows(() => encodeParquet("aprs", missing, 2), Error, "column line");
 });
@@ -263,8 +263,8 @@ Deno.test("runArchive takes only the sources it is given", async function (): Pr
 Deno.test(
   "runArchive asks every source for slices that ended two hours ago, POTA first",
   async function (): Promise<void> {
-    const fake = fakes();
-    await runArchive(fake.db, fake.store, NOW);
+    const fake = fakes({});
+    await runArchive(fake.db, fake.store, NOW, ARCHIVE_ORDER);
     const cutoff = new Date(NOW.getTime() - LAG_MS).toISOString();
     assertEquals(fake.calls.pending.map((p) => [p[0], p[1]]), [
       ["pota", cutoff],
@@ -281,7 +281,7 @@ Deno.test(
   async function (): Promise<void> {
     const s = slice("2026-10-11T14:10:00Z", 10);
     const fake = fakes({ pending: { rbn: [s] }, rows: () => 3 });
-    const summary = await runArchive(fake.db, fake.store, NOW);
+    const summary = await runArchive(fake.db, fake.store, NOW, ARCHIVE_ORDER);
     const path = "rbn/year=2026/month=10/day=11/1410.parquet";
     assertEquals(fake.calls.events, [`upload ${path}`, `log rbn ${s.slice_start}`]);
     const rows = await readParquet(fake.calls.uploads[0]!.bytes);
@@ -303,7 +303,7 @@ Deno.test(
   async function (): Promise<void> {
     const s = slice("2026-10-11T03:00:00Z", 60);
     const fake = fakes({ pending: { sotawatch: [s] }, rows: () => 0 });
-    const summary = await runArchive(fake.db, fake.store, NOW);
+    const summary = await runArchive(fake.db, fake.store, NOW, ARCHIVE_ORDER);
     assertEquals(fake.calls.uploads, []);
     assertEquals(fake.calls.logs, [{
       source: "sotawatch",
@@ -327,7 +327,7 @@ Deno.test(
       pending: { rbn: slices },
       rows: () => MAX_ROWS_PER_RUN - 1,
     });
-    const summary = await runArchive(fake.db, fake.store, NOW);
+    const summary = await runArchive(fake.db, fake.store, NOW, ARCHIVE_ORDER);
     // The first slice stays under the budget, the second crosses it, the third is left for the next run.
     assertEquals(fake.calls.uploads.length, 2);
     assertEquals(summary.rows, 2 * (MAX_ROWS_PER_RUN - 1));
@@ -344,7 +344,7 @@ Deno.test(
       pending: { pota: [bad, next], rbn: [good] },
       failUpload: (path) => path.startsWith("pota/"),
     });
-    const summary = await runArchive(fake.db, fake.store, NOW);
+    const summary = await runArchive(fake.db, fake.store, NOW, ARCHIVE_ORDER);
     assertEquals(fake.calls.logs.map((l) => `${l.source} ${l.slice_start}`), [
       `rbn ${good.slice_start}`,
     ]);
@@ -364,7 +364,7 @@ Deno.test(
       sliceColumns: () => Promise.resolve({ row_count: 2, columns: null }),
       logArchive: fake.db.logArchive,
     };
-    const summary = await runArchive(broken, fake.store, NOW);
+    const summary = await runArchive(broken, fake.store, NOW, ARCHIVE_ORDER);
     assertEquals([fake.calls.uploads, fake.calls.logs], [[], []]);
     assertEquals(summary.errors.length, 1);
     assertEquals(summary.errors[0]!.includes("expected 2 values"), true);
@@ -385,7 +385,7 @@ Deno.test(
       sliceColumns: fake.db.sliceColumns,
       logArchive: fake.db.logArchive,
     };
-    const summary = await runArchive(failing, fake.store, NOW);
+    const summary = await runArchive(failing, fake.store, NOW, ARCHIVE_ORDER);
     assertEquals(summary.errors, ["pota: db down"]);
     assertEquals(summary.slices, 1);
   },

@@ -33,7 +33,7 @@ Deno.test(
         return Response.json([{ ok: true }]);
       },
       async function (base) {
-        assertEquals(await fetchJson(`${base}/spots`), [{ ok: true }]);
+        assertEquals(await fetchJson(`${base}/spots`, {}), [{ ok: true }]);
         assertEquals(seenAgent, userAgent());
       },
     );
@@ -44,7 +44,7 @@ Deno.test("fetchText returns the trimmed body", async function (): Promise<void>
   await withServer(
     () => new Response("  7d7221c8-f4d9-4955-a976-ece92b4735b8\n"),
     async function (base) {
-      assertEquals(await fetchText(`${base}/epoch`), "7d7221c8-f4d9-4955-a976-ece92b4735b8");
+      assertEquals(await fetchText(`${base}/epoch`, {}), "7d7221c8-f4d9-4955-a976-ece92b4735b8");
     },
   );
 });
@@ -55,7 +55,7 @@ Deno.test(
     await withServer(
       () => new Response("nope", { status: 503 }),
       async function (base) {
-        await assertRejects(() => fetchJson(`${base}/spots`), Error, "503");
+        await assertRejects(() => fetchJson(`${base}/spots`, {}), Error, "503");
       },
     );
   },

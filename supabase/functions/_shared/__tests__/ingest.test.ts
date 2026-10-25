@@ -40,7 +40,7 @@ function spotFor(raw: JsonObject): NormalizedSpot {
 /** Adapter whose feed items declare how they should be handled. */
 function fakeAdapter(
   feed: JsonObject[] | Error,
-  options: { epoch?: string; source?: Source } = {},
+  options: { epoch?: string; source?: Source },
 ): SourceAdapter & { fetchCount: number } {
   let source: Source = "pota";
   if (options.source !== undefined) {
@@ -80,7 +80,7 @@ function fakeAdapter(
 }
 
 function fakeDb(
-  options: { lastEpoch?: string | null; insertAll?: boolean; matcherFails?: boolean } = {},
+  options: { lastEpoch?: string | null; insertAll?: boolean; matcherFails?: boolean },
 ) {
   const calls = {
     ingested: [] as NormalizedSpot[][],
@@ -137,10 +137,10 @@ Deno.test(
   "runIngest inserts good spots, counts skips, and dead-letters bad ones",
   async function (): Promise<void> {
     const feed = [{ id: 1 }, { id: 2, skip: true }, { id: 3, throws: true }, { id: 4 }];
-    const fake = fakeDb();
+    const fake = fakeDb({});
     const db = fake.db;
     const calls = fake.calls;
-    const summary = await runIngest(fakeAdapter(feed), db, NOW);
+    const summary = await runIngest(fakeAdapter(feed, {}), db, NOW);
 
     assertEquals(summary.source, "pota");
     assertEquals(summary.epoch_unchanged, false);
@@ -169,7 +169,7 @@ Deno.test(
     const fake = fakeDb({ insertAll: false });
     const db = fake.db;
     const calls = fake.calls;
-    const summary = await runIngest(fakeAdapter([{ id: 1 }, { id: 2 }, { id: 3 }]), db, NOW);
+    const summary = await runIngest(fakeAdapter([{ id: 1 }, { id: 2 }, { id: 3 }], {}), db, NOW);
     assertEquals(summary.inserted, 2);
     assertEquals(calls.success, [["pota", 2, null]]);
   },
@@ -178,10 +178,10 @@ Deno.test(
 Deno.test(
   "runIngest skips the database insert and failure writes when there is nothing to write",
   async function (): Promise<void> {
-    const fake = fakeDb();
+    const fake = fakeDb({});
     const db = fake.db;
     const calls = fake.calls;
-    const summary = await runIngest(fakeAdapter([{ id: 1, skip: true }]), db, NOW);
+    const summary = await runIngest(fakeAdapter([{ id: 1, skip: true }], {}), db, NOW);
     assertEquals(summary.inserted, 0);
     assertEquals(calls.ingested, []);
     assertEquals(calls.failures, []);
@@ -222,11 +222,11 @@ Deno.test(
 Deno.test(
   "runIngest records a function-level failure when the upstream fetch fails",
   async function (): Promise<void> {
-    const fake = fakeDb();
+    const fake = fakeDb({});
     const db = fake.db;
     const calls = fake.calls;
     await assertRejects(
-      () => runIngest(fakeAdapter(new Error("ECONNRESET")), db, NOW),
+      () => runIngest(fakeAdapter(new Error("ECONNRESET"), {}), db, NOW),
       Error,
       "ECONNRESET",
     );
@@ -238,10 +238,10 @@ Deno.test(
 Deno.test(
   "runIngest records a function-level failure when the feed has the wrong shape",
   async function (): Promise<void> {
-    const fake = fakeDb();
+    const fake = fakeDb({});
     const db = fake.db;
     const calls = fake.calls;
-    const adapter = fakeAdapter([]);
+    const adapter = fakeAdapter([], {});
     adapter.fetchSpots = () => Promise.resolve({ error: "maintenance" });
     await assertRejects(() => runIngest(adapter, db, NOW), Error, "bad shape");
     assertEquals(calls.failure, [["pota", "bad shape"]]);
@@ -251,10 +251,10 @@ Deno.test(
 Deno.test(
   "runIngest runs the matcher after recording success when spots were inserted",
   async function (): Promise<void> {
-    const fake = fakeDb();
+    const fake = fakeDb({});
     const db = fake.db;
     const calls = fake.calls;
-    const summary = await runIngest(fakeAdapter([{ id: 1 }]), db, NOW);
+    const summary = await runIngest(fakeAdapter([{ id: 1 }], {}), db, NOW);
     assertEquals(calls.matched, 1);
     assertEquals(summary.matched, 3);
     assertEquals(calls.success.length, 1);
@@ -264,10 +264,10 @@ Deno.test(
 Deno.test(
   "runIngest skips the matcher when nothing was inserted",
   async function (): Promise<void> {
-    const fake = fakeDb();
+    const fake = fakeDb({});
     const db = fake.db;
     const calls = fake.calls;
-    const summary = await runIngest(fakeAdapter([{ id: 1, skip: true }]), db, NOW);
+    const summary = await runIngest(fakeAdapter([{ id: 1, skip: true }], {}), db, NOW);
     assertEquals(calls.matched, 0);
     assertEquals(summary.matched, null);
   },
@@ -279,7 +279,7 @@ Deno.test(
     const fake = fakeDb({ matcherFails: true });
     const db = fake.db;
     const calls = fake.calls;
-    const summary = await runIngest(fakeAdapter([{ id: 1 }]), db, NOW);
+    const summary = await runIngest(fakeAdapter([{ id: 1 }], {}), db, NOW);
     assertEquals(summary.inserted, 1);
     assertEquals(summary.matched, null);
     assertEquals(summary.match_error, "matcher down");
@@ -297,13 +297,13 @@ Deno.test(
       { id: 3, comment: String.raw`typed \u0000 text` },
     ];
     const seen: JsonObject[] = [];
-    const adapter = fakeAdapter(feed);
+    const adapter = fakeAdapter(feed, {});
     const normalize = adapter.normalize;
     adapter.normalize = function (raw, now) {
       seen.push(raw);
       return normalize(raw, now);
     };
-    const fake = fakeDb();
+    const fake = fakeDb({});
     const db = fake.db;
     const calls = fake.calls;
     const summary = await runIngest(adapter, db, NOW);
@@ -347,7 +347,7 @@ Deno.test(
     const adapter: SourceAdapter = Object.assign({}, wwff, {
       fetchSpots: () => Promise.resolve(feed),
     });
-    const fake = fakeDb();
+    const fake = fakeDb({});
     const db = fake.db;
     const calls = fake.calls;
     const summary = await runIngest(adapter, db, now);
@@ -370,13 +370,13 @@ Deno.test(
       id: 2,
       throws: true,
       c: "\udc00",
-    }]);
+    }], {});
     const normalize = adapter.normalize;
     adapter.normalize = function (raw, now) {
       seen.push(raw);
       return normalize(raw, now);
     };
-    const fake = fakeDb();
+    const fake = fakeDb({});
     const db = fake.db;
     const calls = fake.calls;
     await runIngest(adapter, db, NOW);
@@ -403,12 +403,12 @@ async function capturingErrors<T>(fn: () => Promise<T>): Promise<unknown[]> {
 Deno.test(
   "runIngest rethrows the run's own error when recording the failure fails too",
   async function (): Promise<void> {
-    const fake = fakeDb();
+    const fake = fakeDb({});
     const db = fake.db;
     db.recordFailure = () => Promise.reject(new Error("record_ingest_failure failed: db down"));
     const errors = await capturingErrors(() =>
       assertRejects(
-        () => runIngest(fakeAdapter(new Error("ECONNRESET")), db, NOW),
+        () => runIngest(fakeAdapter(new Error("ECONNRESET"), {}), db, NOW),
         Error,
         "ECONNRESET",
       )

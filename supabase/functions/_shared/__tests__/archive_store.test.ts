@@ -13,7 +13,7 @@ const ENV: Record<string, string> = {
   [ARCHIVE_S3_ENV.accessKeyId]: "key-id",
   [ARCHIVE_S3_ENV.secretAccessKey]: " secret ",
 };
-function env(overrides: Record<string, string | undefined> = {}) {
+function env(overrides: Record<string, string | undefined>) {
   return function (name: string) {
     if (name in overrides) {
       return overrides[name];
@@ -23,7 +23,7 @@ function env(overrides: Record<string, string | undefined> = {}) {
 }
 
 Deno.test("archiveS3Config reads the five secrets, trimmed", function (): void {
-  const config = archiveS3Config(env());
+  const config = archiveS3Config(env({}));
   assertEquals(config.endpoint.href, "https://s3.us-west-004.backblazeb2.com/");
   assertEquals(
     [config.region, config.bucket, config.accessKeyId, config.secretAccessKey],

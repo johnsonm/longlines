@@ -7,7 +7,7 @@ import { userAgent } from "../http.ts";
 const fixture = Deno.readTextFileSync(new URL("./fixtures/cty.dat", import.meta.url));
 const parsed = parseCty(fixture);
 
-function prefix(pattern: string, exact = false) {
+function prefix(pattern: string, exact: boolean) {
   const found = parsed.prefixes.find((p) => p.pattern === pattern && p.exact === exact);
   if (!found) {
     let key = pattern;
@@ -48,7 +48,7 @@ Deno.test("parseCty applies zone overrides to exact calls and prefixes", functio
     cq_zone: 3,
     itu_zone: 6,
   });
-  assertEquals(prefix("W"), {
+  assertEquals(prefix("W", false), {
     pattern: "W",
     exact: false,
     entity: "K",
@@ -63,7 +63,7 @@ Deno.test(
   function (): void {
     assertEquals(parsed.prefixes.some((p) => p.pattern === "IT9" && !p.exact), false);
     assertEquals(parsed.prefixes.some((p) => p.entity === "*TA1"), false);
-    assertEquals(prefix("I").entity, "I");
+    assertEquals(prefix("I", false).entity, "I");
   },
 );
 

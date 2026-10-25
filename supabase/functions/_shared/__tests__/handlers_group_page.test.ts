@@ -12,15 +12,15 @@ const PAGE = {
 const KEY = await hmacKey("test-secret");
 const CODE = "7f3kq6xm2a";
 
-function get(query: string, headers: Record<string, string> = {}): Request {
+function get(query: string, headers: Record<string, string>): Request {
   return new Request(`http://x/group-page${query}`, { headers });
 }
 
 // null for no key: an undefined argument would take the default.
 async function run(
   req: Request,
-  options: FakeSupabaseOptions = {},
-  key: CryptoKey | null = KEY,
+  options: FakeSupabaseOptions,
+  key: CryptoKey | null,
 ) {
   const rpc: NonNullable<FakeSupabaseOptions["rpc"]> = {
     record_profile_lookup: { data: 1 },
@@ -49,7 +49,7 @@ async function run(
 }
 
 Deno.test("group-page serves a public page, never cached", async function (): Promise<void> {
-  const result = await run(get(`?slug=${CODE}`, { "cf-connecting-ip": "192.0.2.7" }));
+  const result = await run(get(`?slug=${CODE}`, { "cf-connecting-ip": "192.0.2.7" }), {}, KEY);
   assertEquals(result.res.status, 200);
   assertEquals(result.body, PAGE);
   assertEquals(result.res.headers.get("Cache-Control"), "no-store");
@@ -60,7 +60,7 @@ Deno.test("group-page serves a public page, never cached", async function (): Pr
 });
 
 Deno.test("group-page passes the 7-day period", async function (): Promise<void> {
-  const result = await run(get(`?slug=${CODE}&period=7d`));
+  const result = await run(get(`?slug=${CODE}&period=7d`, {}), {}, KEY);
   assertEquals(result.calls.rpc.at(-1), {
     fn: "public_group_statistics",
     args: { p_slug: CODE, p_period: "7d" },
@@ -70,9 +70,9 @@ Deno.test("group-page passes the 7-day period", async function (): Promise<void>
 Deno.test(
   "group-page answers a private or unknown code with the same 404",
   async function (): Promise<void> {
-    const result = await run(get(`?slug=${CODE}`), {
+    const result = await run(get(`?slug=${CODE}`, {}), {
       rpc: { public_group_statistics: { data: null } },
-    });
+    }, KEY);
     assertEquals(result.res.status, 404);
     assertEquals(result.body, { error: PAGE_PRIVATE });
     assertEquals(result.res.headers.get("Cache-Control"), "no-store");
@@ -93,7 +93,7 @@ Deno.test(
         `?slug=${CODE}&period=1y`,
       ]
     ) {
-      const result = await run(get(query));
+      const result = await run(get(query, {}), {}, KEY);
       assertEquals(result.res.status, 404, query);
       assertEquals(result.body, { error: PAGE_PRIVATE }, query);
       assertEquals(result.res.headers.get("Cache-Control"), "no-store", query);
@@ -105,19 +105,25 @@ Deno.test(
 Deno.test(
   "group-page is GET only and answers the CORS preflight",
   async function (): Promise<void> {
-    const post = await run(new Request(`http://x/group-page?slug=${CODE}`, { method: "POST" }));
+    const post = await run(
+      new Request(`http://x/group-page?slug=${CODE}`, { method: "POST" }),
+      {},
+      KEY,
+    );
     assertEquals(post.res.status, 405);
     const preflight = await run(
       new Request(`http://x/group-page?slug=${CODE}`, { method: "OPTIONS" }),
+      {},
+      KEY,
     );
     assertEquals(preflight.res.status, 204);
   },
 );
 
 Deno.test("group-page shares the profile's rate limit", async function (): Promise<void> {
-  const result = await run(get(`?slug=${CODE}`), {
+  const result = await run(get(`?slug=${CODE}`, {}), {
     rpc: { record_profile_lookup: { data: MAX_LOOKUPS_PER_MINUTE + 1 } },
-  });
+  }, KEY);
   assertEquals(result.res.status, 429);
   assertEquals(result.res.headers.get("Retry-After"), "60");
   assertEquals(result.res.headers.get("Cache-Control"), "no-store");
@@ -127,9 +133,9 @@ Deno.test("group-page shares the profile's rate limit", async function (): Promi
 
 Deno.test("group-page fails closed when the limit can't be read", async function (): Promise<void> {
   for (const result of [{ error: { message: "boom" } }, { data: "x" }]) {
-    const got = await run(get(`?slug=${CODE}`), {
+    const got = await run(get(`?slug=${CODE}`, {}), {
       rpc: { record_profile_lookup: result },
-    });
+    }, KEY);
     assertEquals(got.res.status, 500);
     assertEquals(got.body, { error: GROUP_PAGE_UNAVAILABLE });
     assertEquals(got.res.headers.get("Cache-Control"), "no-store");
@@ -142,9 +148,9 @@ Deno.test("group-page reports a failed read without the code", async function ()
   const original = console.error;
   console.error = (...a: unknown[]) => errors.push(a.join(" "));
   try {
-    const result = await run(get(`?slug=${CODE}`), {
+    const result = await run(get(`?slug=${CODE}`, {}), {
       rpc: { public_group_statistics: { error: { message: "timeout" } } },
-    });
+    }, KEY);
     assertEquals(result.res.status, 500);
     assertEquals(result.body, { error: GROUP_PAGE_UNAVAILABLE });
   } finally {
@@ -157,7 +163,7 @@ Deno.test("group-page needs the HMAC key", async function (): Promise<void> {
   const original = console.error;
   console.error = () => undefined;
   try {
-    const result = await run(get(`?slug=${CODE}`), {}, null);
+    const result = await run(get(`?slug=${CODE}`, {}), {}, null);
     assertEquals(result.res.status, 500);
     assertEquals(result.calls.rpc, []);
   } finally {

@@ -15,7 +15,7 @@ import {
   shouldImport,
 } from "../licenses.ts";
 import { startRelay } from "../relay.ts";
-import { openHttpZip } from "../zip.ts";
+import { openHttpZip, STREAM_HEADER_TIMEOUT_MS } from "../zip.ts";
 import { buildZip, serveZip } from "./zip_server.ts";
 
 const VERSION = "Sun, 11 Oct 2026 13:18:48 GMT";
@@ -40,7 +40,7 @@ const ZIP = buildZip([
   { name: "AM.dat", text: AM },
   { name: "EN.dat", text: EN },
   { name: "HD.dat", text: HD },
-]);
+], "");
 
 /**
  * load-licenses in memory. Staging is keyed by usi, like the RPC, and rows
@@ -48,7 +48,7 @@ const ZIP = buildZip([
  * stages the batch and then rejects, as when the reply times out.
  */
 function fakeClient(
-  options: { latest?: LicenseLoad | null; failRows?: number; loseReplies?: number } = {},
+  options: { latest?: LicenseLoad | null; failRows?: number; loseReplies?: number },
 ) {
   const batches: { load: number; kind: UlsKind; rows: UlsRow[] }[] = [];
   const finished: UlsCounts[] = [];
@@ -95,7 +95,7 @@ function fakeClient(
   return { client, batches, finished, abandoned };
 }
 
-function load(status: LicenseLoad["status"], version = VERSION, hoursAgo = 1): LicenseLoad {
+function load(status: LicenseLoad["status"], version: string, hoursAgo: number): LicenseLoad {
   return {
     id: 1,
     version,
@@ -110,10 +110,10 @@ Deno.test(
   "shouldImport loads a new file and retries an unfinished one after twelve hours",
   function (): void {
     assertEquals(shouldImport(VERSION, null, NOW), true);
-    assertEquals(shouldImport(VERSION, load("applied"), NOW), false);
-    assertEquals(shouldImport(VERSION, load("ready"), NOW), false);
-    assertEquals(shouldImport(VERSION, load("applied", "older"), NOW), true);
-    assertEquals(shouldImport(VERSION, load("ready", "older"), NOW), true);
+    assertEquals(shouldImport(VERSION, load("applied", VERSION, 1), NOW), false);
+    assertEquals(shouldImport(VERSION, load("ready", VERSION, 1), NOW), false);
+    assertEquals(shouldImport(VERSION, load("applied", "older", 1), NOW), true);
+    assertEquals(shouldImport(VERSION, load("ready", "older", 1), NOW), true);
     assertEquals(shouldImport(VERSION, load("loading", VERSION, 11), NOW), false);
     assertEquals(shouldImport(VERSION, load("failed", "older", 11), NOW), false);
     assertEquals(shouldImport(VERSION, load("loading", VERSION, 12), NOW), true);
@@ -152,7 +152,7 @@ Deno.test(
 Deno.test(
   "importLicenses stages HD, EN and AM in batches and finishes with the counts",
   async function (): Promise<void> {
-    const served = serveZip(await ZIP);
+    const served = serveZip(await ZIP, {});
     const url = served.url;
     const server = served.server;
     const fake = fakeClient({ failRows: 2 });
@@ -162,13 +162,17 @@ Deno.test(
     const logs: string[] = [];
     try {
       const signal = new AbortController().signal;
-      const staged = await importLicenses(await openHttpZip(url, signal), client, {
-        log: (m) => logs.push(m),
-        signal,
-        batchSize: 5,
-        minRecords: MIN,
-        retryDelaysMs: [0, 0],
-      });
+      const staged = await importLicenses(
+        await openHttpZip(url, signal, fetch, STREAM_HEADER_TIMEOUT_MS),
+        client,
+        {
+          log: (m) => logs.push(m),
+          signal,
+          batchSize: 5,
+          minRecords: MIN,
+          retryDelaysMs: [0, 0],
+        },
+      );
       assertEquals(staged, { HD: 13, EN: 12, AM: 12 });
       assertEquals(finished, [staged]);
       assertEquals(batches.map((b) => `${b.kind}${b.rows.length}`), [
@@ -207,7 +211,7 @@ Deno.test(
 Deno.test(
   "importLicenses counts a batch retried after a lost reply once",
   async function (): Promise<void> {
-    const served = serveZip(await ZIP);
+    const served = serveZip(await ZIP, {});
     const url = served.url;
     const server = served.server;
     const fake = fakeClient({ loseReplies: 1 });
@@ -216,13 +220,17 @@ Deno.test(
     const finished = fake.finished;
     try {
       const signal = new AbortController().signal;
-      const staged = await importLicenses(await openHttpZip(url, signal), client, {
-        log: ignoreLog,
-        signal,
-        batchSize: 5,
-        minRecords: MIN,
-        retryDelaysMs: [0],
-      });
+      const staged = await importLicenses(
+        await openHttpZip(url, signal, fetch, STREAM_HEADER_TIMEOUT_MS),
+        client,
+        {
+          log: ignoreLog,
+          signal,
+          batchSize: 5,
+          minRecords: MIN,
+          retryDelaysMs: [0],
+        },
+      );
       assertEquals(batches.length, 10); // the first batch went twice
       assertEquals(staged, { HD: 13, EN: 12, AM: 12 });
       assertEquals(finished, [staged]);
@@ -235,7 +243,7 @@ Deno.test(
 Deno.test(
   "importLicenses gives up after the retries and abandons the load",
   async function (): Promise<void> {
-    const served = serveZip(await ZIP);
+    const served = serveZip(await ZIP, {});
     const url = served.url;
     const server = served.server;
     const fake = fakeClient({ failRows: 3 });
@@ -246,12 +254,16 @@ Deno.test(
       const signal = new AbortController().signal;
       await assertRejects(
         async () =>
-          await importLicenses(await openHttpZip(url, signal), client, {
-            log: ignoreLog,
-            signal,
-            minRecords: MIN,
-            retryDelaysMs: [0, 0],
-          }),
+          await importLicenses(
+            await openHttpZip(url, signal, fetch, STREAM_HEADER_TIMEOUT_MS),
+            client,
+            {
+              log: ignoreLog,
+              signal,
+              minRecords: MIN,
+              retryDelaysMs: [0, 0],
+            },
+          ),
         Error,
         "HTTP 503",
       );
@@ -266,20 +278,24 @@ Deno.test(
 Deno.test(
   "importLicenses refuses a short file or a zip without the three files",
   async function (): Promise<void> {
-    const served = serveZip(await ZIP);
+    const served = serveZip(await ZIP, {});
     const url = served.url;
     const server = served.server;
-    const partial = serveZip(await buildZip([{ name: "HD.dat", text: HD }]));
+    const partial = serveZip(await buildZip([{ name: "HD.dat", text: HD }], ""), {});
     try {
       const signal = new AbortController().signal;
-      const short = fakeClient();
+      const short = fakeClient({});
       await assertRejects(
         async () =>
-          await importLicenses(await openHttpZip(url, signal), short.client, {
-            log: ignoreLog,
-            signal,
-            minRecords: { HD: 14, EN: 1, AM: 1 },
-          }),
+          await importLicenses(
+            await openHttpZip(url, signal, fetch, STREAM_HEADER_TIMEOUT_MS),
+            short.client,
+            {
+              log: ignoreLog,
+              signal,
+              minRecords: { HD: 14, EN: 1, AM: 1 },
+            },
+          ),
         Error,
         "HD.dat has 13 records, expected at least 14",
       );
@@ -287,10 +303,14 @@ Deno.test(
       assertEquals(short.abandoned, ["HD.dat has 13 records, expected at least 14"]);
       await assertRejects(
         async () =>
-          await importLicenses(await openHttpZip(partial.url, signal), fakeClient().client, {
-            log: ignoreLog,
-            signal,
-          }),
+          await importLicenses(
+            await openHttpZip(partial.url, signal, fetch, STREAM_HEADER_TIMEOUT_MS),
+            fakeClient({}).client,
+            {
+              log: ignoreLog,
+              signal,
+            },
+          ),
         Error,
         "EN.dat is not in the zip",
       );
@@ -306,28 +326,32 @@ Deno.test(
   async function (): Promise<void> {
     const zip = await ZIP;
     const stalled = serveZip(zip, { stallAfter: 10 });
-    const served = serveZip(zip);
+    const served = serveZip(zip, {});
     const url = served.url;
     const server = served.server;
     try {
       const signal = new AbortController().signal;
       await assertRejects(
         async () =>
-          await importLicenses(await openHttpZip(stalled.url, signal), fakeClient().client, {
-            log: ignoreLog,
-            signal,
-            minRecords: MIN,
-            readTimeoutMs: 50,
-          }),
+          await importLicenses(
+            await openHttpZip(stalled.url, signal, fetch, STREAM_HEADER_TIMEOUT_MS),
+            fakeClient({}).client,
+            {
+              log: ignoreLog,
+              signal,
+              minRecords: MIN,
+              readTimeoutMs: 50,
+            },
+          ),
         Error,
         "no data for 0.05 s",
       );
       const controller = new AbortController();
-      const remote = await openHttpZip(url, controller.signal);
+      const remote = await openHttpZip(url, controller.signal, fetch, STREAM_HEADER_TIMEOUT_MS);
       controller.abort();
       await assertRejects(
         () =>
-          importLicenses(remote, fakeClient().client, {
+          importLicenses(remote, fakeClient({}).client, {
             log: ignoreLog,
             signal: controller.signal,
           }),
@@ -340,12 +364,12 @@ Deno.test(
 );
 
 Deno.test("checkLicenses skips a file that is already loaded", async function (): Promise<void> {
-  const served = serveZip(await ZIP);
+  const served = serveZip(await ZIP, {});
   const url = served.url;
   const server = served.server;
   const requests = served.requests;
   try {
-    const fake = fakeClient({ latest: load("applied") });
+    const fake = fakeClient({ latest: load("applied", VERSION, 1) });
     const client = fake.client;
     const batches = fake.batches;
     const staged = await checkLicenses({
@@ -374,7 +398,7 @@ Deno.test(
     }
     const done = runLicenseImports({
       zipUrl: "http://127.0.0.1:9/l_amat",
-      client: fakeClient().client,
+      client: fakeClient({}).client,
       signal: controller.signal,
       log: logAndStop,
       firstCheckMs: 0,
@@ -389,7 +413,7 @@ Deno.test(
 Deno.test(
   "the relay loads licenses through load-licenses with its secret",
   async function (): Promise<void> {
-    const served = serveZip(await ZIP);
+    const served = serveZip(await ZIP, {});
     const url = served.url;
     const server = served.server;
     const requests: { secret: string | null; body: LoadLicensesRequest }[] = [];

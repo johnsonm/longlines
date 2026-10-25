@@ -7,11 +7,11 @@ const NOW = new Date("2026-10-11T14:57:00Z");
 const RECEIVED = "2026-10-11T14:55:30Z";
 const watchedLine = "DX de SM1HEV-#: 14038.30  CT1JGA/P       CW     8 dB  24 WPM  CQ      1454Z";
 const otherLine = "DX de DM5GG-#:  18089.00  N2GM           CW    10 dB  25 WPM  CQ      1454Z";
-function item(line: string, received_at = RECEIVED) {
+function item(line: string, received_at: string) {
   return { line, received_at };
 }
 
-function fakeDb(options: { watched?: string[]; stored?: number; storeFails?: boolean } = {}) {
+function fakeDb(options: { watched?: string[]; stored?: number; storeFails?: boolean }) {
   const calls = {
     stored: [] as RbnSpotRow[][],
     ingested: [] as NormalizedSpot[][],
@@ -70,14 +70,14 @@ function fakeDb(options: { watched?: string[]; stored?: number; storeFails?: boo
 Deno.test(
   "runRbnPush stores every line and alerts only watched callsigns",
   async function (): Promise<void> {
-    const fake = fakeDb();
+    const fake = fakeDb({});
     const db = fake.db;
     const calls = fake.calls;
     const body = {
       lines: [
-        item(watchedLine),
-        item(otherLine),
-        item("Local users: 586"),
+        item(watchedLine, RECEIVED),
+        item(otherLine, RECEIVED),
+        item("Local users: 586", RECEIVED),
         item(otherLine, "not a time"),
       ],
     };
@@ -116,18 +116,18 @@ Deno.test(
     const fake = fakeDb({ stored: 0 });
     const db = fake.db;
     const calls = fake.calls;
-    const summary = await runRbnPush({ lines: [item(otherLine)] }, db, NOW);
+    const summary = await runRbnPush({ lines: [item(otherLine, RECEIVED)] }, db, NOW);
     assertEquals(summary.stored, 0);
     assertEquals(calls.failure, []);
   },
 );
 
 Deno.test("runRbnPush stores late lines but does not alert them", async function (): Promise<void> {
-  const fake = fakeDb();
+  const fake = fakeDb({});
   const db = fake.db;
   const calls = fake.calls;
   const late = new Date("2026-10-11T15:40:00Z"); // 46 minutes after the spot
-  const summary = await runRbnPush({ lines: [item(watchedLine)] }, db, late);
+  const summary = await runRbnPush({ lines: [item(watchedLine, RECEIVED)] }, db, late);
   assertEquals(calls.stored[0]!.length, 1);
   assertEquals(calls.ingested, []);
   assertEquals([summary.stored, summary.inserted, summary.skipped.too_old], [1, 0, 1]);
@@ -140,7 +140,7 @@ Deno.test(
     const db = fake.db;
     const calls = fake.calls;
     await assertRejects(
-      () => runRbnPush({ lines: [item(otherLine)] }, db, NOW),
+      () => runRbnPush({ lines: [item(otherLine, RECEIVED)] }, db, NOW),
       Error,
       "disk full",
     );
@@ -152,7 +152,7 @@ Deno.test(
 Deno.test(
   "runRbnPush records the failure and rethrows on a malformed body",
   async function (): Promise<void> {
-    const fake = fakeDb();
+    const fake = fakeDb({});
     const db = fake.db;
     const calls = fake.calls;
     await assertRejects(() => runRbnPush({ nope: true }, db, NOW), Error, '"lines" array');
@@ -164,11 +164,11 @@ Deno.test(
 Deno.test(
   "runRbnPush stores a failure for a NUL line without the NUL",
   async function (): Promise<void> {
-    const fake = fakeDb();
+    const fake = fakeDb({});
     const db = fake.db;
     const calls = fake.calls;
     const nul = "DX de W3LPL-#:  14035.10  K1\u0000ABC        CW    12 dB  22 WPM  CQ      1454Z";
-    await runRbnPush({ lines: [item(nul), item(otherLine)] }, db, NOW);
+    await runRbnPush({ lines: [item(nul, RECEIVED), item(otherLine, RECEIVED)] }, db, NOW);
     assertEquals(calls.stored[0]!.map((r) => r.callsign), ["N2GM"]);
     const failed = calls.failures.flat();
     assertEquals(failed.length, 1);
@@ -179,12 +179,18 @@ Deno.test(
 Deno.test(
   "runRbnPush dead-letters an oversized or far-future line and stores the rest",
   async function (): Promise<void> {
-    const fake = fakeDb();
+    const fake = fakeDb({});
     const db = fake.db;
     const calls = fake.calls;
     const long = otherLine.replace("N2GM", "N".repeat(3000));
     await runRbnPush(
-      { lines: [item(long), item(otherLine, "2027-01-01T00:00:00Z"), item(otherLine)] },
+      {
+        lines: [
+          item(long, RECEIVED),
+          item(otherLine, "2027-01-01T00:00:00Z"),
+          item(otherLine, RECEIVED),
+        ],
+      },
       db,
       NOW,
     );
@@ -216,7 +222,11 @@ Deno.test(
     const db = fake.db;
     db.recordFailure = () => Promise.reject(new Error("db down"));
     const errors = await capturingErrors(() =>
-      assertRejects(() => runRbnPush({ lines: [item(watchedLine)] }, db, NOW), Error, "disk full")
+      assertRejects(
+        () => runRbnPush({ lines: [item(watchedLine, RECEIVED)] }, db, NOW),
+        Error,
+        "disk full",
+      )
     );
     assertMatch(String(errors[0]), /ingest-rbn: recording the failure failed: db down/);
   },

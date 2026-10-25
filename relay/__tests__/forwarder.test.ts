@@ -2,7 +2,7 @@ import { assertEquals } from "@std/assert";
 import { Forwarder } from "../forwarder.ts";
 import type { RelayLine } from "../functions.ts";
 
-function setup(options: { fail?: () => boolean; maxBuffer?: number } = {}) {
+function setup(options: { fail?: () => boolean; maxBuffer?: number }) {
   let t = 1_000_000;
   const pushes: RelayLine[][] = [];
   const logs: string[] = [];
@@ -59,7 +59,7 @@ async function rejectWith(reason: unknown): Promise<never> {
 Deno.test(
   "Forwarder sends a heartbeat at start and then once a minute when idle",
   async function (): Promise<void> {
-    const s = setup();
+    const s = setup({});
     await s.f.tick();
     assertEquals(s.pushes, [[]]);
     s.advance(59_000);
@@ -74,7 +74,7 @@ Deno.test(
 Deno.test(
   "Forwarder flushes lines after ten seconds or at the batch size",
   async function (): Promise<void> {
-    const s = setup();
+    const s = setup({});
     await s.f.tick(); // heartbeat
     s.f.add(line(1));
     s.advance(9_000);
@@ -173,7 +173,7 @@ Deno.test(
 );
 
 Deno.test("Forwarder.flush is a no-op while a push is in flight", async function (): Promise<void> {
-  const s = setup();
+  const s = setup({});
   s.f.add(line(1));
   s.hold();
   const first = s.f.flush();
@@ -198,7 +198,7 @@ Deno.test("Forwarder logs a non-Error rejection as text", async function (): Pro
 Deno.test(
   "Forwarder.drain waits for the push in flight, then pushes what arrived during it",
   async function (): Promise<void> {
-    const s = setup();
+    const s = setup({});
     s.f.add(line(1));
     s.hold();
     const first = s.f.flush();
@@ -238,7 +238,7 @@ Deno.test(
 );
 
 Deno.test("Forwarder.drain with nothing buffered pushes nothing", async function (): Promise<void> {
-  const s = setup();
+  const s = setup({});
   await s.f.drain(5_000);
   assertEquals(s.pushes, []);
 });

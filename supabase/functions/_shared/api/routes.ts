@@ -49,8 +49,8 @@ function read(op: string): Route {
 
 function write(
   op: string,
-  input: Route["input"] = "none",
-  more: Partial<Pick<Route, "arrays" | "lists" | "scalars" | "required" | "status">> = {},
+  input: Route["input"],
+  more: Partial<Pick<Route, "arrays" | "lists" | "scalars" | "required" | "status">>,
 ): Route {
   const route: Route = { op, scope: "write", input, status: 200 };
   if (more.arrays !== undefined) {
@@ -89,22 +89,22 @@ export const ROUTES: ReadonlyArray<readonly [string, string, Route]> = [
   ["POST",   "/v1/destinations",                   write("create_destination", "fields", { scalars: DEST.scalars, status: CREATED.status })],
   ["GET",    "/v1/destinations/:id",               read("get_destination")],
   ["PATCH",  "/v1/destinations/:id",               write("update_destination", "fields", DEST_PATCH)],
-  ["DELETE", "/v1/destinations/:id",               write("delete_destination")],
-  ["POST",   "/v1/destinations/:id/rotate-secret", write("rotate_signing_secret")],
-  ["POST",   "/v1/destinations/:id/test",          write("send_test")],
+  ["DELETE", "/v1/destinations/:id",               write("delete_destination", "none", {})],
+  ["POST",   "/v1/destinations/:id/rotate-secret", write("rotate_signing_secret", "none", {})],
+  ["POST",   "/v1/destinations/:id/test",          write("send_test", "none", {})],
 
   ["GET",    "/v1/connections",                    read("list_subscriptions")],
   ["POST",   "/v1/connections",                    write("create_subscription", "body", { arrays: SUB.arrays, lists: SUB.lists, scalars: SUB.scalars, status: CREATED.status })],
   ["GET",    "/v1/connections/:id",                read("get_subscription")],
   ["PUT",    "/v1/connections/:id",                write("replace_subscription", "body", SUB)],
   ["PATCH",  "/v1/connections/:id",                write("patch_subscription", "body", SUB)],
-  ["DELETE", "/v1/connections/:id",                write("delete_subscription")],
+  ["DELETE", "/v1/connections/:id",                write("delete_subscription", "none", {})],
 
   ["GET",    "/v1/groups",                         read("list_groups")],
   ["POST",   "/v1/groups",                         write("create_group", "fields", { arrays: GROUP.arrays, scalars: GROUP.scalars, status: CREATED.status })],
   ["GET",    "/v1/groups/:id",                     read("get_group")],
   ["PATCH",  "/v1/groups/:id",                     write("update_group", "fields", GROUP)],
-  ["DELETE", "/v1/groups/:id",                     write("delete_group")],
+  ["DELETE", "/v1/groups/:id",                     write("delete_group", "none", {})],
   ["POST",   "/v1/groups/:id/members",             write("add_group_members", "fields", CALLS)],
   ["POST",   "/v1/groups/:id/members/remove",      write("remove_group_members", "fields", CALLS)],
 ];
@@ -292,12 +292,14 @@ export function parseBody(text: string): JsonObject | null {
 }
 
 // The reviver's third argument (JSON.parse source text access) is missing from TypeScript's lib, and
-// from runtimes too old to pass it; without it a number is kept as parsed.
-function exactNumbers(_key: string, value: unknown, context?: { source?: string }): unknown {
-  if (typeof value !== "number" || context === undefined || context === null) {
+// from runtimes too old to pass it, so it is read from the rest; without it a number is kept as
+// parsed.
+function exactNumbers(_key: string, value: unknown, ...rest: unknown[]): unknown {
+  const context = rest[0];
+  if (typeof value !== "number" || typeof context !== "object" || context === null) {
     return value;
   }
-  if (context.source === undefined) {
+  if (!("source" in context) || typeof context.source !== "string") {
     return value;
   }
   if (numberSurvivesParse(context.source)) {

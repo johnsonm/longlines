@@ -19,7 +19,7 @@ async function deflateRaw(data: Uint8Array): Promise<Uint8Array> {
   return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
-export async function buildZip(files: ZipFile[], comment = ""): Promise<Uint8Array> {
+export async function buildZip(files: ZipFile[], comment: string): Promise<Uint8Array> {
   const enc = new TextEncoder();
   const parts: Uint8Array[] = [];
   const central: Uint8Array[] = [];
@@ -40,7 +40,7 @@ export async function buildZip(files: ZipFile[], comment = ""): Promise<Uint8Arr
     if (file.crc !== undefined && file.crc !== null) {
       crc = file.crc;
     } else {
-      crc = crc32(data);
+      crc = crc32(data, 0);
     }
     const local = new Uint8Array(30 + name.length);
     const l = new DataView(local.buffer);
@@ -115,7 +115,7 @@ export interface ZipServerOptions {
   shiftRange?: boolean;
 }
 
-export function serveZip(bytes: Uint8Array, options: ZipServerOptions = {}) {
+export function serveZip(bytes: Uint8Array, options: ZipServerOptions) {
   const requests: {
     method: string;
     range: string | null;
@@ -205,7 +205,7 @@ export function serveZip(bytes: Uint8Array, options: ZipServerOptions = {}) {
       }
     },
     /** The FCC publishes a new file. */
-    republish(date: string, newEtag?: string) {
+    republish(date: string, newEtag: string | undefined) {
       lastModified = date;
       if (newEtag !== undefined) {
         etag = newEtag;

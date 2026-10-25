@@ -60,7 +60,7 @@ Deno.test("ingestSpots treats a null result as no rows", async function (): Prom
 Deno.test(
   "record calls pass their arguments to the right RPC or table",
   async function (): Promise<void> {
-    const fake = fakeSupabase();
+    const fake = fakeSupabase({});
     const client = fake.client;
     const calls = fake.calls;
     const db = createIngestDb(client);
@@ -239,7 +239,7 @@ Deno.test(
 );
 
 Deno.test("logArchive passes every field to log_archive", async function (): Promise<void> {
-  const fake = fakeSupabase();
+  const fake = fakeSupabase({});
   const client = fake.client;
   const calls = fake.calls;
   await createArchiveDb(client).logArchive({
@@ -339,7 +339,7 @@ Deno.test(
         },
       },
     ]);
-    assertEquals(await createConvertDb(fakeSupabase().client).ndjsonSlices(null, 1), []);
+    assertEquals(await createConvertDb(fakeSupabase({}).client).ndjsonSlices(null, 1), []);
     assertEquals(
       await createConvertDb(
         fakeSupabase({ rpc: { archive_repoint_slice: { data: false } } }).client,

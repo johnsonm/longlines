@@ -69,7 +69,7 @@ function concat(...parts: Uint8Array[]): Uint8Array<ArrayBuffer> {
 }
 
 /** A P-256 JWK from an uncompressed public point and, optionally, the private scalar. */
-function p256Jwk(publicKey: Uint8Array, d?: string): JsonWebKey {
+function p256Jwk(publicKey: Uint8Array, d: string | undefined): JsonWebKey {
   if (publicKey.length !== 65 || publicKey[0] !== 0x04) {
     throw new Error("Expected an uncompressed P-256 public key");
   }
@@ -124,7 +124,7 @@ async function serverKeyPair(
 export async function encryptPushPayload(
   plaintext: Uint8Array,
   keys: PushKeys,
-  options: EncryptOptions = {},
+  options: EncryptOptions,
 ): Promise<Uint8Array<ArrayBuffer>> {
   const uaPublic = base64UrlDecode(keys.p256dh);
   const authSecret = base64UrlDecode(keys.auth);
@@ -147,7 +147,7 @@ export async function encryptPushPayload(
   const server = await serverKeyPair(options);
   const uaKey = await crypto.subtle.importKey(
     "jwk",
-    p256Jwk(uaPublic),
+    p256Jwk(uaPublic, undefined),
     { name: "ECDH", namedCurve: "P-256" },
     false,
     [],

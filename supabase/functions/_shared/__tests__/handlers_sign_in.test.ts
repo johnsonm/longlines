@@ -11,9 +11,11 @@ import { fakeSupabase, type FakeSupabaseOptions } from "./fake_supabase.ts";
 
 const KEY = await hmacKey("test-service-role-key");
 
+const CLIENT_IP: Record<string, string> = { "cf-connecting-ip": "192.0.2.7" };
+
 function post(
   body: unknown,
-  headers: Record<string, string> = { "cf-connecting-ip": "192.0.2.7" },
+  headers: Record<string, string>,
 ) {
   let text: string;
   if (typeof body === "string") {
@@ -38,13 +40,19 @@ const WRONG: FakeSupabaseOptions = {
   },
 };
 
+interface RunDeps {
+  key?: CryptoKey | undefined;
+  clientIpHeader?: string;
+  elapsedMs?: number;
+}
+
+const DEPS: RunDeps = { key: KEY };
+
 async function run(
   req: Request,
-  admin: FakeSupabaseOptions = {},
-  anon: FakeSupabaseOptions = {},
-  deps: { key?: CryptoKey | undefined; clientIpHeader?: string; elapsedMs?: number } = {
-    key: KEY,
-  },
+  admin: FakeSupabaseOptions,
+  anon: FakeSupabaseOptions,
+  deps: RunDeps,
 ) {
   const a = fakeSupabase({
     rpc: Object.assign({
@@ -98,30 +106,40 @@ function fns(calls: { rpc: Array<{ fn: string }> }) {
 Deno.test(
   "handleSignIn answers preflight and rejects other methods",
   async function (): Promise<void> {
-    const pre = await run(new Request("http://x/", { method: "OPTIONS" }));
+    const pre = await run(new Request("http://x/", { method: "OPTIONS" }), {}, {}, DEPS);
     assertEquals(pre.res.status, 204);
-    const get = await run(new Request("http://x/"));
+    const get = await run(new Request("http://x/"), {}, {}, DEPS);
     assertEquals(get.res.status, 405);
     assertEquals(get.admin.rpc, []);
   },
 );
 
 Deno.test("handleSignIn rejects malformed and oversized bodies", async function (): Promise<void> {
-  assertEquals((await run(post("not json"))).res.status, 400);
-  const missing = await run(post({ identifier: "x" }));
+  assertEquals((await run(post("not json", CLIENT_IP), {}, {}, DEPS)).res.status, 400);
+  const missing = await run(post({ identifier: "x" }, CLIENT_IP), {}, {}, DEPS);
   assertEquals(missing.res.status, 400);
   assertEquals(missing.body, { error: "Send an identifier and a password." });
-  const long = await run(post({ identifier: `${"a".repeat(250)}@b.cd`, password: "x" }));
+  const long = await run(
+    post({ identifier: `${"a".repeat(250)}@b.cd`, password: "x" }, CLIENT_IP),
+    {},
+    {},
+    DEPS,
+  );
   assertEquals(long.res.status, 400);
   assertEquals(long.admin.rpc, []);
-  const bigPassword = await run(post({ identifier: "kk4pwj", password: "x".repeat(1025) }));
+  const bigPassword = await run(
+    post({ identifier: "kk4pwj", password: "x".repeat(1025) }, CLIENT_IP),
+    {},
+    {},
+    DEPS,
+  );
   assertEquals(bigPassword.res.status, 400);
 });
 
 Deno.test(
   "handleSignIn returns tokens and forgets the attempt for a right password",
   async function (): Promise<void> {
-    const ran = await run(post(GOOD), {}, { signInWithPassword: SESSION });
+    const ran = await run(post(GOOD, CLIENT_IP), {}, { signInWithPassword: SESSION }, DEPS);
     const res = ran.res;
     const body = ran.body;
     const admin = ran.admin;
@@ -166,7 +184,7 @@ Deno.test(
 Deno.test(
   "handleSignIn counts a wrong password and keeps it logged",
   async function (): Promise<void> {
-    const ran = await run(post(GOOD), {}, WRONG);
+    const ran = await run(post(GOOD, CLIENT_IP), {}, WRONG, DEPS);
     const res = ran.res;
     const body = ran.body;
     const admin = ran.admin;
@@ -182,14 +200,24 @@ Deno.test(
     function keyOf(r: Awaited<ReturnType<typeof run>>) {
       return r.admin.rpc[1]!.args!["p_identifier"];
     }
-    const byCall = await run(post(GOOD), {}, WRONG);
-    const byEmail = await run(post({ identifier: "KK4PWJ@Example.com", password: "x" }), {
-      rpc: { email_for_identifier: { data: "KK4PWJ@example.com" } },
-    }, WRONG);
+    const byCall = await run(post(GOOD, CLIENT_IP), {}, WRONG, DEPS);
+    const byEmail = await run(
+      post({ identifier: "KK4PWJ@Example.com", password: "x" }, CLIENT_IP),
+      {
+        rpc: { email_for_identifier: { data: "KK4PWJ@example.com" } },
+      },
+      WRONG,
+      DEPS,
+    );
     assertEquals(byEmail.admin.rpc[0]!.args, { p_identifier: "kk4pwj@example.com" });
     assertEquals([keyOf(byCall), keyOf(byEmail)], ["kk4pwj@example.com", "kk4pwj@example.com"]);
     // A callsign with no account is counted as typed.
-    const unknown = await run(post(GOOD), { rpc: { email_for_identifier: { data: null } } }, WRONG);
+    const unknown = await run(
+      post(GOOD, CLIENT_IP),
+      { rpc: { email_for_identifier: { data: null } } },
+      WRONG,
+      DEPS,
+    );
     assertEquals(keyOf(unknown), "KK4PWJ");
   },
 );
@@ -197,16 +225,21 @@ Deno.test(
 Deno.test(
   "handleSignIn holds a wrong password's answer to the floor from the request's start",
   async function (): Promise<void> {
-    const fast = await run(post(GOOD), {}, WRONG, { key: KEY, elapsedMs: 40 });
+    const fast = await run(post(GOOD, CLIENT_IP), {}, WRONG, { key: KEY, elapsedMs: 40 });
     assertEquals(fast.res.status, 401);
     assertEquals(fast.sleeps, [FAILED_SIGN_IN_FLOOR_MS - 40]);
-    const slow = await run(post(GOOD), {}, WRONG, { key: KEY, elapsedMs: 500 });
+    const slow = await run(post(GOOD, CLIENT_IP), {}, WRONG, { key: KEY, elapsedMs: 500 });
     assertEquals(slow.res.status, 401);
     assertEquals(slow.sleeps, []);
     // Only a 401 waits: a right password or a refusal answers at once.
-    const ok = await run(post(GOOD), {}, { signInWithPassword: SESSION });
+    const ok = await run(post(GOOD, CLIENT_IP), {}, { signInWithPassword: SESSION }, DEPS);
     assertEquals([ok.res.status, ok.sleeps], [200, []]);
-    const refused = await run(post(GOOD), { rpc: { begin_sign_in_attempt: { data: null } } });
+    const refused = await run(
+      post(GOOD, CLIENT_IP),
+      { rpc: { begin_sign_in_attempt: { data: null } } },
+      {},
+      DEPS,
+    );
     assertEquals([refused.res.status, refused.sleeps], [429, []]);
   },
 );
@@ -222,7 +255,7 @@ Deno.test(
     });
     const b = fakeSupabase(WRONG);
     const started = performance.now();
-    const res = await handleSignIn(post(GOOD), {
+    const res = await handleSignIn(post(GOOD, CLIENT_IP), {
       admin: () => a.client,
       anon: () => b.client,
       clientIpHeader: undefined,
@@ -239,9 +272,14 @@ Deno.test(
 Deno.test(
   "handleSignIn still checks a password for unknown identifiers",
   async function (): Promise<void> {
-    const ran = await run(post(GOOD), {
-      rpc: { email_for_identifier: { data: null } },
-    }, WRONG);
+    const ran = await run(
+      post(GOOD, CLIENT_IP),
+      {
+        rpc: { email_for_identifier: { data: null } },
+      },
+      WRONG,
+      DEPS,
+    );
     const res = ran.res;
     const body = ran.body;
     const anon = ran.anon;
@@ -254,9 +292,9 @@ Deno.test(
 Deno.test(
   "handleSignIn explains unconfirmed emails without counting them",
   async function (): Promise<void> {
-    const ran = await run(post(GOOD), {}, {
+    const ran = await run(post(GOOD, CLIENT_IP), {}, {
       signInWithPassword: { error: { message: "x", code: "email_not_confirmed" } },
-    });
+    }, DEPS);
     const res = ran.res;
     const body = ran.body;
     const admin = ran.admin;
@@ -269,9 +307,14 @@ Deno.test(
 Deno.test(
   "handleSignIn rate limits a refused attempt without checking the password",
   async function (): Promise<void> {
-    const ran = await run(post(GOOD), {
-      rpc: { begin_sign_in_attempt: { data: null } },
-    });
+    const ran = await run(
+      post(GOOD, CLIENT_IP),
+      {
+        rpc: { begin_sign_in_attempt: { data: null } },
+      },
+      {},
+      DEPS,
+    );
     const res = ran.res;
     const body = ran.body;
     const anon = ran.anon;
@@ -292,7 +335,7 @@ Deno.test(
         { message: "Too many requests", status: 429 },
       ]
     ) {
-      const ran = await run(post(GOOD), {}, { signInWithPassword: { error } });
+      const ran = await run(post(GOOD, CLIENT_IP), {}, { signInWithPassword: { error } }, DEPS);
       const res = ran.res;
       const body = ran.body;
       const admin = ran.admin;
@@ -310,23 +353,28 @@ Deno.test(
     const original = console.error;
     console.error = (...args: unknown[]) => errors.push(args[0]);
     try {
-      const down = await run(post(GOOD), {}, {
+      const down = await run(post(GOOD, CLIENT_IP), {}, {
         signInWithPassword: {
           error: { message: "upstream", code: "unexpected_failure", status: 500 },
         },
-      });
+      }, DEPS);
       assertEquals(down.res.status, 500);
       assertEquals(down.body, { error: SIGN_IN_UNAVAILABLE });
       assertEquals(fns(down.admin).at(-1), "forget_sign_in_attempt");
 
-      const noSession = await run(post(GOOD), {}, {
+      const noSession = await run(post(GOOD, CLIENT_IP), {}, {
         signInWithPassword: { data: { session: null } },
-      });
+      }, DEPS);
       assertEquals(noSession.res.status, 500);
 
-      const forgetFails = await run(post(GOOD), {
-        rpc: { forget_sign_in_attempt: { error: { message: "gone" } } },
-      }, { signInWithPassword: SESSION });
+      const forgetFails = await run(
+        post(GOOD, CLIENT_IP),
+        {
+          rpc: { forget_sign_in_attempt: { error: { message: "gone" } } },
+        },
+        { signInWithPassword: SESSION },
+        DEPS,
+      );
       assertEquals(forgetFails.res.status, 200);
     } finally {
       console.error = original;
@@ -340,19 +388,29 @@ Deno.test(
 Deno.test(
   "handleSignIn returns 500 when the key, attempt log or lookup fails",
   async function (): Promise<void> {
-    const noKey = await run(post(GOOD), {}, {}, { key: undefined });
+    const noKey = await run(post(GOOD, CLIENT_IP), {}, {}, { key: undefined });
     assertEquals(noKey.res.status, 500);
     assertEquals(noKey.admin.rpc, []);
 
-    const log = await run(post(GOOD), {
-      rpc: { begin_sign_in_attempt: { error: { message: "down" } } },
-    });
+    const log = await run(
+      post(GOOD, CLIENT_IP),
+      {
+        rpc: { begin_sign_in_attempt: { error: { message: "down" } } },
+      },
+      {},
+      DEPS,
+    );
     assertEquals(log.res.status, 500);
     assertEquals(log.body, { error: SIGN_IN_UNAVAILABLE });
 
-    const lookup = await run(post(GOOD), {
-      rpc: { email_for_identifier: { error: { message: "down" } } },
-    });
+    const lookup = await run(
+      post(GOOD, CLIENT_IP),
+      {
+        rpc: { email_for_identifier: { error: { message: "down" } } },
+      },
+      {},
+      DEPS,
+    );
     assertEquals(lookup.res.status, 500);
     assert(lookup.anon.signInWithPassword.length === 0);
     // The lookup comes first, so there is no attempt to forget.

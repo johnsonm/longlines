@@ -49,7 +49,7 @@ function buildCrcTable(): Uint32Array {
 const CRC_TABLE = buildCrcTable();
 
 /** Folds `bytes` into a running CRC-32; start from 0 and pass the previous result to continue. */
-export function crc32(bytes: Uint8Array, previous = 0): number {
+export function crc32(bytes: Uint8Array, previous: number): number {
   let c = ~previous >>> 0;
   for (let i = 0; i < bytes.length; i++) {
     const b = bytes[i];
@@ -213,8 +213,8 @@ export const STREAM_HEADER_TIMEOUT_MS = 60_000;
 export async function openHttpZip(
   url: string,
   signal: AbortSignal,
-  fetchFn: typeof fetch = fetch,
-  streamHeaderTimeoutMs = STREAM_HEADER_TIMEOUT_MS,
+  fetchFn: typeof fetch,
+  streamHeaderTimeoutMs: number,
 ): Promise<HttpZip> {
   // The file is loaded into a public table: never over plain http, except
   // from a local server in tests and development.
@@ -272,7 +272,11 @@ export async function openHttpZip(
   // If-Range ties every range to the version HEAD saw: if the FCC replaces the
   // file mid-load, the server answers 200 with the new file, which is refused,
   // rather than mixing two weeks' bytes.
-  async function range(start: number, end: number, timeout?: AbortSignal): Promise<Response> {
+  async function range(
+    start: number,
+    end: number,
+    timeout: AbortSignal | undefined,
+  ): Promise<Response> {
     let requestSignal = signal;
     if (timeout !== undefined) {
       requestSignal = AbortSignal.any([signal, timeout]);

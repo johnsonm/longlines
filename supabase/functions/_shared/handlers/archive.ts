@@ -8,7 +8,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { archiveSources, runArchive } from "../archive.ts";
 import { isServiceRole } from "../auth.ts";
 import { createArchiveDb } from "../db.ts";
-import { timed } from "../timing.ts";
+import { performanceClock, timed } from "../timing.ts";
 import type { ArchiveStore, Source } from "../types.ts";
 
 export interface ArchiveDeps {
@@ -22,9 +22,9 @@ export interface ArchiveDeps {
 export function handleArchive(
   req: Request,
   deps: ArchiveDeps,
-  now: Date = new Date(),
+  now: Date,
 ): Promise<Response> {
-  return timed(() => archive(req, deps, now));
+  return timed(() => archive(req, deps, now), performanceClock);
 }
 
 async function archive(req: Request, deps: ArchiveDeps, now: Date): Promise<Response> {

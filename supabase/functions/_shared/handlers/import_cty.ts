@@ -7,7 +7,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { isServiceRole } from "../auth.ts";
 import { parseCty } from "../cty.ts";
 import { loadCty } from "../db.ts";
-import { timed } from "../timing.ts";
+import { performanceClock, timed } from "../timing.ts";
 
 // cty.dat lists about 340 DXCC entities. Fewer means a truncated or wrong file;
 // loading it would leave spotters without a country.
@@ -21,7 +21,7 @@ export interface ImportCtyDeps {
 
 /** The import, stamped with its run time for the Health page (timing.ts). */
 export function handleImportCty(req: Request, deps: ImportCtyDeps): Promise<Response> {
-  return timed(() => importCty(req, deps));
+  return timed(() => importCty(req, deps), performanceClock);
 }
 
 async function importCty(req: Request, deps: ImportCtyDeps): Promise<Response> {

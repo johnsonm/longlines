@@ -20,7 +20,7 @@ function send(
 const deps: ApiDeps = { db: createServiceClient, send };
 
 async function handler(req: Request): Promise<Response> {
-  return await handleApi(req, deps);
+  return await handleApi(req, deps, new Date());
 }
 
 Deno.serve(handler);

@@ -39,13 +39,13 @@ async function fetchOk(url: string, accept: string, options: FetchOptions): Prom
 }
 
 /** GET a JSON document. Throws on non-2xx, timeout, or invalid JSON. */
-export async function fetchJson(url: string, options: FetchOptions = {}): Promise<unknown> {
+export async function fetchJson(url: string, options: FetchOptions): Promise<unknown> {
   const response = await fetchOk(url, "application/json", options);
   return await response.json();
 }
 
 /** GET a text document, trimmed. Throws on non-2xx or timeout. */
-export async function fetchText(url: string, options: FetchOptions = {}): Promise<string> {
+export async function fetchText(url: string, options: FetchOptions): Promise<string> {
   const response = await fetchOk(url, "text/plain, */*", options);
   return (await response.text()).trim();
 }

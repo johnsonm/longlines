@@ -195,6 +195,6 @@ export function parseCty(text: string): CtyData {
 }
 
 /** GETs cty.dat with the Long Lines User-Agent. */
-export async function fetchCty(url: string = CTY_URL): Promise<string> {
+export async function fetchCty(url: string): Promise<string> {
   return await fetchText(url, { timeoutMs: 30_000 });
 }

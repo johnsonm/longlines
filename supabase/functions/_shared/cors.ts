@@ -9,7 +9,7 @@ export const DEFAULT_METHODS = "GET, POST, OPTIONS";
 export const PREFLIGHT_MAX_AGE = "600";
 
 // Retry-After (429) and Allow (405) are readable by browser code, so it can back off.
-export function corsHeaders(methods: string = DEFAULT_METHODS): Record<string, string> {
+export function corsHeaders(methods: string): Record<string, string> {
   return {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -21,7 +21,7 @@ export function corsHeaders(methods: string = DEFAULT_METHODS): Record<string, s
 /** The response to an OPTIONS preflight, or null when the request is not one. */
 export function preflightResponse(
   req: Request,
-  methods: string = DEFAULT_METHODS,
+  methods: string,
 ): Response | null {
   if (req.method !== "OPTIONS") {
     return null;
@@ -32,10 +32,10 @@ export function preflightResponse(
 }
 
 /** JSON response carrying the CORS headers, plus any extra headers. */
-export function json(body: unknown, status = 200, headers: Record<string, string> = {}): Response {
+export function json(body: unknown, status: number, headers: Record<string, string>): Response {
   // Built in the order the spread had: CORS, then Content-Type, then the extras,
   // so an extra header replaces either.
-  const merged = corsHeaders();
+  const merged = corsHeaders(DEFAULT_METHODS);
   merged["Content-Type"] = "application/json";
   for (const entry of Object.entries(headers)) {
     merged[entry[0]] = entry[1];

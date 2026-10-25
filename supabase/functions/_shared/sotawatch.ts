@@ -71,11 +71,11 @@ export const sotawatch: SourceAdapter = {
   source: "sotawatch",
 
   fetchSpots(): Promise<unknown> {
-    return fetchJson(SOTAWATCH_SPOTS_URL);
+    return fetchJson(SOTAWATCH_SPOTS_URL, {});
   },
 
   fetchEpoch(): Promise<string> {
-    return fetchText(SOTAWATCH_EPOCH_URL);
+    return fetchText(SOTAWATCH_EPOCH_URL, {});
   },
 
   parseFeed(body: unknown): JsonObject[] {

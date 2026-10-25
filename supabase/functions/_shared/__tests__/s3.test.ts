@@ -177,9 +177,13 @@ Deno.test(
       );
 
       reply = new Response("<Error><Code>AccessDenied</Code></Error>", { status: 403 });
-      await assertRejects(() => putObject(cfg, "k", bytes, "x"), Error, "HTTP 403 AccessDenied");
+      await assertRejects(
+        () => putObject(cfg, "k", bytes, "x", new Date()),
+        Error,
+        "HTTP 403 AccessDenied",
+      );
       reply = new Response("bad gateway", { status: 502 });
-      await assertRejects(() => putObject(cfg, "k", bytes, "x"), Error, "HTTP 502");
+      await assertRejects(() => putObject(cfg, "k", bytes, "x", new Date()), Error, "HTTP 502");
     } finally {
       await server.shutdown();
     }
@@ -238,14 +242,14 @@ Deno.test(
       }
 
       reply = () => new Response("<Error><Code>NoSuchKey</Code></Error>", { status: 404 });
-      assertEquals(await getObject(cfg, key), null);
-      assertEquals(await headObject(cfg, key), null);
-      await deleteObject(cfg, key);
+      assertEquals(await getObject(cfg, key, new Date()), null);
+      assertEquals(await headObject(cfg, key, new Date()), null);
+      await deleteObject(cfg, key, new Date());
 
       reply = () => new Response("<Error><Code>AccessDenied</Code></Error>", { status: 403 });
-      await assertRejects(() => getObject(cfg, key), Error, "HTTP 403 AccessDenied");
-      await assertRejects(() => headObject(cfg, key), Error, "HTTP 403");
-      await assertRejects(() => deleteObject(cfg, key), Error, "HTTP 403 AccessDenied");
+      await assertRejects(() => getObject(cfg, key, new Date()), Error, "HTTP 403 AccessDenied");
+      await assertRejects(() => headObject(cfg, key, new Date()), Error, "HTTP 403");
+      await assertRejects(() => deleteObject(cfg, key, new Date()), Error, "HTTP 403 AccessDenied");
     } finally {
       await server.shutdown();
     }

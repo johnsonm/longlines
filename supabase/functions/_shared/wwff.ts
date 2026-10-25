@@ -66,7 +66,7 @@ export const wwff: SourceAdapter = {
   source: "wwff",
 
   fetchSpots(): Promise<unknown> {
-    return fetchJson(WWFF_SPOTS_URL);
+    return fetchJson(WWFF_SPOTS_URL, {});
   },
 
   parseFeed(body: unknown): JsonObject[] {

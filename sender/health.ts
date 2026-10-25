@@ -38,7 +38,7 @@ export interface SenderStatus {
 export function healthHandler(
   status: () => SenderStatus,
   staleMs: number,
-  now: () => Date = () => new Date(),
+  now: () => Date,
 ): (req: Request) => Response {
   function handler(req: Request): Response {
     if (new URL(req.url).pathname !== "/healthz") {

@@ -10,7 +10,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isUuid } from "../api/routes.ts";
 import { userFromRequest } from "../auth.ts";
-import { json, preflightResponse } from "../cors.ts";
+import { DEFAULT_METHODS, json, preflightResponse } from "../cors.ts";
 import { pushBookkeeping, type SendResult } from "../delivery/send.ts";
 import type {
   DeliveryDestination,
@@ -33,20 +33,20 @@ export interface SendTestDeps {
 export async function handleSendTest(
   req: Request,
   deps: SendTestDeps,
-  now: Date = new Date(),
+  now: Date,
 ): Promise<Response> {
-  const preflight = preflightResponse(req);
+  const preflight = preflightResponse(req, DEFAULT_METHODS);
   if (preflight !== null) {
     return preflight;
   }
   if (req.method !== "POST") {
-    return json({ error: "Method not allowed." }, 405);
+    return json({ error: "Method not allowed." }, 405, {});
   }
 
   const admin = deps.admin();
   const user = await userFromRequest(req, admin);
   if (user === null) {
-    return json({ error: "Sign in again to send a test." }, 401);
+    return json({ error: "Sign in again to send a test." }, 401, {});
   }
 
   let body: { destination_id?: unknown; spot_id?: unknown };
@@ -65,10 +65,10 @@ export async function handleSendTest(
     }
   }
   if (typeof destinationId !== "string") {
-    return json({ error: "Pick a destination." }, 400);
+    return json({ error: "Pick a destination." }, 400, {});
   }
   if (spotId !== null && !Number.isSafeInteger(spotId)) {
-    return json({ error: "Pick a spot." }, 400);
+    return json({ error: "Pick a spot." }, 400, {});
   }
 
   // The web path's limit (record_send_test: 10 a minute per destination, 30 per
@@ -81,10 +81,10 @@ export async function handleSendTest(
     });
     if (limit.error !== null) {
       console.error(`send-test: record_send_test failed: ${limit.error.message}`);
-      return json({ error: "Couldn't load that destination." }, 500);
+      return json({ error: "Couldn't load that destination." }, 500, {});
     }
     if (limit.data === false) {
-      return json({ error: TOO_MANY_TESTS }, 429);
+      return json({ error: TOO_MANY_TESTS }, 429, {});
     }
   }
 
@@ -162,9 +162,9 @@ function notFound(spotId: number | null): Response {
   // A missing settings row (which the triggers rule out) also reads as null; the
   // message then points at the destination, not a spot.
   if (spotId === null) {
-    return json({ error: "Destination not found." }, 404);
+    return json({ error: "Destination not found." }, 404, {});
   }
-  return json({ error: "Spot not found." }, 404);
+  return json({ error: "Spot not found." }, 404, {});
 }
 
 /**
@@ -178,11 +178,11 @@ export async function sendTestTo(
   destinationId: string,
   send: SendTestDeps["send"],
   now: Date,
-  spotId: number | null = null,
+  spotId: number | null,
 ): Promise<Response> {
   // Not a uuid cannot be a destination; PostgREST would answer 22P02.
   if (!isUuid(destinationId)) {
-    return json({ error: "Destination not found." }, 404);
+    return json({ error: "Destination not found." }, 404, {});
   }
   const loaded = await admin
     .from("destinations")
@@ -194,10 +194,10 @@ export async function sendTestTo(
   const error = loaded.error;
   if (error !== null) {
     console.error(`send-test: loading destination ${destinationId} failed: ${error.message}`);
-    return json({ error: "Couldn't load that destination." }, 500);
+    return json({ error: "Couldn't load that destination." }, 500, {});
   }
   if (data === null) {
-    return json({ error: "Destination not found." }, 404);
+    return json({ error: "Destination not found." }, 404, {});
   }
 
   // A destination the claim is holding back after a rate limit (throttle_destination)
@@ -217,7 +217,7 @@ export async function sendTestTo(
     throttledUntil !== undefined && throttledUntil !== null && throttledUntil !== "" &&
     Date.parse(throttledUntil) > now.getTime()
   ) {
-    return json({ error: DESTINATION_THROTTLED }, 429);
+    return json({ error: DESTINATION_THROTTLED }, 429, {});
   }
   const destination = row as DeliveryDestination;
   const testRpc = TEST_RPCS[destination.type];
@@ -226,7 +226,7 @@ export async function sendTestTo(
   const test = await admin.rpc(rpc, { p_destination_id: destination.id, p_spot_id: spotId });
   if (test.error !== null) {
     console.error(`send-test: ${rpc} failed: ${test.error.message}`);
-    return json({ error: "Couldn't load that destination." }, 500);
+    return json({ error: "Couldn't load that destination." }, 500, {});
   }
   if (isFalsy(test.data)) {
     return notFound(spotId);
@@ -259,7 +259,7 @@ export async function sendTestTo(
     if (result.status !== undefined) {
       sent.status = result.status;
     }
-    return json(sent);
+    return json(sent, 200, {});
   }
   let message = "Delivery failed.";
   if (result.error !== undefined) {
@@ -269,5 +269,5 @@ export async function sendTestTo(
   if (result.status !== undefined) {
     failed.status = result.status;
   }
-  return json(failed, 502);
+  return json(failed, 502, {});
 }

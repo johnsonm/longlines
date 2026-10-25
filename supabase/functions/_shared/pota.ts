@@ -60,7 +60,7 @@ export const pota: SourceAdapter = {
   source: "pota",
 
   fetchSpots(): Promise<unknown> {
-    return fetchJson(POTA_SPOTS_URL);
+    return fetchJson(POTA_SPOTS_URL, {});
   },
 
   parseFeed(body: unknown): JsonObject[] {

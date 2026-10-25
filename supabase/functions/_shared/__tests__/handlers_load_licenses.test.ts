@@ -5,7 +5,7 @@ import { fakeSupabase, type FakeSupabaseOptions } from "./fake_supabase.ts";
 
 const SECRET = "relay-secret";
 
-function post(body: unknown, secret: string | null = SECRET, method = "POST"): Request {
+function post(body: unknown, secret: string | null, method: string): Request {
   const init: RequestInit = { method, headers: {} };
   if (secret !== null) {
     init.headers = { "x-relay-secret": secret };
@@ -20,7 +20,7 @@ function post(body: unknown, secret: string | null = SECRET, method = "POST"): R
   return new Request("http://x/load-licenses", init);
 }
 
-function setup(rpc: FakeSupabaseOptions["rpc"] = {}) {
+function setup(rpc: FakeSupabaseOptions["rpc"]) {
   const fake = fakeSupabase({ rpc });
   const client = fake.client;
   const deps = { secret: SECRET, db: () => createLicenseDb(client) };
@@ -36,14 +36,14 @@ async function rejectWith(reason: unknown): Promise<never> {
 Deno.test(
   "handleLoadLicenses refuses a missing or wrong relay secret",
   async function (): Promise<void> {
-    const s = setup();
+    const s = setup({});
     for (const secret of [null, "wrong"]) {
       assertEquals(
-        (await handleLoadLicenses(post({ action: "status" }, secret), s.deps)).status,
+        (await handleLoadLicenses(post({ action: "status" }, secret, "POST"), s.deps)).status,
         401,
       );
     }
-    const unset = await handleLoadLicenses(post({ action: "status" }), {
+    const unset = await handleLoadLicenses(post({ action: "status" }, SECRET, "POST"), {
       secret: undefined,
       db: s.deps.db,
     });
@@ -55,11 +55,11 @@ Deno.test(
 Deno.test(
   "handleLoadLicenses takes POST with a JSON body only",
   async function (): Promise<void> {
-    const deps = setup().deps;
+    const deps = setup({}).deps;
     assertEquals((await handleLoadLicenses(post(null, SECRET, "GET"), deps)).status, 405);
-    const bad = await handleLoadLicenses(post("not json"), deps);
+    const bad = await handleLoadLicenses(post("not json", SECRET, "POST"), deps);
     assertEquals([bad.status, (await bad.json()).error], [400, "request body is not JSON"]);
-    const invalid = await handleLoadLicenses(post({ action: "drop" }), deps);
+    const invalid = await handleLoadLicenses(post({ action: "drop" }, SECRET, "POST"), deps);
     assertEquals(invalid.status, 400);
   },
 );
@@ -87,7 +87,7 @@ Deno.test(
         { action: "abandon", load: 8, error: "x".repeat(1200) },
       ]
     ) {
-      const res = await handleLoadLicenses(post(body), s.deps);
+      const res = await handleLoadLicenses(post(body, SECRET, "POST"), s.deps);
       assertEquals(res.status, 200);
       answers.push(await res.json());
     }
@@ -109,7 +109,7 @@ Deno.test(
       fcc_license_load_finish: { error: { message: "staged {} but the relay sent {}" } },
     }).deps;
     const res = await handleLoadLicenses(
-      post({ action: "finish", load: 1, counts: { HD: 0, EN: 0, AM: 0 } }),
+      post({ action: "finish", load: 1, counts: { HD: 0, EN: 0, AM: 0 } }, SECRET, "POST"),
       deps,
     );
     assertEquals(res.status, 500);
@@ -123,7 +123,7 @@ Deno.test(
 Deno.test(
   "handleLoadLicenses reports a thrown non-Error as text",
   async function (): Promise<void> {
-    const res = await handleLoadLicenses(post({ action: "status" }), {
+    const res = await handleLoadLicenses(post({ action: "status" }, SECRET, "POST"), {
       secret: SECRET,
       db: () => ({
         loadStatus: () => rejectWith("socket closed"),

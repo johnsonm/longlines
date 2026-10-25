@@ -21,12 +21,12 @@ function line(prefix: string): string {
   return found;
 }
 
-function item(text: string, receivedAt = RECEIVED): JsonObject {
+function item(text: string, receivedAt: string): JsonObject {
   return { line: text, received_at: receivedAt };
 }
 
 async function normalized(text: string): Promise<NormalizedSpot> {
-  const result = await dxclusterAdapter(null).normalize(item(text), NOW);
+  const result = await dxclusterAdapter(null).normalize(item(text, RECEIVED), NOW);
   if (result.kind !== "spot") {
     throw new Error(`expected spot, got skip ${result.reason}`);
   }
@@ -104,7 +104,7 @@ Deno.test("parseDxLine rejects skimmer spots and non-spot broadcasts", function 
 Deno.test(
   "dxclusterAdapter.parseFeed and fetchSpots pass the relay body through",
   async function (): Promise<void> {
-    const body = { lines: [item(line("DX de HA7UL"))] };
+    const body = { lines: [item(line("DX de HA7UL"), RECEIVED)] };
     const adapter = dxclusterAdapter(body);
     assertEquals(await adapter.fetchSpots(), body);
     assertEquals(adapter.parseFeed(body), body.lines);
@@ -128,7 +128,7 @@ Deno.test(
     assertEquals(s.comment, "SSB [POTA] GR-0131 cq cq");
     assertEquals(s.pota_reference, null);
     assertEquals(s.sota_summit_ref, null);
-    assertEquals(s.raw_payload, item(raw));
+    assertEquals(s.raw_payload, item(raw, RECEIVED));
   },
 );
 
@@ -165,7 +165,10 @@ Deno.test(
   "dxclusterAdapter.normalize skips spots older than five minutes",
   async function (): Promise<void> {
     const late = new Date("2026-10-12T13:30:00Z");
-    const result = await dxclusterAdapter(null).normalize(item(line("DX de HA7UL")), late);
+    const result = await dxclusterAdapter(null).normalize(
+      item(line("DX de HA7UL"), RECEIVED),
+      late,
+    );
     assertEquals(result, { kind: "skip", reason: "too_old" });
   },
 );
@@ -174,7 +177,11 @@ Deno.test(
   "dxclusterAdapter.normalize throws on a non-spot or a missing time",
   async function (): Promise<void> {
     const adapter = dxclusterAdapter(null);
-    await assertRejects(() => adapter.normalize(item("Local users: 5"), NOW), Error, "not a DX");
+    await assertRejects(
+      () => adapter.normalize(item("Local users: 5", RECEIVED), NOW),
+      Error,
+      "not a DX",
+    );
     await assertRejects(
       () => adapter.normalize({ line: line("DX de HA7UL") }, NOW),
       Error,
@@ -187,7 +194,10 @@ Deno.test(
   "dxclusterAdapter.parseFeed strips NULs so stored and failed items fit in jsonb",
   function (): void {
     const items = dxclusterAdapter(null).parseFeed({
-      lines: [item("DX de W3LPL:  14025.0  K1\u0000ABC   up 2   1318Z"), item("Local\u0000 users")],
+      lines: [
+        item("DX de W3LPL:  14025.0  K1\u0000ABC   up 2   1318Z", RECEIVED),
+        item("Local\u0000 users", RECEIVED),
+      ],
     });
     assertEquals(items.map((i) => i["line"]), [
       "DX de W3LPL:  14025.0  K1ABC   up 2   1318Z",
@@ -235,7 +245,11 @@ Deno.test(
     const db = fake.db;
     const calls = fake.calls;
     const recent = spotLines.filter((l) => /13(1[89])Z/.test(l));
-    const summary = await runDxclusterPush({ lines: recent.map((l) => item(l)) }, db, NOW);
+    const summary = await runDxclusterPush(
+      { lines: recent.map((l) => item(l, RECEIVED)) },
+      db,
+      NOW,
+    );
     assertEquals(summary.source, "dxcluster");
     assertEquals(summary.inserted, recent.length);
     assertEquals(calls.ingested.flat().every((s) => s.source === "dxcluster"), true);

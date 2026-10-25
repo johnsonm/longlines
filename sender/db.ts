@@ -99,7 +99,7 @@ export interface SqlClient {
     options: { prepare: boolean },
   ): PromiseLike<Iterable<Record<string, unknown>>>;
   json(value: JSONValue): SqlParam;
-  end(options?: { timeout?: number }): Promise<void>;
+  end(options: { timeout?: number } | undefined): Promise<void>;
 }
 
 export interface SenderDb extends DeliveryRpc {
@@ -364,7 +364,7 @@ export function withTimeout<T>(promise: PromiseLike<T>, ms: number, message: str
  */
 export async function openSenderDb(
   config: DbConnectionConfig,
-  options: OpenOptions = {},
+  options: OpenOptions,
 ): Promise<SenderDb> {
   let log = logLine;
   if (options.log !== undefined && options.log !== null) {

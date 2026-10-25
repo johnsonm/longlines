@@ -19,15 +19,15 @@ function clientKey(subject: string): Promise<string> {
   return hmacSha256Hex(KEY, subject);
 }
 
-function get(query: string, headers: Record<string, string> = {}): Request {
+function get(query: string, headers: Record<string, string>): Request {
   return new Request(`http://x/callsign-profile${query}`, { headers });
 }
 
 async function run(
   req: Request,
-  options: FakeSupabaseOptions = {},
-  key: CryptoKey | undefined = KEY,
-  clientIpHeader?: string,
+  options: FakeSupabaseOptions,
+  key: CryptoKey | undefined,
+  clientIpHeader: string | undefined,
 ) {
   const rpc: NonNullable<FakeSupabaseOptions["rpc"]> = {
     record_profile_lookup: { data: 1 },
@@ -151,10 +151,15 @@ Deno.test("rateLimitSubject keys IPv4 by address and IPv6 by /64", function (): 
 Deno.test(
   "handleProfile answers preflight and rejects other methods",
   async function (): Promise<void> {
-    const pre = await run(new Request("http://x/", { method: "OPTIONS" }));
+    const pre = await run(new Request("http://x/", { method: "OPTIONS" }), {}, KEY, undefined);
     assertEquals(pre.res.status, 204);
     assertEquals(pre.res.headers.get("Access-Control-Allow-Methods")!.includes("GET"), true);
-    const post = await run(new Request("http://x/?callsign=KK4PWJ", { method: "POST" }));
+    const post = await run(
+      new Request("http://x/?callsign=KK4PWJ", { method: "POST" }),
+      {},
+      KEY,
+      undefined,
+    );
     assertEquals(post.res.status, 405);
     assertEquals(post.calls.rpc, []);
   },
@@ -164,7 +169,7 @@ Deno.test(
   "handleProfile returns 400 for invalid input without touching the database",
   async function (): Promise<void> {
     for (const query of ["", "?callsign=", "?callsign=nope", "?call=KK4PWJ"]) {
-      const result = await run(get(query));
+      const result = await run(get(query, {}), {}, KEY, undefined);
       assertEquals(result.res.status, 400, query);
       assertEquals(result.body, { error: INVALID_CALLSIGN });
       assertEquals(result.calls.rpc, []);
@@ -177,6 +182,9 @@ Deno.test(
   async function (): Promise<void> {
     const result = await run(
       get("?callsign=kk4pwj/p", { "cf-connecting-ip": "198.51.100.1" }),
+      {},
+      KEY,
+      undefined,
     );
     assertEquals(result.res.status, 200);
     assertEquals(result.body, PROFILE);
@@ -194,14 +202,24 @@ Deno.test(
 Deno.test(
   "handleProfile allows 30 lookups a minute and refuses the 31st",
   async function (): Promise<void> {
-    const last = await run(get("?callsign=KK4PWJ"), {
-      rpc: { record_profile_lookup: { data: MAX_LOOKUPS_PER_MINUTE } },
-    });
+    const last = await run(
+      get("?callsign=KK4PWJ", {}),
+      {
+        rpc: { record_profile_lookup: { data: MAX_LOOKUPS_PER_MINUTE } },
+      },
+      KEY,
+      undefined,
+    );
     assertEquals(last.res.status, 200);
 
-    const over = await run(get("?callsign=KK4PWJ"), {
-      rpc: { record_profile_lookup: { data: MAX_LOOKUPS_PER_MINUTE + 1 } },
-    });
+    const over = await run(
+      get("?callsign=KK4PWJ", {}),
+      {
+        rpc: { record_profile_lookup: { data: MAX_LOOKUPS_PER_MINUTE + 1 } },
+      },
+      KEY,
+      undefined,
+    );
     assertEquals(over.res.status, 429);
     assertEquals(over.body, { error: TOO_MANY_LOOKUPS });
     assertEquals(over.res.headers.get("Retry-After"), "60");
@@ -213,29 +231,44 @@ Deno.test(
 Deno.test(
   "handleProfile returns 500 when the rate limit or the profile fails",
   async function (): Promise<void> {
-    const limit = await run(get("?callsign=KK4PWJ"), {
-      rpc: { record_profile_lookup: { error: { message: "down" } } },
-    });
+    const limit = await run(
+      get("?callsign=KK4PWJ", {}),
+      {
+        rpc: { record_profile_lookup: { error: { message: "down" } } },
+      },
+      KEY,
+      undefined,
+    );
     assertEquals(limit.res.status, 500);
     assertEquals(limit.body, { error: LOOKUP_UNAVAILABLE });
     assertEquals(limit.calls.rpc.map((c) => c.fn), ["record_profile_lookup"]);
 
     // A result that is not a count fails closed rather than skipping the limit.
     for (const data of [null, "31", { lookups: 31 }]) {
-      const odd = await run(get("?callsign=KK4PWJ"), { rpc: { record_profile_lookup: { data } } });
+      const odd = await run(
+        get("?callsign=KK4PWJ", {}),
+        { rpc: { record_profile_lookup: { data } } },
+        KEY,
+        undefined,
+      );
       assertEquals(odd.res.status, 500, JSON.stringify(data));
       assertEquals(odd.calls.rpc.map((c) => c.fn), ["record_profile_lookup"]);
     }
 
-    const profile = await run(get("?callsign=KK4PWJ"), {
-      rpc: { cached_callsign_profile: { error: { message: "timeout" } } },
-    });
+    const profile = await run(
+      get("?callsign=KK4PWJ", {}),
+      {
+        rpc: { cached_callsign_profile: { error: { message: "timeout" } } },
+      },
+      KEY,
+      undefined,
+    );
     assertEquals(profile.res.status, 500);
     assertEquals(profile.body, { error: LOOKUP_UNAVAILABLE });
     assertEquals(profile.res.headers.get("Cache-Control"), null);
 
-    const fake = fakeSupabase();
-    const unset = await handleProfile(get("?callsign=KK4PWJ"), {
+    const fake = fakeSupabase({});
+    const unset = await handleProfile(get("?callsign=KK4PWJ", {}), {
       db: () => fake.client,
       clientIpHeader: undefined,
       key: undefined,
@@ -248,9 +281,14 @@ Deno.test(
 Deno.test(
   "handleProfile returns 400 when SQL finds no base call in the input",
   async function (): Promise<void> {
-    const result = await run(get("?callsign=P/1"), {
-      rpc: { cached_callsign_profile: { data: null } },
-    });
+    const result = await run(
+      get("?callsign=P/1", {}),
+      {
+        rpc: { cached_callsign_profile: { data: null } },
+      },
+      KEY,
+      undefined,
+    );
     assertEquals(result.res.status, 400);
     assertEquals(result.body, { error: INVALID_CALLSIGN });
     assertEquals(result.res.headers.get("Cache-Control"), null);

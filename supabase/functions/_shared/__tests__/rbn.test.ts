@@ -20,7 +20,7 @@ function line(prefix: string): string {
   return found;
 }
 
-function item(text: string, receivedAt = RECEIVED): JsonObject {
+function item(text: string, receivedAt: string): JsonObject {
   return { line: text, received_at: receivedAt };
 }
 
@@ -73,7 +73,7 @@ Deno.test(
   "rbnAdapter.parseFeed returns the relay's lines and rejects bad shapes",
   function (): void {
     const adapter = rbnAdapter(null);
-    const items = [item(line("DX de SM1HEV-#"))];
+    const items = [item(line("DX de SM1HEV-#"), RECEIVED)];
     assertEquals(adapter.parseFeed({ lines: items }), items);
     assertEquals(adapter.parseFeed({ lines: [] }), []);
     assertThrows(() => adapter.parseFeed([]));
@@ -91,7 +91,7 @@ Deno.test("rbnAdapter.fetchSpots resolves to the request body", async function (
 Deno.test(
   "rbnAdapter.normalize maps a fixture spot to the common schema",
   async function (): Promise<void> {
-    const raw = item(line("DX de SM1HEV-#"));
+    const raw = item(line("DX de SM1HEV-#"), RECEIVED);
     const result = await rbnAdapter(null).normalize(raw, NOW);
     if (result.kind !== "spot") {
       throw new Error(`expected spot, got skip ${result.reason}`);
@@ -116,7 +116,7 @@ Deno.test(
 Deno.test(
   "rbnAdapter.normalize hashes the fields in the fixed order",
   async function (): Promise<void> {
-    const result = await rbnAdapter(null).normalize(item(line("DX de SM1HEV-#")), NOW);
+    const result = await rbnAdapter(null).normalize(item(line("DX de SM1HEV-#"), RECEIVED), NOW);
     if (result.kind !== "spot") {
       throw new Error("expected spot");
     }
@@ -137,7 +137,10 @@ Deno.test(
 );
 
 Deno.test("rbnAdapter.normalize marks RTTY as digital", async function (): Promise<void> {
-  const result = await rbnAdapter(null).normalize(item(line("DX de LZ7AA-#:   7043.73")), NOW);
+  const result = await rbnAdapter(null).normalize(
+    item(line("DX de LZ7AA-#:   7043.73"), RECEIVED),
+    NOW,
+  );
   if (result.kind !== "spot") {
     throw new Error("expected spot");
   }
@@ -149,7 +152,7 @@ Deno.test(
   "rbnAdapter.normalize skips spots older than five minutes",
   async function (): Promise<void> {
     const result = await rbnAdapter(null).normalize(
-      item(line("DX de SM1HEV-#")),
+      item(line("DX de SM1HEV-#"), RECEIVED),
       new Date("2026-10-11T15:00:00Z"),
     );
     assertEquals(result, { kind: "skip", reason: "too_old" });
@@ -160,14 +163,14 @@ Deno.test(
   "rbnAdapter.normalize throws on lines it cannot process",
   async function (): Promise<void> {
     const adapter = rbnAdapter(null);
-    await assertRejects(() => adapter.normalize(item("Local users: 586"), NOW));
+    await assertRejects(() => adapter.normalize(item("Local users: 586", RECEIVED), NOW));
     await assertRejects(() => adapter.normalize({ line: line("DX de SM1HEV-#") }, NOW));
     await assertRejects(() => adapter.normalize(item(line("DX de SM1HEV-#"), "yesterday"), NOW));
   },
 );
 
 Deno.test("rbnSpotRow maps a fixture line to an rbn_spots row", function (): void {
-  const raw = item(line("DX de SM1HEV-#"));
+  const raw = item(line("DX de SM1HEV-#"), RECEIVED);
   assertEquals(rbnSpotRow(raw, NOW), {
     spot_time: "2026-10-11T14:54:00.000Z",
     received_at: "2026-10-11T14:55:30.000Z",
@@ -186,7 +189,7 @@ Deno.test("rbnSpotRow maps a fixture line to an rbn_spots row", function (): voi
 });
 
 Deno.test("rbnSpotRow keeps BPS and marks RTTY digital", function (): void {
-  const row = rbnSpotRow(item(line("DX de LZ7AA-#:   7043.73")), NOW);
+  const row = rbnSpotRow(item(line("DX de LZ7AA-#:   7043.73"), RECEIVED), NOW);
   assertEquals([row.mode, row.mode_family, row.speed, row.speed_unit], [
     "rtty",
     "digital",
@@ -207,7 +210,11 @@ Deno.test(
 );
 
 Deno.test("rbnSpotRow throws on a banner, a missing received_at or a bad one", function (): void {
-  assertThrows(() => rbnSpotRow(item("Local users: 586"), NOW), Error, "not an RBN spot line");
+  assertThrows(
+    () => rbnSpotRow(item("Local users: 586", RECEIVED), NOW),
+    Error,
+    "not an RBN spot line",
+  );
   assertThrows(() => rbnSpotRow({ line: line("DX de SM1HEV-#") }, NOW), Error, "received_at");
   assertThrows(() => rbnSpotRow(item(line("DX de SM1HEV-#"), "yesterday"), NOW));
 });
@@ -216,11 +223,11 @@ Deno.test(
   "rbnSpotRow rejects values Postgres would refuse, so one line cannot fail a batch",
   function (): void {
     const big = "DX de W3LPL-#:  14035.10  K1ABC          CW  99999 dB  22 WPM  CQ      1200Z";
-    assertThrows(() => rbnSpotRow(item(big), NOW), Error, "snr out of range");
+    assertThrows(() => rbnSpotRow(item(big, RECEIVED), NOW), Error, "snr out of range");
     const fast = "DX de W3LPL-#:  14035.10  K1ABC          CW    12 dB  70000 WPM  CQ      1200Z";
-    assertThrows(() => rbnSpotRow(item(fast), NOW), Error, "speed out of range");
+    assertThrows(() => rbnSpotRow(item(fast, RECEIVED), NOW), Error, "speed out of range");
     const nul = "DX de W3LPL-#:  14035.10  K1\u0000ABC        CW    12 dB  22 WPM  CQ      1200Z";
-    assertThrows(() => rbnSpotRow(item(nul), NOW), Error, "NUL");
+    assertThrows(() => rbnSpotRow(item(nul, RECEIVED), NOW), Error, "NUL");
   },
 );
 
@@ -228,7 +235,11 @@ Deno.test(
   "rbnSpotRow rejects a lone surrogate, an implausible received_at and oversized calls",
   function (): void {
     const ok = "DX de W3LPL-#:  14035.10  K1ABC          CW    12 dB  22 WPM  CQ      1454Z";
-    assertThrows(() => rbnSpotRow(item(ok.replace("K1ABC", "K1\ud83d")), NOW), Error, "surrogate");
+    assertThrows(
+      () => rbnSpotRow(item(ok.replace("K1ABC", "K1\ud83d"), RECEIVED), NOW),
+      Error,
+      "surrogate",
+    );
     assertThrows(
       () => rbnSpotRow(item(ok, "+058763-01-01T00:00:00Z"), NOW),
       Error,
@@ -236,7 +247,15 @@ Deno.test(
     );
     assertThrows(() => rbnSpotRow(item(ok, "2026-10-12T15:00:00Z"), NOW), Error, "out of range");
     const long = "K".repeat(3000);
-    assertThrows(() => rbnSpotRow(item(ok.replace("K1ABC", long)), NOW), Error, "callsign is 3000");
-    assertThrows(() => rbnSpotRow(item(ok.replace("W3LPL", long)), NOW), Error, "spotter is 3000");
+    assertThrows(
+      () => rbnSpotRow(item(ok.replace("K1ABC", long), RECEIVED), NOW),
+      Error,
+      "callsign is 3000",
+    );
+    assertThrows(
+      () => rbnSpotRow(item(ok.replace("W3LPL", long), RECEIVED), NOW),
+      Error,
+      "spotter is 3000",
+    );
   },
 );

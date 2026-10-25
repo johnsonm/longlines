@@ -54,7 +54,7 @@ export async function recordFailureAndThrow(
 export async function runIngest(
   adapter: SourceAdapter,
   db: IngestDb,
-  now: Date = new Date(),
+  now: Date,
 ): Promise<IngestSummary> {
   const started = performance.now();
   const summary: IngestSummary = {

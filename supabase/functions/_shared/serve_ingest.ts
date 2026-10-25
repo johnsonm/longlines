@@ -12,7 +12,7 @@ import { isServiceRole } from "./auth.ts";
 import { createIngestDb, createServiceClient } from "./db.ts";
 import { runIngest } from "./ingest.ts";
 import { respond } from "./serve.ts";
-import { timed } from "./timing.ts";
+import { performanceClock, timed } from "./timing.ts";
 import type { IngestDb, SourceAdapter } from "./types.ts";
 
 export interface IngestDeps {
@@ -29,9 +29,9 @@ export function ingestHandler(
       if (!await isServiceRole(req, deps.serviceRoleKey)) {
         return Response.json({ error: "Forbidden" }, { status: 403 });
       }
-      return await respond(adapter.source, () => runIngest(adapter, deps.db()));
+      return await respond(adapter.source, () => runIngest(adapter, deps.db(), new Date()));
     }
-    return timed(run);
+    return timed(run, performanceClock);
   }
   return handler;
 }

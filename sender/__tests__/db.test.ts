@@ -140,7 +140,7 @@ interface Executed {
 }
 
 /** A SqlClient that records statements and answers from `rows`, or throws `failure`. */
-function fakeSql(rows: Array<Record<string, unknown>> = [], failure?: Error) {
+function fakeSql(rows: Array<Record<string, unknown>>, failure: Error | undefined) {
   const executed: Executed[] = [];
   const ended: Array<{ timeout?: number } | undefined> = [];
   const sql: SqlClient = {
@@ -163,7 +163,7 @@ function fakeSql(rows: Array<Record<string, unknown>> = [], failure?: Error) {
 Deno.test(
   "senderDb runs the statement prepared, returns the rows as data and wraps jsonb with sql.json",
   async function (): Promise<void> {
-    const fake = fakeSql([{ msg_id: 7, delivery_id: 3 }]);
+    const fake = fakeSql([{ msg_id: 7, delivery_id: 3 }], undefined);
     const db = senderDb(fake.sql);
     assertEquals(await db.rpc("claim_deliveries", { p_limit: 5, p_vt: 60 }), {
       data: [{ msg_id: 7, delivery_id: 3 }],
@@ -191,7 +191,7 @@ Deno.test(
       data: null,
       error: "permission denied for function claim_deliveries",
     });
-    const fake = fakeSql();
+    const fake = fakeSql([], undefined);
     assertEquals(await senderDb(fake.sql).rpc("delay_deliveries", {}), {
       data: null,
       error: "delay_deliveries is not in the sender's RPC allowlist",
@@ -338,7 +338,7 @@ Deno.test(
     const clients: ReturnType<typeof fakeSql>[] = [];
     // The first four pools fail their probe; the fifth answers.
     function connect() {
-      let fake = fakeSql([{ depth: 0 }]);
+      let fake = fakeSql([{ depth: 0 }], undefined);
       if (clients.length < 4) {
         fake = fakeSql([], new Error("connection refused"));
       }
@@ -437,7 +437,7 @@ Deno.test({
     const db = await openSenderDb({
       databaseUrl: url,
       databaseSsl: !isLocalHost(new URL(url).hostname),
-    });
+    }, {});
     try {
       const stats = await db.rpc("delivery_queue_stats", {});
       assertEquals(stats.error, null);
