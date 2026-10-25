@@ -7,7 +7,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { type ConvertRequest, convertRequest, runConvert } from "../archive_convert.ts";
 import { isServiceRole } from "../auth.ts";
 import { createConvertDb } from "../db.ts";
-import { timed } from "../timing.ts";
+import { performanceClock, timed } from "../timing.ts";
 import type { ArchiveObjectStore } from "../types.ts";
 
 export interface ConvertArchiveDeps {
@@ -19,7 +19,7 @@ export interface ConvertArchiveDeps {
 
 /** The conversion run, stamped with its run time (timing.ts). */
 export function handleConvertArchive(req: Request, deps: ConvertArchiveDeps): Promise<Response> {
-  return timed(() => convert(req, deps));
+  return timed(() => convert(req, deps), performanceClock);
 }
 
 function failure(error: unknown, status: number, prefix = ""): Response {
