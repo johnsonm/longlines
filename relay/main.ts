@@ -24,9 +24,9 @@ function defaultFeeds(): Feed[] {
 
 /** Run the relay until SIGINT/SIGTERM. `feedList` is overridable for local end-to-end runs. */
 export async function main(
-  feedList: readonly Feed[] = defaultFeeds(),
+  feedList: readonly Feed[],
 ): Promise<void> {
-  const relay = startRelay(loadConfig(env), feedList);
+  const relay = startRelay(loadConfig(env), feedList, {});
 
   // Fly sends SIGINT (the default kill_signal) on deploy and restart. Push what
   // is buffered before exiting so a deploy does not lose spots.
@@ -56,5 +56,5 @@ function exitOnFailure(error: unknown): void {
 }
 
 if (import.meta.main) {
-  main().catch(exitOnFailure);
+  main(defaultFeeds()).catch(exitOnFailure);
 }

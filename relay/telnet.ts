@@ -165,7 +165,7 @@ export function nextDelay(
   previousMs: number | null,
   sessionMs: number,
   backoff: Backoff,
-  random: () => number = Math.random,
+  random: () => number,
 ): number {
   let base: number;
   if (previousMs === null || sessionMs >= backoff.stableMs) {
@@ -374,7 +374,7 @@ export async function runTelnet(options: TelnetOptions): Promise<void> {
     if (opts.signal.aborted) {
       break;
     }
-    delay = nextDelay(delay, opts.now().getTime() - started, opts.backoff);
+    delay = nextDelay(delay, opts.now().getTime() - started, opts.backoff, Math.random);
     opts.log(`reconnecting in ${String(Math.round(delay / 1000))} s`);
     await opts.sleep(delay, opts.signal);
   }

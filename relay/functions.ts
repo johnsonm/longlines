@@ -11,33 +11,48 @@ export interface RelayLine {
 
 export interface FunctionClient {
   /** `signal` aborts the request early (shutdown's drain deadline). */
-  push(lines: RelayLine[], signal?: AbortSignal): Promise<unknown>;
+  push(lines: RelayLine[], signal: AbortSignal | undefined): Promise<unknown>;
 }
 
 const TIMEOUT_MS = 15_000;
 
+export interface FunctionPosterConfig {
+  functionsUrl: string;
+  functionName: string;
+  secret: string;
+  fetchFn: typeof fetch;
+}
+
 /**
- * POST `body` as JSON with the relay secret; the parsed reply, or an error for non-2xx.
- * The request aborts after TIMEOUT_MS, or sooner when `signal` aborts.
+ * POSTs JSON bodies to one Edge Function with the relay secret: the parsed reply, or an error
+ * for non-2xx. Each request aborts after TIMEOUT_MS, or sooner when `signal` aborts.
  */
-export function functionPoster(
-  functionsUrl: string,
-  functionName: string,
-  secret: string,
-  fetchFn: typeof fetch = fetch,
-): (body: unknown, signal?: AbortSignal) => Promise<unknown> {
-  const url = `${functionsUrl}/${functionName}`;
-  async function post(body: unknown, signal?: AbortSignal): Promise<unknown> {
+export class FunctionPoster {
+  private readonly url: string;
+  private readonly functionName: string;
+  private readonly secret: string;
+  private readonly fetchFn: typeof fetch;
+
+  constructor(config: FunctionPosterConfig) {
+    this.url = `${config.functionsUrl}/${config.functionName}`;
+    this.functionName = config.functionName;
+    this.secret = config.secret;
+    this.fetchFn = config.fetchFn;
+  }
+
+  async post(body: unknown, signal: AbortSignal | undefined): Promise<unknown> {
     const timeout = AbortSignal.timeout(TIMEOUT_MS);
     let requestSignal = timeout;
     if (signal !== undefined) {
       requestSignal = AbortSignal.any([timeout, signal]);
     }
-    const res = await fetchFn(url, {
+    // Called unbound, as before: fetch never sees the poster as `this`.
+    const fetchFn = this.fetchFn;
+    const res = await fetchFn(this.url, {
       method: "POST",
       headers: {
         "User-Agent": userAgent(),
-        "x-relay-secret": secret,
+        "x-relay-secret": this.secret,
         "Content-Type": "application/json",
       },
       body: JSON.stringify(body),
@@ -45,19 +60,15 @@ export function functionPoster(
     });
     const text = await res.text();
     if (!res.ok) {
-      throw new Error(`POST ${functionName}: HTTP ${String(res.status)} ${text}`);
+      throw new Error(`POST ${this.functionName}: HTTP ${String(res.status)} ${text}`);
     }
     return JSON.parse(text);
   }
-  return post;
 }
 
-export function functionClient(
-  functionsUrl: string,
-  functionName: string,
-  secret: string,
-  fetchFn: typeof fetch = fetch,
-): FunctionClient {
-  const post = functionPoster(functionsUrl, functionName, secret, fetchFn);
-  return { push: (lines: RelayLine[], signal?: AbortSignal) => post({ lines }, signal) };
+export function functionClient(config: FunctionPosterConfig): FunctionClient {
+  const poster = new FunctionPoster(config);
+  return {
+    push: (lines: RelayLine[], signal: AbortSignal | undefined) => poster.post({ lines }, signal),
+  };
 }

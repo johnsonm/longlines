@@ -20,7 +20,14 @@ import {
   type UlsRow,
 } from "../supabase/functions/_shared/uls.ts";
 import { abortableSleep } from "./telnet.ts";
-import { type HttpZip, openHttpZip, openZipEntry, readZipDirectory, type ZipEntry } from "./zip.ts";
+import {
+  type HttpZip,
+  openHttpZip,
+  openZipEntry,
+  readZipDirectory,
+  STREAM_HEADER_TIMEOUT_MS,
+  type ZipEntry,
+} from "./zip.ts";
 
 /** Fewer records than this means a truncated or wrong file (the real one has ~1.5M of each). */
 export const MIN_RECORDS: UlsCounts = { HD: 500_000, EN: 500_000, AM: 500_000 };
@@ -257,7 +264,11 @@ export interface LicenseImportLoop extends ImportOptions {
 
 /** One check: load the file if it is new. Returns the rows staged, or null when nothing was due. */
 export async function checkLicenses(options: LicenseImportLoop): Promise<UlsCounts | null> {
-  const zip = await openHttpZip(options.zipUrl, options.signal, options.fetchFn);
+  let fetchFn = fetch;
+  if (options.fetchFn !== undefined) {
+    fetchFn = options.fetchFn;
+  }
+  const zip = await openHttpZip(options.zipUrl, options.signal, fetchFn, STREAM_HEADER_TIMEOUT_MS);
   const latest = await options.client.status();
   let now: Date;
   const nowFn = options.now;

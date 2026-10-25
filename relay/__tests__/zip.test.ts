@@ -1,5 +1,12 @@
 import { assertEquals, assertRejects } from "@std/assert";
-import { crc32, openHttpZip, openZipEntry, readZipDirectory, type ZipEntry } from "../zip.ts";
+import {
+  crc32,
+  openHttpZip,
+  openZipEntry,
+  readZipDirectory,
+  STREAM_HEADER_TIMEOUT_MS,
+  type ZipEntry,
+} from "../zip.ts";
 import { buildZip, memorySource, readAll, serveZip } from "./zip_server.ts";
 
 const big = Array.from({ length: 5000 }, (_, i) => `HD|${i}|||K${i}ABC|A|HA|||`).join("\r\n");
@@ -24,7 +31,7 @@ const FILES = [
 Deno.test(
   "readZipDirectory lists entries and openZipEntry inflates or copies them",
   async function (): Promise<void> {
-    const src = memorySource(await buildZip(FILES));
+    const src = memorySource(await buildZip(FILES, ""));
     const entries = await readZipDirectory(src);
     assertEquals(entries.map((e) => [e.name, e.method]), [["counts", 0], ["HD.dat", 8], [
       "AM.dat",
@@ -52,7 +59,7 @@ Deno.test(
       Error,
       "not a zip file",
     );
-    const zip = await buildZip(FILES);
+    const zip = await buildZip(FILES, "");
     const eocd = zip.length - 22;
     const zip64 = zip.slice();
     new DataView(zip64.buffer).setUint16(eocd + 10, 0xffff, true);
@@ -76,7 +83,7 @@ Deno.test(
 Deno.test(
   "openZipEntry checks the method, the local header and the inflated size",
   async function (): Promise<void> {
-    const src = memorySource(await buildZip(FILES));
+    const src = memorySource(await buildZip(FILES, ""));
     const entries = await readZipDirectory(src);
     const counts = entries[0]!;
     const hd = entries[1]!;
@@ -114,13 +121,18 @@ Deno.test(
 Deno.test(
   "openHttpZip reads ranges with the User-Agent and reports Last-Modified",
   async function (): Promise<void> {
-    const zip = await buildZip(FILES);
-    const served = serveZip(zip);
+    const zip = await buildZip(FILES, "");
+    const served = serveZip(zip, {});
     const url = served.url;
     const requests = served.requests;
     const server = served.server;
     try {
-      const remote = await openHttpZip(url, new AbortController().signal);
+      const remote = await openHttpZip(
+        url,
+        new AbortController().signal,
+        fetch,
+        STREAM_HEADER_TIMEOUT_MS,
+      );
       assertEquals([remote.size, remote.version], [zip.length, "Sun, 11 Oct 2026 13:18:48 GMT"]);
       const entries = await readZipDirectory(remote);
       assertEquals(await readAll(await openZipEntry(remote, entries[2]!)), "AM|1|||K1ABC|E|\r\n");
@@ -142,9 +154,9 @@ Deno.test(
 Deno.test(
   "openHttpZip's stream gives up on a server that never sends headers, but not on a slow body",
   async function (): Promise<void> {
-    const zip = await buildZip(FILES);
+    const zip = await buildZip(FILES, "");
     const stalled = serveZip(zip, { stallHeaders: true });
-    const slow = serveZip(zip);
+    const slow = serveZip(zip, {});
     try {
       const remote = await openHttpZip(stalled.url, new AbortController().signal, fetch, 100);
       const entries = await readZipDirectory(remote);
@@ -175,7 +187,13 @@ Deno.test(
       return Promise.resolve(new Response(null));
     }
     await assertRejects(
-      () => openHttpZip("http://data.fcc.gov/l_amat", new AbortController().signal, countingFetch),
+      () =>
+        openHttpZip(
+          "http://data.fcc.gov/l_amat",
+          new AbortController().signal,
+          countingFetch,
+          STREAM_HEADER_TIMEOUT_MS,
+        ),
       Error,
       "https is required",
     );
@@ -186,15 +204,20 @@ Deno.test(
 Deno.test(
   "openHttpZip refuses ranges once the file has changed since HEAD",
   async function (): Promise<void> {
-    const zip = await buildZip(FILES);
-    const served = serveZip(zip);
+    const zip = await buildZip(FILES, "");
+    const served = serveZip(zip, {});
     const url = served.url;
     const requests = served.requests;
     const server = served.server;
     try {
-      const remote = await openHttpZip(url, new AbortController().signal);
+      const remote = await openHttpZip(
+        url,
+        new AbortController().signal,
+        fetch,
+        STREAM_HEADER_TIMEOUT_MS,
+      );
       const entries = await readZipDirectory(remote);
-      served.republish("Sun, 18 Oct 2026 13:18:48 GMT");
+      served.republish("Sun, 18 Oct 2026 13:18:48 GMT", undefined);
       await assertRejects(() => openZipEntry(remote, entries[1]!), Error, "expected 206");
       assertEquals(requests.at(-1)!.ifRange, "Sun, 11 Oct 2026 13:18:48 GMT");
     } finally {
@@ -206,11 +229,16 @@ Deno.test(
 Deno.test(
   "openHttpZip refuses a server without Range support or a version",
   async function (): Promise<void> {
-    const zip = await buildZip(FILES);
+    const zip = await buildZip(FILES, "");
     const noRange = serveZip(zip, { ignoreRange: true });
     const noDate = serveZip(zip, { lastModified: null });
     try {
-      const remote = await openHttpZip(noRange.url, new AbortController().signal);
+      const remote = await openHttpZip(
+        noRange.url,
+        new AbortController().signal,
+        fetch,
+        STREAM_HEADER_TIMEOUT_MS,
+      );
       await assertRejects(() => readZipDirectory(remote), Error, "expected 206");
       const hd = {
         name: "HD.dat",
@@ -223,7 +251,8 @@ Deno.test(
       await assertRejects(() => remote.stream(0, 10), Error, "expected 206");
       await assertRejects(() => openZipEntry(remote, hd), Error, "expected 206");
       await assertRejects(
-        () => openHttpZip(noDate.url, new AbortController().signal),
+        () =>
+          openHttpZip(noDate.url, new AbortController().signal, fetch, STREAM_HEADER_TIMEOUT_MS),
         Error,
         "no Last-Modified or ETag",
       );
@@ -233,6 +262,7 @@ Deno.test(
             noDate.url.replace("l_amat", "missing"),
             new AbortController().signal,
             () => Promise.resolve(new Response(null, { status: 404 })),
+            STREAM_HEADER_TIMEOUT_MS,
           ),
         Error,
         "HTTP 404",
@@ -248,9 +278,9 @@ Deno.test(
   "crc32 matches the standard check value, in one call or folded over pieces",
   function (): void {
     const bytes = new TextEncoder().encode("123456789");
-    assertEquals(crc32(bytes), 0xcbf43926);
-    assertEquals(crc32(bytes.subarray(4), crc32(bytes.subarray(0, 4))), 0xcbf43926);
-    assertEquals(crc32(new Uint8Array()), 0);
+    assertEquals(crc32(bytes, 0), 0xcbf43926);
+    assertEquals(crc32(bytes.subarray(4), crc32(bytes.subarray(0, 4), 0)), 0xcbf43926);
+    assertEquals(crc32(new Uint8Array(), 0), 0);
   },
 );
 
@@ -261,7 +291,7 @@ Deno.test(
       await buildZip([
         { name: "AM.dat", text: "AM|1|||K1ABC|E|\r\n", crc: 1 },
         { name: "counts", text: "x", stored: true, crc: 2 },
-      ]),
+      ], ""),
     );
     const entries = await readZipDirectory(src);
     const am = entries[0]!;
@@ -297,13 +327,23 @@ Deno.test(
 Deno.test(
   "openHttpZip refuses a short body or a shifted Content-Range",
   async function (): Promise<void> {
-    const zip = await buildZip(FILES);
+    const zip = await buildZip(FILES, "");
     const short = serveZip(zip, { shortBody: true });
     const shifted = serveZip(zip, { shiftRange: true });
     try {
-      const a = await openHttpZip(short.url, new AbortController().signal);
+      const a = await openHttpZip(
+        short.url,
+        new AbortController().signal,
+        fetch,
+        STREAM_HEADER_TIMEOUT_MS,
+      );
       await assertRejects(() => a.bytes(0, 100), Error, "does not match");
-      const b = await openHttpZip(shifted.url, new AbortController().signal);
+      const b = await openHttpZip(
+        shifted.url,
+        new AbortController().signal,
+        fetch,
+        STREAM_HEADER_TIMEOUT_MS,
+      );
       await assertRejects(() => readZipDirectory(b), Error, "does not match");
       await assertRejects(() => b.stream(10, 20), Error, "does not match");
     } finally {
@@ -316,8 +356,8 @@ Deno.test(
 Deno.test(
   "openHttpZip bytes() refuses a body shorter than its Content-Range",
   async function (): Promise<void> {
-    const zip = await buildZip(FILES);
-    function fake(_input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+    const zip = await buildZip(FILES, "");
+    function fake(_input: RequestInfo | URL, init: RequestInit | undefined): Promise<Response> {
       if (init !== undefined && init.method === "HEAD") {
         return Promise.resolve(
           new Response(null, {
@@ -336,6 +376,7 @@ Deno.test(
       "https://example.test/l_amat",
       new AbortController().signal,
       fake,
+      STREAM_HEADER_TIMEOUT_MS,
     );
     await assertRejects(() => remote.bytes(0, 10), Error, "5 of 10 bytes");
   },
@@ -344,13 +385,18 @@ Deno.test(
 Deno.test(
   "openHttpZip sends a strong ETag in If-Range but keeps Last-Modified as the version",
   async function (): Promise<void> {
-    const zip = await buildZip(FILES);
+    const zip = await buildZip(FILES, "");
     const served = serveZip(zip, { etag: '"abc123"' });
     const url = served.url;
     const requests = served.requests;
     const server = served.server;
     try {
-      const remote = await openHttpZip(url, new AbortController().signal);
+      const remote = await openHttpZip(
+        url,
+        new AbortController().signal,
+        fetch,
+        STREAM_HEADER_TIMEOUT_MS,
+      );
       assertEquals(remote.version, "Sun, 11 Oct 2026 13:18:48 GMT");
       const entries = await readZipDirectory(remote);
       assertEquals(await readAll(await openZipEntry(remote, entries[2]!)), "AM|1|||K1ABC|E|\r\n");
@@ -366,13 +412,18 @@ Deno.test(
 Deno.test(
   "openHttpZip uses a strong ETag as the version when there is no date",
   async function (): Promise<void> {
-    const zip = await buildZip(FILES);
+    const zip = await buildZip(FILES, "");
     const served = serveZip(zip, { etag: '"abc123"', lastModified: null });
     const url = served.url;
     const requests = served.requests;
     const server = served.server;
     try {
-      const remote = await openHttpZip(url, new AbortController().signal);
+      const remote = await openHttpZip(
+        url,
+        new AbortController().signal,
+        fetch,
+        STREAM_HEADER_TIMEOUT_MS,
+      );
       assertEquals(remote.version, '"abc123"');
       assertEquals((await readZipDirectory(remote)).length, 3);
       assertEquals(requests.at(-1)!.ifRange, '"abc123"');
@@ -385,15 +436,21 @@ Deno.test(
 Deno.test(
   "openHttpZip falls back to Last-Modified beside a weak ETag and refuses a weak ETag alone",
   async function (): Promise<void> {
-    const zip = await buildZip(FILES);
+    const zip = await buildZip(FILES, "");
     const weak = serveZip(zip, { etag: 'W/"abc123"' });
     const weakOnly = serveZip(zip, { etag: 'W/"abc123"', lastModified: null });
     try {
-      const remote = await openHttpZip(weak.url, new AbortController().signal);
+      const remote = await openHttpZip(
+        weak.url,
+        new AbortController().signal,
+        fetch,
+        STREAM_HEADER_TIMEOUT_MS,
+      );
       assertEquals((await readZipDirectory(remote)).length, 3);
       assertEquals(weak.requests.at(-1)!.ifRange, "Sun, 11 Oct 2026 13:18:48 GMT");
       await assertRejects(
-        () => openHttpZip(weakOnly.url, new AbortController().signal),
+        () =>
+          openHttpZip(weakOnly.url, new AbortController().signal, fetch, STREAM_HEADER_TIMEOUT_MS),
         Error,
         "only a weak ETag",
       );

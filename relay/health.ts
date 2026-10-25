@@ -29,7 +29,7 @@ export function healthHandler(
   feeds: readonly FeedHealth[],
   startedAt: Date,
   staleMs: number,
-  now: () => Date = () => new Date(),
+  now: () => Date,
 ): (req: Request) => Response {
   function feedReport(f: FeedHealth, t: number): FeedReport {
     let last = startedAt;
