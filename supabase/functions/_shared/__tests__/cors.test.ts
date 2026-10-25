@@ -1,8 +1,8 @@
 import { assertEquals, assertExists } from "@std/assert";
-import { corsHeaders, json, preflightResponse } from "../cors.ts";
+import { corsHeaders, DEFAULT_METHODS, json, preflightResponse } from "../cors.ts";
 
 Deno.test("corsHeaders allow the browser to call functions with auth headers", function (): void {
-  const h = corsHeaders();
+  const h = corsHeaders(DEFAULT_METHODS);
   assertEquals(h["Access-Control-Allow-Origin"], "*");
   const allowHeaders = h["Access-Control-Allow-Headers"];
   assertExists(allowHeaders);
@@ -28,7 +28,7 @@ Deno.test(
 Deno.test(
   "preflightResponse answers OPTIONS with 204 and the CORS headers",
   async function (): Promise<void> {
-    const res = preflightResponse(new Request("http://x/", { method: "OPTIONS" }));
+    const res = preflightResponse(new Request("http://x/", { method: "OPTIONS" }), DEFAULT_METHODS);
     assertExists(res);
     assertEquals(res.status, 204);
     assertEquals(res.headers.get("Access-Control-Allow-Origin"), "*");
@@ -58,5 +58,8 @@ Deno.test("json lets browser code read Retry-After and Allow", async function ()
 });
 
 Deno.test("preflightResponse returns null for non-OPTIONS requests", function (): void {
-  assertEquals(preflightResponse(new Request("http://x/", { method: "POST" })), null);
+  assertEquals(
+    preflightResponse(new Request("http://x/", { method: "POST" }), DEFAULT_METHODS),
+    null,
+  );
 });

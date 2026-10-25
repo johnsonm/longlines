@@ -20,7 +20,7 @@
 // so the stored value cannot be reversed by hashing every IPv4 address.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { json, preflightResponse } from "../cors.ts";
+import { DEFAULT_METHODS, json, preflightResponse } from "../cors.ts";
 import { hmacSha256Hex } from "../hmac.ts";
 
 export const MAX_LOOKUPS_PER_MINUTE = 30;
@@ -271,17 +271,17 @@ export async function lookupLimit(
 }
 
 export async function handleProfile(req: Request, deps: ProfileDeps): Promise<Response> {
-  const preflight = preflightResponse(req);
+  const preflight = preflightResponse(req, DEFAULT_METHODS);
   if (preflight !== null) {
     return preflight;
   }
   if (req.method !== "GET") {
-    return json({ error: "Method not allowed." }, 405);
+    return json({ error: "Method not allowed." }, 405, {});
   }
 
   const callsign = parseCallsign(new URL(req.url).searchParams.get("callsign"));
   if (callsign === null || callsign === "") {
-    return json({ error: INVALID_CALLSIGN }, 400);
+    return json({ error: INVALID_CALLSIGN }, 400, {});
   }
 
   const db = deps.db();
@@ -293,10 +293,10 @@ export async function handleProfile(req: Request, deps: ProfileDeps): Promise<Re
   const profile = await db.rpc("cached_callsign_profile", { p_callsign: callsign });
   if (profile.error !== null) {
     console.error(`callsign-profile: ${callsign}: ${profile.error.message}`);
-    return json({ error: LOOKUP_UNAVAILABLE }, 500);
+    return json({ error: LOOKUP_UNAVAILABLE }, 500, {});
   }
   if (profile.data === null) {
-    return json({ error: INVALID_CALLSIGN }, 400);
+    return json({ error: INVALID_CALLSIGN }, 400, {});
   }
   return json(profile.data, 200, { "Cache-Control": PROFILE_CACHE_CONTROL });
 }
