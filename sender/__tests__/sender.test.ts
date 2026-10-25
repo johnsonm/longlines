@@ -14,7 +14,7 @@ const T0 = new Date("2026-10-15T12:00:00Z");
 /** Does nothing: a log that drops every line, or a promise executor that never settles. */
 function noop(): void {}
 
-function config(overrides: Partial<SenderConfig> = {}): SenderConfig {
+function config(overrides: Partial<SenderConfig>): SenderConfig {
   return Object.assign({
     databaseUrl: "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
     databaseSsl: false,
@@ -103,7 +103,7 @@ function claimsFrom(claims: PendingDelivery[][]) {
 }
 
 /** A SenderDb that records every call; `answer` overrides the default empty answers. */
-function fakeDb(answer: (call: RpcCall) => Answer | undefined = () => undefined) {
+function fakeDb(answer: (call: RpcCall) => Answer | undefined) {
   const calls: RpcCall[] = [];
   let closed = 0;
   const db: SenderDb = {
@@ -135,7 +135,7 @@ function fakeDb(answer: (call: RpcCall) => Answer | undefined = () => undefined)
   return { db, calls, closed: () => closed, of: (fn: string) => calls.filter((c) => c.fn === fn) };
 }
 
-function dest(id: string, overrides: Partial<DeliveryDestination> = {}): DeliveryDestination {
+function dest(id: string, overrides: Partial<DeliveryDestination>): DeliveryDestination {
   return Object.assign({
     id,
     type: "webhook",
@@ -178,7 +178,7 @@ function row(id: number, destination: DeliveryDestination): PendingDelivery {
 }
 
 /** A local webhook receiver; `status` is what it answers. */
-function receiver(status = 200, headers: Record<string, string> = {}) {
+function receiver(status: number, headers: Record<string, string>) {
   const requests: Array<{ headers: Headers; body: unknown }> = [];
   async function handle(req: Request) {
     requests.push({ headers: req.headers, body: await req.json() });
@@ -217,13 +217,13 @@ async function health(port: number) {
 Deno.test(
   "startSender claims, sends to a local webhook, acks in one call and reports on /healthz",
   async function (): Promise<void> {
-    const hook = receiver();
+    const hook = receiver(200, {});
     const d = dest("d1", { url: hook.url });
     const claims = [[row(1, d), row(2, d)]];
     const db = fakeDb(claimsFrom(claims));
     const clock = fakeClock(T0);
     const logs: string[] = [];
-    const sender = startSender(config(), {
+    const sender = startSender(config({}), {
       db: db.db,
       send: (destination, deliveries, now) =>
         sendToDestination(destination, deliveries, { allowInsecure: true, now }),
@@ -293,7 +293,7 @@ Deno.test(
 Deno.test(
   "startSender sends a migrated claim's rows in the new body, one request per spot",
   async function (): Promise<void> {
-    const hook = receiver();
+    const hook = receiver(200, {});
     const d = dest("d1", {
       url: hook.url,
       webhook: { batch_seconds: 0, headers: [{ name: "X-Api-Key", value: "k1" }] },
@@ -307,7 +307,7 @@ Deno.test(
     const claims = [[rendered(1), rendered(2)]];
     const db = fakeDb(claimsFrom(claims));
     const clock = fakeClock(T0);
-    const sender = startSender(config(), {
+    const sender = startSender(config({}), {
       db: db.db,
       send: (destination, deliveries, now) =>
         sendToDestination(destination, deliveries, { allowInsecure: true, now }),
@@ -329,11 +329,11 @@ Deno.test(
 );
 
 Deno.test("startSender claims again at once after a full batch", async function (): Promise<void> {
-  const d = dest("d1");
+  const d = dest("d1", {});
   const claims = [[row(1, d)], [row(2, d)], [row(3, d)]];
   const db = fakeDb(claimsFrom(claims));
   const clock = fakeClock(T0);
-  const sender = startSender(config(), { db: db.db, send: allSent }, {
+  const sender = startSender(config({}), { db: db.db, send: allSent }, {
     hostname: "127.0.0.1",
     log: noop,
     now: clock.now,
@@ -438,7 +438,7 @@ Deno.test(
   async function (): Promise<void> {
     // Three destinations, one at a time, each send taking 1 s of a 1.5 s
     // staleMs: the cycle takes 3 s, longer than staleMs, but never stalls.
-    const ds = [dest("d1"), dest("d2"), dest("d3")];
+    const ds = [dest("d1", {}), dest("d2", {}), dest("d3", {})];
     const claims = [ds.map((d, i) => row(i + 1, d))];
     const db = fakeDb(claimsFrom(claims));
     const clock = fakeClock(T0);
@@ -481,7 +481,7 @@ Deno.test(
 Deno.test(
   "startSender's watchdog still ends a cycle whose mark never answers",
   async function (): Promise<void> {
-    const d = dest("d1");
+    const d = dest("d1", {});
     function answer(call: RpcCall) {
       if (call.fn === "claim_deliveries") {
         return { data: [row(1, d)] };
@@ -512,7 +512,7 @@ Deno.test(
 Deno.test(
   "startSender reports a failed mark, waits the retry delay, and clears it after a clean cycle",
   async function (): Promise<void> {
-    const d = dest("d1");
+    const d = dest("d1", {});
     const claims = [[row(1, d)], [row(2, d)]];
     let failMark = true;
     const claim = claimsFrom(claims);
@@ -562,7 +562,7 @@ Deno.test(
 Deno.test(
   "startSender shutdown waits for the cycle in flight before closing the pool",
   async function (): Promise<void> {
-    const d = dest("d1");
+    const d = dest("d1", {});
     const claims = [[row(1, d)]];
     const db = fakeDb(claimsFrom(claims));
     let release: () => void = noop;
@@ -578,7 +578,7 @@ Deno.test(
       return { ok: true, sent: b.length };
     }
     const clock = fakeClock(T0);
-    const sender = startSender(config(), {
+    const sender = startSender(config({}), {
       db: db.db,
       send: blockedSend,
     }, { hostname: "127.0.0.1", log: noop, now: clock.now, sleep: clock.sleep });
@@ -607,7 +607,7 @@ Deno.test(
 Deno.test(
   "startSender ends with the error when a cycle throws anything but a ClaimError",
   async function (): Promise<void> {
-    const d = dest("d1");
+    const d = dest("d1", {});
     // A throw from send is a failed destination now (runDeliveryBatch catches it), so
     // the cycle's unexpected error comes from the database adapter itself rejecting.
     function answer(call: RpcCall) {
@@ -621,7 +621,7 @@ Deno.test(
     }
     const db = fakeDb(answer);
     const clock = fakeClock(T0);
-    const sender = startSender(config(), { db: db.db, send: allSent }, {
+    const sender = startSender(config({}), { db: db.db, send: allSent }, {
       hostname: "127.0.0.1",
       log: noop,
       now: clock.now,
@@ -704,9 +704,9 @@ Deno.test(
 Deno.test(
   "startSender's default heartbeat memory is the process's RSS",
   async function (): Promise<void> {
-    const db = fakeDb();
+    const db = fakeDb(() => undefined);
     const clock = fakeClock(T0);
-    const sender = startSender(config(), { db: db.db, send: allSent }, {
+    const sender = startSender(config({}), { db: db.db, send: allSent }, {
       hostname: "127.0.0.1",
       log: noop,
       now: clock.now,
@@ -751,17 +751,17 @@ Deno.test(
       queue: null,
     };
     const handler = healthHandler(() => status, 120_000, () => now);
-    function get(path = "/healthz") {
+    function get(path: string) {
       return handler(new Request(`http://x${path}`));
     }
     assertEquals(get("/").status, 404);
-    assertEquals(get().status, 200);
+    assertEquals(get("/healthz").status, 200);
     now = new Date("2026-10-15T12:02:00Z");
-    assertEquals(get().status, 503);
+    assertEquals(get("/healthz").status, 503);
     // Liveness is the last progress, not the last claim: a long cycle is healthy.
     status.lastClaimAt = new Date("2026-10-15T11:59:00Z");
     status.lastProgressAt = new Date("2026-10-15T12:01:30Z");
-    const res = get();
+    const res = get("/healthz");
     assertEquals(res.status, 200);
     assertEquals(await res.json(), {
       healthy: true,
