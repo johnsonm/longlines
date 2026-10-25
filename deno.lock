@@ -15,7 +15,8 @@
     "npm:jiti@2.7.0": "2.7.0",
     "npm:postgres@3.4.9": "3.4.9",
     "npm:typescript-eslint@8.72.0": "8.72.0_eslint@10.13.0_typescript@6.0.3_jiti@2.7.0",
-    "npm:typescript@6.0.3": "6.0.3"
+    "npm:typescript@6.0.3": "6.0.3",
+    "npm:zod@4.6.7": "4.6.7"
   },
   "jsr": {
     "@std/assert@1.0.19": {
@@ -686,6 +687,9 @@
     },
     "yocto-queue@0.1.0": {
       "integrity": "sha512-rVksvsnNCdJ/ohGc6xgPwyN8eheCxsiLM8mxuE/t/mOVqJewPuO1miLpTHQiRgTKCLexL4MeAFVagts7HmNZ2Q=="
+    },
+    "zod@4.6.7": {
+      "integrity": "sha512-g8W2D2kU6a8untc053fX1uVBKzM7yqAxW/3zwk83+6RyF2+SKOuV+c0wBDhUwzV1PaGapmZH+rmcUzPf+3CGwg=="
     }
   },
   "workspace": {
@@ -695,7 +699,8 @@
       "npm:@supabase/supabase-js@2",
       "npm:hyparquet-writer@0.16.10",
       "npm:hyparquet@1.31.1",
-      "npm:postgres@3.4.9"
+      "npm:postgres@3.4.9",
+      "npm:zod@4.6.7"
     ],
     "packageJson": {
       "dependencies": [
@@ -709,7 +714,8 @@
         "npm:jiti@2.7.0",
         "npm:postgres@3.4.9",
         "npm:typescript-eslint@8.72.0",
-        "npm:typescript@6.0.3"
+        "npm:typescript@6.0.3",
+        "npm:zod@4.6.7"
       ]
     }
   }

@@ -37,3 +37,10 @@ Deno.test(
 Deno.test("the sender's deno.json maps postgres (sender/db.ts)", function (): void {
   assertEquals("postgres" in appConfig("sender").imports, true);
 });
+
+// Zod validates external data (_shared/validate.ts), which both apps will load.
+Deno.test("the relay's and the sender's deno.json map zod", function (): void {
+  for (const app of ["relay", "sender"]) {
+    assertEquals("zod" in appConfig(app).imports, true, `${app}/deno.json maps zod`);
+  }
+});
