@@ -161,7 +161,7 @@ Deno.test(
     assertEquals(msgs.map((m) => m.allowed_mentions), [{ parse: [] }, { parse: [] }, {
       parse: [],
     }]);
-    assertEquals(discordMessages(spots), msgs);
+    assertEquals(discordMessages(spots, {}), msgs);
     assertEquals(discordBatches(spots, {}).map((b) => b.spots), [10, 10, 5]);
   },
 );
@@ -541,7 +541,7 @@ function pushWith(more: Partial<PushSettings>): PushSettings {
 Deno.test(
   "pushNotifications passes SQL's text and URLs through, with both buttons",
   function (): void {
-    assertEquals(pushNotifications([pushed("KK4PWJ", 7)], SETTINGS), [{
+    assertEquals(pushNotifications([pushed("KK4PWJ", 7)], SETTINGS, false), [{
       title: "KK4PWJ · 14.062 MHz · CW",
       body: "POTA · US-2763 · Eno River State Park · NC",
       tag: "spot:KK4PWJ",
@@ -561,6 +561,7 @@ Deno.test("pushNotifications follows the tap URL SQL chose", function (): void {
   const n = pushNotifications(
     [pushed("KK4PWJ", 7, { push_url: "https://pota.app/#/park/US-2763" })],
     pushWith({ tap_target: "source" }),
+    false,
   )[0];
   assertEquals(n!.url, "https://pota.app/#/park/US-2763");
 });
@@ -571,10 +572,11 @@ Deno.test(
     const rbn = pushNotifications(
       [pushed("W1AW", 1, { source: "rbn", push_source_url: null })],
       SETTINGS,
+      false,
     )[0];
     assertEquals(rbn!.actions, [{ action: "profile", title: "Open profile" }]);
     assertEquals("sourceUrl" in rbn!, false);
-    const none = pushNotifications([pushed("W1AW")], pushWith({ action_buttons: false }))[0];
+    const none = pushNotifications([pushed("W1AW")], pushWith({ action_buttons: false }), false)[0];
     assertEquals("actions" in none!, false);
     const wwff = pushNotifications(
       [pushed("W1AW", 1, {
@@ -582,6 +584,7 @@ Deno.test(
         push_source_url: "https://wwff.co/directory/?showRef=KFF-6101",
       })],
       SETTINGS,
+      false,
     )[0];
     assertEquals(wwff!.actions![1], { action: "source", title: "Open on WWFF" });
   },
@@ -592,12 +595,16 @@ Deno.test("a push payload at SQL's text limits still fits one push record", func
   // (push_clip). The worst character for the payload is a control character,
   // which JSON writes as six bytes (\u0001); a long call and source URL too.
   const call = "VP2V/KK4PWJ/QRP";
-  const n = pushNotifications([pushed(call, Number.MAX_SAFE_INTEGER, {
-    push_title: "\u0001".repeat(159) + "…",
-    push_body: "\u0001".repeat(399) + "…",
-    push_url: "https://summits.sota.org.uk/summit/" + "W".repeat(40),
-    push_source_url: "https://summits.sota.org.uk/summit/" + "W".repeat(40),
-  })], pushWith({ replace_same_station: false }))[0];
+  const n = pushNotifications(
+    [pushed(call, Number.MAX_SAFE_INTEGER, {
+      push_title: "\u0001".repeat(159) + "…",
+      push_body: "\u0001".repeat(399) + "…",
+      push_url: "https://summits.sota.org.uk/summit/" + "W".repeat(40),
+      push_source_url: "https://summits.sota.org.uk/summit/" + "W".repeat(40),
+    })],
+    pushWith({ replace_same_station: false }),
+    false,
+  )[0];
   const bytes = new TextEncoder().encode(pushPayload(n!)).length;
   assertEquals(bytes <= MAX_PUSH_PLAINTEXT_BYTES, true, `${bytes} bytes`);
 });
@@ -606,9 +613,12 @@ Deno.test(
   "pushNotifications tags per station, or per spot when replacing is off",
   function (): void {
     const spots = [pushed("w1aw", 1), pushed("w1aw", 2)];
-    assertEquals(pushNotifications(spots, SETTINGS).map((n) => n.tag), ["spot:W1AW", "spot:W1AW"]);
+    assertEquals(pushNotifications(spots, SETTINGS, false).map((n) => n.tag), [
+      "spot:W1AW",
+      "spot:W1AW",
+    ]);
     assertEquals(
-      pushNotifications(spots, pushWith({ replace_same_station: false })).map((n) => n.tag),
+      pushNotifications(spots, pushWith({ replace_same_station: false }), false).map((n) => n.tag),
       ["spot:W1AW:1", "spot:W1AW:2"],
     );
   },
@@ -650,7 +660,7 @@ Deno.test(
 Deno.test(
   "a spot claimed without push fields sends today's text with the legacy settings",
   function (): void {
-    assertEquals(pushNotifications([spot]), [{
+    assertEquals(pushNotifications([spot], LEGACY_PUSH_SETTINGS, false), [{
       title: "KK4PWJ",
       body: "14062.0 kHz CW (20m)\nUS-2763 · Eno River State Park · POTA",
       tag: "spot:KK4PWJ",
@@ -658,29 +668,37 @@ Deno.test(
       silent: false,
       renotify: true,
     }]);
-    const sota = pushNotifications([spotWith({
-      source: "sotawatch",
-      callsign: "W4/KK4PWJ/P",
-      base_callsign: "KK4PWJ",
-      pota_reference: null,
-      pota_park_name: null,
-      sota_summit_ref: "W4C/CM-001",
-      mode: null,
-      band: null,
-    })])[0]!;
+    const sota = pushNotifications(
+      [spotWith({
+        source: "sotawatch",
+        callsign: "W4/KK4PWJ/P",
+        base_callsign: "KK4PWJ",
+        pota_reference: null,
+        pota_park_name: null,
+        sota_summit_ref: "W4C/CM-001",
+        mode: null,
+        band: null,
+      })],
+      LEGACY_PUSH_SETTINGS,
+      false,
+    )[0]!;
     assertEquals([sota.title, sota.body, sota.tag, sota.url], [
       "W4/KK4PWJ/P",
       "14062.0 kHz\nW4C/CM-001 · SOTAwatch",
       "spot:W4/KK4PWJ/P",
       "/call/KK4PWJ",
     ]);
-    const rbn = pushNotifications([spotWith({
-      callsign: "w1aw",
-      base_callsign: null,
-      source: "rbn",
-      pota_reference: null,
-      pota_park_name: null,
-    })])[0]!;
+    const rbn = pushNotifications(
+      [spotWith({
+        callsign: "w1aw",
+        base_callsign: null,
+        source: "rbn",
+        pota_reference: null,
+        pota_park_name: null,
+      })],
+      LEGACY_PUSH_SETTINGS,
+      false,
+    )[0]!;
     assertEquals([rbn.tag, rbn.url, rbn.body.split("\n")[1]], ["spot:W1AW", "/call/w1aw", "RBN"]);
   },
 );
@@ -690,7 +708,7 @@ Deno.test(
   function (): void {
     for (const count of [1, 3, 4, 50]) {
       const spots = Array.from({ length: count }, (_, i) => pushed(`A${i}A`, i));
-      const notifications = pushNotifications(spots, SETTINGS);
+      const notifications = pushNotifications(spots, SETTINGS, false);
       assertEquals(notifications.length, count);
       assertEquals(notifications.map((n) => n.tag), spots.map((s) => `spot:${s.callsign}`));
     }
@@ -711,6 +729,7 @@ Deno.test("a worst-case push payload stays under 3,000 bytes with both buttons",
   const notifications = pushNotifications(
     Array.from({ length: 50 }, (_, i) => worst(i)),
     pushWith({ replace_same_station: false }),
+    false,
   );
   for (const n of notifications) {
     const bytes = new TextEncoder().encode(pushPayload(n)).length;

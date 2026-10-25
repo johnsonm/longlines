@@ -175,7 +175,7 @@ Deno.test(
       return allSent(dest("a"), []);
     }
     await assertRejects(
-      () => runDeliveryBatch(fake.db, countingSend, NOW),
+      () => runDeliveryBatch(fake.db, countingSend, NOW, {}),
       ClaimError,
       "boom",
     );
@@ -369,6 +369,7 @@ Deno.test(
         fake.db,
         (destination, batch) => sendDiscord(destination, batch, { allowInsecure: true }),
         NOW,
+        {},
       );
       assertEquals(posts, DISCORD_MESSAGES_PER_RUN);
       assertEquals(result.sent, 300);
@@ -808,7 +809,7 @@ Deno.test(
       seen.push(now);
       return Promise.resolve({ ok: true, sent: b.length });
     }
-    await runDeliveryBatch(fake.db, clockSend, NOW);
+    await runDeliveryBatch(fake.db, clockSend, NOW, {});
     assertEquals(seen, [NOW]);
   },
 );

@@ -523,7 +523,7 @@ Deno.test(
     async function send(base: string): Promise<void> {
       // Not allowInsecure: a plain-http loopback URL must be refused by the safety check.
       const d = dest(`${base}/spots`, "webhook");
-      const result = await sendWebhook(d, [delivery(1, d)]);
+      const result = await sendWebhook(d, [delivery(1, d)], {});
       assertEquals(result.ok, false);
       assertEquals(called, false);
     }
@@ -1565,7 +1565,7 @@ Deno.test(
     const unconfigured = pushDest([
       { endpoint: "https://fcm.googleapis.com/x", p256dh: UA.public, auth: UA.auth },
     ]);
-    assertEquals(await sendPush(unconfigured, [delivery(1, unconfigured)]), {
+    assertEquals(await sendPush(unconfigured, [delivery(1, unconfigured)], {}), {
       ok: false,
       sent: 0,
       error: "Push isn't configured on the server.",

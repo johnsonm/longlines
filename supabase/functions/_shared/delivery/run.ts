@@ -118,7 +118,7 @@ export async function runDeliveryBatch(
   db: DeliveryRpc,
   send: DeliverySender,
   now: Date,
-  options: RunDeliveryOptions = {},
+  options: RunDeliveryOptions,
 ): Promise<DeliveryBatchResult> {
   const result: DeliveryBatchResult = {
     claimed: 0,

@@ -17,6 +17,7 @@ import {
   assertSafeDestinationUrl,
   assertSafePushEndpoint,
   assertSafeResolvedHost,
+  defaultResolver,
   hostOf,
   type Resolver,
 } from "./urlsafety.ts";
@@ -111,7 +112,7 @@ function isRedirect(response: Response): boolean {
 export async function sendDiscord(
   destination: DeliveryDestination,
   deliveries: readonly PendingDelivery[],
-  options: SendOptions = {},
+  options: SendOptions,
 ): Promise<SendResult> {
   if (destination.url === null) {
     return { ok: false, sent: 0, error: NO_URL };
@@ -256,7 +257,11 @@ async function webhookTarget(
     return { url, addresses };
   }
   const url = assertSafeDestinationUrl("webhook", rawUrl);
-  const addresses = await assertSafeResolvedHost(hostOf(url), options.resolver);
+  let resolver = defaultResolver;
+  if (options.resolver !== undefined) {
+    resolver = options.resolver;
+  }
+  const addresses = await assertSafeResolvedHost(hostOf(url), resolver);
   return { url, addresses: addresses.slice(0, WEBHOOK_MAX_ADDRESSES) };
 }
 
@@ -272,7 +277,7 @@ async function webhookTarget(
 export async function sendWebhook(
   destination: DeliveryDestination,
   deliveries: readonly PendingDelivery[],
-  options: SendOptions = {},
+  options: SendOptions,
 ): Promise<SendResult> {
   const requests = webhookRequests(destination, deliveries);
   let firstCount = 0;
@@ -358,6 +363,7 @@ export async function sendWebhook(
         attempted,
         status,
         `Webhook request failed: ${errorMessage(error)}`,
+        null,
       );
     }
     status = response.status;
@@ -367,6 +373,7 @@ export async function sendWebhook(
         attempted,
         status,
         `Webhook redirected (HTTP ${String(response.status)}); redirects are not followed`,
+        null,
       );
     }
     if (response.status === 429) {
@@ -376,7 +383,13 @@ export async function sendWebhook(
       });
     }
     if (response.status < 200 || response.status >= 300) {
-      return webhookFailure(sent, attempted, status, `Webhook HTTP ${String(response.status)}`);
+      return webhookFailure(
+        sent,
+        attempted,
+        status,
+        `Webhook HTTP ${String(response.status)}`,
+        null,
+      );
     }
     sent += request.count;
   }
@@ -396,7 +409,7 @@ function webhookFailure(
   attempted: number,
   status: number | undefined,
   error: string,
-  throttle: { retryAfterSeconds: number | null } | null = null,
+  throttle: { retryAfterSeconds: number | null } | null,
 ): SendResult {
   const result: SendResult = { ok: false, sent, attempted, error };
   if (throttle !== null) {
@@ -412,7 +425,7 @@ function webhookFailure(
 export function sendToDestination(
   destination: DeliveryDestination,
   deliveries: readonly PendingDelivery[],
-  options: SendOptions = {},
+  options: SendOptions,
 ): Promise<SendResult> {
   switch (destination.type) {
     case "discord":
@@ -462,7 +475,7 @@ async function pushToDevice(
     for (const entry of payloads.entries()) {
       const index = entry[0];
       const payload = entry[1];
-      const body = await encryptPushPayload(payload, device);
+      const body = await encryptPushPayload(payload, device, {});
       let topic = "";
       const indexedTopic = topics[index];
       if (indexedTopic !== undefined) {
@@ -583,7 +596,7 @@ async function optionalVapidHeaders(
 export async function sendPush(
   destination: DeliveryDestination,
   deliveries: readonly PendingDelivery[],
-  options: SendOptions = {},
+  options: SendOptions,
 ): Promise<SendResult> {
   if (pushSkipped(destination)) {
     return { ok: true, sent: deliveries.length };
