@@ -15,7 +15,7 @@
     "typescript-eslint": "8.72.0"
   },
   "scripts": {
-    "lint": "eslint --max-warnings 0 --no-inline-config --no-error-on-unmatched-pattern supabase/functions relay sender scripts",
+    "lint": "eslint --max-warnings 0 --no-inline-config supabase/functions relay sender scripts",
     "typecheck": "deno check supabase/functions/*/index.ts relay/main.ts sender/main.ts scripts/*.ts"
   }
 }

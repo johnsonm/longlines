@@ -225,7 +225,8 @@ The `as` cast did not error (deferred). With the five `no-unsafe-*` rules and
 
 - **`--no-error-on-unmatched-pattern` in `npm run lint`.** While every file under
   `supabase/functions`, `relay` or `sender` is pending, ESLint stops with "all of the files
-  matching the glob pattern are ignored". Drop the flag once `pendingStyle` is gone.
+  matching the glob pattern are ignored". The Part 2 setup PR dropped it, `pendingStyle` being
+  gone.
 - **`@types/node` and `"types": ["node"]` in `tsconfig.json`.** Deno takes `setTimeout` and
   `clearTimeout` (returning `Timeout`) from its bundled Node types, which `deno types` leaves out;
   without them `tsc` cannot find either.
