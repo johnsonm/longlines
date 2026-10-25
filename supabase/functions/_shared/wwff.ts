@@ -14,18 +14,63 @@
 //   reference      string   WWFF reference (e.g. "KFF-5268")
 //   reference_name string   reference name
 
+import { z } from "zod";
 import { bandForFrequency } from "./bands.ts";
 import { contentHash } from "./hash.ts";
 import { fetchJson } from "./http.ts";
-import { cleanCallsign, isTestComment, isTooOld, parseKhz } from "./normalize.ts";
+import {
+  cleanCallsign,
+  frequencySchema,
+  isTestComment,
+  isTooOld,
+  optionalTextSchema,
+  parseKhz,
+  requiredTextSchema,
+  spotIdSchema,
+  spotIdText,
+} from "./normalize.ts";
 import { modeFamily, resolveMode } from "./modes.ts";
+import { parseWith } from "./validate.ts";
+import { jsonObjectSchema } from "./types.ts";
 import type { JsonObject, NormalizeResult, SourceAdapter } from "./types.ts";
 
 export const WWFF_SPOTS_URL = "https://spots.wwff.co/static/spots.json";
 const MAX_AGE_MS = 5 * 60 * 1000;
 
-function optionalString(value: unknown): string | null {
-  if (typeof value !== "string") {
+/** The fields of one upstream record that normalize reads (see the header). */
+interface WwffSpot {
+  id: number | string;
+  /** Unix seconds, UTC. */
+  spot_time: number;
+  activator: string;
+  spotter: string | null;
+  /** parseKhz checks it, after the skip checks. */
+  frequency_khz?: number | string | null;
+  mode: string | null;
+  remarks: string | null;
+  reference: string | null;
+  reference_name: string | null;
+}
+
+// Third-party feed: loose, since WWFF sends more fields than these and may add some.
+const wwffSpotSchema: z.ZodType<WwffSpot> = z.looseObject({
+  id: spotIdSchema,
+  spot_time: z.number(),
+  activator: requiredTextSchema,
+  spotter: optionalTextSchema,
+  frequency_khz: frequencySchema,
+  mode: optionalTextSchema,
+  remarks: optionalTextSchema,
+  reference: optionalTextSchema,
+  reference_name: optionalTextSchema,
+});
+
+/** The feed envelope: an array of objects. Each spot is validated by normalize. */
+const wwffFeedSchema: z.ZodType<JsonObject[]> = z.array(jsonObjectSchema);
+
+/** The text trimmed, or null when there is none. */
+function trimmedText(value: string | null): string | null {
+  if (value === null) {
     return null;
   }
   const trimmed = value.trim();
@@ -33,33 +78,6 @@ function optionalString(value: unknown): string | null {
     return null;
   }
   return trimmed;
-}
-
-function requireString(raw: JsonObject, field: string): string {
-  const value = raw[field];
-  if (typeof value !== "string" || value.trim() === "") {
-    throw new Error(`missing or empty field "${field}"`);
-  }
-  return value;
-}
-
-function requireId(raw: JsonObject, field: string): string {
-  const value = raw[field];
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return String(value);
-  }
-  if (typeof value === "string" && value.trim() !== "") {
-    return value.trim();
-  }
-  throw new Error(`missing field "${field}"`);
-}
-
-/** Unix seconds to a Date. Throws when missing or not a finite number. */
-function parseUnixSeconds(value: unknown): Date {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    throw new Error(`invalid timestamp: ${JSON.stringify(value)}`);
-  }
-  return new Date(value * 1000);
 }
 
 export const wwff: SourceAdapter = {
@@ -70,22 +88,12 @@ export const wwff: SourceAdapter = {
   },
 
   parseFeed(body: unknown): JsonObject[] {
-    if (!Array.isArray(body)) {
-      throw new Error("expected a JSON array from WWFF");
-    }
-    const items: JsonObject[] = [];
-    for (let i = 0; i < body.length; i++) {
-      const item: unknown = body[i];
-      if (typeof item !== "object" || item === null || Array.isArray(item)) {
-        throw new Error(`WWFF feed item ${String(i)} is not an object`);
-      }
-      items.push(item as JsonObject);
-    }
-    return items;
+    return parseWith(wwffFeedSchema, body, "wwff.parseFeed: feed");
   },
 
   async normalize(raw: JsonObject, now: Date): Promise<NormalizeResult> {
-    const sourceSpotId = requireId(raw, "id");
+    const spot = parseWith(wwffSpotSchema, raw, "wwff.normalize: spot");
+    // The raw values, exactly as WWFF sent them, so validation never changes a hash.
     const hash = await contentHash([
       raw["spot_time"],
       raw["activator"],
@@ -95,13 +103,14 @@ export const wwff: SourceAdapter = {
       raw["remarks"],
     ]);
 
-    const spotTime = parseUnixSeconds(raw["spot_time"]);
+    // z.number() admits only finite values, so this is always a valid date.
+    const spotTime = new Date(spot.spot_time * 1000);
     if (isTooOld(spotTime, now, MAX_AGE_MS)) {
       return { kind: "skip", reason: "too_old" };
     }
 
     let comment = "";
-    const remarks = optionalString(raw["remarks"]);
+    const remarks = trimmedText(spot.remarks);
     if (remarks !== null) {
       comment = remarks;
     }
@@ -109,17 +118,17 @@ export const wwff: SourceAdapter = {
       return { kind: "skip", reason: "test_comment" };
     }
 
-    const frequencyKhz = parseKhz(raw["frequency_khz"], "khz");
+    const frequencyKhz = parseKhz(spot.frequency_khz, "khz");
 
-    const mode = resolveMode(optionalString(raw["mode"]), comment);
+    const mode = resolveMode(trimmedText(spot.mode), comment);
 
     let spotter: string | null = null;
-    const spotterText = optionalString(raw["spotter"]);
+    const spotterText = trimmedText(spot.spotter);
     if (spotterText !== null) {
       spotter = spotterText.toUpperCase();
     }
     let reference: string | null = null;
-    const referenceText = optionalString(raw["reference"]);
+    const referenceText = trimmedText(spot.reference);
     if (referenceText !== null) {
       reference = referenceText.toUpperCase();
     }
@@ -128,10 +137,10 @@ export const wwff: SourceAdapter = {
       kind: "spot",
       spot: {
         source: "wwff",
-        source_spot_id: sourceSpotId,
+        source_spot_id: spotIdText(spot.id),
         content_hash: hash,
         spot_time: spotTime.toISOString(),
-        callsign: cleanCallsign(requireString(raw, "activator")),
+        callsign: cleanCallsign(spot.activator),
         spotter,
         frequency_khz: frequencyKhz,
         band: bandForFrequency(frequencyKhz),
@@ -143,7 +152,7 @@ export const wwff: SourceAdapter = {
         pota_location: null,
         sota_summit_ref: null,
         wwff_reference: reference,
-        wwff_reference_name: optionalString(raw["reference_name"]),
+        wwff_reference_name: trimmedText(spot.reference_name),
         raw_payload: raw,
       },
     };
