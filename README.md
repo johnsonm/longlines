@@ -78,10 +78,12 @@ Why each dev dependency is there (JSON cannot hold comments):
 | `jiti` | Lets ESLint load `eslint.config.ts`, a TypeScript config. |
 | `@types/node` | Deno's timers (`setTimeout`, `clearTimeout`) come from its bundled Node types, which `deno types` leaves out of `deno.d.ts`. |
 | `@supabase/supabase-js`, `hyparquet`, `hyparquet-writer`, `postgres` | Types for the npm packages the code imports, at the versions in `deno.lock`. |
+| `zod` | Validates external data (feeds, request bodies, RPC replies) through `_shared/validate.ts`, in place of hand-written checks and `as` casts. It is also a runtime dependency: every function's, the relay's and the sender's `deno.json` map it. |
 | `@std/assert`, `@std/yaml` | Types for the JSR packages the tests import, from npm.jsr.io (`.npmrc`), at `deno.lock`'s versions. |
 
 Deno itself never reads `node_modules` (`"nodeModulesDir": "none"` in `deno.json`), and the
-function bundles and the relay and sender images do not include any of this.
+function bundles and the relay and sender images do not include any of this (zod aside, which
+they load through their own `deno.json`).
 
 ## More
 

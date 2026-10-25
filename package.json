@@ -12,10 +12,11 @@
     "jiti": "2.7.0",
     "postgres": "3.4.9",
     "typescript": "6.0.3",
-    "typescript-eslint": "8.72.0"
+    "typescript-eslint": "8.72.0",
+    "zod": "4.6.7"
   },
   "scripts": {
-    "lint": "eslint --max-warnings 0 --no-inline-config --no-error-on-unmatched-pattern supabase/functions relay sender scripts",
+    "lint": "eslint --max-warnings 0 --no-inline-config supabase/functions relay sender scripts",
     "typecheck": "deno check supabase/functions/*/index.ts relay/main.ts sender/main.ts scripts/*.ts"
   }
 }

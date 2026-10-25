@@ -52,6 +52,22 @@ Deno.test(
   },
 );
 
+// Zod validates external data (_shared/validate.ts), which every function will load.
+Deno.test("every function's deno.json maps zod like the root one", function (): void {
+  for (const entry of Deno.readDirSync(functionsDir)) {
+    if (!entry.isDirectory || entry.name.startsWith("_")) {
+      continue;
+    }
+    const path = new URL(`${entry.name}/deno.json`, functionsDir);
+    const config = JSON.parse(Deno.readTextFileSync(path));
+    let mapped: unknown = undefined;
+    if (config.imports !== null && config.imports !== undefined) {
+      mapped = config.imports["zod"];
+    }
+    assertEquals(mapped, root.imports["zod"], `${entry.name}/deno.json maps zod differently`);
+  }
+});
+
 // isServiceRole trusts a JWT's role claim without checking its signature,
 // because the gateway has already verified it. A function deployed with
 // verify_jwt = false gets no such check, so a forged token would pass.

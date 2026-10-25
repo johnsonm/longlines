@@ -5,6 +5,7 @@
   },
   "imports": {
     "@supabase/supabase-js": "npm:@supabase/supabase-js@2",
-    "hyparquet-writer": "npm:hyparquet-writer@0.16.10"
+    "hyparquet-writer": "npm:hyparquet-writer@0.16.10",
+    "zod": "npm:zod@4.6.7"
   }
 }

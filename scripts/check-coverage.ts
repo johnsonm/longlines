@@ -73,7 +73,7 @@ for (const line of (await Deno.readTextFile(lcovPath)).split("\n")) {
   }
 }
 
-async function* sources(dir: string, prefix = ""): AsyncGenerator<string> {
+async function* sources(dir: string, prefix: string): AsyncGenerator<string> {
   for await (const entry of Deno.readDir(dir)) {
     const rel = prefix + entry.name;
     if (entry.isDirectory) {
@@ -91,7 +91,7 @@ for (const root of ROOTS) {
     throw new Error(`check-coverage.ts: no totals for ${root.dir}`);
   }
   const missing: string[] = [];
-  for await (const rel of sources(root.dir)) {
+  for await (const rel of sources(root.dir, "")) {
     if (!root.skip.some((re) => re.test(rel)) && !total.reported.has(rel)) {
       missing.push(rel);
     }

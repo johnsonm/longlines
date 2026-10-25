@@ -10,7 +10,8 @@
     "@std/yaml": "jsr:@std/yaml@1",
     "hyparquet-writer": "npm:hyparquet-writer@0.16.10",
     "hyparquet": "npm:hyparquet@1.31.1",
-    "postgres": "npm:postgres@3.4.9"
+    "postgres": "npm:postgres@3.4.9",
+    "zod": "npm:zod@4.6.7"
   },
   "tasks": {
     "test": "deno test -P supabase/functions/_shared/__tests__/ relay/__tests__/ sender/__tests__/",
