@@ -1,18 +1,10 @@
 // Plain, explicit, Go-style TypeScript for the Deno code (Edge Functions, relay, sender, scripts).
 import tseslint from "typescript-eslint";
 
-// Ratchet: areas whose style refactor has not landed. The PR that fixes an area removes its
-// globs, and nothing else edits this list. Deleted when empty.
-const pendingStyle = [
-  // sender
-  "sender/*.ts",
-  "sender/__tests__/*.ts",
-];
-
 const deno = ["supabase/functions/**/*.ts", "relay/**/*.ts", "sender/**/*.ts", "scripts/**/*.ts"];
 
 export default tseslint.config(
-  { ignores: ["deno.d.ts", "node_modules/", "web/", ...pendingStyle] },
+  { ignores: ["deno.d.ts", "node_modules/", "web/"] },
   ...tseslint.configs.strictTypeChecked,
   {
     files: deno,
