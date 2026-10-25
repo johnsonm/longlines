@@ -15,7 +15,7 @@
 // (which may differ for an email with no account) does not show.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { json, preflightResponse } from "../cors.ts";
+import { DEFAULT_METHODS, json, preflightResponse } from "../cors.ts";
 import {
   GENERIC_SIGN_IN_ERROR,
   normalizeIdentifier,
@@ -62,25 +62,25 @@ export async function handleSignIn(req: Request, deps: SignInDeps): Promise<Resp
     sleep = deps.sleep;
   }
   const started = clock();
-  const preflight = preflightResponse(req);
+  const preflight = preflightResponse(req, DEFAULT_METHODS);
   if (preflight !== null) {
     return preflight;
   }
   if (req.method !== "POST") {
-    return json({ error: "Method not allowed." }, 405);
+    return json({ error: "Method not allowed." }, 405, {});
   }
 
   let body: SignInBody;
   try {
     body = parseSignInBody(await req.json());
   } catch {
-    return json({ error: "Send an identifier and a password." }, 400);
+    return json({ error: "Send an identifier and a password." }, 400, {});
   }
   const identifier = normalizeIdentifier(body.identifier);
 
   if (deps.key === undefined) {
     console.error("sign-in: missing environment variable SUPABASE_SERVICE_ROLE_KEY");
-    return json({ error: SIGN_IN_UNAVAILABLE }, 500);
+    return json({ error: SIGN_IN_UNAVAILABLE }, 500, {});
   }
   const client = await rateLimitKey(req, deps.clientIpHeader, deps.key, "sign-in");
 
@@ -88,7 +88,7 @@ export async function handleSignIn(req: Request, deps: SignInDeps): Promise<Resp
   const lookup = await admin.rpc("email_for_identifier", { p_identifier: identifier });
   if (lookup.error !== null) {
     console.error(`sign-in: lookup failed: ${lookup.error.message}`);
-    return json({ error: SIGN_IN_UNAVAILABLE }, 500);
+    return json({ error: SIGN_IN_UNAVAILABLE }, 500, {});
   }
   let resolved: string | null = null;
   if (typeof lookup.data === "string") {
@@ -107,10 +107,10 @@ export async function handleSignIn(req: Request, deps: SignInDeps): Promise<Resp
   });
   if (attempt.error !== null) {
     console.error(`sign-in: attempt log failed: ${attempt.error.message}`);
-    return json({ error: SIGN_IN_UNAVAILABLE }, 500);
+    return json({ error: SIGN_IN_UNAVAILABLE }, 500, {});
   }
   if (typeof attempt.data !== "number") {
-    return json({ error: TOO_MANY_ATTEMPTS }, 429);
+    return json({ error: TOO_MANY_ATTEMPTS }, 429, {});
   }
   const attemptId = attempt.data;
 
@@ -150,14 +150,14 @@ export async function handleSignIn(req: Request, deps: SignInDeps): Promise<Resp
     if (wait > 0) {
       await sleep(wait);
     }
-    return json({ error: GENERIC_SIGN_IN_ERROR }, 401);
+    return json({ error: GENERIC_SIGN_IN_ERROR }, 401, {});
   }
   await forget();
   if (errorCode === "email_not_confirmed") {
-    return json({ error: EMAIL_NOT_CONFIRMED }, 403);
+    return json({ error: EMAIL_NOT_CONFIRMED }, 403, {});
   }
   if (errorStatus === 429 || errorCode === "over_request_rate_limit") {
-    return json({ error: TOO_MANY_ATTEMPTS }, 429);
+    return json({ error: TOO_MANY_ATTEMPTS }, 429, {});
   }
   if ((error !== null && error !== undefined) || data.session === null) {
     let why = "no session";
@@ -169,12 +169,16 @@ export async function handleSignIn(req: Request, deps: SignInDeps): Promise<Resp
       why = `${code}: ${error.message}`;
     }
     console.error(`sign-in: auth failed: ${why}`);
-    return json({ error: SIGN_IN_UNAVAILABLE }, 500);
+    return json({ error: SIGN_IN_UNAVAILABLE }, 500, {});
   }
 
-  return json({
-    access_token: data.session.access_token,
-    refresh_token: data.session.refresh_token,
-    expires_in: data.session.expires_in,
-  });
+  return json(
+    {
+      access_token: data.session.access_token,
+      refresh_token: data.session.refresh_token,
+      expires_in: data.session.expires_in,
+    },
+    200,
+    {},
+  );
 }

@@ -27,18 +27,22 @@ const db: IngestDb = {
 const SECRET = "relay-secret";
 
 function pushHandler(
-  overrides: { secret?: string } = {},
+  overrides: { secret?: string },
 ): { handler: (req: Request) => Promise<Response>; bodies: unknown[] } {
   const bodies: unknown[] = [];
   function run(body: unknown, d: IngestDb): ReturnType<typeof runIngest> {
     bodies.push(body);
     const base = adapter([]);
-    return runIngest({
-      source: "rbn",
-      fetchSpots: base.fetchSpots,
-      parseFeed: base.parseFeed,
-      normalize: base.normalize,
-    }, d);
+    return runIngest(
+      {
+        source: "rbn",
+        fetchSpots: base.fetchSpots,
+        parseFeed: base.parseFeed,
+        normalize: base.normalize,
+      },
+      d,
+      new Date(),
+    );
   }
   function secret(): string | undefined {
     if ("secret" in overrides) {
@@ -50,7 +54,7 @@ function pushHandler(
   return { handler, bodies };
 }
 
-function relayRequest(method: string, secret: string | null, body?: string): Request {
+function relayRequest(method: string, secret: string | null, body: string | undefined): Request {
   const headers = new Headers();
   if (secret !== null) {
     headers.set("x-relay-secret", secret);
@@ -61,7 +65,7 @@ function relayRequest(method: string, secret: string | null, body?: string): Req
 Deno.test(
   "pushIngestHandler rejects a missing or wrong relay secret",
   async function (): Promise<void> {
-    const pushed = pushHandler();
+    const pushed = pushHandler({});
     const handler = pushed.handler;
     const bodies = pushed.bodies;
     for (const secret of [null, "", "relay-secreT", "relay-secret2"]) {
@@ -86,7 +90,7 @@ Deno.test(
 Deno.test(
   "pushIngestHandler POST runs the ingest over the request body",
   async function (): Promise<void> {
-    const pushed = pushHandler();
+    const pushed = pushHandler({});
     const handler = pushed.handler;
     const bodies = pushed.bodies;
     const res = await handler(relayRequest("POST", SECRET, JSON.stringify({ lines: [] })));
@@ -99,7 +103,7 @@ Deno.test(
 Deno.test(
   "pushIngestHandler POST rejects a body that is not JSON",
   async function (): Promise<void> {
-    const pushed = pushHandler();
+    const pushed = pushHandler({});
     const handler = pushed.handler;
     const bodies = pushed.bodies;
     const res = await handler(relayRequest("POST", SECRET, "not json"));
@@ -109,8 +113,8 @@ Deno.test(
 );
 
 Deno.test("pushIngestHandler refuses other methods", async function (): Promise<void> {
-  const handler = pushHandler().handler;
-  assertEquals((await handler(relayRequest("DELETE", SECRET))).status, 405);
+  const handler = pushHandler({}).handler;
+  assertEquals((await handler(relayRequest("DELETE", SECRET, undefined))).status, 405);
 });
 
 Deno.test(
@@ -129,15 +133,15 @@ Deno.test(
 Deno.test(
   "pushIngestHandler refuses GET now that the relay no longer reads a watchlist",
   async function (): Promise<void> {
-    const handler = pushHandler().handler;
-    assertEquals((await handler(relayRequest("GET", SECRET))).status, 405);
+    const handler = pushHandler({}).handler;
+    assertEquals((await handler(relayRequest("GET", SECRET, undefined))).status, 405);
   },
 );
 
 Deno.test(
   "createRbnPushDb combines the ingest, watchlist and rbn_spots surfaces",
   function (): void {
-    const db = createRbnPushDb(fakeSupabase().client);
+    const db = createRbnPushDb(fakeSupabase({}).client);
     for (const method of ["ingestSpots", "recordSuccess", "watchedAmong", "ingestRbnSpots"]) {
       assertEquals(typeof (db as unknown as Record<string, unknown>)[method], "function", method);
     }
@@ -147,7 +151,7 @@ Deno.test(
 Deno.test(
   "createAprsPushDb combines the ingest-state and aprs_packets surfaces",
   function (): void {
-    const db = createAprsPushDb(fakeSupabase().client);
+    const db = createAprsPushDb(fakeSupabase({}).client);
     for (
       const method of ["recordSpotFailures", "recordSuccess", "recordFailure", "ingestAprsPackets"]
     ) {

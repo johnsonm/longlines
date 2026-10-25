@@ -120,7 +120,7 @@ async function sendSigned(
   method: "PUT" | "GET" | "HEAD" | "DELETE",
   key: string,
   now: Date,
-  body?: { bytes: Uint8Array; contentType: string },
+  body: { bytes: Uint8Array; contentType: string } | undefined,
 ): Promise<Response> {
   const url = objectUrl(config, key);
   let payload: Uint8Array | string = "";
@@ -180,7 +180,7 @@ export async function putObject(
   key: string,
   body: Uint8Array,
   contentType: string,
-  now: Date = new Date(),
+  now: Date,
 ): Promise<void> {
   const response = await sendSigned(config, "PUT", key, now, { bytes: body, contentType });
   const text = await response.text();
@@ -196,9 +196,9 @@ export async function putObject(
 export async function getObject(
   config: S3Config,
   key: string,
-  now: Date = new Date(),
+  now: Date,
 ): Promise<Uint8Array | null> {
-  const response = await sendSigned(config, "GET", key, now);
+  const response = await sendSigned(config, "GET", key, now, undefined);
   if (response.status === 404) {
     if (response.body !== null) {
       await response.body.cancel();
@@ -215,9 +215,9 @@ export async function getObject(
 export async function headObject(
   config: S3Config,
   key: string,
-  now: Date = new Date(),
+  now: Date,
 ): Promise<number | null> {
-  const response = await sendSigned(config, "HEAD", key, now);
+  const response = await sendSigned(config, "HEAD", key, now, undefined);
   if (response.body !== null) {
     await response.body.cancel();
   }
@@ -238,9 +238,9 @@ export async function headObject(
 export async function deleteObject(
   config: S3Config,
   key: string,
-  now: Date = new Date(),
+  now: Date,
 ): Promise<void> {
-  const response = await sendSigned(config, "DELETE", key, now);
+  const response = await sendSigned(config, "DELETE", key, now, undefined);
   const text = await response.text();
   if (!response.ok && response.status !== 404) {
     throw httpError(response, text);

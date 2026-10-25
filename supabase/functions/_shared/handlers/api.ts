@@ -54,7 +54,7 @@ interface TokenRow {
 export async function handleApi(
   req: Request,
   deps: ApiDeps,
-  now: Date = new Date(),
+  now: Date,
 ): Promise<Response> {
   // A browser sends a preflight before any request with an Authorization header; it carries no token.
   const preflight = preflightResponse(req, API_METHODS);
@@ -70,7 +70,7 @@ export async function handleApi(
     match = matchRoute(req.method, path);
   }
   if (match.kind === "not_found") {
-    return json({ error: NOT_FOUND }, 404);
+    return json({ error: NOT_FOUND }, 404, {});
   }
   if (match.kind === "method_not_allowed") {
     return json({ error: "Method not allowed." }, 405, { Allow: match.allow.join(", ") });
@@ -80,7 +80,7 @@ export async function handleApi(
 
   const token = apiToken(req);
   if (token === null || token === "") {
-    return json({ error: BAD_TOKEN }, 401);
+    return json({ error: BAD_TOKEN }, 401, {});
   }
 
   const db = deps.db();
@@ -96,30 +96,30 @@ export async function handleApi(
     caller = rows[0];
   }
   if (caller === undefined || caller === null) {
-    return json({ error: BAD_TOKEN }, 401);
+    return json({ error: BAD_TOKEN }, 401, {});
   }
   if (caller.requests > MAX_REQUESTS_PER_MINUTE) {
     const retryAfter = String(60 - now.getUTCSeconds());
     return json({ error: TOO_MANY_REQUESTS }, 429, { "Retry-After": retryAfter });
   }
   if (route.scope === "write" && caller.scope !== "write") {
-    return json({ error: READ_ONLY }, 403);
+    return json({ error: READ_ONLY }, 403, {});
   }
 
   let body: JsonObject = {};
   if (route.input === "fields" || route.input === "body") {
     const text = await readBody(req, MAX_BODY_BYTES);
     if (text === null) {
-      return json({ error: BODY_TOO_LARGE }, 413);
+      return json({ error: BODY_TOO_LARGE }, 413, {});
     }
     const parsed = parseBody(text);
     if (parsed === null) {
-      return json({ error: BAD_BODY }, 400);
+      return json({ error: BAD_BODY }, 400, {});
     }
     body = parsed;
     const shape = checkBody(route, body);
     if (shape !== null && shape !== "") {
-      return json({ error: shape }, 400);
+      return json({ error: shape }, 400, {});
     }
   }
 
@@ -128,7 +128,7 @@ export async function handleApi(
     if (id !== undefined && id !== null) {
       destinationId = id;
     }
-    return await sendTestTo(db, caller.user_id, destinationId, deps.send, now);
+    return await sendTestTo(db, caller.user_id, destinationId, deps.send, now, null);
   }
 
   const result = await db.rpc("api_call", {
@@ -141,9 +141,9 @@ export async function handleApi(
     if (status === 500) {
       return serverError(route.op, result.error.message);
     }
-    return json({ error: result.error.message }, status);
+    return json({ error: result.error.message }, status, {});
   }
-  return json(result.data, route.status);
+  return json(result.data, route.status, {});
 }
 
 /**
@@ -190,5 +190,5 @@ export async function readBody(req: Request, limit: number): Promise<string | nu
 
 function serverError(step: string, message: string): Response {
   console.error(`api: ${step} failed: ${message}`);
-  return json({ error: SERVER_ERROR }, 500);
+  return json({ error: SERVER_ERROR }, 500, {});
 }

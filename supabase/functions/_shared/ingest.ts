@@ -1,6 +1,7 @@
 // Orchestrator shared by both ingest functions. Pure of HTTP framing; the
 // Edge Function index.ts files turn the summary or error into a response.
 
+import { FunctionCallError, ValidationError } from "./errors.ts";
 import { assertStorableSpot } from "./normalize.ts";
 import { withoutNul } from "./strip_nul.ts";
 import type {
@@ -21,8 +22,8 @@ function errorMessage(error: unknown): string {
 }
 
 /**
- * Records a failed run and rethrows its error. When recording fails too (the
- * database is usually why both failed), that is only logged: the run's own
+ * Records a failed run and rethrows its error. When the recording RPC fails too
+ * (the database is usually why both failed), that is only logged: the run's own
  * error is the one the caller and the 500 body should see.
  */
 export async function recordFailureAndThrow(
@@ -33,7 +34,10 @@ export async function recordFailureAndThrow(
   try {
     await db.recordFailure(source, errorMessage(error));
   } catch (recordError) {
-    console.error(`ingest-${source}: recording the failure failed: ${errorMessage(recordError)}`);
+    if (!(recordError instanceof FunctionCallError)) {
+      throw recordError;
+    }
+    console.error(`ingest-${source}: recording the failure failed: ${recordError.message}`);
   }
   throw error;
 }
@@ -44,7 +48,7 @@ export async function recordFailureAndThrow(
  *   2. fetch and parse the feed
  *   3. strip U+0000 and lone surrogates from every item, then normalize and
  *      bound-check it (assertStorableSpot), collecting unprocessable ones
- *      instead of failing the run
+ *      (ValidationError) instead of failing the run
  *   4. insert the batch and enqueue the newly inserted rows (ingest_spots RPC)
  *   5. write the dead letters and the run outcome to ingest_state
  *   6. run the matcher when anything was inserted
@@ -54,7 +58,7 @@ export async function recordFailureAndThrow(
 export async function runIngest(
   adapter: SourceAdapter,
   db: IngestDb,
-  now: Date = new Date(),
+  now: Date,
 ): Promise<IngestSummary> {
   const started = performance.now();
   const summary: IngestSummary = {
@@ -96,7 +100,12 @@ export async function runIngest(
           summary.skipped[result.reason satisfies SkipReason] += 1;
         }
       } catch (error) {
-        failures.push({ source: adapter.source, error: errorMessage(error), raw_payload: raw });
+        // Per spot: an unprocessable spot becomes one ingest_failures row without
+        // aborting the run; anything else fails the run.
+        if (!(error instanceof ValidationError)) {
+          throw error;
+        }
+        failures.push({ source: adapter.source, error: error.message, raw_payload: raw });
       }
     }
 
@@ -112,12 +121,16 @@ export async function runIngest(
     await db.recordSuccess(adapter.source, summary.inserted, epoch);
 
     // New spots are queued; run the matcher now rather than waiting for cron.
-    // A matcher problem is reported but does not turn a good ingest into a failure.
+    // A matcher problem (the RPC failing or answering a bad result) is reported but
+    // does not turn a good ingest into a failure.
     if (summary.inserted > 0) {
       try {
         summary.matched = await db.matchPendingSpots();
       } catch (error) {
-        summary.match_error = errorMessage(error);
+        if (!(error instanceof FunctionCallError) && !(error instanceof ValidationError)) {
+          throw error;
+        }
+        summary.match_error = error.message;
         console.error(`ingest-${adapter.source}: matcher failed: ${summary.match_error}`);
       }
     }
@@ -125,6 +138,7 @@ export async function runIngest(
     summary.duration_ms = Math.round(performance.now() - started);
     return summary;
   } catch (error) {
+    // Records the run's failure in ingest_state, then rethrows it for the handler's 500.
     return await recordFailureAndThrow(db, adapter.source, error);
   }
 }

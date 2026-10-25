@@ -18,6 +18,7 @@
 // station and frequency.
 
 import { bandForFrequency } from "./bands.ts";
+import { ValidationError } from "./errors.ts";
 import { contentHash } from "./hash.ts";
 import {
   assertMaxLength,
@@ -29,8 +30,9 @@ import {
   parseUtc,
 } from "./normalize.ts";
 import { modeFamily, resolveMode } from "./modes.ts";
-import { relayAdapter, requireString, spotTimeFromHhmm } from "./relay_lines.ts";
+import { relayAdapter, relayLineSchema, spotTimeFromHhmm } from "./relay_lines.ts";
 import type { JsonObject, NormalizeResult, RbnSpotRow, SourceAdapter } from "./types.ts";
+import { parseWith } from "./validate.ts";
 
 const MAX_AGE_MS = 5 * 60 * 1000;
 // rbn_spots.snr and speed are smallint; a larger value would fail the whole
@@ -95,23 +97,34 @@ function rbnComment(parsed: RbnLine): string {
 
 /**
  * The rbn_spots row for one relay item. No age cutoff: storage keeps late lines.
- * Throws when the line is not a spot, received_at is unusable or implausible
- * against now, or a value would fail the whole batch in Postgres.
+ * Throws ValidationError when the item is malformed, the line is not a spot,
+ * received_at is unusable or implausible against now, or a value would fail the
+ * whole batch in Postgres.
  */
 export function rbnSpotRow(raw: JsonObject, now: Date): RbnSpotRow {
-  const line = requireString(raw, "line");
+  const item = parseWith(relayLineSchema, raw, "rbnSpotRow: relay line");
+  const line = item.line;
   // jsonb rejects U+0000 and lone surrogates, so either would fail the whole batch in Postgres.
   if (line.includes("\u0000")) {
-    throw new Error("line contains a NUL character");
+    throw new ValidationError("line contains a NUL character", {
+      cause: undefined,
+      where: "rbnSpotRow: line",
+    });
   }
   if (!line.isWellFormed()) {
-    throw new Error("line contains a lone surrogate");
+    throw new ValidationError("line contains a lone surrogate", {
+      cause: undefined,
+      where: "rbnSpotRow: line",
+    });
   }
-  const receivedAt = parseUtc(requireString(raw, "received_at"));
+  const receivedAt = parseUtc(item.received_at);
   assertPlausibleTime(receivedAt, now, "received_at");
   const parsed = parseRbnLine(line);
   if (parsed === null) {
-    throw new Error("not an RBN spot line");
+    throw new ValidationError("not an RBN spot line", {
+      cause: undefined,
+      where: "rbnSpotRow: line",
+    });
   }
   // Both are in the rbn_spots unique key and the station in its indexes.
   assertMaxLength(parsed.callsign, MAX_CALLSIGN_LENGTH, "callsign");
@@ -119,10 +132,16 @@ export function rbnSpotRow(raw: JsonObject, now: Date): RbnSpotRow {
   const snr = Number(parsed.snr);
   const speed = Number(parsed.speed);
   if (Math.abs(snr) > SMALLINT_MAX) {
-    throw new Error(`snr out of range: ${parsed.snr}`);
+    throw new ValidationError(`snr out of range: ${parsed.snr}`, {
+      cause: undefined,
+      where: "rbnSpotRow: snr",
+    });
   }
   if (speed > SMALLINT_MAX) {
-    throw new Error(`speed out of range: ${parsed.speed}`);
+    throw new ValidationError(`speed out of range: ${parsed.speed}`, {
+      cause: undefined,
+      where: "rbnSpotRow: speed",
+    });
   }
   const frequencyKhz = parseKhz(parsed.frequency, "khz");
   const mode = resolveMode(parsed.mode, rbnComment(parsed));
@@ -150,11 +169,14 @@ export function rbnAdapter(body: unknown): SourceAdapter {
 
 /** Normalizes one relay item (a telnet line and when the relay received it). */
 async function normalizeRbnSpot(raw: JsonObject, now: Date): Promise<NormalizeResult> {
-  const line = requireString(raw, "line");
-  const receivedAt = parseUtc(requireString(raw, "received_at"));
-  const parsed = parseRbnLine(line);
+  const item = parseWith(relayLineSchema, raw, "normalizeRbnSpot: relay line");
+  const receivedAt = parseUtc(item.received_at);
+  const parsed = parseRbnLine(item.line);
   if (parsed === null) {
-    throw new Error("not an RBN spot line");
+    throw new ValidationError("not an RBN spot line", {
+      cause: undefined,
+      where: "normalizeRbnSpot: line",
+    });
   }
 
   const spotTime = spotTimeFromHhmm(parsed.hhmm, receivedAt);

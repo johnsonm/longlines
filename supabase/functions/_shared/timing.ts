@@ -12,10 +12,15 @@ export function serverTiming(ms: number): string {
   return `total;dur=${Math.max(0, ms).toFixed(1)}`;
 }
 
+/** The clock `timed` reads in production: milliseconds from performance.now(). */
+export function performanceClock(): number {
+  return performance.now();
+}
+
 /** Runs the handler and stamps its response with the time it took. */
 export async function timed(
   run: () => Promise<Response>,
-  clock: () => number = () => performance.now(),
+  clock: () => number,
 ): Promise<Response> {
   const start = clock();
   const res = await run();

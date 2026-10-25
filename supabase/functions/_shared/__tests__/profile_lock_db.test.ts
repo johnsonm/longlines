@@ -137,7 +137,7 @@ async function withBuilderAndWaiter(
     a: postgres.TransactionSql,
     call: () => Promise<Waiting>,
   ) => Promise<void>,
-  after?: (sql: Sql) => Promise<void>,
+  after: ((sql: Sql) => Promise<void>) | undefined,
 ): Promise<void> {
   const a = connect();
   const b = connect();
@@ -213,7 +213,7 @@ Deno.test({
       ).cached;
       assertEquals((cached as Record<string, unknown>).callsign, CALL);
     }
-    await withBuilderAndWaiter(whileWaiting);
+    await withBuilderAndWaiter(whileWaiting, undefined);
   },
 });
 
@@ -233,7 +233,7 @@ Deno.test({
         select public.callsign_profile(${CALL}) as p`,
       ).p;
     }
-    await withBuilderAndWaiter(whileWaiting);
+    await withBuilderAndWaiter(whileWaiting, undefined);
     const profile = await served as Record<string, unknown>;
     assertNotEquals(profile, MARKER);
     assertEquals(withoutGeneratedAt(profile), withoutGeneratedAt(hiddenShape!));

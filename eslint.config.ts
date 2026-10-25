@@ -5,41 +5,6 @@ import tseslint from "typescript-eslint";
 // rules and skip the Part 2 ones. The PR that converts an area removes its globs, and nothing else
 // edits this list. Deleted when empty.
 const zodPending = [
-  // ingest
-  "supabase/functions/_shared/pota.ts",
-  "supabase/functions/_shared/sotawatch.ts",
-  "supabase/functions/_shared/wwff.ts",
-  "supabase/functions/_shared/dxcluster.ts",
-  "supabase/functions/_shared/rbn.ts",
-  "supabase/functions/_shared/rbn_push.ts",
-  "supabase/functions/_shared/aprs.ts",
-  "supabase/functions/_shared/relay_lines.ts",
-  "supabase/functions/_shared/ingest.ts",
-  "supabase/functions/_shared/normalize.ts",
-  "supabase/functions/_shared/modes.ts",
-  "supabase/functions/_shared/bands.ts",
-  "supabase/functions/_shared/hash.ts",
-  "supabase/functions/_shared/strip_nul.ts",
-  "supabase/functions/_shared/types.ts",
-  "supabase/functions/_shared/db.ts",
-  "supabase/functions/_shared/http.ts",
-  "supabase/functions/_shared/hmac.ts",
-  "supabase/functions/_shared/__tests__/aprs.test.ts",
-  "supabase/functions/_shared/__tests__/bands.test.ts",
-  "supabase/functions/_shared/__tests__/db.test.ts",
-  "supabase/functions/_shared/__tests__/dxcluster.test.ts",
-  "supabase/functions/_shared/__tests__/hash.test.ts",
-  "supabase/functions/_shared/__tests__/http.test.ts",
-  "supabase/functions/_shared/__tests__/ingest.test.ts",
-  "supabase/functions/_shared/__tests__/modes.test.ts",
-  "supabase/functions/_shared/__tests__/normalize.test.ts",
-  "supabase/functions/_shared/__tests__/pota.test.ts",
-  "supabase/functions/_shared/__tests__/rbn.test.ts",
-  "supabase/functions/_shared/__tests__/rbn_push.test.ts",
-  "supabase/functions/_shared/__tests__/relay_lines.test.ts",
-  "supabase/functions/_shared/__tests__/sotawatch.test.ts",
-  "supabase/functions/_shared/__tests__/strip_nul.test.ts",
-  "supabase/functions/_shared/__tests__/wwff.test.ts",
   // archive
   "supabase/functions/_shared/archive.ts",
   "supabase/functions/_shared/archive_convert.ts",
@@ -106,7 +71,7 @@ const zodPending = [
   "sender/__tests__/*.ts",
 ];
 
-// Part 1's bans: plain, explicit code.
+// Bans every file keeps, pending or not: Part 1's, plus Part 2's explicit parameters.
 const styleSyntax = [
   { selector: "ObjectPattern", message: "No destructuring. Access fields directly." },
   { selector: "ArrayPattern", message: "No destructuring. Index explicitly." },
@@ -126,9 +91,17 @@ const styleSyntax = [
     selector: "ArrowFunctionExpression > BlockStatement",
     message: "Arrow functions must be one-line expressions. Use a named function.",
   },
+  {
+    selector: "AssignmentPattern",
+    message: "No default parameter values. Pass every argument explicitly.",
+  },
+  {
+    selector: ":function > Identifier[optional=true]",
+    message: "No optional parameters. Use T | undefined and pass undefined explicitly.",
+  },
 ];
 
-// Part 2's bans: Zod schemas and explicit parameters.
+// Part 2's bans: Zod schemas.
 const zodSyntax = [
   {
     selector: "CallExpression[callee.object.name='z'][callee.property.name='object']",
@@ -141,14 +114,6 @@ const zodSyntax = [
   {
     selector: "TSTypeReference[typeName.left.name='z'][typeName.right.name='infer']",
     message: "Declare the interface explicitly and annotate the schema as z.ZodType.",
-  },
-  {
-    selector: "AssignmentPattern",
-    message: "No default parameter values. Pass every argument explicitly.",
-  },
-  {
-    selector: ":function > Identifier[optional=true]",
-    message: "No optional parameters. Use T | undefined and pass undefined explicitly.",
   },
   {
     selector: "TSTypePredicate[asserts=false]",

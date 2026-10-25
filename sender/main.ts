@@ -15,7 +15,7 @@ export async function main(): Promise<void> {
   const config = loadConfig((name) => Deno.env.get(name));
   // openSenderDb retries with backoff for a few minutes; a pool that still
   // cannot open is exit 1, like invalid config.
-  const db = await openSenderDb(config);
+  const db = await openSenderDb(config, {});
   const sender = startSender(config, {
     db,
     send: (destination, deliveries, now) =>
@@ -24,7 +24,7 @@ export async function main(): Promise<void> {
         vapid: config.vapid,
         now,
       }),
-  });
+  }, {});
 
   // Fly sends SIGINT (kill_signal) on deploy and restart and waits
   // kill_timeout for the exit. Stop claiming, let the cycle in flight finish

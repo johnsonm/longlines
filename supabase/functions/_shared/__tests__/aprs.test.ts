@@ -1,3 +1,4 @@
+import { FunctionCallError, ValidationError } from "../errors.ts";
 import { assertEquals, assertExists, assertMatch, assertRejects, assertThrows } from "@std/assert";
 import {
   APRS_PACKET_TYPES,
@@ -174,7 +175,7 @@ Deno.test(
   },
 );
 
-function fakeDb(options: { stored?: number; storeFails?: boolean } = {}) {
+function fakeDb(options: { stored?: number; storeFails?: boolean }) {
   const calls = {
     stored: [] as AprsPacketRow[][],
     failures: [] as SpotFailure[][],
@@ -218,7 +219,7 @@ Deno.test(
       line,
       received_at: RECEIVED,
     }));
-    const summary = await runAprsPush({ lines }, db);
+    const summary = await runAprsPush({ lines }, db, new Date());
     assertEquals(calls.stored.length, 1);
     assertEquals(calls.stored[0]!.length, 20);
     assertEquals(calls.failures.flat().map((f) => [f.source, f.error]), [
@@ -240,10 +241,10 @@ Deno.test(
 Deno.test(
   "runAprsPush records the relay's empty heartbeat as a success",
   async function (): Promise<void> {
-    const fake = fakeDb();
+    const fake = fakeDb({});
     const db = fake.db;
     const calls = fake.calls;
-    const summary = await runAprsPush({ lines: [] }, db);
+    const summary = await runAprsPush({ lines: [] }, db, new Date());
     assertEquals(calls.stored, []);
     assertEquals(calls.failures, []);
     assertEquals(calls.success, [["aprs", 0, null]]);
@@ -254,10 +255,14 @@ Deno.test(
 Deno.test(
   "runAprsPush strips NUL from a failure's payload so ingest_failures can store it",
   async function (): Promise<void> {
-    const fake = fakeDb();
+    const fake = fakeDb({});
     const db = fake.db;
     const calls = fake.calls;
-    await runAprsPush({ lines: [{ line: `${POSITION}\u0000`, received_at: RECEIVED }] }, db);
+    await runAprsPush(
+      { lines: [{ line: `${POSITION}\u0000`, received_at: RECEIVED }] },
+      db,
+      new Date(),
+    );
     assertEquals(calls.failures[0]![0]!.raw_payload["line"], POSITION);
   },
 );
@@ -265,13 +270,21 @@ Deno.test(
 Deno.test(
   "runAprsPush records a failure and rethrows on a bad body or a failed insert",
   async function (): Promise<void> {
-    const bad = fakeDb();
-    await assertRejects(() => runAprsPush({ nope: 1 }, bad.db), Error, '"lines"');
-    assertEquals(bad.calls.failure, [["aprs", 'expected a "lines" array from the relay']]);
+    const bad = fakeDb({});
+    await assertRejects(
+      () => runAprsPush({ nope: 1 }, bad.db, new Date()),
+      ValidationError,
+      "parseRelayBody: relay body: lines",
+    );
+    assertEquals(bad.calls.failure, [[
+      "aprs",
+      'parseRelayBody: relay body: lines: Invalid input: expected array, received undefined; (root): Unrecognized key: "nope"',
+    ]]);
 
     const full = fakeDb({ storeFails: true });
     await assertRejects(
-      () => runAprsPush({ lines: [{ line: POSITION, received_at: RECEIVED }] }, full.db),
+      () =>
+        runAprsPush({ lines: [{ line: POSITION, received_at: RECEIVED }] }, full.db, new Date()),
       Error,
       "disk full",
     );
@@ -310,7 +323,7 @@ Deno.test(
 Deno.test(
   "runAprsPush dead-letters a bad packet and stores the rest of the batch",
   async function (): Promise<void> {
-    const fake = fakeDb();
+    const fake = fakeDb({});
     const db = fake.db;
     const calls = fake.calls;
     const lines = [
@@ -343,10 +356,11 @@ Deno.test(
   async function (): Promise<void> {
     const fake = fakeDb({ storeFails: true });
     const db = fake.db;
-    db.recordFailure = () => Promise.reject(new Error("db down"));
+    db.recordFailure = () =>
+      Promise.reject(new FunctionCallError("db down", { cause: undefined, status: 500 }));
     const errors = await capturingErrors(() =>
       assertRejects(
-        () => runAprsPush({ lines: [{ line: POSITION, received_at: RECEIVED }] }, db),
+        () => runAprsPush({ lines: [{ line: POSITION, received_at: RECEIVED }] }, db, new Date()),
         Error,
         "disk full",
       )

@@ -5,7 +5,7 @@ import { fakeSupabase } from "./fake_supabase.ts";
 const KEY = "service-key";
 const fixture = Deno.readTextFileSync(new URL("./fixtures/cty.dat", import.meta.url));
 
-function req(token?: string): Request {
+function req(token: string | undefined): Request {
   const init: RequestInit = { method: "POST", headers: {} };
   if (token) {
     init.headers = { Authorization: `Bearer ${token}` };
@@ -22,7 +22,7 @@ async function rejectWith(reason: unknown): Promise<never> {
 Deno.test(
   "handleImportCty refuses callers without the service-role key",
   async function (): Promise<void> {
-    const fake = fakeSupabase();
+    const fake = fakeSupabase({});
     const client = fake.client;
     let fetched = 0;
     function fetchCty(): Promise<string> {
@@ -78,7 +78,7 @@ Deno.test(
   async function (): Promise<void> {
     const short = "Somewhere: 1: 2: EU: 0: 0: 0: XX:\r\n    XX;\r\n";
     for (const text of [short, "<html>Not Found</html>"]) {
-      const fake = fakeSupabase();
+      const fake = fakeSupabase({});
       const client = fake.client;
       const res = await handleImportCty(req(KEY), {
         serviceRoleKey: KEY,
@@ -94,7 +94,7 @@ Deno.test(
 Deno.test(
   "handleImportCty answers 500 when the download or the load fails",
   async function (): Promise<void> {
-    const down = fakeSupabase();
+    const down = fakeSupabase({});
     const res = await handleImportCty(req(KEY), {
       serviceRoleKey: KEY,
       db: () => down.client,
@@ -116,7 +116,7 @@ Deno.test(
 );
 
 Deno.test("handleImportCty reports a thrown non-Error as text", async function (): Promise<void> {
-  const fake = fakeSupabase();
+  const fake = fakeSupabase({});
   const client = fake.client;
   const res = await handleImportCty(req(KEY), {
     serviceRoleKey: KEY,

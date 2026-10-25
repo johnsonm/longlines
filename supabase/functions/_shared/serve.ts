@@ -52,7 +52,7 @@ export interface PushDeps<D> {
 
 export function pushIngestHandler<D>(
   source: Source,
-  run: (body: unknown, db: D) => Promise<IngestSummary>,
+  run: (body: unknown, db: D, now: Date) => Promise<IngestSummary>,
   deps: PushDeps<D>,
 ): (req: Request) => Promise<Response> {
   async function handler(req: Request): Promise<Response> {
@@ -77,7 +77,7 @@ export function pushIngestHandler<D>(
       } catch {
         return Response.json({ source, error: "request body is not JSON" }, { status: 400 });
       }
-      return respond(source, () => run(body, deps.db()));
+      return respond(source, () => run(body, deps.db(), new Date()));
     }
 
     return Response.json({ source, error: "method not allowed" }, { status: 405 });
@@ -99,7 +99,7 @@ export function createAprsPushDb(client: SupabaseClient): AprsPushDb {
 /** Serve a pushed source; makeDb builds only the database surface its run needs. */
 export function servePush<D>(
   source: Source,
-  run: (body: unknown, db: D) => Promise<IngestSummary>,
+  run: (body: unknown, db: D, now: Date) => Promise<IngestSummary>,
   makeDb: (client: SupabaseClient) => D,
 ): void {
   const push = pushIngestHandler(source, run, {

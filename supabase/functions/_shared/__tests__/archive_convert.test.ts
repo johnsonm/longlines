@@ -63,8 +63,8 @@ function readParquet(bytes: Uint8Array): Promise<Record<string, unknown>[]> {
 
 /** An in-memory bucket. `failOn` makes the named operation throw for paths containing the string. */
 function fakeStore(
-  objects = new Map<string, Uint8Array>(),
-  failOn: Partial<Record<"read" | "upload" | "size" | "remove", string>> = {},
+  objects: Map<string, Uint8Array>,
+  failOn: Partial<Record<"read" | "upload" | "size" | "remove", string>>,
 ) {
   const ops: string[] = [];
   function check(op: keyof typeof failOn, path: string) {
@@ -134,14 +134,14 @@ function listed(r: NdjsonSlice & { bytes: number }): NdjsonSlice {
 }
 
 /** The first failure's error; the test fails when there is none. */
-function firstError(summary: ConvertSummary, msg?: string): string {
+function firstError(summary: ConvertSummary, msg: string | undefined): string {
   const failure = summary.failed[0];
   assertExists(failure, msg);
   return failure.error;
 }
 
 /** An in-memory archive_log with the two RPCs' semantics. */
-function fakeDb(rows: NdjsonSlice[], options: { repointResult?: boolean } = {}) {
+function fakeDb(rows: NdjsonSlice[], options: { repointResult?: boolean }) {
   const log = rows.map((r) => Object.assign({}, r, { bytes: 0 }));
   const repoints: Array<{ path: string; bytes: number }> = [];
   const db: ConvertDb = {
@@ -192,9 +192,9 @@ for (const source of FIXTURE_SOURCES) {
     async function (): Promise<void> {
       const fx = await fixtureSlice(source);
       const slice = fx.slice;
-      const bucket = fakeStore(new Map([[slice.object_path, fx.bytes]]));
+      const bucket = fakeStore(new Map([[slice.object_path, fx.bytes]]), {});
       const objects = bucket.objects;
-      const fake = fakeDb([slice]);
+      const fake = fakeDb([slice], {});
       const log = fake.log;
 
       const summary = await runConvert(fake.db, bucket.store, { after: null, limit: 10 });
@@ -235,8 +235,8 @@ Deno.test(
   async function (): Promise<void> {
     const fx = await fixtureSlice("rbn");
     const slice = fx.slice;
-    const bucket = fakeStore(new Map([[slice.object_path, fx.bytes]]));
-    await runConvert(fakeDb([slice]).db, bucket.store, { after: null, limit: 1 });
+    const bucket = fakeStore(new Map([[slice.object_path, fx.bytes]]), {});
+    await runConvert(fakeDb([slice], {}).db, bucket.store, { after: null, limit: 1 });
     const rbn = await readParquet(bucket.objects.get(objectPath("rbn", slice.slice_start))!);
     assertEquals(rbn.map((r) => r["callsign"]), ["K1ABC", "JA1XYZ/P", "ÖH2XX"]);
     assertEquals(
@@ -246,8 +246,8 @@ Deno.test(
     assertEquals(rbn[2]!["band"], null);
 
     const pota = await fixtureSlice("pota");
-    const potaStore = fakeStore(new Map([[pota.slice.object_path, pota.bytes]]));
-    await runConvert(fakeDb([pota.slice]).db, potaStore.store, { after: null, limit: 1 });
+    const potaStore = fakeStore(new Map([[pota.slice.object_path, pota.bytes]]), {});
+    await runConvert(fakeDb([pota.slice], {}).db, potaStore.store, { after: null, limit: 1 });
     const rows = await readParquet(
       potaStore.objects.get(objectPath("pota", pota.slice.slice_start))!,
     );
@@ -353,8 +353,8 @@ Deno.test(
     const slice = fx.slice;
     const bytes = fx.bytes;
     const wrong = Object.assign({}, slice, { row_count: slice.row_count + 1 });
-    const bucket = fakeStore(new Map([[slice.object_path, bytes]]));
-    const fake = fakeDb([wrong]);
+    const bucket = fakeStore(new Map([[slice.object_path, bytes]]), {});
+    const fake = fakeDb([wrong], {});
     const summary = await runConvert(fake.db, bucket.store, { after: null, limit: 10 });
     assertEquals(summary.converted, 0);
     assertEquals(summary.failed, [{
@@ -378,7 +378,12 @@ Deno.test(
     const parquetPath = objectPath("aprs", slice.slice_start);
     const cases: Array<[string, () => ReturnType<typeof fakeStore>, boolean | undefined, string]> =
       [
-        ["missing object", () => fakeStore(), undefined, "NDJSON object missing"],
+        [
+          "missing object",
+          () => fakeStore(new Map<string, Uint8Array>(), {}),
+          undefined,
+          "NDJSON object missing",
+        ],
         [
           "upload fails",
           () => fakeStore(new Map([[slice.object_path, bytes]]), { upload: "parquet" }),
@@ -393,7 +398,7 @@ Deno.test(
         ],
         [
           "repoint refused",
-          () => fakeStore(new Map([[slice.object_path, bytes]])),
+          () => fakeStore(new Map([[slice.object_path, bytes]]), {}),
           false,
           "the log row changed",
         ],
@@ -411,16 +416,16 @@ Deno.test(
     }
 
     // An upload that reads back short is not trusted.
-    const short = fakeStore(new Map([[slice.object_path, bytes]]));
+    const short = fakeStore(new Map([[slice.object_path, bytes]]), {});
     const store: ArchiveObjectStore = {
       read: short.store.read,
       upload: short.store.upload,
       size: () => Promise.resolve(1),
       remove: short.store.remove,
     };
-    const summary = await runConvert(fakeDb([slice]).db, store, { after: null, limit: 1 });
+    const summary = await runConvert(fakeDb([slice], {}).db, store, { after: null, limit: 1 });
     assertEquals(
-      firstError(summary),
+      firstError(summary, undefined),
       `uploaded ${parquetPath} reads back as 1, not ${short.objects.get(parquetPath)!.length}`,
     );
     assertEquals(short.objects.has(slice.object_path), true);
@@ -432,16 +437,16 @@ Deno.test(
   async function (): Promise<void> {
     const slice = (await fixtureSlice("rbn")).slice;
     const empty = Object.assign({}, slice, { row_count: 0 });
-    const store = fakeStore(new Map([[slice.object_path, await gzip("")]])).store;
-    let summary = await runConvert(fakeDb([empty]).db, store, { after: null, limit: 1 });
-    assertEquals(firstError(summary), "the NDJSON object has no rows");
+    const store = fakeStore(new Map([[slice.object_path, await gzip("")]]), {}).store;
+    let summary = await runConvert(fakeDb([empty], {}).db, store, { after: null, limit: 1 });
+    assertEquals(firstError(summary, undefined), "the NDJSON object has no rows");
     const db: ConvertDb = {
       ndjsonSlices: () =>
         Promise.resolve([Object.assign({}, slice, { object_path: "rbn/x.parquet" })]),
       repointSlice: () => Promise.resolve(true),
     };
     summary = await runConvert(db, store, { after: null, limit: 1 });
-    assertEquals(firstError(summary), "not an NDJSON object: rbn/x.parquet");
+    assertEquals(firstError(summary, undefined), "not an NDJSON object: rbn/x.parquet");
   },
 );
 
@@ -451,7 +456,7 @@ Deno.test(
     const fx = await fixtureSlice("sotawatch");
     const slice = fx.slice;
     const store = fakeStore(new Map([[slice.object_path, fx.bytes]]), { remove: "ndjson" }).store;
-    const fake = fakeDb([slice]);
+    const fake = fakeDb([slice], {});
     const summary = await runConvert(fake.db, store, { after: null, limit: 1 });
     assertEquals([summary.converted, summary.failed, summary.undeleted], [1, [], [
       slice.object_path,
@@ -485,8 +490,8 @@ Deno.test(
         objects.set(s.object_path, bytes);
       }
     }
-    const store = fakeStore(objects).store;
-    const fake = fakeDb(slices);
+    const store = fakeStore(objects, {}).store;
+    const fake = fakeDb(slices, {});
     const db = fake.db;
     const log = fake.log;
 
@@ -525,8 +530,8 @@ Deno.test("runConvert stops starting slices past the row budget", async function
     row_count: half,
     object_path: ndjsonPath("rbn", `2026-10-11T${hm}:00Z`),
   }));
-  const bucket = fakeStore();
-  const summary = await runConvert(fakeDb(slices).db, bucket.store, { after: null, limit: 10 });
+  const bucket = fakeStore(new Map<string, Uint8Array>(), {});
+  const summary = await runConvert(fakeDb(slices, {}).db, bucket.store, { after: null, limit: 10 });
   assertEquals(bucket.ops.filter((op) => op.startsWith("read")).length, 1);
   assertEquals(summary.next, { slice_start: "2026-10-11T13:00:00+00:00", source: "rbn" });
 });

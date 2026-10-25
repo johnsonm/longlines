@@ -14,7 +14,7 @@ import type { JsonObject } from "./types.ts";
  * ordinary text and survive unchanged.
  */
 export function withoutNul(raw: JsonObject): JsonObject {
-  return stripNul(raw) as JsonObject;
+  return stripObject(raw);
 }
 
 function storable(text: string): string {
@@ -26,15 +26,20 @@ function stripNul(value: unknown): unknown {
     return storable(value);
   }
   if (Array.isArray(value)) {
-    return value.map(stripNul);
+    const items: unknown[] = value;
+    return items.map(stripNul);
   }
   if (typeof value === "object" && value !== null) {
-    // fromEntries, not assignment, so a "__proto__" key stays an own property.
-    const entries: Array<[string, unknown]> = [];
-    for (const entry of Object.entries(value)) {
-      entries.push([storable(entry[0]), stripNul(entry[1])]);
-    }
-    return Object.fromEntries(entries);
+    return stripObject(value);
   }
   return value;
+}
+
+function stripObject(value: object): JsonObject {
+  // fromEntries, not assignment, so a "__proto__" key stays an own property.
+  const entries: Array<[string, unknown]> = [];
+  for (const entry of Object.entries(value)) {
+    entries.push([storable(entry[0]), stripNul(entry[1])]);
+  }
+  return Object.fromEntries(entries);
 }

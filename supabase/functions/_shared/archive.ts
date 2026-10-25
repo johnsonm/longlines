@@ -214,8 +214,8 @@ export function encodeParquet(
 export async function runArchive(
   db: ArchiveDb,
   store: ArchiveStore,
-  now: Date = new Date(),
-  sources: readonly Source[] = ARCHIVE_ORDER,
+  now: Date,
+  sources: readonly Source[],
 ): Promise<ArchiveSummary> {
   const started = performance.now();
   const summary: ArchiveSummary = {

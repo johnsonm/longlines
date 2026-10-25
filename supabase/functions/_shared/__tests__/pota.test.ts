@@ -1,4 +1,5 @@
-import { assertEquals, assertRejects, assertThrows } from "@std/assert";
+import { assertEquals, assertRejects, assertStrictEquals, assertThrows } from "@std/assert";
+import { ValidationError } from "../errors.ts";
 import { pota } from "../pota.ts";
 import { contentHash } from "../hash.ts";
 import type { JsonObject } from "../types.ts";
@@ -23,8 +24,14 @@ Deno.test("pota.parseFeed returns the array as-is", function (): void {
 });
 
 Deno.test("pota.parseFeed throws when the body is not an array of objects", function (): void {
-  assertThrows(() => pota.parseFeed({ error: "nope" }));
-  assertThrows(() => pota.parseFeed([1, 2]));
+  assertThrows(() => pota.parseFeed({ error: "nope" }), ValidationError, "pota.parseFeed: feed");
+  assertThrows(() => pota.parseFeed([1, 2]), ValidationError, "0: expected an object");
+  assertThrows(() => pota.parseFeed([[]]), ValidationError);
+});
+
+Deno.test("pota.parseFeed returns the items themselves, not copies", function (): void {
+  const items = pota.parseFeed(fixture);
+  assertStrictEquals(items[0], fixture[0]);
 });
 
 Deno.test(
@@ -157,10 +164,44 @@ Deno.test("pota.normalize leaves band null outside known bands", async function 
 });
 
 Deno.test("pota.normalize rejects a spot with no activator", async function (): Promise<void> {
-  await assertRejects(() =>
-    pota.normalize(Object.assign({}, spot(58161562), { activator: null }), NOW)
+  const error = await assertRejects(
+    () => pota.normalize(Object.assign({}, spot(58161562), { activator: null }), NOW),
+    ValidationError,
+    "pota.normalize: spot: activator",
   );
+  assertEquals(error.where, "pota.normalize: spot");
 });
+
+Deno.test(
+  "pota.normalize stores the raw item as raw_payload, own __proto__ key included",
+  async function (): Promise<void> {
+    const raw: JsonObject = JSON.parse(
+      '{"__proto__":{"x":1},' + JSON.stringify(spot(58161562)).slice(1),
+    );
+    const result = await pota.normalize(raw, NOW);
+    if (result.kind !== "spot") {
+      throw new Error("expected spot");
+    }
+    assertStrictEquals(result.spot.raw_payload, raw);
+    assertEquals(Object.keys(result.spot.raw_payload)[0], "__proto__");
+  },
+);
+
+Deno.test(
+  "pota.normalize reads a non-string optional field as absent, as before",
+  async function (): Promise<void> {
+    const raw = Object.assign({}, spot(58161562), { comments: 73, name: false, spotter: 5 });
+    const result = await pota.normalize(raw, NOW);
+    if (result.kind !== "spot") {
+      throw new Error("expected spot");
+    }
+    assertEquals([result.spot.comment, result.spot.pota_park_name, result.spot.spotter], [
+      "",
+      null,
+      null,
+    ]);
+  },
+);
 
 Deno.test(
   "pota.normalize rejects a spot with a malformed frequency",

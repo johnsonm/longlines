@@ -23,7 +23,8 @@ export async function contentHash(fields: ReadonlyArray<unknown>): Promise<strin
 }
 
 // String() of a field as upstream sent it. The parameter is unknown on purpose:
-// fields are unvalidated feed values, and narrowing them is Part 2's job.
+// adapters hash the raw feed values, never their parsed copies, so a hash never
+// changes with validation.
 function upstreamText(value: unknown): string {
   return String(value);
 }

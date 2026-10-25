@@ -21,7 +21,7 @@ function send(
 const deps: SendTestDeps = { admin: createServiceClient, send };
 
 async function handler(req: Request): Promise<Response> {
-  return await handleSendTest(req, deps);
+  return await handleSendTest(req, deps, new Date());
 }
 
 Deno.serve(handler);

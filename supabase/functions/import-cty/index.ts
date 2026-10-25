@@ -1,10 +1,10 @@
-import { fetchCty } from "../_shared/cty.ts";
+import { CTY_URL, fetchCty } from "../_shared/cty.ts";
 import { createServiceClient } from "../_shared/db.ts";
 import { handleImportCty } from "../_shared/handlers/import_cty.ts";
 
 // cty.dat from its default URL.
 function downloadCty(): Promise<string> {
-  return fetchCty();
+  return fetchCty(CTY_URL);
 }
 
 async function handler(req: Request): Promise<Response> {

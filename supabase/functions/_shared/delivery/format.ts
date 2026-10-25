@@ -268,7 +268,7 @@ function plainMessage(spots: readonly DeliverySpot[], settings: DiscordSettings)
 /** The messages alone, for callers that do not count spots. */
 export function discordMessages(
   spots: readonly DeliverySpot[],
-  destination: Pick<DeliveryDestination, "discord"> = {},
+  destination: Pick<DeliveryDestination, "discord">,
 ): DiscordMessage[] {
   return discordBatches(spots, destination).map((b) => b.message);
 }
@@ -567,8 +567,8 @@ function pushForSpot(
  */
 export function pushNotifications(
   spots: readonly DeliverySpot[],
-  settings: PushSettings = LEGACY_PUSH_SETTINGS,
-  quietNow = false,
+  settings: PushSettings,
+  quietNow: boolean,
 ): PushNotification[] {
   return spots.map((s) => pushForSpot(s, settings, quietNow));
 }

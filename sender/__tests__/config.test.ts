@@ -180,11 +180,11 @@ Deno.test("portNumber, integerAtLeast and isLocalHost", function (): void {
   assertEquals(portNumber("8080", "P"), 8080);
   assertThrows(() => portNumber("0", "P"), Error, "P must be a port number");
   assertThrows(() => portNumber("70000", "P"), Error, "P must be a port number");
-  assertEquals(integerAtLeast(undefined, "X", 7, 1), 7);
-  assertEquals(integerAtLeast("  ", "X", 7, 1), 7);
-  assertEquals(integerAtLeast("3", "X", 7, 1), 3);
+  assertEquals(integerAtLeast(undefined, "X", 7, 1, undefined), 7);
+  assertEquals(integerAtLeast("  ", "X", 7, 1, undefined), 7);
+  assertEquals(integerAtLeast("3", "X", 7, 1, undefined), 3);
   assertThrows(
-    () => integerAtLeast("0", "X", 7, 1),
+    () => integerAtLeast("0", "X", 7, 1, undefined),
     Error,
     "X must be a whole number of at least 1",
   );

@@ -25,7 +25,7 @@ function jwt(payload: Record<string, unknown>): string {
   }
   return `${b64url({ alg: "HS256", typ: "JWT" })}.${b64url(payload)}.signature`;
 }
-function withBearer(token?: string): Request {
+function withBearer(token: string | undefined): Request {
   let headers: Record<string, string> = {};
   if (token) {
     headers = { Authorization: `Bearer ${token}` };
@@ -61,7 +61,7 @@ Deno.test(
     assertEquals(await isServiceRole(withBearer("sb_secret_other"), "sb_secret_abc"), false);
     assertEquals(await isServiceRole(withBearer("a.%%%.c"), "sb_secret_abc"), false);
     assertEquals(await isServiceRole(withBearer("only.two"), "sb_secret_abc"), false);
-    assertEquals(await isServiceRole(withBearer(), "sb_secret_abc"), false);
-    assertEquals(await isServiceRole(withBearer(), undefined), false);
+    assertEquals(await isServiceRole(withBearer(undefined), "sb_secret_abc"), false);
+    assertEquals(await isServiceRole(withBearer(undefined), undefined), false);
   },
 );

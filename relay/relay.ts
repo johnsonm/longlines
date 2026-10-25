@@ -5,7 +5,7 @@
 import type { RelayConfig } from "./config.ts";
 import type { Feed } from "./feeds.ts";
 import { Forwarder, type ForwarderOptions } from "./forwarder.ts";
-import { functionClient, functionPoster, type RelayLine } from "./functions.ts";
+import { functionClient, FunctionPoster, type RelayLine } from "./functions.ts";
 import { type FeedHealth, healthHandler } from "./health.ts";
 import { licenseClient, type LicenseImportLoop, runLicenseImports } from "./licenses.ts";
 import { runStatusLoop, type StatusLoop } from "./status.ts";
@@ -29,7 +29,12 @@ function startFeed(
   function log(message: string): void {
     logLine(`[${feed.id}] ${message}`);
   }
-  const client = functionClient(config.functionsUrl, feed.functionName, config.relaySecret);
+  const client = functionClient({
+    functionsUrl: config.functionsUrl,
+    functionName: feed.functionName,
+    secret: config.relaySecret,
+    fetchFn: fetch,
+  });
   function push(batch: RelayLine[], pushSignal: AbortSignal): Promise<unknown> {
     return client.push(batch, pushSignal);
   }
@@ -143,7 +148,7 @@ export interface Relay {
 export function startRelay(
   config: RelayConfig,
   feedList: readonly Feed[],
-  options: RelayOptions = {},
+  options: RelayOptions,
 ): Relay {
   let log: (message: string) => void = logToConsole;
   if (options.log !== undefined && options.log !== null) {
@@ -158,11 +163,15 @@ export function startRelay(
   }
   let licenses: Promise<void> | null = null;
   if (config.licenseZipUrl !== null) {
+    const licensePoster = new FunctionPoster({
+      functionsUrl: config.functionsUrl,
+      functionName: "load-licenses",
+      secret: config.relaySecret,
+      fetchFn: fetch,
+    });
     const loop: LicenseImportLoop = {
       zipUrl: config.licenseZipUrl,
-      client: licenseClient(
-        functionPoster(config.functionsUrl, "load-licenses", config.relaySecret),
-      ),
+      client: licenseClient((body) => licensePoster.post(body, undefined)),
       signal: controller.signal,
       log: logLicenses,
     };
@@ -180,10 +189,16 @@ export function startRelay(
     licenses = runLicenseImports(loop);
   }
 
+  const statusPoster = new FunctionPoster({
+    functionsUrl: config.functionsUrl,
+    functionName: "relay-status",
+    secret: config.relaySecret,
+    fetchFn: fetch,
+  });
   const statusLoop: StatusLoop = {
     feeds: feeds.map((f) => f.health),
     startedAt,
-    post: functionPoster(config.functionsUrl, "relay-status", config.relaySecret),
+    post: (body, signal) => statusPoster.post(body, signal),
     sleep: abortableSleep,
     signal: controller.signal,
     log,
@@ -203,7 +218,7 @@ export function startRelay(
   }
   const server = Deno.serve(
     { hostname, port: config.healthPort, onListen },
-    healthHandler(feeds.map((f) => f.health), startedAt, STALE_MS),
+    healthHandler(feeds.map((f) => f.health), startedAt, STALE_MS, () => new Date()),
   );
   log(`relay started: ${feedList.map((f) => `${f.id} ${f.host}:${String(f.port)}`).join(", ")}`);
 

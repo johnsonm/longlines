@@ -212,7 +212,7 @@ Deno.test("aprsFeed.isSpot accepts every fixture packet and no server comment", 
 
 function fakeFetch(status: number, body: string) {
   const requests: Request[] = [];
-  function fn(input: string | URL | Request, init?: RequestInit): Promise<Response> {
+  function fn(input: string | URL | Request, init: RequestInit | undefined): Promise<Response> {
     requests.push(new Request(input, init));
     return Promise.resolve(new Response(body, { status }));
   }
@@ -222,7 +222,12 @@ function fakeFetch(status: number, body: string) {
 Deno.test("functionClient POSTs a batch as JSON", async function (): Promise<void> {
   const f = fakeFetch(200, "{}");
   const lines = [{ line: "DX de ...", received_at: "2026-10-11T00:00:00Z" }];
-  await functionClient("https://x", "ingest-rbn", "s", f.fn).push(lines);
+  await functionClient({
+    functionsUrl: "https://x",
+    functionName: "ingest-rbn",
+    secret: "s",
+    fetchFn: f.fn,
+  }).push(lines, undefined);
   const req = f.requests[0]!;
   assertEquals([req.method, req.url], ["POST", "https://x/ingest-rbn"]);
   assertEquals(req.headers.get("content-type"), "application/json");
@@ -236,8 +241,13 @@ Deno.test(
   "functionClient aborts the request when the caller's signal aborts",
   async function (): Promise<void> {
     const f = fakeFetch(200, "{}");
-    const client = functionClient("https://x", "ingest-rbn", "s", f.fn);
-    await client.push([]);
+    const client = functionClient({
+      functionsUrl: "https://x",
+      functionName: "ingest-rbn",
+      secret: "s",
+      fetchFn: f.fn,
+    });
+    await client.push([], undefined);
     assertEquals(f.requests[0]!.signal.aborted, false);
     const stop = new AbortController();
     await client.push([], stop.signal);
@@ -247,8 +257,14 @@ Deno.test(
 );
 
 Deno.test("functionClient throws on non-2xx", async function (): Promise<void> {
+  const client = functionClient({
+    functionsUrl: "https://x",
+    functionName: "ingest-rbn",
+    secret: "s",
+    fetchFn: fakeFetch(401, "{}").fn,
+  });
   await assertRejects(
-    () => functionClient("https://x", "ingest-rbn", "s", fakeFetch(401, "{}").fn).push([]),
+    () => client.push([], undefined),
     Error,
     "HTTP 401",
   );
@@ -266,15 +282,15 @@ Deno.test(
       10 * 60_000,
       () => now,
     );
-    function get(path = "/healthz") {
+    function get(path: string) {
       return handler(new Request(`http://x${path}`));
     }
 
-    assertEquals(get().status, 200); // no data yet, inside grace
+    assertEquals(get("/healthz").status, 200); // no data yet, inside grace
     now = new Date("2026-10-11T00:11:00Z");
-    assertEquals(get().status, 503);
+    assertEquals(get("/healthz").status, 503);
     status.lastDataAt = new Date("2026-10-11T00:10:30Z");
-    const res = get();
+    const res = get("/healthz");
     assertEquals(res.status, 200);
     const body = await res.json();
     assertEquals(body.feeds[0].dropped, 3);
@@ -288,7 +304,7 @@ Deno.test(
   async function (): Promise<void> {
     const started = new Date("2026-10-11T00:00:00Z");
     const lastDataAt = new Date("2026-10-11T00:00:00Z");
-    function feed(id: string, staleMs?: number): FeedHealth {
+    function feed(id: string, staleMs: number | undefined): FeedHealth {
       const f: FeedHealth = {
         id,
         status: { connected: true, lastDataAt, connects: 1 },
@@ -307,7 +323,7 @@ Deno.test(
     const quiet = healthHandler([feed("dxcluster", 20 * 60_000)], started, 10 * 60_000, now);
     assertEquals(quiet(new Request("http://x/healthz")).status, 200);
     const both = healthHandler(
-      [feed("rbn"), feed("dxcluster", 20 * 60_000)],
+      [feed("rbn", undefined), feed("dxcluster", 20 * 60_000)],
       started,
       10 * 60_000,
       now,

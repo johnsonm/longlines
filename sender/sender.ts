@@ -94,7 +94,7 @@ function noop(): void {
 export function startSender(
   config: SenderConfig,
   deps: SenderDeps,
-  options: SenderOptions = {},
+  options: SenderOptions,
 ): Sender {
   let log = logLine;
   if (options.log !== undefined && options.log !== null) {

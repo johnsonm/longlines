@@ -263,8 +263,9 @@ arrays, `styleSyntax` (Part 1's) and `zodSyntax` (the six new ones), and the mai
   deferred rules, `no-empty` and `preserve-caught-error`, and sets `no-restricted-syntax` to
   `styleSyntax` alone, so pending files keep every Part 1 rule. scripts/ and the new
   `_shared/errors.ts`, `_shared/validate.ts` and their tests are outside it and get the full rules.
-- The surface PR moves the default-parameter and optional-parameter selectors into the list the
-  pending block keeps, so they apply everywhere.
+- The surface PR moved the default-parameter and optional-parameter selectors from `zodSyntax`
+  into `styleSyntax`, the list the pending block keeps, so they apply everywhere. `zodSyntax` now
+  holds the four Zod and type-guard bans.
 - Each Part 2 area PR removes its globs from `zodPending`, and nothing else edits the list. The
   wrap-up PR deletes the empty block.
 - The tests block keeps the narrowing rules off for good.
@@ -333,6 +334,14 @@ Requests, responses and status codes stay the same. Error types and messages may
 Area chats keep the surface the surface PR left, with two exceptions: they may turn an exported
 object type into an interface of the same shape, and they may add exported interfaces and schemas
 in their own files.
+
+The surface PR removed every default and optional parameter in the four directories, tests
+included, and in function types and interface methods too (`FunctionClient.push`,
+`StatusLoop.post`, `SqlClient.end`), which the selector does not reach. Callers pass every
+argument: the old default where there was one, `undefined` where the parameter was optional.
+Options objects keep their optional fields; a caller with none passes `{}`. One client became a
+class: the relay's `FunctionPoster` (`relay/functions.ts`). Every `create*` factory stayed a
+factory.
 
 ### Unknown shapes
 

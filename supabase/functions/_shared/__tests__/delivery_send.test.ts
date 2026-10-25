@@ -523,7 +523,7 @@ Deno.test(
     async function send(base: string): Promise<void> {
       // Not allowInsecure: a plain-http loopback URL must be refused by the safety check.
       const d = dest(`${base}/spots`, "webhook");
-      const result = await sendWebhook(d, [delivery(1, d)]);
+      const result = await sendWebhook(d, [delivery(1, d)], {});
       assertEquals(result.ok, false);
       assertEquals(called, false);
     }
@@ -544,7 +544,7 @@ interface Post {
 /** A pinnedPost stand-in that records where each request would connect. */
 function recordingPost(
   posts: Post[],
-  answer: (address: string) => number | Error = () => 200,
+  answer: (address: string) => number | Error,
 ): typeof pinnedPost {
   function post(url: URL, address: string, init: PinnedPostInit): Promise<PinnedResponse> {
     let headers: Array<[string, string]>;
@@ -581,7 +581,7 @@ Deno.test(
       Array.from({ length: 60 }, (_, i) => delivery(i + 1, d)),
       {
         resolver,
-        webhookPost: recordingPost(posts),
+        webhookPost: recordingPost(posts, () => 200),
       },
     );
     assertEquals(result, { ok: true, sent: 60, attempted: 60, status: 200 });
@@ -607,7 +607,7 @@ Deno.test(
     const d = dest("https://rebind.example.com/spots", "webhook");
     const result = await sendWebhook(d, [delivery(1, d)], {
       resolver: () => Promise.resolve(["93.184.216.34", "127.0.0.1"]),
-      webhookPost: recordingPost(posts),
+      webhookPost: recordingPost(posts, () => 200),
     });
     assertEquals(result, {
       ok: false,
@@ -626,7 +626,7 @@ Deno.test(
     const d = dest("https://[2606:2800:220:1::1]:8443/spots", "webhook");
     const result = await sendWebhook(d, [delivery(1, d)], {
       resolver: () => Promise.reject(new Error("must not resolve")),
-      webhookPost: recordingPost(posts),
+      webhookPost: recordingPost(posts, () => 200),
     });
     assertEquals(result, { ok: true, sent: 1, attempted: 1, status: 200 });
     assertEquals(posts.map((p) => p.address), ["2606:2800:220:1::1"]);
@@ -707,7 +707,7 @@ Deno.test(
     await sendWebhook(named, [delivery(1, named)], {
       allowInsecure: true,
       resolver: () => Promise.reject(new Error("must not resolve")),
-      webhookPost: recordingPost(posts),
+      webhookPost: recordingPost(posts, () => 200),
     });
     assertEquals(posts.map((p) => p.address), ["127.0.0.1", "::1", "receiver.test"]);
   },
@@ -745,7 +745,7 @@ Deno.test(
 function webhookDest(
   url: string,
   batch_seconds: number,
-  headers: Array<{ name: string; value: string }> = [],
+  headers: Array<{ name: string; value: string }>,
 ): DeliveryDestination {
   const d = dest(url, "webhook");
   d.webhook = { batch_seconds, headers };
@@ -886,7 +886,7 @@ Deno.test(
   "sendWebhook leaves out the test marker on a real delivery",
   async function (): Promise<void> {
     await withRawServer([204], async function (base, requests): Promise<void> {
-      const d = webhookDest(`${base}/hook`, 0);
+      const d = webhookDest(`${base}/hook`, 0, []);
       await sendWebhook(d, [renderedWebhook(1, d)], { allowInsecure: true });
       assertEquals(headerNames(requests[0]!.head).includes("X-LongLines-Test"), false);
     });
@@ -897,7 +897,7 @@ Deno.test(
   "sendWebhook sends one request per spot at batch 0 and stops at the first failure",
   async function (): Promise<void> {
     await withRawServer([204, 204, 500], async function (base, requests): Promise<void> {
-      const d = webhookDest(`${base}/hook`, 0);
+      const d = webhookDest(`${base}/hook`, 0, []);
       const batch = [1, 2, 3, 4, 5].map((id) => renderedWebhook(id, d));
       const result = await sendWebhook(d, batch, { allowInsecure: true });
       assertEquals(result, {
@@ -910,7 +910,7 @@ Deno.test(
       assertEquals(requests.map((r) => JSON.parse(r.body).delivery_id), [1, 2, 3]);
     });
     await withRawServer([], async function (base, requests): Promise<void> {
-      const d = webhookDest(`${base}/hook`, 0);
+      const d = webhookDest(`${base}/hook`, 0, []);
       const batch = [1, 2, 3, 4, 5].map((id) => renderedWebhook(id, d));
       assertEquals(await sendWebhook(d, batch, { allowInsecure: true }), {
         ok: true,
@@ -927,7 +927,7 @@ Deno.test(
   "sendWebhook groups into spots lists of 50 and counts a failed group as attempted",
   async function (): Promise<void> {
     await withRawServer([204, 500], async function (base, requests): Promise<void> {
-      const d = webhookDest(`${base}/hook`, 30);
+      const d = webhookDest(`${base}/hook`, 30, []);
       const batch = Array.from({ length: 120 }, (_, i) => renderedWebhook(i + 1, d));
       const result = await sendWebhook(d, batch, { allowInsecure: true });
       assertEquals(result, {
@@ -946,7 +946,7 @@ Deno.test(
   "sendWebhook reports the status of a 429 with the throttle",
   async function (): Promise<void> {
     await withRawServer([429], async function (base): Promise<void> {
-      const d = webhookDest(`${base}/hook`, 0);
+      const d = webhookDest(`${base}/hook`, 0, []);
       const result = await sendWebhook(d, [renderedWebhook(1, d)], { allowInsecure: true });
       assertEquals(result.status, 429);
       assertEquals(result.retryAfterSeconds, null);
@@ -958,7 +958,7 @@ Deno.test(
 Deno.test(
   "sendWebhook reports the last status received when a later request fails to connect",
   async function (): Promise<void> {
-    const d = webhookDest("https://hooks.example.com/hook", 0);
+    const d = webhookDest("https://hooks.example.com/hook", 0, []);
     let n = 0;
     function answer(): number | Error {
       n++;
@@ -1565,7 +1565,7 @@ Deno.test(
     const unconfigured = pushDest([
       { endpoint: "https://fcm.googleapis.com/x", p256dh: UA.public, auth: UA.auth },
     ]);
-    assertEquals(await sendPush(unconfigured, [delivery(1, unconfigured)]), {
+    assertEquals(await sendPush(unconfigured, [delivery(1, unconfigured)], {}), {
       ok: false,
       sent: 0,
       error: "Push isn't configured on the server.",

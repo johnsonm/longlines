@@ -93,7 +93,7 @@ export function integerAtLeast(
   name: string,
   fallback: number,
   min: number,
-  max?: number,
+  max: number | undefined,
 ): number {
   const v = trimmed(value);
   if (v === "") {
@@ -219,6 +219,7 @@ export function loadConfig(env: (name: string) => string | undefined): SenderCon
       "SENDER_CONCURRENCY",
       DEFAULT_CONCURRENCY,
       1,
+      undefined,
     ),
     staleMs,
     statsMs: integerAtLeast(

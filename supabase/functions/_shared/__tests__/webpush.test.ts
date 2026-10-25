@@ -83,8 +83,8 @@ Deno.test(
   async function (): Promise<void> {
     const plaintext = new TextEncoder().encode(RFC.plaintext);
     const keys = { p256dh: RFC.uaPublic, auth: RFC.authSecret };
-    const a = await encryptPushPayload(plaintext, keys);
-    const b = await encryptPushPayload(plaintext, keys);
+    const a = await encryptPushPayload(plaintext, keys, {});
+    const b = await encryptPushPayload(plaintext, keys, {});
     // salt(16) + rs(4) + idlen(1) + key(65) + plaintext + delimiter + tag(16)
     assertEquals(a.length, 86 + plaintext.length + 1 + 16);
     assertEquals(new DataView(a.buffer).getUint32(16), 4096);
@@ -99,10 +99,10 @@ Deno.test(
   async function (): Promise<void> {
     assertEquals(MAX_PUSH_PLAINTEXT_BYTES, 3993);
     const keys = { p256dh: RFC.uaPublic, auth: RFC.authSecret };
-    const body = await encryptPushPayload(new Uint8Array(MAX_PUSH_PLAINTEXT_BYTES), keys);
+    const body = await encryptPushPayload(new Uint8Array(MAX_PUSH_PLAINTEXT_BYTES), keys, {});
     assertEquals(body.length, 4096);
     await assertRejects(
-      () => encryptPushPayload(new Uint8Array(MAX_PUSH_PLAINTEXT_BYTES + 1), keys),
+      () => encryptPushPayload(new Uint8Array(MAX_PUSH_PLAINTEXT_BYTES + 1), keys, {}),
       Error,
       "too large",
     );
@@ -114,12 +114,12 @@ Deno.test(
   async function (): Promise<void> {
     const plaintext = new TextEncoder().encode("x");
     await assertRejects(
-      () => encryptPushPayload(plaintext, { p256dh: RFC.uaPublic, auth: "AAAA" }),
+      () => encryptPushPayload(plaintext, { p256dh: RFC.uaPublic, auth: "AAAA" }, {}),
       Error,
       "auth",
     );
     await assertRejects(
-      () => encryptPushPayload(plaintext, { p256dh: "AAAA", auth: RFC.authSecret }),
+      () => encryptPushPayload(plaintext, { p256dh: "AAAA", auth: RFC.authSecret }, {}),
       Error,
       "p256dh",
     );

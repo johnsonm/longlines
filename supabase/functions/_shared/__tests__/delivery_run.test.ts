@@ -29,7 +29,7 @@ type Responder = RpcAnswer | ((args: Record<string, unknown>) => RpcAnswer);
 
 /** A DeliveryRpc that records every call and answers from a table of responders. */
 function fakeRpc(
-  responders: Record<string, Responder> = {},
+  responders: Record<string, Responder>,
 ): { db: DeliveryRpc; calls: RpcCall[] } {
   const calls: RpcCall[] = [];
   const db: DeliveryRpc = {
@@ -58,7 +58,7 @@ function fakeRpc(
   return { db, calls };
 }
 
-function dest(id: string, overrides: Partial<DeliveryDestination> = {}): DeliveryDestination {
+function dest(id: string, overrides: Partial<DeliveryDestination>): DeliveryDestination {
   return Object.assign({
     id,
     type: "webhook",
@@ -73,7 +73,7 @@ function dest(id: string, overrides: Partial<DeliveryDestination> = {}): Deliver
 function row(
   id: number,
   destination: DeliveryDestination,
-  overrides: Partial<PendingDelivery> = {},
+  overrides: Partial<PendingDelivery>,
 ): PendingDelivery {
   return Object.assign({
     msg_id: id * 10,
@@ -116,11 +116,16 @@ function noSleep() {
   return { waits, sleep: (ms: number) => (waits.push(ms), Promise.resolve()) };
 }
 
+/** One destination at a time, without real sleeps. */
+function serialOptions(): Parameters<typeof runDeliveryBatch>[3] {
+  return { concurrency: 1, sleep: noSleep().sleep };
+}
+
 async function run(
   rows: PendingDelivery[],
   send: Send,
-  responders: Record<string, Responder> = {},
-  options: Parameters<typeof runDeliveryBatch>[3] = { concurrency: 1, sleep: noSleep().sleep },
+  responders: Record<string, Responder>,
+  options: Parameters<typeof runDeliveryBatch>[3],
 ) {
   const fake = fakeRpc(Object.assign({ claim_deliveries: { data: rows } }, responders));
   const sent: Array<{ destination: string; ids: number[] }> = [];
@@ -172,10 +177,10 @@ Deno.test(
     let sends = 0;
     function countingSend(): Promise<SendResult> {
       sends++;
-      return allSent(dest("a"), []);
+      return allSent(dest("a", {}), []);
     }
     await assertRejects(
-      () => runDeliveryBatch(fake.db, countingSend, NOW),
+      () => runDeliveryBatch(fake.db, countingSend, NOW, {}),
       ClaimError,
       "boom",
     );
@@ -187,9 +192,14 @@ Deno.test(
 Deno.test(
   "runDeliveryBatch groups by destination in claim order and acks every success in one call",
   async function (): Promise<void> {
-    const a = dest("a");
+    const a = dest("a", {});
     const b = dest("b", { type: "discord" });
-    const out = await run([row(1, a), row(2, b), row(3, a)], allSent);
+    const out = await run(
+      [row(1, a, {}), row(2, b, {}), row(3, a, {})],
+      allSent,
+      {},
+      serialOptions(),
+    );
 
     assertEquals(out.sent, [{ destination: "a", ids: [1, 3] }, { destination: "b", ids: [2] }]);
     assertEquals(out.result.claimed, 3);
@@ -227,11 +237,11 @@ Deno.test(
 Deno.test(
   "runDeliveryBatch sends a day-old row like any other: expiry is SQL's job now",
   async function (): Promise<void> {
-    const a = dest("a");
+    const a = dest("a", {});
     const old = row(1, a, {
       created_at: new Date(NOW.getTime() - 25 * 60 * 60 * 1000).toISOString(),
     });
-    const out = await run([old], allSent);
+    const out = await run([old], allSent, {}, serialOptions());
     assertEquals(out.sent, [{ destination: "a", ids: [1] }]);
     assertEquals(out.calls.map((c) => c.fn), ["claim_deliveries", "mark_deliveries_sent"]);
   },
@@ -241,8 +251,8 @@ Deno.test(
   "runDeliveryBatch sends up to `concurrency` destinations at once, one send per destination",
   async function (): Promise<void> {
     function twoRows(id: string): PendingDelivery[] {
-      const d = dest(id);
-      return [row(id.charCodeAt(0) * 2, d), row(id.charCodeAt(0) * 2 + 1, d)];
+      const d = dest(id, {});
+      return [row(id.charCodeAt(0) * 2, d, {}), row(id.charCodeAt(0) * 2 + 1, d, {})];
     }
     const rows = ["a", "b", "c", "d", "e"].flatMap(twoRows);
     const fake = fakeRpc({ claim_deliveries: { data: rows } });
@@ -292,7 +302,7 @@ Deno.test(
       return { ok: true, sent: 1 };
     }
     const out = await run(
-      [row(1, dest("a")), row(2, dest("b")), row(3, dest("c"))],
+      [row(1, dest("a", {}), {}), row(2, dest("b", {}), {}), row(3, dest("c", {}), {})],
       slowSend,
       {},
       { concurrency: 1 },
@@ -305,10 +315,12 @@ Deno.test(
 Deno.test(
   "runDeliveryBatch throttles the destination on a 429 with its Retry-After",
   async function (): Promise<void> {
-    const a = dest("a");
+    const a = dest("a", {});
     const out = await run(
-      [row(1, a), row(2, a), row(3, a)],
+      [row(1, a, {}), row(2, a, {}), row(3, a, {})],
       () => Promise.resolve({ ok: false, sent: 1, error: "HTTP 429", retryAfterSeconds: 7 }),
+      {},
+      serialOptions(),
     );
     assertEquals(out.result.sent, 1);
     assertEquals(out.result.throttled, 2);
@@ -330,10 +342,12 @@ Deno.test(
 Deno.test(
   "runDeliveryBatch throttles with null seconds when the 429 had no Retry-After",
   async function (): Promise<void> {
-    const a = dest("a");
+    const a = dest("a", {});
     const out = await run(
-      [row(1, a)],
+      [row(1, a, {})],
       () => Promise.resolve({ ok: false, sent: 0, error: "HTTP 429", retryAfterSeconds: null }),
+      {},
+      serialOptions(),
     );
     assertEquals(out.result.throttled, 1);
     assertEquals(out.calls.slice(1), [{
@@ -363,12 +377,13 @@ Deno.test(
         type: "discord",
         url: `http://127.0.0.1:${server.addr.port}/api/webhooks/1/abc`,
       });
-      const rows = Array.from({ length: 300 }, (_, i) => row(i + 1, d));
+      const rows = Array.from({ length: 300 }, (_, i) => row(i + 1, d, {}));
       const fake = fakeRpc({ claim_deliveries: { data: rows } });
       const result = await runDeliveryBatch(
         fake.db,
         (destination, batch) => sendDiscord(destination, batch, { allowInsecure: true }),
         NOW,
+        {},
       );
       assertEquals(posts, DISCORD_MESSAGES_PER_RUN);
       assertEquals(result.sent, 300);
@@ -387,7 +402,7 @@ Deno.test(
   async function (): Promise<void> {
     const d = dest("d", { type: "discord" });
     const out = await run(
-      [row(1, d), row(2, d)],
+      [row(1, d, {}), row(2, d, {})],
       () =>
         Promise.resolve({
           ok: false,
@@ -395,6 +410,8 @@ Deno.test(
           error: "Discord per-run message cap reached",
           retryAfterSeconds: 60,
         }),
+      {},
+      serialOptions(),
     );
     assertEquals(out.result.throttled, 1);
     assertEquals(out.calls[2], {
@@ -407,8 +424,8 @@ Deno.test(
 Deno.test(
   "runDeliveryBatch marks failures per destination with backoff from the highest attempt",
   async function (): Promise<void> {
-    const a = dest("a");
-    const b = dest("b");
+    const a = dest("a", {});
+    const b = dest("b", {});
     function failing(d: DeliveryDestination): Promise<SendResult> {
       if (d.id === "a") {
         return Promise.resolve({ ok: false, sent: 0, error: "HTTP 500" });
@@ -416,8 +433,10 @@ Deno.test(
       return Promise.resolve({ ok: false, sent: 0 });
     }
     const out = await run(
-      [row(1, a, { attempts: 1 }), row(2, a, { attempts: 3 }), row(3, b)],
+      [row(1, a, { attempts: 1 }), row(2, a, { attempts: 3 }), row(3, b, {})],
       failing,
+      {},
+      serialOptions(),
     );
     assertEquals(out.result.failed, 3);
     assertEquals(out.result.sent, 0);
@@ -448,10 +467,12 @@ Deno.test(
 Deno.test(
   "runDeliveryBatch acks the sent part and fails the rest of a partial batch",
   async function (): Promise<void> {
-    const a = dest("a");
+    const a = dest("a", {});
     const out = await run(
-      [row(1, a), row(2, a)],
+      [row(1, a, {}), row(2, a, {})],
       () => Promise.resolve({ ok: false, sent: 1, error: "HTTP 502" }),
+      {},
+      serialOptions(),
     );
     assertEquals([out.result.sent, out.result.failed], [1, 1]);
     assertEquals(out.calls.map((c) => c.fn), [
@@ -465,8 +486,8 @@ Deno.test(
 Deno.test(
   "runDeliveryBatch marks only a webhook's attempted rows failed and leaves the rest",
   async function (): Promise<void> {
-    const a = dest("a");
-    const rows = [1, 2, 3, 4, 5].map((id) => row(id, a));
+    const a = dest("a", {});
+    const rows = [1, 2, 3, 4, 5].map((id) => row(id, a, {}));
     // One request per spot, a 500 on the first: only that row was in a request.
     const out = await run(
       rows,
@@ -478,6 +499,8 @@ Deno.test(
           status: 500,
           error: "Webhook HTTP 500",
         }),
+      {},
+      serialOptions(),
     );
     assertEquals(out.calls.slice(1), [{
       fn: "mark_deliveries_failed",
@@ -497,11 +520,13 @@ Deno.test(
 Deno.test(
   "runDeliveryBatch acks a webhook's sent rows and fails only the failed request's",
   async function (): Promise<void> {
-    const a = dest("a");
-    const rows = [1, 2, 3, 4, 5].map((id) => row(id, a));
+    const a = dest("a", {});
+    const rows = [1, 2, 3, 4, 5].map((id) => row(id, a, {}));
     const out = await run(
       rows,
       () => Promise.resolve({ ok: false, sent: 2, attempted: 3, error: "Webhook HTTP 500" }),
+      {},
+      serialOptions(),
     );
     assertEquals(out.calls.slice(1).map((c) => [c.fn, c.args.p_delivery_ids]), [
       ["mark_deliveries_sent", [1, 2]],
@@ -514,10 +539,12 @@ Deno.test(
 Deno.test(
   "runDeliveryBatch makes no failure call when nothing was attempted",
   async function (): Promise<void> {
-    const a = dest("a");
+    const a = dest("a", {});
     const out = await run(
-      [row(1, a), row(2, a)],
+      [row(1, a, {}), row(2, a, {})],
       () => Promise.resolve({ ok: false, sent: 0, attempted: 0, error: "nothing" }),
+      {},
+      serialOptions(),
     );
     assertEquals(out.calls.map((c) => c.fn), ["claim_deliveries"]);
     assertEquals([out.result.failed, out.result.unattempted], [0, 2]);
@@ -528,8 +555,8 @@ Deno.test(
 Deno.test(
   "runDeliveryBatch still throttles every unsent row on a webhook 429",
   async function (): Promise<void> {
-    const a = dest("a");
-    const rows = [1, 2, 3].map((id) => row(id, a));
+    const a = dest("a", {});
+    const rows = [1, 2, 3].map((id) => row(id, a, {}));
     const out = await run(
       rows,
       () =>
@@ -541,6 +568,8 @@ Deno.test(
           error: "Webhook HTTP 429 (rate limited)",
           retryAfterSeconds: null,
         }),
+      {},
+      serialOptions(),
     );
     assertEquals(out.calls[2], {
       fn: "throttle_destination",
@@ -554,7 +583,7 @@ Deno.test(
   "runDeliveryBatch skips paused destinations so their messages reappear later",
   async function (): Promise<void> {
     const paused = dest("p", { health: "paused" });
-    const out = await run([row(1, paused), row(2, paused)], allSent);
+    const out = await run([row(1, paused, {}), row(2, paused, {})], allSent, {}, serialOptions());
     assertEquals(out.result.skipped_paused, 2);
     assertEquals(out.sent, []);
     assertEquals(out.calls.length, 1);
@@ -565,9 +594,9 @@ Deno.test(
 Deno.test(
   "runDeliveryBatch collects bookkeeping RPC errors instead of aborting",
   async function (): Promise<void> {
-    const out = await run([row(1, dest("a"))], allSent, {
+    const out = await run([row(1, dest("a", {}), {})], allSent, {
       mark_deliveries_sent: { error: "db down" },
-    });
+    }, serialOptions());
     assertEquals(out.result.sent, 1);
     assertEquals(out.result.errors, ["mark_deliveries_sent: db down"]);
   },
@@ -584,7 +613,7 @@ Deno.test(
       return {};
     }
     const waiter = noSleep();
-    const out = await run([row(1, dest("a")), row(2, dest("a"))], allSent, {
+    const out = await run([row(1, dest("a", {}), {}), row(2, dest("a", {}), {})], allSent, {
       mark_deliveries_sent: markSent,
     }, { sleep: waiter.sleep });
     const marks = out.calls.filter((c) => c.fn === "mark_deliveries_sent");
@@ -600,7 +629,7 @@ Deno.test(
   "runDeliveryBatch gives up on an ack after the bounded attempts and records the error",
   async function (): Promise<void> {
     const waiter = noSleep();
-    const out = await run([row(1, dest("a"))], allSent, {
+    const out = await run([row(1, dest("a", {}), {})], allSent, {
       mark_deliveries_sent: { error: "db down" },
     }, { sleep: waiter.sleep });
     assertEquals(out.calls.filter((c) => c.fn === "mark_deliveries_sent").length, 3);
@@ -629,7 +658,7 @@ Deno.test(
       return {};
     }
     const p = dest("p", { type: "push", url: null, signing_secret: null, devices: [] });
-    const out = await run([row(1, p)], () =>
+    const out = await run([row(1, p, {})], () =>
       Promise.resolve({
         ok: true,
         sent: 1,
@@ -671,7 +700,7 @@ Deno.test(
       });
     }
     const out = await run(
-      [row(1, dest("a")), row(2, dest("b"))],
+      [row(1, dest("a", {}), {}), row(2, dest("b", {}), {})],
       failOrThrottle,
       {
         mark_deliveries_failed: { error: "db down" },
@@ -710,7 +739,7 @@ Deno.test(
       return {};
     }
     await run(
-      [row(1, dest("a")), row(2, dest("b")), row(3, dest("c"))],
+      [row(1, dest("a", {}), {}), row(2, dest("b", {}), {}), row(3, dest("c", {}), {})],
       sendOrFail,
       {
         mark_deliveries_sent: markSent,
@@ -730,16 +759,21 @@ Deno.test(
   "runDeliveryBatch prunes gone push devices and records device status before the ack",
   async function (): Promise<void> {
     const p = dest("p", { type: "push", url: null, signing_secret: null, devices: [] });
-    const out = await run([row(1, p), row(2, p)], (_d, b) =>
-      Promise.resolve({
-        ok: true,
-        sent: b.length,
-        expiredEndpoints: ["https://fcm.googleapis.com/gone"],
-        deviceResults: {
-          ok: ["https://fcm.googleapis.com/ok"],
-          errors: { "https://fcm.googleapis.com/bad": "Push HTTP 500" },
-        },
-      }));
+    const out = await run(
+      [row(1, p, {}), row(2, p, {})],
+      (_d, b) =>
+        Promise.resolve({
+          ok: true,
+          sent: b.length,
+          expiredEndpoints: ["https://fcm.googleapis.com/gone"],
+          deviceResults: {
+            ok: ["https://fcm.googleapis.com/ok"],
+            errors: { "https://fcm.googleapis.com/bad": "Push HTTP 500" },
+          },
+        }),
+      {},
+      serialOptions(),
+    );
     assertEquals(out.result.sent, 2);
     assertEquals(out.calls.slice(1), [
       { fn: "prune_push_devices", args: { p_endpoints: ["https://fcm.googleapis.com/gone"] } },
@@ -768,8 +802,10 @@ Deno.test(
       quiet_now: true,
     });
     const out = await run(
-      [row(1, d), row(2, d)],
+      [row(1, d, {}), row(2, d, {})],
       (_d, b) => Promise.resolve({ ok: true, sent: b.length }),
+      {},
+      serialOptions(),
     );
     assertEquals(out.result.sent, 2);
     assertEquals(out.result.failed, 0);
@@ -782,14 +818,19 @@ Deno.test(
   "runDeliveryBatch skips the push bookkeeping when there is nothing to report",
   async function (): Promise<void> {
     const p = dest("p", { type: "push", url: null, signing_secret: null, devices: [] });
-    const out = await run([row(1, p)], () =>
-      Promise.resolve({
-        ok: false,
-        sent: 0,
-        error: "Turn on notifications on a device first.",
-        expiredEndpoints: [],
-        deviceResults: { ok: [], errors: {} },
-      }));
+    const out = await run(
+      [row(1, p, {})],
+      () =>
+        Promise.resolve({
+          ok: false,
+          sent: 0,
+          error: "Turn on notifications on a device first.",
+          expiredEndpoints: [],
+          deviceResults: { ok: [], errors: {} },
+        }),
+      {},
+      serialOptions(),
+    );
     assertEquals(out.calls.map((c) => c.fn), ["claim_deliveries", "mark_deliveries_failed"]);
     assertEquals(out.calls[1]!.args["p_error"], "Turn on notifications on a device first.");
   },
@@ -799,7 +840,7 @@ Deno.test(
   "runDeliveryBatch passes the cycle clock to the sender",
   async function (): Promise<void> {
     const seen: Date[] = [];
-    const fake = fakeRpc({ claim_deliveries: { data: [row(1, dest("a"))] } });
+    const fake = fakeRpc({ claim_deliveries: { data: [row(1, dest("a", {}), {})] } });
     function clockSend(
       _d: DeliveryDestination,
       b: readonly PendingDelivery[],
@@ -808,7 +849,7 @@ Deno.test(
       seen.push(now);
       return Promise.resolve({ ok: true, sent: b.length });
     }
-    await runDeliveryBatch(fake.db, clockSend, NOW);
+    await runDeliveryBatch(fake.db, clockSend, NOW, {});
     assertEquals(seen, [NOW]);
   },
 );
@@ -816,9 +857,9 @@ Deno.test(
 Deno.test(
   "runDeliveryBatch fails a destination whose send throws and still acks the others",
   async function (): Promise<void> {
-    const a = dest("a");
-    const b = dest("b");
-    const c = dest("c");
+    const a = dest("a", {});
+    const b = dest("b", {});
+    const c = dest("c", {});
     function throwingSend(
       d: DeliveryDestination,
       batch: readonly PendingDelivery[],
@@ -833,8 +874,10 @@ Deno.test(
       return Promise.resolve({ ok: true, sent: batch.length });
     }
     const out = await run(
-      [row(1, a), row(2, b, { attempts: 2 }), row(3, b), row(4, c)],
+      [row(1, a, {}), row(2, b, { attempts: 2 }), row(3, b, {}), row(4, c, {})],
       throwingSend,
+      {},
+      serialOptions(),
     );
     assertEquals([out.result.sent, out.result.failed, out.result.unattempted], [1, 3, 0]);
     assertEquals(out.calls.slice(1), [

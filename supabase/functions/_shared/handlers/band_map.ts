@@ -10,7 +10,7 @@
 // web/src/bandmap/types.ts.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { json, preflightResponse } from "../cors.ts";
+import { DEFAULT_METHODS, json, preflightResponse } from "../cors.ts";
 
 export const BAND_MAP_UNAVAILABLE = "The band map is unavailable right now.";
 /** Browsers and CDNs may keep a payload for 15 seconds; the database cache holds it for 30. */
@@ -22,12 +22,12 @@ export interface BandMapDeps {
 }
 
 export async function handleBandMap(req: Request, deps: BandMapDeps): Promise<Response> {
-  const preflight = preflightResponse(req);
+  const preflight = preflightResponse(req, DEFAULT_METHODS);
   if (preflight !== null) {
     return preflight;
   }
   if (req.method !== "GET") {
-    return json({ error: "Method not allowed." }, 405);
+    return json({ error: "Method not allowed." }, 405, {});
   }
 
   const result = await deps.db().rpc("cached_band_map");
@@ -39,7 +39,7 @@ export async function handleBandMap(req: Request, deps: BandMapDeps): Promise<Re
       why = `unexpected result ${JSON.stringify(result.data)}`;
     }
     console.error(`band-map: ${why}`);
-    return json({ error: BAND_MAP_UNAVAILABLE }, 500);
+    return json({ error: BAND_MAP_UNAVAILABLE }, 500, {});
   }
   return json(result.data, 200, { "Cache-Control": BAND_MAP_CACHE_CONTROL });
 }

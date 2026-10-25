@@ -17,7 +17,7 @@
 // profiles and group pages.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { json, preflightResponse } from "../cors.ts";
+import { DEFAULT_METHODS, json, preflightResponse } from "../cors.ts";
 import { lookupLimit } from "./callsign_profile.ts";
 
 export const PAGE_PRIVATE = "private";
@@ -37,7 +37,7 @@ export interface GroupPageDeps {
 }
 
 export async function handleGroupPage(req: Request, deps: GroupPageDeps): Promise<Response> {
-  const preflight = preflightResponse(req);
+  const preflight = preflightResponse(req, DEFAULT_METHODS);
   if (preflight !== null) {
     return preflight;
   }

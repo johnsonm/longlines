@@ -10,7 +10,7 @@
 // statuses only.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { json, preflightResponse } from "../cors.ts";
+import { DEFAULT_METHODS, json, preflightResponse } from "../cors.ts";
 
 export const HEALTH_UNAVAILABLE = "Health is unavailable right now.";
 export const HEALTH_RANGES = ["1h", "24h", "7d"] as const;
@@ -23,12 +23,12 @@ export interface HealthDeps {
 }
 
 export async function handleHealth(req: Request, deps: HealthDeps): Promise<Response> {
-  const preflight = preflightResponse(req);
+  const preflight = preflightResponse(req, DEFAULT_METHODS);
   if (preflight !== null) {
     return preflight;
   }
   if (req.method !== "GET") {
-    return json({ error: "Method not allowed." }, 405);
+    return json({ error: "Method not allowed." }, 405, {});
   }
 
   let range = "24h";
@@ -37,7 +37,7 @@ export async function handleHealth(req: Request, deps: HealthDeps): Promise<Resp
     range = rangeParam;
   }
   if (!(HEALTH_RANGES as readonly string[]).includes(range)) {
-    return json({ error: "Unknown range." }, 400);
+    return json({ error: "Unknown range." }, 400, {});
   }
 
   const result = await deps.db().rpc("cached_health", { p_range: range });
@@ -49,7 +49,7 @@ export async function handleHealth(req: Request, deps: HealthDeps): Promise<Resp
       why = `unexpected result ${JSON.stringify(result.data)}`;
     }
     console.error(`health: ${why}`);
-    return json({ error: HEALTH_UNAVAILABLE }, 500);
+    return json({ error: HEALTH_UNAVAILABLE }, 500, {});
   }
   return json(result.data, 200, { "Cache-Control": HEALTH_CACHE_CONTROL });
 }

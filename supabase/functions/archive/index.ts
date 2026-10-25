@@ -12,7 +12,7 @@ async function handler(req: Request): Promise<Response> {
     serviceRoleKey: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"),
     db: createServiceClient,
     store,
-  });
+  }, new Date());
 }
 
 Deno.serve(handler);

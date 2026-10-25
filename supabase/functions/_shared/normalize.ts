@@ -1,10 +1,43 @@
-// Pure normalization helpers shared by the source adapters. No I/O.
+// Pure normalization helpers shared by the source adapters, and the field schemas
+// they validate upstream spots with. No I/O.
 
+import { z } from "zod";
+import { ValidationError } from "./errors.ts";
 import type { NormalizedSpot } from "./types.ts";
 
 const TEST_COMMENT = /\btest(ing)?\b/i;
 const RBNHOLE_SPOTTER = /\[RBNHole\]\s+at\s+(\S+)/i;
 const HAS_UTC_OFFSET = /(Z|[+-]\d{2}:?\d{2})$/i;
+
+/** A text field the code requires: a string with something other than whitespace. */
+export const requiredTextSchema: z.ZodType<string> = z.string().refine(
+  (value) => value.trim() !== "",
+  "missing or empty",
+);
+
+/**
+ * A text field the code reads as absent unless it is a string: a missing, null or
+ * non-string value becomes null. The adapters have always read these fields that
+ * way, so this never rejects a spot.
+ */
+export const optionalTextSchema: z.ZodType<string | null> = z.string().nullable().catch(null);
+
+/** An upstream spot id: a finite number, or a string with something other than whitespace. */
+export const spotIdSchema: z.ZodType<number | string> = z.union([z.number(), requiredTextSchema]);
+
+/** A frequency as a feed may send it; parseKhz checks the value, after the skip checks. */
+export const frequencySchema: z.ZodType<number | string | null | undefined> = z
+  .union([z.number(), z.string()])
+  .nullable()
+  .optional();
+
+/** source_spot_id from a validated spot id: the number as text, or the string trimmed. */
+export function spotIdText(id: number | string): string {
+  if (typeof id === "number") {
+    return String(id);
+  }
+  return id.trim();
+}
 
 /** Uppercase with every whitespace character removed. */
 export function cleanCallsign(value: string): string {
@@ -83,8 +116,8 @@ const MAX_KHZ = 1_000_000_000;
 
 /**
  * Parse an upstream frequency into kHz rounded to 3 decimals.
- * Accepts a string or number in the given unit. Throws when missing,
- * non-numeric, not positive, or too large for the database column.
+ * Accepts a string or number in the given unit. Throws ValidationError when
+ * missing, non-numeric, not positive, or too large for the database column.
  */
 export function parseKhz(value: unknown, unit: "khz" | "mhz"): number {
   let n = Number.NaN;
@@ -94,7 +127,10 @@ export function parseKhz(value: unknown, unit: "khz" | "mhz"): number {
     n = Number.parseFloat(value);
   }
   if (!Number.isFinite(n) || n <= 0) {
-    throw new Error(`invalid frequency: ${JSON.stringify(value)}`);
+    throw new ValidationError(`invalid frequency: ${JSON.stringify(value)}`, {
+      cause: undefined,
+      where: "parseKhz: frequency",
+    });
   }
   let inKhz = n;
   if (unit === "mhz") {
@@ -102,7 +138,10 @@ export function parseKhz(value: unknown, unit: "khz" | "mhz"): number {
   }
   const khz = Math.round(inKhz * 1000) / 1000;
   if (khz >= MAX_KHZ) {
-    throw new Error(`frequency out of range: ${JSON.stringify(value)} ${unit}`);
+    throw new ValidationError(`frequency out of range: ${JSON.stringify(value)} ${unit}`, {
+      cause: undefined,
+      where: "parseKhz: frequency",
+    });
   }
   return khz;
 }
@@ -110,11 +149,14 @@ export function parseKhz(value: unknown, unit: "khz" | "mhz"): number {
 /**
  * Parse an ISO 8601 timestamp to a Date. A value with no offset (POTA sends
  * "2026-10-05T13:37:03") is UTC, so "Z" is appended before parsing.
- * Throws when missing or unparseable.
+ * Throws ValidationError when missing or unparseable.
  */
 export function parseUtc(value: unknown): Date {
   if (typeof value !== "string" || value.trim() === "") {
-    throw new Error(`invalid timestamp: ${JSON.stringify(value)}`);
+    throw new ValidationError(`invalid timestamp: ${JSON.stringify(value)}`, {
+      cause: undefined,
+      where: "parseUtc: timestamp",
+    });
   }
   const text = value.trim();
   let withOffset = `${text}Z`;
@@ -123,7 +165,10 @@ export function parseUtc(value: unknown): Date {
   }
   const date = new Date(withOffset);
   if (Number.isNaN(date.getTime())) {
-    throw new Error(`invalid timestamp: ${JSON.stringify(value)}`);
+    throw new ValidationError(`invalid timestamp: ${JSON.stringify(value)}`, {
+      cause: undefined,
+      where: "parseUtc: timestamp",
+    });
   }
   return date;
 }
@@ -144,15 +189,18 @@ export const MAX_SPOT_ID_LENGTH = 256;
 const MAX_FUTURE_MS = 24 * 60 * 60 * 1000;
 const MIN_TIME_MS = Date.UTC(2000, 0, 1);
 
-/** Throws when the text is longer than max characters. */
+/** Throws ValidationError when the text is longer than max characters. */
 export function assertMaxLength(value: string, max: number, field: string): void {
   if (value.length > max) {
-    throw new Error(`${field} is ${String(value.length)} characters; the limit is ${String(max)}`);
+    throw new ValidationError(
+      `${field} is ${String(value.length)} characters; the limit is ${String(max)}`,
+      { cause: undefined, where: `assertMaxLength: ${field}` },
+    );
   }
 }
 
 /**
- * Throws for a time more than a day after now or before 2000 (a milliseconds
+ * Throws ValidationError for a time more than a day after now or before 2000 (a milliseconds
  * value read as seconds, a bad clock): such a time would fail the batch in
  * Postgres or, being in the future, never age out of the feed.
  */
@@ -163,7 +211,10 @@ export function assertPlausibleTime(time: Date, now: Date, field: string): void 
     if (!Number.isNaN(ms)) {
       shown = time.toISOString();
     }
-    throw new Error(`${field} out of range: ${shown}`);
+    throw new ValidationError(`${field} out of range: ${shown}`, {
+      cause: undefined,
+      where: `assertPlausibleTime: ${field}`,
+    });
   }
 }
 

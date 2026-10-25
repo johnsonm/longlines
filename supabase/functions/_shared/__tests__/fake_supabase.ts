@@ -53,7 +53,7 @@ function settle(
 }
 
 export function fakeSupabase(
-  options: FakeSupabaseOptions = {},
+  options: FakeSupabaseOptions,
 ): { client: SupabaseClient; calls: FakeCalls } {
   const calls: FakeCalls = {
     rpc: [],
@@ -64,7 +64,7 @@ export function fakeSupabase(
   };
 
   const fake = {
-    rpc(fn: string, args?: Record<string, unknown>) {
+    rpc(fn: string, args: Record<string, unknown> | undefined) {
       calls.rpc.push({ fn, args });
       let responder: Responder | undefined = undefined;
       if (options.rpc !== null && options.rpc !== undefined) {
