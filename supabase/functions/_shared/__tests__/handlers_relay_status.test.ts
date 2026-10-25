@@ -22,7 +22,7 @@ function bodyWith(key: string, value: unknown): Record<string, unknown> {
   return body;
 }
 
-function post(body: unknown, secret = SECRET, method = "POST"): Request {
+function post(body: unknown, secret: string, method: string): Request {
   const init: RequestInit = {
     method,
     headers: { "x-relay-secret": secret, "Content-Type": "application/json" },
@@ -39,8 +39,8 @@ function post(body: unknown, secret = SECRET, method = "POST"): Request {
 
 async function run(
   req: Request,
-  options: FakeSupabaseOptions = {},
-  secret: string | null = SECRET,
+  options: FakeSupabaseOptions,
+  secret: string | null,
 ) {
   const fake = fakeSupabase(options);
   let configured: string | undefined = undefined;
@@ -52,7 +52,9 @@ async function run(
 }
 
 Deno.test("records the heartbeat", async function (): Promise<void> {
-  const ran = await run(post(BODY), { rpc: { record_relay_heartbeat: { data: null } } });
+  const ran = await run(post(BODY, SECRET, "POST"), {
+    rpc: { record_relay_heartbeat: { data: null } },
+  }, SECRET);
   const res = ran.res;
   assertEquals(res.status, 200);
   assertEquals(await res.json(), { ok: true });
@@ -68,9 +70,9 @@ Deno.test("records the heartbeat", async function (): Promise<void> {
 });
 
 Deno.test("checks the secret before anything else", async function (): Promise<void> {
-  const unset = await run(post(BODY), {}, null);
+  const unset = await run(post(BODY, SECRET, "POST"), {}, null);
   assertEquals(unset.res.status, 500);
-  const wrong = await run(post(BODY, "nope"));
+  const wrong = await run(post(BODY, "nope", "POST"), {}, SECRET);
   assertEquals(wrong.res.status, 401);
   assertEquals(unset.calls.rpc.concat(wrong.calls.rpc), []);
 });
@@ -78,15 +80,15 @@ Deno.test("checks the secret before anything else", async function (): Promise<v
 Deno.test(
   "refuses anything but POST, and a body that is not JSON",
   async function (): Promise<void> {
-    assertEquals((await run(post(null, SECRET, "GET"))).res.status, 405);
-    assertEquals((await run(post("{"))).res.status, 400);
+    assertEquals((await run(post(null, SECRET, "GET"), {}, SECRET)).res.status, 405);
+    assertEquals((await run(post("{", SECRET, "POST"), {}, SECRET)).res.status, 400);
   },
 );
 
 Deno.test("a database error is a 500", async function (): Promise<void> {
-  const res = (await run(post(BODY), {
+  const res = (await run(post(BODY, SECRET, "POST"), {
     rpc: { record_relay_heartbeat: { error: { message: "boom" } } },
-  })).res;
+  }, SECRET)).res;
   assertEquals(res.status, 500);
   assertEquals(await res.json(), { error: "boom" });
 });

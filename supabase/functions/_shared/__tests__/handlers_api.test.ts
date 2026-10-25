@@ -34,8 +34,8 @@ const DEST: DeliveryDestination = {
 function request(
   method: string,
   path: string,
-  body?: unknown,
-  token: string | null = TOKEN,
+  body: unknown,
+  token: string | null,
 ): Request {
   const headers: Record<string, string> = {};
   if (token !== null && token !== "") {
@@ -56,10 +56,12 @@ function request(
   });
 }
 
+const SENT_ONE: SendResult = { ok: true, sent: 1 };
+
 async function run(
   req: Request,
-  options: FakeSupabaseOptions = {},
-  result: SendResult = { ok: true, sent: 1 },
+  options: FakeSupabaseOptions,
+  result: SendResult,
 ) {
   const rpc: NonNullable<FakeSupabaseOptions["rpc"]> = {
     authenticate_api_request: { data: [WRITE] },
@@ -91,10 +93,17 @@ async function run(
 Deno.test(
   "handleApi answers unknown paths and wrong methods before checking the token",
   async function (): Promise<void> {
-    const unknown = await run(request("GET", "/api/v1/nope", undefined, null));
+    const unknown = await run(request("GET", "/api/v1/nope", undefined, null), {}, SENT_ONE);
     assertEquals([unknown.res.status, unknown.body], [404, { error: NOT_FOUND }]);
-    assertEquals((await run(request("GET", "/elsewhere"))).res.status, 404);
-    const wrong = await run(request("DELETE", "/api/v1/connections", undefined, null));
+    assertEquals(
+      (await run(request("GET", "/elsewhere", undefined, TOKEN), {}, SENT_ONE)).res.status,
+      404,
+    );
+    const wrong = await run(
+      request("DELETE", "/api/v1/connections", undefined, null),
+      {},
+      SENT_ONE,
+    );
     assertEquals(wrong.res.status, 405);
     assertEquals(wrong.res.headers.get("Allow"), "GET, POST");
     assertEquals(wrong.calls.rpc, []);
@@ -126,13 +135,13 @@ Deno.test(
   "handleApi refuses missing, malformed and unknown tokens",
   async function (): Promise<void> {
     for (const token of [null, "eyJ.a.b", "ll_live_short"]) {
-      const refused = await run(request("GET", "/api/v1/groups", undefined, token));
+      const refused = await run(request("GET", "/api/v1/groups", undefined, token), {}, SENT_ONE);
       assertEquals([refused.res.status, refused.body], [401, { error: BAD_TOKEN }]);
       assertEquals(refused.calls.rpc, []);
     }
-    const unknown = await run(request("GET", "/api/v1/groups"), {
+    const unknown = await run(request("GET", "/api/v1/groups", undefined, TOKEN), {
       rpc: { authenticate_api_request: { data: [] } },
-    });
+    }, SENT_ONE);
     assertEquals(unknown.res.status, 401);
     assertEquals(unknown.calls.rpc, [{
       fn: "authenticate_api_request",
@@ -150,9 +159,9 @@ Deno.test(
       scope: WRITE.scope,
       requests: MAX_REQUESTS_PER_MINUTE + 1,
     };
-    const limited = await run(request("GET", "/api/v1/groups"), {
+    const limited = await run(request("GET", "/api/v1/groups", undefined, TOKEN), {
       rpc: { authenticate_api_request: { data: [caller] } },
-    });
+    }, SENT_ONE);
     assertEquals([limited.res.status, limited.body], [429, { error: TOO_MANY_REQUESTS }]);
     assertEquals(limited.res.headers.get("Retry-After"), "15");
     assertEquals(limited.calls.rpc.length, 1);
@@ -171,9 +180,17 @@ Deno.test("handleApi lets a read token read but not write", async function (): P
     },
     api_call: { data: [] },
   };
-  const read = await run(request("GET", "/api/v1/connections"), { rpc });
+  const read = await run(
+    request("GET", "/api/v1/connections", undefined, TOKEN),
+    { rpc },
+    SENT_ONE,
+  );
   assertEquals([read.res.status, read.body], [200, []]);
-  const write = await run(request("POST", "/api/v1/groups", { name: "Club" }), { rpc });
+  const write = await run(
+    request("POST", "/api/v1/groups", { name: "Club" }, TOKEN),
+    { rpc },
+    SENT_ONE,
+  );
   assertEquals([write.res.status, write.body], [403, { error: READ_ONLY }]);
   assertEquals(write.calls.rpc.map((c) => c.fn), ["authenticate_api_request"]);
 });
@@ -182,9 +199,9 @@ Deno.test(
   "handleApi runs the route's op as the token and returns its result",
   async function (): Promise<void> {
     const created = { id: ID, name: "Club", member_count: 0, subscription_count: 0 };
-    const ran = await run(request("POST", "/api/v1/groups", { name: "Club" }), {
+    const ran = await run(request("POST", "/api/v1/groups", { name: "Club" }, TOKEN), {
       rpc: { api_call: { data: created } },
-    });
+    }, SENT_ONE);
     assertEquals([ran.res.status, ran.body], [201, created]);
     assertEquals(ran.calls.rpc[1], {
       fn: "api_call",
@@ -197,16 +214,26 @@ Deno.test(
   "handleApi wants a JSON object body of the right shape",
   async function (): Promise<void> {
     for (const body of ["not json", "[1]", "null"]) {
-      const res = await run(request("POST", `/api/v1/groups/${ID}/members`, body));
+      const res = await run(
+        request("POST", `/api/v1/groups/${ID}/members`, body, TOKEN),
+        {},
+        SENT_ONE,
+      );
       assertEquals([res.res.status, res.body], [400, { error: BAD_BODY }]);
     }
     const shape = await run(
-      request("POST", `/api/v1/groups/${ID}/members`, { callsigns: "W1AW" }),
+      request("POST", `/api/v1/groups/${ID}/members`, { callsigns: "W1AW" }, TOKEN),
+      {},
+      SENT_ONE,
     );
     assertEquals([shape.res.status, shape.body], [400, {
       error: "callsigns must be a list of strings.",
     }]);
-    const big = await run(request("POST", "/api/v1/groups", { name: "x".repeat(300 * 1024) }));
+    const big = await run(
+      request("POST", "/api/v1/groups", { name: "x".repeat(300 * 1024) }, TOKEN),
+      {},
+      SENT_ONE,
+    );
     assertEquals([big.res.status, big.body], [413, { error: BODY_TOO_LARGE }]);
   },
 );
@@ -245,17 +272,17 @@ Deno.test(
 Deno.test(
   "handleApi passes SQL messages through with a matching status",
   async function (): Promise<void> {
-    function fail(message: string, code = "P0001") {
-      return run(request("DELETE", `/api/v1/destinations/${ID}`), {
+    function fail(message: string, code: string) {
+      return run(request("DELETE", `/api/v1/destinations/${ID}`, undefined, TOKEN), {
         rpc: { api_call: { error: { message, code } } },
-      });
+      }, SENT_ONE);
     }
     const inUse = await fail("Remove it from its connections first.", "LL409");
     assertEquals([inUse.res.status, inUse.body], [409, {
       error: "Remove it from its connections first.",
     }]);
     assertEquals((await fail("Destination not found.", "LL404")).res.status, 404);
-    assertEquals((await fail("Destination not found.")).res.status, 400);
+    assertEquals((await fail("Destination not found.", "P0001")).res.status, 400);
     const broken = await fail("deadlock detected", "40P01");
     assertEquals([broken.res.status, broken.body], [500, { error: SERVER_ERROR }]);
   },
@@ -264,9 +291,9 @@ Deno.test(
 Deno.test(
   "handleApi reports a failed token lookup as a server error",
   async function (): Promise<void> {
-    const failed = await run(request("GET", "/api/v1/groups"), {
+    const failed = await run(request("GET", "/api/v1/groups", undefined, TOKEN), {
       rpc: { authenticate_api_request: { error: { message: "connection refused" } } },
-    });
+    }, SENT_ONE);
     assertEquals([failed.res.status, failed.body], [500, { error: SERVER_ERROR }]);
   },
 );
@@ -280,7 +307,7 @@ Deno.test(
   "handleApi sends a test to the token owner's destination",
   async function (): Promise<void> {
     const tested = await run(
-      request("POST", `/api/v1/destinations/${ID}/test`),
+      request("POST", `/api/v1/destinations/${ID}/test`, undefined, TOKEN),
       {
         from: { destinations: { data: DEST } },
         rpc: { webhook_test_delivery: { data: WEBHOOK_TEST } },
@@ -314,7 +341,7 @@ Deno.test(
   "handleApi passes a failed test's receiver status through with 502",
   async function (): Promise<void> {
     const failed = await run(
-      request("POST", `/api/v1/destinations/${ID}/test`),
+      request("POST", `/api/v1/destinations/${ID}/test`, undefined, TOKEN),
       {
         from: { destinations: { data: DEST } },
         rpc: { webhook_test_delivery: { data: WEBHOOK_TEST } },

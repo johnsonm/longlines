@@ -5,7 +5,7 @@ import { ARCHIVE_SCHEMAS } from "../archive.ts";
 import type { ArchiveStore, Source } from "../types.ts";
 
 /** An in-memory bucket recording upload paths; `fail` makes every upload throw. */
-function fakeStore(fail?: string) {
+function fakeStore(fail: string | undefined) {
   const paths: string[] = [];
   const store: ArchiveStore = {
     upload(path) {
@@ -20,7 +20,7 @@ function fakeStore(fail?: string) {
 }
 
 /** archive_columns' answer for a one-row slice: every column null but `values`. */
-function oneRow(source: Source, values: Record<string, unknown> = {}) {
+function oneRow(source: Source, values: Record<string, unknown>) {
   const columns: Record<string, unknown[]> = {};
   for (const column of ARCHIVE_SCHEMAS[source]) {
     const name = column[0];
@@ -71,7 +71,7 @@ function serverTiming(res: Response): string {
 const KEY = "service-key";
 const NOW = new Date("2026-10-11T20:05:00Z");
 
-function req(token?: string, body?: string): Request {
+function req(token: string | undefined, body: string | undefined): Request {
   const init: RequestInit = { method: "POST", headers: {} };
   if (token) {
     init.headers = { Authorization: `Bearer ${token}` };
@@ -85,18 +85,18 @@ function req(token?: string, body?: string): Request {
 Deno.test(
   "handleArchive refuses callers without the service-role key",
   async function (): Promise<void> {
-    const fake = fakeSupabase();
+    const fake = fakeSupabase({});
     const client = fake.client;
-    const bucket = fakeStore();
+    const bucket = fakeStore(undefined);
     for (const token of [undefined, "anon-key"]) {
-      const res = await handleArchive(req(token), {
+      const res = await handleArchive(req(token, undefined), {
         serviceRoleKey: KEY,
         db: () => client,
         store: bucket.store,
       }, NOW);
       assertEquals(res.status, 403);
     }
-    const unset = await handleArchive(req(KEY), {
+    const unset = await handleArchive(req(KEY, undefined), {
       serviceRoleKey: undefined,
       db: () => client,
       store: bucket.store,
@@ -120,8 +120,8 @@ Deno.test(
       },
     });
     const client = fake.client;
-    const bucket = fakeStore();
-    const res = await handleArchive(req(KEY), {
+    const bucket = fakeStore(undefined);
+    const res = await handleArchive(req(KEY, undefined), {
       serviceRoleKey: KEY,
       db: () => client,
       store: bucket.store,
@@ -142,12 +142,12 @@ Deno.test("handleArchive answers 500 when any slice failed", async function (): 
   const fake = fakeSupabase({
     rpc: {
       archive_pending_slices: pendingSlices("pota", slice),
-      archive_columns: oneRow("pota"),
+      archive_columns: oneRow("pota", {}),
     },
   });
   const client = fake.client;
   const bucket = fakeStore("HTTP 503");
-  const res = await handleArchive(req(KEY), {
+  const res = await handleArchive(req(KEY, undefined), {
     serviceRoleKey: KEY,
     db: () => client,
     store: bucket.store,
@@ -163,12 +163,12 @@ Deno.test(
       return btoa(JSON.stringify(o)).replace(/=+$/, "").replace(/\+/g, "-").replace(/\//g, "_");
     }
     const cronJwt = `${b64url({ alg: "HS256" })}.${b64url({ role: "service_role" })}.sig`;
-    const fake = fakeSupabase();
+    const fake = fakeSupabase({});
     const client = fake.client;
-    const res = await handleArchive(req(cronJwt), {
+    const res = await handleArchive(req(cronJwt, undefined), {
       serviceRoleKey: "sb_secret_runtime",
       db: () => client,
-      store: fakeStore().store,
+      store: fakeStore(undefined).store,
     }, NOW);
     assertEquals(res.status, 200);
   },
@@ -188,7 +188,7 @@ Deno.test(
       },
     });
     const client = fake.client;
-    const bucket = fakeStore();
+    const bucket = fakeStore(undefined);
     const res = await handleArchive(
       req(KEY, '{"sources":["aprs"]}'),
       { serviceRoleKey: KEY, db: () => client, store: bucket.store },
@@ -204,9 +204,9 @@ Deno.test(
   "handleArchive answers 400 for a body it cannot use, before touching the database",
   async function (): Promise<void> {
     for (const body of ["not json", '{"sources":["nope"]}', "[]"]) {
-      const fake = fakeSupabase();
+      const fake = fakeSupabase({});
       const client = fake.client;
-      const bucket = fakeStore();
+      const bucket = fakeStore(undefined);
       const res = await handleArchive(req(KEY, body), {
         serviceRoleKey: KEY,
         db: () => client,
@@ -222,9 +222,9 @@ Deno.test(
 Deno.test(
   "handleArchive treats pg_cron's empty JSON object as the default sources",
   async function (): Promise<void> {
-    const fake = fakeSupabase();
+    const fake = fakeSupabase({});
     const client = fake.client;
-    const bucket = fakeStore();
+    const bucket = fakeStore(undefined);
     const res = await handleArchive(req(KEY, "{}"), {
       serviceRoleKey: KEY,
       db: () => client,
@@ -241,9 +241,9 @@ Deno.test(
     function unconfigured(): ArchiveStore {
       throw new Error("archive store not configured: missing LONGLINES_ARCHIVE_S3_BUCKET");
     }
-    const fake = fakeSupabase();
+    const fake = fakeSupabase({});
     const client = fake.client;
-    const res = await handleArchive(req(KEY), {
+    const res = await handleArchive(req(KEY, undefined), {
       serviceRoleKey: KEY,
       db: () => client,
       store: unconfigured,

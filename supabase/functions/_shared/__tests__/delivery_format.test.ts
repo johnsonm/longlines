@@ -80,7 +80,7 @@ function embedCount(m: DiscordMessage): number | undefined {
   return m.embeds.length;
 }
 
-function delivery(id: number, s: DeliverySpot = spot): PendingDelivery {
+function delivery(id: number, s: DeliverySpot): PendingDelivery {
   return {
     msg_id: 1000 + id,
     delivery_id: id,
@@ -188,7 +188,7 @@ function discordWith(more: Partial<DiscordSettings>): DiscordSettings {
 }
 
 // A spot as claim_deliveries hands it to a Discord destination: rendered in SQL.
-function rendered(id: number, more: Partial<DeliverySpot> = {}): DeliverySpot {
+function rendered(id: number, more: Partial<DeliverySpot>): DeliverySpot {
   const sql: Partial<DeliverySpot> = {
     id,
     discord_style: "card",
@@ -208,7 +208,7 @@ function rendered(id: number, more: Partial<DeliverySpot> = {}): DeliverySpot {
 Deno.test(
   "cardEmbed shapes SQL's keys into the embed and adds nothing of its own",
   function (): void {
-    assertEquals(cardEmbed(rendered(1)), {
+    assertEquals(cardEmbed(rendered(1, {})), {
       title: "KK4PWJ · 14.062 MHz · CW",
       description: "POTA · US-2763 · Eno River State Park · NC",
       url: "https://longlines.io/call/KK4PWJ",
@@ -253,7 +253,7 @@ Deno.test(
 Deno.test(
   "discordBatches with settings sends one card per message when batch_seconds is 0",
   function (): void {
-    const spots = Array.from({ length: 5 }, (_, i) => rendered(i));
+    const spots = Array.from({ length: 5 }, (_, i) => rendered(i, {}));
     const batches = discordBatches(spots, { discord: DISCORD_SETTINGS });
     assertEquals(batches.map((b) => b.spots), [1, 1, 1, 1, 1]);
     assertEquals(batches[0]!.message, {
@@ -264,7 +264,7 @@ Deno.test(
 );
 
 Deno.test("discordBatches groups ten spots a message with a batch window", function (): void {
-  const spots = Array.from({ length: 25 }, (_, i) => rendered(i));
+  const spots = Array.from({ length: 25 }, (_, i) => rendered(i, {}));
   const batches = discordBatches(spots, { discord: discordWith({ batch_seconds: 30 }) });
   assertEquals(batches.map((b) => b.spots), [10, 10, 5]);
   assertEquals(batches.map((b) => embedCount(b.message)), [10, 10, 5]);
@@ -274,14 +274,14 @@ Deno.test(
   "discordBatches groups a busy claim into at most five messages, never past ten spots each",
   function (): void {
     // Twelve spots with no window: three a message, four messages, not twelve.
-    const twelve = Array.from({ length: 12 }, (_, i) => rendered(i));
+    const twelve = Array.from({ length: 12 }, (_, i) => rendered(i, {}));
     assertEquals(discordBatches(twelve, { discord: DISCORD_SETTINGS }).map((b) => b.spots), [
       3,
       3,
       3,
       3,
     ]);
-    const forty = Array.from({ length: 40 }, (_, i) => rendered(i));
+    const forty = Array.from({ length: 40 }, (_, i) => rendered(i, {}));
     assertEquals(discordBatches(forty, { discord: DISCORD_SETTINGS }).map((b) => b.spots), [
       8,
       8,
@@ -290,12 +290,12 @@ Deno.test(
       8,
     ]);
     // One claim's cap, 50 (destination_claim_max): five full messages.
-    const fifty = Array.from({ length: 50 }, (_, i) => rendered(i));
+    const fifty = Array.from({ length: 50 }, (_, i) => rendered(i, {}));
     const full = discordBatches(fifty, { discord: DISCORD_SETTINGS });
     assertEquals(full.length, DISCORD_MESSAGES_PER_CLAIM);
     assertEquals(full.every((b) => embedCount(b.message) === 10), true);
     // Beyond the cap a message still never takes more than ten, and the per-run cap is the safety net.
-    const many = Array.from({ length: 300 }, (_, i) => rendered(i));
+    const many = Array.from({ length: 300 }, (_, i) => rendered(i, {}));
     const grouped = discordBatches(many, { discord: discordWith({ batch_seconds: 60 }) });
     assertEquals(grouped.length, DISCORD_MESSAGES_PER_RUN);
     assertEquals(grouped.every((b) => b.spots === 10), true);
@@ -370,7 +370,7 @@ Deno.test(
       }],
     });
     assertEquals(
-      discordBatches([huge, rendered(2)], { discord: discordWith({ batch_seconds: 30 }) })
+      discordBatches([huge, rendered(2, {})], { discord: discordWith({ batch_seconds: 30 }) })
         .map((b) => b.spots),
       [1, 1],
     );
@@ -437,7 +437,7 @@ Deno.test(
 Deno.test(
   "every Discord message carries allowed_mentions with nothing to parse",
   function (): void {
-    const spots = Array.from({ length: 5 }, (_, i) => rendered(i));
+    const spots = Array.from({ length: 5 }, (_, i) => rendered(i, {}));
     const all = discordMessages(spots, {}).concat(
       discordMessages(spots, { discord: DISCORD_SETTINGS }),
       discordMessages(spots, { discord: discordWith({ style: "plain" }) }),
@@ -453,7 +453,7 @@ function legacy(body: unknown): LegacyWebhookPayload {
 Deno.test(
   "webhookPayloads carry delivery and connection ids with the normalized spot, 50 per request",
   function (): void {
-    const ds = Array.from({ length: 51 }, (_, i) => delivery(i + 1));
+    const ds = Array.from({ length: 51 }, (_, i) => delivery(i + 1, spot));
     const payloads = webhookPayloads(ds);
     assertEquals(payloads.map((p) => legacy(p.body).deliveries.length), [50, 1]);
     assertEquals(payloads.map((p) => p.count), [50, 1]);
@@ -498,11 +498,11 @@ Deno.test("webhookPayloads leaves out the push-only fields SQL adds", function (
 });
 
 Deno.test("webhookSpot leaves out the Discord fields SQL adds", function (): void {
-  assertEquals(webhookSpot(rendered(42)), spot);
+  assertEquals(webhookSpot(rendered(42, {})), spot);
 });
 
 // A spot as claim_deliveries hands it to a push destination: text and URLs built in SQL.
-function pushed(callsign: string, id = 0, more: Partial<DeliverySpot> = {}): DeliverySpot {
+function pushed(callsign: string, id: number, more: Partial<DeliverySpot>): DeliverySpot {
   const sql: Partial<DeliverySpot> = {
     id,
     callsign,
@@ -541,7 +541,7 @@ function pushWith(more: Partial<PushSettings>): PushSettings {
 Deno.test(
   "pushNotifications passes SQL's text and URLs through, with both buttons",
   function (): void {
-    assertEquals(pushNotifications([pushed("KK4PWJ", 7)], SETTINGS, false), [{
+    assertEquals(pushNotifications([pushed("KK4PWJ", 7, {})], SETTINGS, false), [{
       title: "KK4PWJ · 14.062 MHz · CW",
       body: "POTA · US-2763 · Eno River State Park · NC",
       tag: "spot:KK4PWJ",
@@ -576,7 +576,8 @@ Deno.test(
     )[0];
     assertEquals(rbn!.actions, [{ action: "profile", title: "Open profile" }]);
     assertEquals("sourceUrl" in rbn!, false);
-    const none = pushNotifications([pushed("W1AW")], pushWith({ action_buttons: false }), false)[0];
+    const none =
+      pushNotifications([pushed("W1AW", 0, {})], pushWith({ action_buttons: false }), false)[0];
     assertEquals("actions" in none!, false);
     const wwff = pushNotifications(
       [pushed("W1AW", 1, {
@@ -612,7 +613,7 @@ Deno.test("a push payload at SQL's text limits still fits one push record", func
 Deno.test(
   "pushNotifications tags per station, or per spot when replacing is off",
   function (): void {
-    const spots = [pushed("w1aw", 1), pushed("w1aw", 2)];
+    const spots = [pushed("w1aw", 1, {}), pushed("w1aw", 2, {})];
     assertEquals(pushNotifications(spots, SETTINGS, false).map((n) => n.tag), [
       "spot:W1AW",
       "spot:W1AW",
@@ -628,7 +629,7 @@ Deno.test(
   "pushNotifications is silent without sound, or in quiet hours set to send silently",
   function (): void {
     function flags(settings: PushSettings, quietNow: boolean) {
-      const n = pushNotifications([pushed("W1AW")], settings, quietNow)[0];
+      const n = pushNotifications([pushed("W1AW", 0, {})], settings, quietNow)[0];
       return [n!.silent, n!.renotify];
     }
     assertEquals(flags(SETTINGS, false), [false, true]);
@@ -707,7 +708,7 @@ Deno.test(
   "pushNotifications sends one notification per spot at any count, never a summary",
   function (): void {
     for (const count of [1, 3, 4, 50]) {
-      const spots = Array.from({ length: count }, (_, i) => pushed(`A${i}A`, i));
+      const spots = Array.from({ length: count }, (_, i) => pushed(`A${i}A`, i, {}));
       const notifications = pushNotifications(spots, SETTINGS, false);
       assertEquals(notifications.length, count);
       assertEquals(notifications.map((n) => n.tag), spots.map((s) => `spot:${s.callsign}`));
@@ -753,7 +754,7 @@ const PAIRS: WebhookField[] = [
 
 function rendered_(
   id: number,
-  fields: WebhookField[] | null | "absent" = PAIRS,
+  fields: WebhookField[] | null | "absent",
 ): PendingDelivery {
   const s = spotWith({ id, webhook_connection: "POTA states I still need" });
   if (fields !== "absent") {
@@ -773,7 +774,7 @@ function withBatch(batch_seconds: number) {
 Deno.test(
   "webhookRequests sends one item per delivery at batch 0, keys in SQL's order",
   function (): void {
-    const ds = [rendered_(1), rendered_(2)];
+    const ds = [rendered_(1, PAIRS), rendered_(2, PAIRS)];
     const requests = webhookRequests(withBatch(0), ds);
     assertEquals(requests.map((r) => r.count), [1, 1]);
     const item = requests[0]!.body as WebhookItem;
@@ -801,7 +802,7 @@ Deno.test(
 Deno.test(
   "webhookRequests groups up to 50 spots a request when the destination has a window",
   function (): void {
-    const ds = Array.from({ length: 120 }, (_, i) => rendered_(i + 1));
+    const ds = Array.from({ length: 120 }, (_, i) => rendered_(i + 1, PAIRS));
     const requests = webhookRequests(withBatch(30), ds);
     assertEquals(requests.map((r) => r.count), [50, 50, 20]);
     assertEquals(WEBHOOK_SPOTS_PER_REQUEST, 50);
@@ -815,7 +816,7 @@ Deno.test(
 Deno.test(
   "webhookRequests falls back to the legacy body without settings or with an unrendered row",
   function (): void {
-    const ds = [rendered_(1), rendered_(2)];
+    const ds = [rendered_(1, PAIRS), rendered_(2, PAIRS)];
     const noSettings = webhookRequests({}, ds);
     assertEquals(noSettings.map((r) => r.count), [2]);
     const spots = legacy(noSettings[0]!.body).deliveries.map((d) => d.spot);
@@ -825,7 +826,7 @@ Deno.test(
       }
     }
     // One row claimed without the keys (an old claim) makes the whole run legacy.
-    const mixed = webhookRequests(withBatch(0), [rendered_(1), rendered_(2, "absent")]);
+    const mixed = webhookRequests(withBatch(0), [rendered_(1, PAIRS), rendered_(2, "absent")]);
     assertEquals(mixed.length, 1);
     assertEquals(legacy(mixed[0]!.body).deliveries.length, 2);
   },
@@ -842,7 +843,7 @@ Deno.test("webhookRequests treats null pairs as legacy and [] as an empty spot",
 });
 
 Deno.test("webhookItem sends an empty connection when SQL gave none", function (): void {
-  const d = rendered_(7);
+  const d = rendered_(7, PAIRS);
   delete d.spot.webhook_connection;
   assertEquals(webhookItem(d).connection, "");
 });

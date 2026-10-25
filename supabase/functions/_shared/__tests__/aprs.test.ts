@@ -174,7 +174,7 @@ Deno.test(
   },
 );
 
-function fakeDb(options: { stored?: number; storeFails?: boolean } = {}) {
+function fakeDb(options: { stored?: number; storeFails?: boolean }) {
   const calls = {
     stored: [] as AprsPacketRow[][],
     failures: [] as SpotFailure[][],
@@ -240,7 +240,7 @@ Deno.test(
 Deno.test(
   "runAprsPush records the relay's empty heartbeat as a success",
   async function (): Promise<void> {
-    const fake = fakeDb();
+    const fake = fakeDb({});
     const db = fake.db;
     const calls = fake.calls;
     const summary = await runAprsPush({ lines: [] }, db, new Date());
@@ -254,7 +254,7 @@ Deno.test(
 Deno.test(
   "runAprsPush strips NUL from a failure's payload so ingest_failures can store it",
   async function (): Promise<void> {
-    const fake = fakeDb();
+    const fake = fakeDb({});
     const db = fake.db;
     const calls = fake.calls;
     await runAprsPush(
@@ -269,7 +269,7 @@ Deno.test(
 Deno.test(
   "runAprsPush records a failure and rethrows on a bad body or a failed insert",
   async function (): Promise<void> {
-    const bad = fakeDb();
+    const bad = fakeDb({});
     await assertRejects(() => runAprsPush({ nope: 1 }, bad.db, new Date()), Error, '"lines"');
     assertEquals(bad.calls.failure, [["aprs", 'expected a "lines" array from the relay']]);
 
@@ -315,7 +315,7 @@ Deno.test(
 Deno.test(
   "runAprsPush dead-letters a bad packet and stores the rest of the batch",
   async function (): Promise<void> {
-    const fake = fakeDb();
+    const fake = fakeDb({});
     const db = fake.db;
     const calls = fake.calls;
     const lines = [

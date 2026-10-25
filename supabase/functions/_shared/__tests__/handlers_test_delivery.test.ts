@@ -46,7 +46,7 @@ const WEBHOOK_TEST = {
   },
 };
 
-function post(body: unknown, token: string | null = "jwt"): Request {
+function post(body: unknown, token: string | null): Request {
   const headers: Record<string, string> = {};
   if (token !== null && token !== "") {
     headers.Authorization = `Bearer ${token}`;
@@ -64,10 +64,12 @@ function post(body: unknown, token: string | null = "jwt"): Request {
   });
 }
 
+const SENT_ONE: SendResult = { ok: true, sent: 1 };
+
 async function run(
   req: Request,
-  options: FakeSupabaseOptions = {},
-  result: SendResult = { ok: true, sent: 1 },
+  options: FakeSupabaseOptions,
+  result: SendResult,
 ) {
   const ran = fakeSupabase(Object.assign(
     { getUser: USER, from: { destinations: { data: DEST } } },
@@ -97,31 +99,42 @@ async function run(
 Deno.test(
   "handleSendTest answers preflight and rejects other methods",
   async function (): Promise<void> {
-    assertEquals((await run(new Request("http://x/", { method: "OPTIONS" }))).res.status, 204);
-    assertEquals((await run(new Request("http://x/"))).res.status, 405);
+    assertEquals(
+      (await run(new Request("http://x/", { method: "OPTIONS" }), {}, SENT_ONE)).res.status,
+      204,
+    );
+    assertEquals((await run(new Request("http://x/"), {}, SENT_ONE)).res.status, 405);
   },
 );
 
 Deno.test("handleSendTest requires a signed-in user", async function (): Promise<void> {
-  const none = await run(post({ destination_id: "00000000-0000-4000-8000-0000000000d1" }, null));
+  const none = await run(
+    post({ destination_id: "00000000-0000-4000-8000-0000000000d1" }, null),
+    {},
+    SENT_ONE,
+  );
   assertEquals(none.res.status, 401);
-  const bad = await run(post({ destination_id: "00000000-0000-4000-8000-0000000000d1" }), {
+  const bad = await run(post({ destination_id: "00000000-0000-4000-8000-0000000000d1" }, "jwt"), {
     getUser: { error: { message: "jwt" } },
-  });
+  }, SENT_ONE);
   assertEquals(bad.res.status, 401);
   assertEquals(bad.calls.getUser, ["jwt"]);
 });
 
 Deno.test("handleSendTest requires a destination id", async function (): Promise<void> {
-  assertEquals((await run(post("nope"))).body, { error: "Pick a destination." });
-  assertEquals((await run(post({ destination_id: 5 }))).res.status, 400);
+  assertEquals((await run(post("nope", "jwt"), {}, SENT_ONE)).body, {
+    error: "Pick a destination.",
+  });
+  assertEquals((await run(post({ destination_id: 5 }, "jwt"), {}, SENT_ONE)).res.status, 400);
 });
 
 Deno.test(
   "handleSendTest only loads destinations the caller owns",
   async function (): Promise<void> {
     const ran = await run(
-      post({ destination_id: "00000000-0000-4000-8000-0000000000d1" }),
+      post({ destination_id: "00000000-0000-4000-8000-0000000000d1" }, "jwt"),
+      {},
+      SENT_ONE,
     );
     const res = ran.res;
     const body = ran.body;
@@ -146,13 +159,17 @@ Deno.test(
 Deno.test(
   "handleSendTest reports lookup errors and missing destinations",
   async function (): Promise<void> {
-    const err = await run(post({ destination_id: "00000000-0000-4000-8000-0000000000d1" }), {
+    const err = await run(post({ destination_id: "00000000-0000-4000-8000-0000000000d1" }, "jwt"), {
       from: { destinations: { error: { message: "x" } } },
-    });
+    }, SENT_ONE);
     assertEquals(err.res.status, 500);
-    const missing = await run(post({ destination_id: "00000000-0000-4000-8000-0000000000d1" }), {
-      from: { destinations: { data: null } },
-    });
+    const missing = await run(
+      post({ destination_id: "00000000-0000-4000-8000-0000000000d1" }, "jwt"),
+      {
+        from: { destinations: { data: null } },
+      },
+      SENT_ONE,
+    );
     assertEquals(missing.res.status, 404);
     assertEquals(missing.sent, []);
   },
@@ -161,7 +178,7 @@ Deno.test(
 Deno.test(
   "handleSendTest answers 404 for a destination_id that is not a uuid",
   async function (): Promise<void> {
-    const ran = await run(post({ destination_id: "abc" }));
+    const ran = await run(post({ destination_id: "abc" }, "jwt"), {}, SENT_ONE);
     const res = ran.res;
     const body = ran.body;
     const calls = ran.calls;
@@ -174,17 +191,25 @@ Deno.test(
 );
 
 Deno.test("handleSendTest returns 502 with the delivery error", async function (): Promise<void> {
-  const failed = await run(post({ destination_id: "00000000-0000-4000-8000-0000000000d1" }), {}, {
-    ok: false,
-    sent: 0,
-    error: "HTTP 404",
-  });
+  const failed = await run(
+    post({ destination_id: "00000000-0000-4000-8000-0000000000d1" }, "jwt"),
+    {},
+    {
+      ok: false,
+      sent: 0,
+      error: "HTTP 404",
+    },
+  );
   assertEquals(failed.res.status, 502);
   assertEquals(failed.body, { error: "HTTP 404" });
-  const silent = await run(post({ destination_id: "00000000-0000-4000-8000-0000000000d1" }), {}, {
-    ok: false,
-    sent: 0,
-  });
+  const silent = await run(
+    post({ destination_id: "00000000-0000-4000-8000-0000000000d1" }, "jwt"),
+    {},
+    {
+      ok: false,
+      sent: 0,
+    },
+  );
   assertEquals(silent.body, { error: "Delivery failed." });
 });
 
@@ -233,11 +258,12 @@ Deno.test(
   "handleSendTest sends a push destination's members the text SQL built from its fields",
   async function (): Promise<void> {
     const ran = await run(
-      post({ destination_id: "00000000-0000-4000-8000-0000000000f1" }),
+      post({ destination_id: "00000000-0000-4000-8000-0000000000f1" }, "jwt"),
       {
         from: { destinations: { data: PUSH } },
         rpc: { push_test_delivery: { data: PUSH_TEST } },
       },
+      SENT_ONE,
     );
     const res = ran.res;
     const sent = ran.sent;
@@ -258,11 +284,12 @@ Deno.test(
 
 Deno.test("handleSendTest renders the spot the preview shows", async function (): Promise<void> {
   const ran = await run(
-    post({ destination_id: "00000000-0000-4000-8000-0000000000f1", spot_id: 42 }),
+    post({ destination_id: "00000000-0000-4000-8000-0000000000f1", spot_id: 42 }, "jwt"),
     {
       from: { destinations: { data: PUSH } },
       rpc: { push_test_delivery: { data: PUSH_TEST } },
     },
+    SENT_ONE,
   );
   const calls = ran.calls;
   const call = calls.rpc[1];
@@ -281,7 +308,9 @@ Deno.test(
   async function (): Promise<void> {
     for (const spotId of ["42", 1.5, {}]) {
       const ran = await run(
-        post({ destination_id: "00000000-0000-4000-8000-0000000000f1", spot_id: spotId }),
+        post({ destination_id: "00000000-0000-4000-8000-0000000000f1", spot_id: spotId }, "jwt"),
+        {},
+        SENT_ONE,
       );
       const body = ran.body;
       const sent = ran.sent;
@@ -294,26 +323,35 @@ Deno.test(
 Deno.test(
   "handleSendTest reports a push lookup error and an unknown spot",
   async function (): Promise<void> {
-    const failed = await run(post({ destination_id: "00000000-0000-4000-8000-0000000000f1" }), {
-      from: { destinations: { data: PUSH } },
-      rpc: { push_test_delivery: { error: { message: "x" } } },
-    });
+    const failed = await run(
+      post({ destination_id: "00000000-0000-4000-8000-0000000000f1" }, "jwt"),
+      {
+        from: { destinations: { data: PUSH } },
+        rpc: { push_test_delivery: { error: { message: "x" } } },
+      },
+      SENT_ONE,
+    );
     assertEquals(failed.res.status, 500);
     assertEquals(failed.sent, []);
     const missing = await run(
-      post({ destination_id: "00000000-0000-4000-8000-0000000000f1", spot_id: 7 }),
+      post({ destination_id: "00000000-0000-4000-8000-0000000000f1", spot_id: 7 }, "jwt"),
       {
         from: { destinations: { data: PUSH } },
         rpc: { push_test_delivery: { data: null } },
       },
+      SENT_ONE,
     );
     assertEquals(missing.res.status, 404);
     assertEquals(missing.body, { error: "Spot not found." });
     // Without a spot, null can only mean the destination has no settings row.
-    const noSettings = await run(post({ destination_id: "00000000-0000-4000-8000-0000000000f1" }), {
-      from: { destinations: { data: PUSH } },
-      rpc: { push_test_delivery: { data: null } },
-    });
+    const noSettings = await run(
+      post({ destination_id: "00000000-0000-4000-8000-0000000000f1" }, "jwt"),
+      {
+        from: { destinations: { data: PUSH } },
+        rpc: { push_test_delivery: { data: null } },
+      },
+      SENT_ONE,
+    );
     assertEquals(noSettings.res.status, 404);
     assertEquals(noSettings.body, { error: "Destination not found." });
   },
@@ -323,7 +361,7 @@ Deno.test(
   "handleSendTest prunes and records devices after a push test",
   async function (): Promise<void> {
     const ran = await run(
-      post({ destination_id: "00000000-0000-4000-8000-0000000000f1" }),
+      post({ destination_id: "00000000-0000-4000-8000-0000000000f1" }, "jwt"),
       {
         from: { destinations: { data: PUSH } },
         rpc: { push_test_delivery: { data: Object.assign({}, PUSH_TEST, { devices: [] }) } },
@@ -349,7 +387,11 @@ Deno.test(
 Deno.test(
   "handleSendTest leaves other destinations' devices alone",
   async function (): Promise<void> {
-    const ran = await run(post({ destination_id: "00000000-0000-4000-8000-0000000000d1" }));
+    const ran = await run(
+      post({ destination_id: "00000000-0000-4000-8000-0000000000d1" }, "jwt"),
+      {},
+      SENT_ONE,
+    );
     const calls = ran.calls;
     assertEquals(calls.from.map((f) => f.table), ["destinations"]);
     assertEquals(calls.rpc.map((c) => c.fn), ["record_send_test", "webhook_test_delivery"]);
@@ -419,11 +461,12 @@ Deno.test(
   "handleSendTest sends a Discord destination the message SQL rendered from its settings",
   async function (): Promise<void> {
     const ran = await run(
-      post({ destination_id: "00000000-0000-4000-8000-0000000000e1" }),
+      post({ destination_id: "00000000-0000-4000-8000-0000000000e1" }, "jwt"),
       {
         from: { destinations: { data: DISCORD } },
         rpc: { discord_test_delivery: { data: DISCORD_TEST } },
       },
+      SENT_ONE,
     );
     const res = ran.res;
     const sent = ran.sent;
@@ -444,11 +487,12 @@ Deno.test(
   "handleSendTest renders the spot the Discord preview shows",
   async function (): Promise<void> {
     const ran = await run(
-      post({ destination_id: "00000000-0000-4000-8000-0000000000e1", spot_id: 42 }),
+      post({ destination_id: "00000000-0000-4000-8000-0000000000e1", spot_id: 42 }, "jwt"),
       {
         from: { destinations: { data: DISCORD } },
         rpc: { discord_test_delivery: { data: DISCORD_TEST } },
       },
+      SENT_ONE,
     );
     const calls = ran.calls;
     const call = calls.rpc[1];
@@ -466,27 +510,36 @@ Deno.test(
 Deno.test(
   "handleSendTest reports a Discord lookup error and an unknown spot",
   async function (): Promise<void> {
-    const failed = await run(post({ destination_id: "00000000-0000-4000-8000-0000000000e1" }), {
-      from: { destinations: { data: DISCORD } },
-      rpc: { discord_test_delivery: { error: { message: "x" } } },
-    });
+    const failed = await run(
+      post({ destination_id: "00000000-0000-4000-8000-0000000000e1" }, "jwt"),
+      {
+        from: { destinations: { data: DISCORD } },
+        rpc: { discord_test_delivery: { error: { message: "x" } } },
+      },
+      SENT_ONE,
+    );
     assertEquals(failed.res.status, 500);
     assertEquals(failed.body, { error: "Couldn't load that destination." });
     assertEquals(failed.sent, []);
     const missing = await run(
-      post({ destination_id: "00000000-0000-4000-8000-0000000000e1", spot_id: 7 }),
+      post({ destination_id: "00000000-0000-4000-8000-0000000000e1", spot_id: 7 }, "jwt"),
       {
         from: { destinations: { data: DISCORD } },
         rpc: { discord_test_delivery: { data: null } },
       },
+      SENT_ONE,
     );
     assertEquals(missing.res.status, 404);
     assertEquals(missing.body, { error: "Spot not found." });
     assertEquals(missing.sent, []);
-    const noSettings = await run(post({ destination_id: "00000000-0000-4000-8000-0000000000e1" }), {
-      from: { destinations: { data: DISCORD } },
-      rpc: { discord_test_delivery: { data: null } },
-    });
+    const noSettings = await run(
+      post({ destination_id: "00000000-0000-4000-8000-0000000000e1" }, "jwt"),
+      {
+        from: { destinations: { data: DISCORD } },
+        rpc: { discord_test_delivery: { data: null } },
+      },
+      SENT_ONE,
+    );
     assertEquals(noSettings.res.status, 404);
     assertEquals(noSettings.body, { error: "Destination not found." });
   },
@@ -496,7 +549,7 @@ Deno.test(
   "handleSendTest sends a webhook the body SQL rendered, marked as a test",
   async function (): Promise<void> {
     const ran = await run(
-      post({ destination_id: "00000000-0000-4000-8000-0000000000d1", spot_id: 42 }),
+      post({ destination_id: "00000000-0000-4000-8000-0000000000d1", spot_id: 42 }, "jwt"),
       {},
       { ok: true, sent: 1, attempted: 1, status: 204 },
     );
@@ -520,18 +573,22 @@ Deno.test(
 Deno.test(
   "handleSendTest answers a failed webhook test with the receiver's status",
   async function (): Promise<void> {
-    const failed = await run(post({ destination_id: "00000000-0000-4000-8000-0000000000d1" }), {}, {
-      ok: false,
-      sent: 0,
-      attempted: 1,
-      status: 500,
-      error: "Webhook HTTP 500",
-    });
+    const failed = await run(
+      post({ destination_id: "00000000-0000-4000-8000-0000000000d1" }, "jwt"),
+      {},
+      {
+        ok: false,
+        sent: 0,
+        attempted: 1,
+        status: 500,
+        error: "Webhook HTTP 500",
+      },
+    );
     assertEquals(failed.res.status, 502);
     assertEquals(failed.body, { error: "Webhook HTTP 500", status: 500 });
     // A request that never got a status has none.
     const unreached = await run(
-      post({ destination_id: "00000000-0000-4000-8000-0000000000d1" }),
+      post({ destination_id: "00000000-0000-4000-8000-0000000000d1" }, "jwt"),
       {},
       {
         ok: false,
@@ -547,21 +604,30 @@ Deno.test(
 Deno.test(
   "handleSendTest reports a webhook lookup error and an unknown spot",
   async function (): Promise<void> {
-    const failed = await run(post({ destination_id: "00000000-0000-4000-8000-0000000000d1" }), {
-      rpc: { webhook_test_delivery: { error: { message: "x" } } },
-    });
+    const failed = await run(
+      post({ destination_id: "00000000-0000-4000-8000-0000000000d1" }, "jwt"),
+      {
+        rpc: { webhook_test_delivery: { error: { message: "x" } } },
+      },
+      SENT_ONE,
+    );
     assertEquals(failed.res.status, 500);
     assertEquals(failed.body, { error: "Couldn't load that destination." });
     assertEquals(failed.sent, []);
     const missing = await run(
-      post({ destination_id: "00000000-0000-4000-8000-0000000000d1", spot_id: 7 }),
+      post({ destination_id: "00000000-0000-4000-8000-0000000000d1", spot_id: 7 }, "jwt"),
       { rpc: { webhook_test_delivery: { data: null } } },
+      SENT_ONE,
     );
     assertEquals(missing.res.status, 404);
     assertEquals(missing.body, { error: "Spot not found." });
-    const notWebhook = await run(post({ destination_id: "00000000-0000-4000-8000-0000000000d1" }), {
-      rpc: { webhook_test_delivery: { data: null } },
-    });
+    const notWebhook = await run(
+      post({ destination_id: "00000000-0000-4000-8000-0000000000d1" }, "jwt"),
+      {
+        rpc: { webhook_test_delivery: { data: null } },
+      },
+      SENT_ONE,
+    );
     assertEquals(notWebhook.body, { error: "Destination not found." });
     assertEquals(notWebhook.sent, []);
   },
@@ -570,27 +636,43 @@ Deno.test(
 Deno.test(
   "handleSendTest records the test before sending and refuses one over the limit",
   async function (): Promise<void> {
-    const ok = await run(post({ destination_id: "00000000-0000-4000-8000-0000000000d1" }));
+    const ok = await run(
+      post({ destination_id: "00000000-0000-4000-8000-0000000000d1" }, "jwt"),
+      {},
+      SENT_ONE,
+    );
     assertEquals(ok.calls.rpc[0], {
       fn: "record_send_test",
       args: { p_user_id: "u1", p_destination_id: "00000000-0000-4000-8000-0000000000d1" },
     });
-    const limited = await run(post({ destination_id: "00000000-0000-4000-8000-0000000000d1" }), {
-      rpc: { record_send_test: { data: false } },
-    });
+    const limited = await run(
+      post({ destination_id: "00000000-0000-4000-8000-0000000000d1" }, "jwt"),
+      {
+        rpc: { record_send_test: { data: false } },
+      },
+      SENT_ONE,
+    );
     assertEquals(limited.res.status, 429);
     assertEquals(limited.body, { error: TOO_MANY_TESTS });
     assertEquals(limited.calls.from, []);
     assertEquals(limited.sent, []);
     // Null: not the caller's destination, which the lookup then answers with 404.
-    const notOwned = await run(post({ destination_id: "00000000-0000-4000-8000-0000000000d1" }), {
-      rpc: { record_send_test: { data: null } },
-      from: { destinations: { data: null } },
-    });
+    const notOwned = await run(
+      post({ destination_id: "00000000-0000-4000-8000-0000000000d1" }, "jwt"),
+      {
+        rpc: { record_send_test: { data: null } },
+        from: { destinations: { data: null } },
+      },
+      SENT_ONE,
+    );
     assertEquals(notOwned.res.status, 404);
-    const failed = await run(post({ destination_id: "00000000-0000-4000-8000-0000000000d1" }), {
-      rpc: { record_send_test: { error: { message: "x" } } },
-    });
+    const failed = await run(
+      post({ destination_id: "00000000-0000-4000-8000-0000000000d1" }, "jwt"),
+      {
+        rpc: { record_send_test: { error: { message: "x" } } },
+      },
+      SENT_ONE,
+    );
     assertEquals(failed.res.status, 500);
     assertEquals(failed.sent, []);
   },
@@ -599,24 +681,32 @@ Deno.test(
 Deno.test(
   "handleSendTest refuses a destination that is throttled",
   async function (): Promise<void> {
-    const throttled = await run(post({ destination_id: "00000000-0000-4000-8000-0000000000d1" }), {
-      from: {
-        destinations: {
-          data: Object.assign({}, DEST, { throttled_until: "2026-10-05T14:01:00Z" }),
+    const throttled = await run(
+      post({ destination_id: "00000000-0000-4000-8000-0000000000d1" }, "jwt"),
+      {
+        from: {
+          destinations: {
+            data: Object.assign({}, DEST, { throttled_until: "2026-10-05T14:01:00Z" }),
+          },
         },
       },
-    });
+      SENT_ONE,
+    );
     assertEquals(throttled.res.status, 429);
     assertEquals(throttled.body, { error: DESTINATION_THROTTLED });
     assertEquals(throttled.sent, []);
     // A throttle that has run out is no longer in the way, and never reaches the sender.
-    const over = await run(post({ destination_id: "00000000-0000-4000-8000-0000000000d1" }), {
-      from: {
-        destinations: {
-          data: Object.assign({}, DEST, { throttled_until: "2026-10-05T13:59:00Z" }),
+    const over = await run(
+      post({ destination_id: "00000000-0000-4000-8000-0000000000d1" }, "jwt"),
+      {
+        from: {
+          destinations: {
+            data: Object.assign({}, DEST, { throttled_until: "2026-10-05T13:59:00Z" }),
+          },
         },
       },
-    });
+      SENT_ONE,
+    );
     assertEquals(over.res.status, 200);
     assertEquals("throttled_until" in over.sent[0]!.destination, false);
     assertEquals(over.calls.from[0]!.ops[0], [

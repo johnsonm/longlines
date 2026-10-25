@@ -8,7 +8,7 @@ import { fakeSupabase, type FakeSupabaseOptions } from "./fake_supabase.ts";
 
 const PAYLOAD = { bands: [{ band: "20m", spots: [] }], generated_at: "2026-10-14T13:45:00+00:00" };
 
-async function run(req: Request, options: FakeSupabaseOptions = {}) {
+async function run(req: Request, options: FakeSupabaseOptions) {
   const fake = fakeSupabase(options);
   const res = await handleBandMap(req, { db: () => fake.client });
   return { res, calls: fake.calls };
@@ -26,13 +26,13 @@ Deno.test("serves the cached band map with a short public cache", async function
 });
 
 Deno.test("answers a preflight without touching the database", async function (): Promise<void> {
-  const result = await run(new Request("http://x/band-map", { method: "OPTIONS" }));
+  const result = await run(new Request("http://x/band-map", { method: "OPTIONS" }), {});
   assertEquals(result.res.status, 204);
   assertEquals(result.calls.rpc, []);
 });
 
 Deno.test("refuses anything but GET", async function (): Promise<void> {
-  const result = await run(new Request("http://x/band-map", { method: "POST" }));
+  const result = await run(new Request("http://x/band-map", { method: "POST" }), {});
   assertEquals(result.res.status, 405);
   assertEquals(result.calls.rpc, []);
 });

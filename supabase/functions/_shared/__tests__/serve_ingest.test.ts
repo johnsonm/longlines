@@ -36,7 +36,7 @@ function jwt(role: string): string {
   return `${b64url({ alg: "HS256" })}.${b64url({ role })}.sig`;
 }
 
-function request(token?: string): Request {
+function request(token: string | undefined): Request {
   let headers: Record<string, string> = {};
   if (token) {
     headers = { authorization: `Bearer ${token}` };

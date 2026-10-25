@@ -5,7 +5,7 @@ import type { ArchiveObjectStore } from "../types.ts";
 
 const KEY = "service-key";
 
-function req(token?: string, body?: string): Request {
+function req(token: string | undefined, body: string | undefined): Request {
   const init: RequestInit = { method: "POST", headers: {} };
   if (token) {
     init.headers = { Authorization: `Bearer ${token}` };
@@ -63,10 +63,10 @@ const SLICE = {
 Deno.test(
   "handleConvertArchive refuses callers without the service-role key",
   async function (): Promise<void> {
-    const fake = fakeSupabase();
+    const fake = fakeSupabase({});
     const client = fake.client;
     for (const token of [undefined, "anon-key"]) {
-      const res = await handleConvertArchive(req(token), {
+      const res = await handleConvertArchive(req(token, undefined), {
         serviceRoleKey: KEY,
         db: () => client,
         store: emptyStore().store,
@@ -81,7 +81,7 @@ Deno.test(
   "handleConvertArchive answers 400 for a body it cannot use, before touching anything",
   async function (): Promise<void> {
     for (const body of ["not json", '{"limit":0}', "[]"]) {
-      const fake = fakeSupabase();
+      const fake = fakeSupabase({});
       const client = fake.client;
       const res = await handleConvertArchive(req(KEY, body), {
         serviceRoleKey: KEY,
@@ -98,9 +98,9 @@ Deno.test(
 Deno.test(
   "handleConvertArchive answers 500 without touching the database when the bucket is not configured",
   async function (): Promise<void> {
-    const fake = fakeSupabase();
+    const fake = fakeSupabase({});
     const client = fake.client;
-    const res = await handleConvertArchive(req(KEY), {
+    const res = await handleConvertArchive(req(KEY, undefined), {
       serviceRoleKey: KEY,
       db: () => client,
       store: unconfigured,
@@ -118,7 +118,7 @@ Deno.test(
       rpc: { archive_ndjson_slices: { error: { message: "boom" } } },
     });
     const client = fake.client;
-    const res = await handleConvertArchive(req(KEY), {
+    const res = await handleConvertArchive(req(KEY, undefined), {
       serviceRoleKey: KEY,
       db: () => client,
       store: emptyStore().store,
@@ -158,7 +158,7 @@ Deno.test(
 Deno.test(
   "handleConvertArchive answers 200 when nothing is left",
   async function (): Promise<void> {
-    const fake = fakeSupabase();
+    const fake = fakeSupabase({});
     const client = fake.client;
     const res = await handleConvertArchive(req(KEY, "{}"), {
       serviceRoleKey: KEY,
