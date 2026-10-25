@@ -1,5 +1,6 @@
-import { assertEquals, assertThrows } from "@std/assert";
-import { parseRelayBody, requireString, spotTimeFromHhmm } from "../relay_lines.ts";
+import { assertEquals, assertStrictEquals, assertThrows } from "@std/assert";
+import { ValidationError } from "../errors.ts";
+import { parseRelayBody, relayLineSchema, spotTimeFromHhmm } from "../relay_lines.ts";
 
 Deno.test(
   "spotTimeFromHhmm uses the receive day and picks the nearest day across midnight",
@@ -17,7 +18,7 @@ Deno.test(
       spotTimeFromHhmm("0001", new Date("2026-10-11T23:59:50Z")).toISOString(),
       "2026-10-12T00:01:00.000Z",
     );
-    assertThrows(() => spotTimeFromHhmm("2460", new Date()), Error, "invalid HHMM time");
+    assertThrows(() => spotTimeFromHhmm("2460", new Date()), ValidationError, "invalid HHMM time");
     assertThrows(() => spotTimeFromHhmm("12a4", new Date()));
   },
 );
@@ -29,20 +30,31 @@ Deno.test(
       line: "DX de W3LPL: 14025.0 JA1ABC 1234Z",
       received_at: "2026-10-12T12:34:10Z",
     }];
-    assertEquals(parseRelayBody({ lines: items }), items);
-    assertThrows(() => parseRelayBody([]));
-    assertThrows(() => parseRelayBody({ lines: [null] }));
+    const parsed = parseRelayBody({ lines: items });
+    assertEquals(parsed, items);
+    assertStrictEquals(parsed[0], items[0]);
+    assertThrows(() => parseRelayBody([]), ValidationError, "parseRelayBody: relay body");
+    assertThrows(() => parseRelayBody({ lines: [null] }), ValidationError, "lines.0");
+    // Only a line's shape is left to the adapter, so one bad line fails alone.
+    assertEquals(parseRelayBody({ lines: [{ line: 3 }] }), [{ line: 3 }]);
     assertThrows(
       () => parseRelayBody({ lines: Array(1001).fill(items[0]) }),
-      Error,
-      "limit is 1000",
+      ValidationError,
+      "at most 1000 lines",
     );
+    // The body is our relay's, and it sends only "lines".
+    assertThrows(() => parseRelayBody({ lines: items, extra: 1 }), ValidationError, "extra");
   },
 );
 
-Deno.test("requireString returns a non-blank string and rejects anything else", function (): void {
-  assertEquals(requireString({ line: "x" }, "line"), "x");
-  assertThrows(() => requireString({ line: "  " }, "line"), Error, 'field "line"');
-  assertThrows(() => requireString({ line: 3 }, "line"));
-  assertThrows(() => requireString({}, "line"));
+Deno.test("relayLineSchema takes exactly a non-blank line and received_at", function (): void {
+  const item = { line: "x", received_at: "2026-10-12T12:34:10Z" };
+  assertEquals(relayLineSchema.parse(item), item);
+  assertEquals(relayLineSchema.safeParse({ line: "  ", received_at: "t" }).success, false);
+  assertEquals(relayLineSchema.safeParse({ line: 3, received_at: "t" }).success, false);
+  assertEquals(relayLineSchema.safeParse({ received_at: "t" }).success, false);
+  assertEquals(
+    relayLineSchema.safeParse({ line: "x", received_at: "t", feed: "rbn" }).success,
+    false,
+  );
 });

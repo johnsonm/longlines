@@ -1,4 +1,5 @@
 import { assertEquals, assertMatch, assertRejects } from "@std/assert";
+import { FunctionCallError } from "../errors.ts";
 import { fetchJson, fetchText, userAgent } from "../http.ts";
 
 /** Serve one handler on an ephemeral port, run fn against its URL, then shut down. */
@@ -55,7 +56,12 @@ Deno.test(
     await withServer(
       () => new Response("nope", { status: 503 }),
       async function (base) {
-        await assertRejects(() => fetchJson(`${base}/spots`, {}), Error, "503");
+        const error = await assertRejects(
+          () => fetchJson(`${base}/spots`, {}),
+          FunctionCallError,
+          "HTTP 503",
+        );
+        assertEquals(error.status, 503);
       },
     );
   },

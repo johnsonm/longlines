@@ -14,6 +14,7 @@
 //   summitCode        string   e.g. "W4C/CM-001"
 //   type              string | null   "NORMAL", "QRT", ...; null is treated as NORMAL
 
+import { z } from "zod";
 import { bandForFrequency } from "./bands.ts";
 import { contentHash } from "./hash.ts";
 import { fetchJson, fetchText } from "./http.ts";
@@ -21,44 +22,58 @@ import {
   cleanCallsign,
   cleanSotaComment,
   cleanSotaSpotter,
+  frequencySchema,
   isTestComment,
   isTooOld,
+  optionalTextSchema,
   parseKhz,
   parseUtc,
+  requiredTextSchema,
+  spotIdSchema,
+  spotIdText,
 } from "./normalize.ts";
 import { modeFamily, resolveMode } from "./modes.ts";
+import { parseWith } from "./validate.ts";
+import { jsonObjectSchema } from "./types.ts";
 import type { JsonObject, NormalizeResult, SourceAdapter } from "./types.ts";
 
 export const SOTAWATCH_EPOCH_URL = "https://api-db2.sota.org.uk/api/spots/epoch";
 export const SOTAWATCH_SPOTS_URL = "https://api-db2.sota.org.uk/api/spots/50/all/all";
 const MAX_AGE_MS = 5 * 60 * 1000;
 
-function optionalString(value: unknown): string | null {
-  if (typeof value === "string") {
-    return value;
-  }
-  return null;
+/** The fields of one upstream record that normalize reads (see the header). */
+interface SotawatchSpot {
+  id: number | string;
+  timeStamp: string;
+  activatorCallsign: string;
+  callsign: string | null;
+  /** Null on QRT spots, which the type check skips before parseKhz reads it. */
+  frequency?: number | string | null;
+  mode: string | null;
+  comments: string | null;
+  summitCode: string | null;
+  /** Null or missing is treated as NORMAL. */
+  type?: string | null;
 }
 
-function requireString(raw: JsonObject, field: string): string {
-  const value = raw[field];
-  if (typeof value !== "string" || value.trim() === "") {
-    throw new Error(`missing or empty field "${field}"`);
-  }
-  return value;
-}
+// Third-party feed: loose, since SOTAwatch sends more fields than these and may add some.
+const sotawatchSpotSchema: z.ZodType<SotawatchSpot> = z.looseObject({
+  id: spotIdSchema,
+  timeStamp: z.string(),
+  activatorCallsign: requiredTextSchema,
+  callsign: optionalTextSchema,
+  frequency: frequencySchema,
+  mode: optionalTextSchema,
+  comments: optionalTextSchema,
+  summitCode: optionalTextSchema,
+  type: z.string().nullable().optional(),
+});
 
-function requireId(raw: JsonObject, field: string): string {
-  const value = raw[field];
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return String(value);
-  }
-  if (typeof value === "string" && value.trim() !== "") {
-    return value.trim();
-  }
-  throw new Error(`missing field "${field}"`);
-}
+/** The feed envelope: an array of objects. Each spot is validated by normalize. */
+const sotawatchFeedSchema: z.ZodType<JsonObject[]> = z.array(jsonObjectSchema);
 
+// Sorting comes before validation (normalize checks each id), so an id that is not
+// a number sorts by Number(), as it always has.
 function idOf(item: JsonObject): number {
   const id = item["id"];
   if (typeof id === "number") {
@@ -79,23 +94,14 @@ export const sotawatch: SourceAdapter = {
   },
 
   parseFeed(body: unknown): JsonObject[] {
-    if (!Array.isArray(body)) {
-      throw new Error("expected a JSON array from SOTAwatch");
-    }
-    const items: JsonObject[] = [];
-    for (let i = 0; i < body.length; i++) {
-      const item: unknown = body[i];
-      if (typeof item !== "object" || item === null || Array.isArray(item)) {
-        throw new Error(`SOTAwatch feed item ${String(i)} is not an object`);
-      }
-      items.push(item as JsonObject);
-    }
+    const items = parseWith(sotawatchFeedSchema, body, "sotawatch.parseFeed: feed");
     // Upstream order is arbitrary; process oldest first.
     return items.sort((a, b) => idOf(a) - idOf(b));
   },
 
   async normalize(raw: JsonObject, now: Date): Promise<NormalizeResult> {
-    const sourceSpotId = requireId(raw, "id");
+    const spot = parseWith(sotawatchSpotSchema, raw, "sotawatch.normalize: spot");
+    // The raw values, exactly as SOTAwatch sent them, so validation never changes a hash.
     const hash = await contentHash([
       raw["timeStamp"],
       raw["activatorCallsign"],
@@ -105,40 +111,38 @@ export const sotawatch: SourceAdapter = {
       raw["comments"],
     ]);
 
-    const spotTime = parseUtc(raw["timeStamp"]);
+    const spotTime = parseUtc(spot.timeStamp);
     if (isTooOld(spotTime, now, MAX_AGE_MS)) {
       return { kind: "skip", reason: "too_old" };
     }
 
-    const type = raw["type"];
-    if (type !== null && type !== undefined && type !== "NORMAL") {
+    if (spot.type !== null && spot.type !== undefined && spot.type !== "NORMAL") {
       return { kind: "skip", reason: "not_normal" };
     }
 
-    const comment = cleanSotaComment(optionalString(raw["comments"]));
+    const comment = cleanSotaComment(spot.comments);
     if (isTestComment(comment)) {
       return { kind: "skip", reason: "test_comment" };
     }
 
-    const frequencyKhz = parseKhz(raw["frequency"], "mhz");
+    const frequencyKhz = parseKhz(spot.frequency, "mhz");
 
-    const mode = resolveMode(optionalString(raw["mode"]), comment);
+    const mode = resolveMode(spot.mode, comment);
 
     let summitRef: string | null = null;
-    const summitCode = optionalString(raw["summitCode"]);
-    if (summitCode !== null) {
-      summitRef = summitCode.trim().toUpperCase();
+    if (spot.summitCode !== null) {
+      summitRef = spot.summitCode.trim().toUpperCase();
     }
 
     return {
       kind: "spot",
       spot: {
         source: "sotawatch",
-        source_spot_id: sourceSpotId,
+        source_spot_id: spotIdText(spot.id),
         content_hash: hash,
         spot_time: spotTime.toISOString(),
-        callsign: cleanCallsign(requireString(raw, "activatorCallsign")),
-        spotter: cleanSotaSpotter(optionalString(raw["callsign"]), comment),
+        callsign: cleanCallsign(spot.activatorCallsign),
+        spotter: cleanSotaSpotter(spot.callsign, comment),
         frequency_khz: frequencyKhz,
         band: bandForFrequency(frequencyKhz),
         mode,

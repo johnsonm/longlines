@@ -1,4 +1,5 @@
 import { assertEquals, assertExists, assertMatch, assertRejects } from "@std/assert";
+import { FunctionCallError, ValidationError } from "../errors.ts";
 import { runIngest } from "../ingest.ts";
 import { wwff } from "../wwff.ts";
 import type {
@@ -64,7 +65,12 @@ function fakeAdapter(
     },
     normalize(raw: JsonObject): Promise<NormalizeResult> {
       if (raw["throws"]) {
-        return Promise.reject(new Error(`cannot process ${raw["id"]}`));
+        return Promise.reject(
+          new ValidationError(`cannot process ${raw["id"]}`, { cause: undefined, where: "fake" }),
+        );
+      }
+      if (raw["bug"]) {
+        return Promise.reject(new TypeError("not a validation failure"));
       }
       if (raw["skip"]) {
         return Promise.resolve({ kind: "skip", reason: "too_old" });
@@ -125,7 +131,9 @@ function fakeDb(
     matchPendingSpots() {
       calls.matched += 1;
       if (options.matcherFails === true) {
-        return Promise.reject(new Error("matcher down"));
+        return Promise.reject(
+          new FunctionCallError("matcher down", { cause: undefined, status: 500 }),
+        );
       }
       return Promise.resolve(3);
     },
@@ -274,6 +282,35 @@ Deno.test(
 );
 
 Deno.test(
+  "runIngest fails the run on an error from normalize that is not a ValidationError",
+  async function (): Promise<void> {
+    const fake = fakeDb({});
+    const db = fake.db;
+    const calls = fake.calls;
+    await assertRejects(
+      () => runIngest(fakeAdapter([{ id: 1 }, { id: 2, bug: true }], {}), db, NOW),
+      TypeError,
+      "not a validation failure",
+    );
+    assertEquals(calls.ingested, []);
+    assertEquals(calls.failures, []);
+    assertEquals(calls.failure, [["pota", "not a validation failure"]]);
+  },
+);
+
+Deno.test(
+  "runIngest fails the run on a matcher error that is not the RPC's",
+  async function (): Promise<void> {
+    const fake = fakeDb({});
+    const db = fake.db;
+    const calls = fake.calls;
+    db.matchPendingSpots = () => Promise.reject(new TypeError("matcher bug"));
+    await assertRejects(() => runIngest(fakeAdapter([{ id: 1 }], {}), db, NOW), TypeError);
+    assertEquals(calls.failure, [["pota", "matcher bug"]]);
+  },
+);
+
+Deno.test(
   "runIngest reports a matcher failure without failing the ingest run",
   async function (): Promise<void> {
     const fake = fakeDb({ matcherFails: true });
@@ -405,7 +442,13 @@ Deno.test(
   async function (): Promise<void> {
     const fake = fakeDb({});
     const db = fake.db;
-    db.recordFailure = () => Promise.reject(new Error("record_ingest_failure failed: db down"));
+    db.recordFailure = () =>
+      Promise.reject(
+        new FunctionCallError("record_ingest_failure failed: db down", {
+          cause: undefined,
+          status: 500,
+        }),
+      );
     const errors = await capturingErrors(() =>
       assertRejects(
         () => runIngest(fakeAdapter(new Error("ECONNRESET"), {}), db, NOW),
@@ -415,5 +458,19 @@ Deno.test(
     );
     assertEquals(errors.length, 1);
     assertMatch(String(errors[0]), /ingest-pota: recording the failure failed: .*db down/);
+  },
+);
+
+Deno.test(
+  "runIngest rethrows a recording error that is not the RPC's",
+  async function (): Promise<void> {
+    const fake = fakeDb({});
+    const db = fake.db;
+    db.recordFailure = () => Promise.reject(new TypeError("recording bug"));
+    await assertRejects(
+      () => runIngest(fakeAdapter(new Error("ECONNRESET"), {}), db, NOW),
+      TypeError,
+      "recording bug",
+    );
   },
 );

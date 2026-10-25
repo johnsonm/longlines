@@ -1,5 +1,7 @@
 // fetch wrapper: identifies Long Lines to upstream APIs and never hangs.
 
+import { FunctionCallError } from "./errors.ts";
+
 const DEFAULT_PROJECT_URL = "https://github.com/sonyccd/longlines";
 const DEFAULT_TIMEOUT_MS = 10_000;
 
@@ -33,18 +35,28 @@ async function fetchOk(url: string, accept: string, options: FetchOptions): Prom
     if (response.body !== null) {
       await response.body.cancel();
     }
-    throw new Error(`GET ${url} failed: HTTP ${String(response.status)}`);
+    throw new FunctionCallError(`GET ${url} failed: HTTP ${String(response.status)}`, {
+      cause: undefined,
+      status: response.status,
+    });
   }
   return response;
 }
 
-/** GET a JSON document. Throws on non-2xx, timeout, or invalid JSON. */
+/**
+ * GET a JSON document, unvalidated: the caller parses it against its schema. Throws
+ * FunctionCallError on non-2xx, and the runtime's error on a timeout or invalid JSON.
+ */
 export async function fetchJson(url: string, options: FetchOptions): Promise<unknown> {
   const response = await fetchOk(url, "application/json", options);
-  return await response.json();
+  const body: unknown = await response.json();
+  return body;
 }
 
-/** GET a text document, trimmed. Throws on non-2xx or timeout. */
+/**
+ * GET a text document, trimmed. Throws FunctionCallError on non-2xx, and the
+ * runtime's error on a timeout.
+ */
 export async function fetchText(url: string, options: FetchOptions): Promise<string> {
   const response = await fetchOk(url, "text/plain, */*", options);
   return (await response.text()).trim();

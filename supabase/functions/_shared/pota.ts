@@ -12,6 +12,7 @@
 //   name         string | null   park name
 //   locationDesc string | null   e.g. "US-NC,US-VA"
 
+import { z } from "zod";
 import { bandForFrequency } from "./bands.ts";
 import { contentHash } from "./hash.ts";
 import { fetchJson } from "./http.ts";
@@ -19,42 +20,56 @@ import {
   cleanCallsign,
   cleanPotaComment,
   cleanPotaSpotter,
+  frequencySchema,
   isTestComment,
   isTooOld,
+  optionalTextSchema,
   parseKhz,
   parseUtc,
+  requiredTextSchema,
+  spotIdSchema,
+  spotIdText,
 } from "./normalize.ts";
 import { modeFamily, resolveMode } from "./modes.ts";
+import { parseWith } from "./validate.ts";
+import { jsonObjectSchema } from "./types.ts";
 import type { JsonObject, NormalizeResult, SourceAdapter } from "./types.ts";
 
 export const POTA_SPOTS_URL = "https://api.pota.app/spot/activator";
 const MAX_AGE_MS = 5 * 60 * 1000;
 
-function optionalString(value: unknown): string | null {
-  if (typeof value === "string") {
-    return value;
-  }
-  return null;
+/** The fields of one upstream record that normalize reads (see the header). */
+interface PotaSpot {
+  spotId: number | string;
+  /** parseUtc checks it; a value without an offset is UTC. */
+  spotTime: string;
+  activator: string;
+  spotter: string | null;
+  /** parseKhz checks it, after the skip checks. */
+  frequency?: number | string | null;
+  mode: string | null;
+  comments: string | null;
+  reference: string | null;
+  name: string | null;
+  locationDesc: string | null;
 }
 
-function requireString(raw: JsonObject, field: string): string {
-  const value = raw[field];
-  if (typeof value !== "string" || value.trim() === "") {
-    throw new Error(`missing or empty field "${field}"`);
-  }
-  return value;
-}
+// Third-party feed: loose, since POTA sends more fields than these and may add some.
+const potaSpotSchema: z.ZodType<PotaSpot> = z.looseObject({
+  spotId: spotIdSchema,
+  spotTime: z.string(),
+  activator: requiredTextSchema,
+  spotter: optionalTextSchema,
+  frequency: frequencySchema,
+  mode: optionalTextSchema,
+  comments: optionalTextSchema,
+  reference: optionalTextSchema,
+  name: optionalTextSchema,
+  locationDesc: optionalTextSchema,
+});
 
-function requireId(raw: JsonObject, field: string): string {
-  const value = raw[field];
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return String(value);
-  }
-  if (typeof value === "string" && value.trim() !== "") {
-    return value.trim();
-  }
-  throw new Error(`missing field "${field}"`);
-}
+/** The feed envelope: an array of objects. Each spot is validated by normalize. */
+const potaFeedSchema: z.ZodType<JsonObject[]> = z.array(jsonObjectSchema);
 
 export const pota: SourceAdapter = {
   source: "pota",
@@ -64,22 +79,12 @@ export const pota: SourceAdapter = {
   },
 
   parseFeed(body: unknown): JsonObject[] {
-    if (!Array.isArray(body)) {
-      throw new Error("expected a JSON array from POTA");
-    }
-    const items: JsonObject[] = [];
-    for (let i = 0; i < body.length; i++) {
-      const item: unknown = body[i];
-      if (typeof item !== "object" || item === null || Array.isArray(item)) {
-        throw new Error(`POTA feed item ${String(i)} is not an object`);
-      }
-      items.push(item as JsonObject);
-    }
-    return items;
+    return parseWith(potaFeedSchema, body, "pota.parseFeed: feed");
   },
 
   async normalize(raw: JsonObject, now: Date): Promise<NormalizeResult> {
-    const sourceSpotId = requireId(raw, "spotId");
+    const spot = parseWith(potaSpotSchema, raw, "pota.normalize: spot");
+    // The raw values, exactly as POTA sent them, so validation never changes a hash.
     const hash = await contentHash([
       raw["spotTime"],
       raw["activator"],
@@ -89,37 +94,37 @@ export const pota: SourceAdapter = {
       raw["comments"],
     ]);
 
-    const spotTime = parseUtc(raw["spotTime"]);
+    const spotTime = parseUtc(spot.spotTime);
     if (isTooOld(spotTime, now, MAX_AGE_MS)) {
       return { kind: "skip", reason: "too_old" };
     }
 
-    const comment = cleanPotaComment(optionalString(raw["comments"]));
+    const comment = cleanPotaComment(spot.comments);
     if (isTestComment(comment)) {
       return { kind: "skip", reason: "test_comment" };
     }
 
-    const frequencyKhz = parseKhz(raw["frequency"], "khz");
+    const frequencyKhz = parseKhz(spot.frequency, "khz");
 
-    const mode = resolveMode(optionalString(raw["mode"]), comment);
+    const mode = resolveMode(spot.mode, comment);
 
     return {
       kind: "spot",
       spot: {
         source: "pota",
-        source_spot_id: sourceSpotId,
+        source_spot_id: spotIdText(spot.spotId),
         content_hash: hash,
         spot_time: spotTime.toISOString(),
-        callsign: cleanCallsign(requireString(raw, "activator")),
-        spotter: cleanPotaSpotter(optionalString(raw["spotter"])),
+        callsign: cleanCallsign(spot.activator),
+        spotter: cleanPotaSpotter(spot.spotter),
         frequency_khz: frequencyKhz,
         band: bandForFrequency(frequencyKhz),
         mode,
         mode_family: modeFamily(mode),
         comment,
-        pota_reference: optionalString(raw["reference"]),
-        pota_park_name: optionalString(raw["name"]),
-        pota_location: optionalString(raw["locationDesc"]),
+        pota_reference: spot.reference,
+        pota_park_name: spot.name,
+        pota_location: spot.locationDesc,
         sota_summit_ref: null,
         wwff_reference: null,
         wwff_reference_name: null,

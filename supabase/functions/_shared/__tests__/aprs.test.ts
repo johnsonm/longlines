@@ -1,3 +1,4 @@
+import { FunctionCallError, ValidationError } from "../errors.ts";
 import { assertEquals, assertExists, assertMatch, assertRejects, assertThrows } from "@std/assert";
 import {
   APRS_PACKET_TYPES,
@@ -270,8 +271,15 @@ Deno.test(
   "runAprsPush records a failure and rethrows on a bad body or a failed insert",
   async function (): Promise<void> {
     const bad = fakeDb({});
-    await assertRejects(() => runAprsPush({ nope: 1 }, bad.db, new Date()), Error, '"lines"');
-    assertEquals(bad.calls.failure, [["aprs", 'expected a "lines" array from the relay']]);
+    await assertRejects(
+      () => runAprsPush({ nope: 1 }, bad.db, new Date()),
+      ValidationError,
+      "parseRelayBody: relay body: lines",
+    );
+    assertEquals(bad.calls.failure, [[
+      "aprs",
+      'parseRelayBody: relay body: lines: Invalid input: expected array, received undefined; (root): Unrecognized key: "nope"',
+    ]]);
 
     const full = fakeDb({ storeFails: true });
     await assertRejects(
@@ -348,7 +356,8 @@ Deno.test(
   async function (): Promise<void> {
     const fake = fakeDb({ storeFails: true });
     const db = fake.db;
-    db.recordFailure = () => Promise.reject(new Error("db down"));
+    db.recordFailure = () =>
+      Promise.reject(new FunctionCallError("db down", { cause: undefined, status: 500 }));
     const errors = await capturingErrors(() =>
       assertRejects(
         () => runAprsPush({ lines: [{ line: POSITION, received_at: RECEIVED }] }, db, new Date()),

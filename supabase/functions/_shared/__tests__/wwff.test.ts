@@ -1,4 +1,5 @@
 import { assertEquals, assertRejects, assertThrows } from "@std/assert";
+import { ValidationError } from "../errors.ts";
 import { wwff } from "../wwff.ts";
 import { contentHash } from "../hash.ts";
 import type { JsonObject } from "../types.ts";
@@ -24,8 +25,8 @@ Deno.test("wwff.parseFeed returns the array as-is", function (): void {
 });
 
 Deno.test("wwff.parseFeed throws when the body is not an array of objects", function (): void {
-  assertThrows(() => wwff.parseFeed({ error: "nope" }));
-  assertThrows(() => wwff.parseFeed([1, 2]));
+  assertThrows(() => wwff.parseFeed({ error: "nope" }), ValidationError, "wwff.parseFeed: feed");
+  assertThrows(() => wwff.parseFeed([1, 2]), ValidationError);
 });
 
 Deno.test(
@@ -157,8 +158,11 @@ Deno.test("wwff.normalize throws on an unprocessable spot", async function (): P
   await assertRejects(() =>
     wwff.normalize(Object.assign({}, spot(157369), { activator: "" }), NOW)
   );
-  await assertRejects(() =>
-    wwff.normalize(Object.assign({}, spot(157369), { spot_time: "2026-10-15 18:27:02" }), NOW)
+  await assertRejects(
+    () =>
+      wwff.normalize(Object.assign({}, spot(157369), { spot_time: "2026-10-15 18:27:02" }), NOW),
+    ValidationError,
+    "spot_time",
   );
   await assertRejects(() =>
     wwff.normalize(Object.assign({}, spot(157369), { frequency_khz: null }), NOW)

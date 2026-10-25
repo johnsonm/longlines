@@ -17,6 +17,7 @@
 // Only the header and the packet type are parsed; positions, weather and
 // telemetry stay in the stored line for later decoding.
 
+import { ValidationError } from "./errors.ts";
 import {
   assertMaxLength,
   assertPlausibleTime,
@@ -24,7 +25,7 @@ import {
   parseUtc,
 } from "./normalize.ts";
 import { recordFailureAndThrow } from "./ingest.ts";
-import { parseRelayBody, requireString, withoutNul } from "./relay_lines.ts";
+import { parseRelayBody, relayLineSchema, withoutNul } from "./relay_lines.ts";
 import type {
   AprsDb,
   AprsPacketRow,
@@ -33,6 +34,7 @@ import type {
   JsonObject,
   SpotFailure,
 } from "./types.ts";
+import { parseWith } from "./validate.ts";
 
 export const APRS_PACKET_TYPES = [
   "position",
@@ -94,20 +96,20 @@ export function parseAprsLine(line: string): AprsLine | null {
   if (!FIELD.test(sourceCall) || !FIELD.test(destination) || !hops.every((f) => FIELD.test(f))) {
     return null;
   }
-  const q = hops.findIndex((h) => Q_CONSTRUCT.test(h));
   let path = hops.join(",");
   let qConstruct: string | null = null;
   let igate: string | null = null;
-  if (q >= 0) {
-    path = hops.slice(0, q).join(",");
-    const construct = hops[q];
-    if (construct === undefined) {
-      throw new Error(`parseAprsLine: no hop at the q-construct index ${String(q)}`);
-    }
-    qConstruct = construct;
-    const next = hops[q + 1];
-    if (next !== undefined) {
-      igate = next;
+  // The first q-construct splits the hops: the path before it, the igate after it.
+  for (const hop of hops.entries()) {
+    const index = hop[0];
+    if (Q_CONSTRUCT.test(hop[1])) {
+      path = hops.slice(0, index).join(",");
+      qConstruct = hop[1];
+      const next = hops[index + 1];
+      if (next !== undefined) {
+        igate = next;
+      }
+      break;
     }
   }
   return {
@@ -161,24 +163,34 @@ export function aprsPacketType(info: string): AprsPacketType {
 }
 
 /**
- * The aprs_packets row for one relay item. Throws when the line is not a
- * packet, received_at is unusable or implausible against now, or a value would
- * fail the whole batch in Postgres.
+ * The aprs_packets row for one relay item. Throws ValidationError when the item
+ * is malformed, the line is not a packet, received_at is unusable or implausible
+ * against now, or a value would fail the whole batch in Postgres.
  */
 export function aprsPacketRow(raw: JsonObject, now: Date): AprsPacketRow {
-  const line = requireString(raw, "line");
+  const item = parseWith(relayLineSchema, raw, "aprsPacketRow: relay line");
+  const line = item.line;
   // jsonb rejects U+0000 and lone surrogates, so either would fail the whole batch in Postgres.
   if (line.includes("\u0000")) {
-    throw new Error("line contains a NUL character");
+    throw new ValidationError("line contains a NUL character", {
+      cause: undefined,
+      where: "aprsPacketRow: line",
+    });
   }
   if (!line.isWellFormed()) {
-    throw new Error("line contains a lone surrogate");
+    throw new ValidationError("line contains a lone surrogate", {
+      cause: undefined,
+      where: "aprsPacketRow: line",
+    });
   }
-  const receivedAt = parseUtc(requireString(raw, "received_at"));
+  const receivedAt = parseUtc(item.received_at);
   assertPlausibleTime(receivedAt, now, "received_at");
   const parsed = parseAprsLine(line);
   if (parsed === null) {
-    throw new Error("not an APRS packet line");
+    throw new ValidationError("not an APRS packet line", {
+      cause: undefined,
+      where: "aprsPacketRow: line",
+    });
   }
   // aprs_packets indexes source_call.
   assertMaxLength(parsed.sourceCall, MAX_CALLSIGN_LENGTH, "source call");
@@ -197,13 +209,6 @@ export function aprsPacketRow(raw: JsonObject, now: Date): AprsPacketRow {
 export type AprsPushDb =
   & AprsDb
   & Pick<IngestDb, "recordSpotFailures" | "recordSuccess" | "recordFailure">;
-
-function errorMessage(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return String(error);
-}
 
 /**
  * One relay batch: every packet into aprs_packets, unparseable lines into
@@ -227,7 +232,12 @@ export async function runAprsPush(
       try {
         rows.push(aprsPacketRow(raw, now));
       } catch (error) {
-        failures.push({ source: "aprs", error: errorMessage(error), raw_payload: withoutNul(raw) });
+        // Per line: an unparseable line becomes one ingest_failures row, and anything
+        // else fails the batch.
+        if (!(error instanceof ValidationError)) {
+          throw error;
+        }
+        failures.push({ source: "aprs", error: error.message, raw_payload: withoutNul(raw) });
       }
     }
     if (rows.length > 0) {
@@ -238,6 +248,7 @@ export async function runAprsPush(
     }
     await db.recordSuccess("aprs", stored, null);
   } catch (error) {
+    // Records the run's failure in ingest_state, then rethrows it for the handler's 500.
     return await recordFailureAndThrow(db, "aprs", error);
   }
   return {

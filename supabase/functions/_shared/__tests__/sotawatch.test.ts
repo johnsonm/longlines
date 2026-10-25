@@ -1,4 +1,5 @@
 import { assertEquals, assertRejects, assertThrows } from "@std/assert";
+import { ValidationError } from "../errors.ts";
 import { sotawatch } from "../sotawatch.ts";
 import { contentHash } from "../hash.ts";
 import type { JsonObject } from "../types.ts";
@@ -26,8 +27,8 @@ Deno.test("sotawatch.parseFeed sorts spots by id ascending", function (): void {
 });
 
 Deno.test("sotawatch.parseFeed throws when the body is not an array of objects", function (): void {
-  assertThrows(() => sotawatch.parseFeed("<html>"));
-  assertThrows(() => sotawatch.parseFeed([null]));
+  assertThrows(() => sotawatch.parseFeed("<html>"), ValidationError, "sotawatch.parseFeed: feed");
+  assertThrows(() => sotawatch.parseFeed([null]), ValidationError);
 });
 
 Deno.test(
@@ -179,8 +180,10 @@ Deno.test(
 Deno.test(
   "sotawatch.normalize rejects a spot with no activatorCallsign",
   async function (): Promise<void> {
-    await assertRejects(() =>
-      sotawatch.normalize(Object.assign({}, spot(405157), { activatorCallsign: "" }), NOW)
+    await assertRejects(
+      () => sotawatch.normalize(Object.assign({}, spot(405157), { activatorCallsign: "" }), NOW),
+      ValidationError,
+      "activatorCallsign: missing or empty",
     );
   },
 );
@@ -191,5 +194,16 @@ Deno.test(
     await assertRejects(() =>
       sotawatch.normalize(Object.assign({}, spot(405157), { frequency: null }), NOW)
     );
+  },
+);
+
+Deno.test(
+  "sotawatch.normalize treats a null or missing type as NORMAL",
+  async function (): Promise<void> {
+    const base = Object.assign({}, spot(405157), { type: null });
+    const missing: JsonObject = Object.assign({}, base);
+    delete missing["type"];
+    assertEquals((await sotawatch.normalize(base, NOW)).kind, "spot");
+    assertEquals((await sotawatch.normalize(missing, NOW)).kind, "spot");
   },
 );

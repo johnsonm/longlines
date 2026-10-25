@@ -1,4 +1,5 @@
 import { assertEquals, assertRejects, assertThrows } from "@std/assert";
+import { FunctionCallError, ValidationError } from "../errors.ts";
 import {
   createAprsDb,
   createArchiveDb,
@@ -77,7 +78,7 @@ Deno.test(
 );
 
 Deno.test(
-  "matchPendingSpots returns the matcher's count, or 0 for a non-number",
+  "matchPendingSpots returns the matcher's count, or 0 for null",
   async function (): Promise<void> {
     const a = fakeSupabase({ rpc: { match_pending_spots: { data: 4 } } });
     assertEquals(await createIngestDb(a.client).matchPendingSpots(), 4);
@@ -100,7 +101,12 @@ Deno.test(
     });
     const client = fake.client;
     const db = createIngestDb(client);
-    await assertRejects(() => db.getLastEpoch("pota"), Error, "ingest_state read failed: boom");
+    const error = await assertRejects(
+      () => db.getLastEpoch("pota"),
+      FunctionCallError,
+      "ingest_state read failed: boom",
+    );
+    assertEquals(error.cause, boom.error);
     await assertRejects(() => db.ingestSpots([]), Error, "ingest_spots failed: boom");
     await assertRejects(() => db.recordSpotFailures([]), Error, "ingest_failures insert failed");
     await assertRejects(() => db.recordSuccess("pota", 0, null), Error, "record_ingest_success");
@@ -359,6 +365,59 @@ Deno.test(
       () => failing.repointSlice(slice!, { object_path: "x", bytes: 1 }),
       Error,
       "archive_repoint_slice failed: boom",
+    );
+  },
+);
+
+Deno.test(
+  "a result of the wrong shape throws ValidationError naming the RPC",
+  async function (): Promise<void> {
+    const fake = fakeSupabase({
+      from: { ingest_state: { data: { last_epoch: 7 } } },
+      rpc: {
+        ingest_spots: { data: [{ id: "1", source: "pota", source_spot_id: "9" }] },
+        match_pending_spots: { data: "3" },
+        watched_among: { data: { callsign: "K1ABC" } },
+        archive_pending_slices: { data: [{ slice_start: 1 }] },
+        archive_columns: { data: [{ row_count: 1, columns: { callsign: "K1ABC" } }] },
+        archive_ndjson_slices: { data: [{ source: "nope" }] },
+        archive_repoint_slice: { data: "yes" },
+      },
+    });
+    const client = fake.client;
+    const ingest = createIngestDb(client);
+    await assertRejects(() => ingest.getLastEpoch("pota"), ValidationError, "getLastEpoch");
+    await assertRejects(() => ingest.ingestSpots([]), ValidationError, "ingest_spots result");
+    await assertRejects(() => ingest.matchPendingSpots(), ValidationError, "match_pending_spots");
+    await assertRejects(
+      () => createWatchlistDb(client).watchedAmong("rbn", ["K1ABC"]),
+      ValidationError,
+      "watched_among result",
+    );
+    const archive = createArchiveDb(client);
+    await assertRejects(
+      () => archive.pendingSlices("rbn", new Date(), 1),
+      ValidationError,
+      "archive_pending_slices result",
+    );
+    await assertRejects(
+      () => archive.sliceColumns("rbn", { slice_start: "a", slice_end: "b" }),
+      ValidationError,
+      "columns.callsign",
+    );
+    const convert = createConvertDb(client);
+    await assertRejects(() => convert.ndjsonSlices(null, 1), ValidationError, "0.source");
+    await assertRejects(
+      () =>
+        convert.repointSlice({
+          source: "rbn",
+          slice_start: "a",
+          slice_end: "b",
+          row_count: 1,
+          object_path: "p",
+        }, { object_path: "q", bytes: 1 }),
+      ValidationError,
+      "archive_repoint_slice result",
     );
   },
 );

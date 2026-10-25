@@ -1,4 +1,5 @@
 import { assertEquals, assertThrows } from "@std/assert";
+import { ValidationError } from "../errors.ts";
 import {
   assertMaxLength,
   assertPlausibleTime,
@@ -12,8 +13,12 @@ import {
   isTooOld,
   MAX_CALLSIGN_LENGTH,
   MAX_SPOT_ID_LENGTH,
+  optionalTextSchema,
   parseKhz,
   parseUtc,
+  requiredTextSchema,
+  spotIdSchema,
+  spotIdText,
 } from "../normalize.ts";
 import type { NormalizedSpot } from "../types.ts";
 
@@ -95,7 +100,12 @@ Deno.test("parseKhz converts a MHz number to kHz", function (): void {
 });
 
 Deno.test("parseKhz throws on missing, non-numeric or non-positive input", function (): void {
-  assertThrows(() => parseKhz(null, "mhz"));
+  const error = assertThrows(
+    () => parseKhz(null, "mhz"),
+    ValidationError,
+    "invalid frequency: null",
+  );
+  assertEquals(error.where, "parseKhz: frequency");
   assertThrows(() => parseKhz("abc", "khz"));
   assertThrows(() => parseKhz(0, "khz"));
   assertThrows(() => parseKhz(-7, "mhz"));
@@ -118,8 +128,34 @@ Deno.test("parseUtc keeps an explicit offset", function (): void {
 });
 
 Deno.test("parseUtc throws on missing or unparseable input", function (): void {
-  assertThrows(() => parseUtc(null));
-  assertThrows(() => parseUtc("not a date"));
+  assertThrows(() => parseUtc(null), ValidationError, "invalid timestamp: null");
+  assertThrows(() => parseUtc("not a date"), ValidationError, "invalid timestamp");
+});
+
+Deno.test("requiredTextSchema accepts only a string with something besides whitespace", function (): void {
+  assertEquals(requiredTextSchema.safeParse(" W1AW ").data, " W1AW ");
+  assertEquals(requiredTextSchema.safeParse(" \t").success, false);
+  assertEquals(requiredTextSchema.safeParse(3).success, false);
+  assertEquals(requiredTextSchema.safeParse(undefined).success, false);
+});
+
+Deno.test("optionalTextSchema reads anything but a string as null and never rejects", function (): void {
+  assertEquals(optionalTextSchema.parse("x"), "x");
+  assertEquals(optionalTextSchema.parse(""), "");
+  assertEquals(optionalTextSchema.parse(null), null);
+  assertEquals(optionalTextSchema.parse(undefined), null);
+  assertEquals(optionalTextSchema.parse(42), null);
+  assertEquals(optionalTextSchema.parse({ a: 1 }), null);
+});
+
+Deno.test("spotIdSchema takes a finite number or a non-blank string", function (): void {
+  assertEquals(spotIdSchema.parse(12), 12);
+  assertEquals(spotIdSchema.parse(" 12 "), " 12 ");
+  assertEquals(spotIdSchema.safeParse("  ").success, false);
+  assertEquals(spotIdSchema.safeParse(null).success, false);
+  assertEquals(spotIdSchema.safeParse(Number.POSITIVE_INFINITY).success, false);
+  assertEquals(spotIdText(12), "12");
+  assertEquals(spotIdText(" 12 "), "12");
 });
 
 Deno.test("isTooOld compares spot time to now with a max age", function (): void {
@@ -132,7 +168,12 @@ Deno.test("isTooOld compares spot time to now with a max age", function (): void
 
 Deno.test("assertMaxLength allows the limit and throws past it", function (): void {
   assertMaxLength("x".repeat(4), 4, "callsign");
-  assertThrows(() => assertMaxLength("x".repeat(5), 4, "callsign"), Error, "callsign is 5");
+  const error = assertThrows(
+    () => assertMaxLength("x".repeat(5), 4, "callsign"),
+    ValidationError,
+    "callsign is 5",
+  );
+  assertEquals(error.where, "assertMaxLength: callsign");
 });
 
 Deno.test(
