@@ -264,7 +264,7 @@ Deno.test(
   "runArchive asks every source for slices that ended two hours ago, POTA first",
   async function (): Promise<void> {
     const fake = fakes();
-    await runArchive(fake.db, fake.store, NOW);
+    await runArchive(fake.db, fake.store, NOW, ARCHIVE_ORDER);
     const cutoff = new Date(NOW.getTime() - LAG_MS).toISOString();
     assertEquals(fake.calls.pending.map((p) => [p[0], p[1]]), [
       ["pota", cutoff],
@@ -281,7 +281,7 @@ Deno.test(
   async function (): Promise<void> {
     const s = slice("2026-10-11T14:10:00Z", 10);
     const fake = fakes({ pending: { rbn: [s] }, rows: () => 3 });
-    const summary = await runArchive(fake.db, fake.store, NOW);
+    const summary = await runArchive(fake.db, fake.store, NOW, ARCHIVE_ORDER);
     const path = "rbn/year=2026/month=10/day=11/1410.parquet";
     assertEquals(fake.calls.events, [`upload ${path}`, `log rbn ${s.slice_start}`]);
     const rows = await readParquet(fake.calls.uploads[0]!.bytes);
@@ -303,7 +303,7 @@ Deno.test(
   async function (): Promise<void> {
     const s = slice("2026-10-11T03:00:00Z", 60);
     const fake = fakes({ pending: { sotawatch: [s] }, rows: () => 0 });
-    const summary = await runArchive(fake.db, fake.store, NOW);
+    const summary = await runArchive(fake.db, fake.store, NOW, ARCHIVE_ORDER);
     assertEquals(fake.calls.uploads, []);
     assertEquals(fake.calls.logs, [{
       source: "sotawatch",
@@ -327,7 +327,7 @@ Deno.test(
       pending: { rbn: slices },
       rows: () => MAX_ROWS_PER_RUN - 1,
     });
-    const summary = await runArchive(fake.db, fake.store, NOW);
+    const summary = await runArchive(fake.db, fake.store, NOW, ARCHIVE_ORDER);
     // The first slice stays under the budget, the second crosses it, the third is left for the next run.
     assertEquals(fake.calls.uploads.length, 2);
     assertEquals(summary.rows, 2 * (MAX_ROWS_PER_RUN - 1));
@@ -344,7 +344,7 @@ Deno.test(
       pending: { pota: [bad, next], rbn: [good] },
       failUpload: (path) => path.startsWith("pota/"),
     });
-    const summary = await runArchive(fake.db, fake.store, NOW);
+    const summary = await runArchive(fake.db, fake.store, NOW, ARCHIVE_ORDER);
     assertEquals(fake.calls.logs.map((l) => `${l.source} ${l.slice_start}`), [
       `rbn ${good.slice_start}`,
     ]);
@@ -364,7 +364,7 @@ Deno.test(
       sliceColumns: () => Promise.resolve({ row_count: 2, columns: null }),
       logArchive: fake.db.logArchive,
     };
-    const summary = await runArchive(broken, fake.store, NOW);
+    const summary = await runArchive(broken, fake.store, NOW, ARCHIVE_ORDER);
     assertEquals([fake.calls.uploads, fake.calls.logs], [[], []]);
     assertEquals(summary.errors.length, 1);
     assertEquals(summary.errors[0]!.includes("expected 2 values"), true);
@@ -385,7 +385,7 @@ Deno.test(
       sliceColumns: fake.db.sliceColumns,
       logArchive: fake.db.logArchive,
     };
-    const summary = await runArchive(failing, fake.store, NOW);
+    const summary = await runArchive(failing, fake.store, NOW, ARCHIVE_ORDER);
     assertEquals(summary.errors, ["pota: db down"]);
     assertEquals(summary.slices, 1);
   },

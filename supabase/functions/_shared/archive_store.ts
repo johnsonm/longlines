@@ -94,14 +94,14 @@ async function naming<T>(what: string, path: string, run: () => Promise<T>): Pro
  */
 export function createArchiveObjectStore(config: S3Config): ArchiveObjectStore {
   return {
-    read: (path) => naming("read", path, () => getObject(config, path)),
-    size: (path) => naming("size check", path, () => headObject(config, path)),
-    remove: (path) => naming("delete", path, () => deleteObject(config, path)),
+    read: (path) => naming("read", path, () => getObject(config, path, new Date())),
+    size: (path) => naming("size check", path, () => headObject(config, path, new Date())),
+    remove: (path) => naming("delete", path, () => deleteObject(config, path, new Date())),
     upload: (path, bytes) =>
       naming(
         "upload",
         path,
-        () => putObject(config, path, bytes, "application/vnd.apache.parquet"),
+        () => putObject(config, path, bytes, "application/vnd.apache.parquet", new Date()),
       ),
   };
 }
