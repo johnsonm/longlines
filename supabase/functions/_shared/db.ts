@@ -145,7 +145,7 @@ export async function loadCty(client: SupabaseClient, data: CtyData): Promise<vo
 
 /** LicenseDb over the fcc_license_load_* RPCs. */
 export function createLicenseDb(client: SupabaseClient): LicenseDb {
-  async function call<T>(fn: string, args?: Record<string, unknown>): Promise<T> {
+  async function call<T>(fn: string, args: Record<string, unknown> | undefined): Promise<T> {
     const result = await client.rpc(fn, args);
     if (result.error !== null) {
       throw new Error(`${fn} failed: ${result.error.message}`);
@@ -153,7 +153,7 @@ export function createLicenseDb(client: SupabaseClient): LicenseDb {
     return result.data as T;
   }
   return {
-    loadStatus: () => call<LicenseLoad | null>("fcc_license_load_status"),
+    loadStatus: () => call<LicenseLoad | null>("fcc_license_load_status", undefined),
     beginLoad: (version) => call<number>("fcc_license_load_begin", { p_version: version }),
     stageRows: (load, kind, rows) =>
       call<number>("fcc_license_load_rows", { p_load: load, p_kind: kind, p_rows: rows }),
