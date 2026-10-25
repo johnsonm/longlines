@@ -1,10 +1,14 @@
 // supabase-js implementation of IngestDb. Every write goes through the
 // security-definer RPCs defined in supabase/migrations/*_ingest_functions.sql
-// except the dead-letter insert, which is a plain table insert.
+// except the dead-letter insert, which is a plain table insert. Every result is
+// parsed against the shape its SQL function returns.
 
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { type PostgrestError, SupabaseClient } from "@supabase/supabase-js";
+import { z } from "zod";
 import type { CtyData } from "./cty.ts";
-import type { LicenseLoad } from "./uls.ts";
+import { ConfigError, FunctionCallError } from "./errors.ts";
+import type { LicenseLoad, UlsCounts, UlsKind, UlsRow } from "./uls.ts";
+import { sourceSchema } from "./types.ts";
 import type {
   AprsDb,
   AprsPacketRow,
@@ -12,6 +16,7 @@ import type {
   ArchiveDb,
   ArchiveLogEntry,
   ArchiveSlice,
+  ArchiveSliceColumns,
   ConvertCursor,
   ConvertDb,
   IngestDb,
@@ -21,22 +26,131 @@ import type {
   NormalizedSpot,
   RbnDb,
   RbnSpotRow,
+  RepointTarget,
   Source,
   SpotFailure,
   WatchlistDb,
 } from "./types.ts";
+import { parseWith } from "./validate.ts";
+
+// The schemas below are database results: loose, since a row or a jsonb object can
+// gain keys across deploys. Each names the SQL that produces it.
+
+/** The ingest_state row getLastEpoch selects. */
+interface EpochRow {
+  last_epoch: string | null;
+}
+
+const epochRowSchema: z.ZodType<EpochRow> = z.looseObject({ last_epoch: z.string().nullable() });
+
+// ingest_spots: returns table (id bigint, source text, source_spot_id text); null for no rows.
+const insertedSpotSchema: z.ZodType<InsertedSpot> = z.looseObject({
+  id: z.number(),
+  source: sourceSchema,
+  source_spot_id: z.string(),
+});
+const insertedSpotsSchema: z.ZodType<InsertedSpot[] | null> = z
+  .array(insertedSpotSchema)
+  .nullable();
+
+// match_pending_spots, ingest_rbn_spots, ingest_aprs_packets: returns int; null reads as 0.
+const countSchema: z.ZodType<number | null> = z.number().nullable();
+
+// watched_among: returns setof text. Null elements are dropped, as before.
+const callsignsSchema: z.ZodType<Array<string | null> | null> = z
+  .array(z.string().nullable())
+  .nullable();
+
+// fcc_license_load_status: returns the newest load as jsonb, or null before the first.
+const licenseLoadSchema: z.ZodType<LicenseLoad | null> = z
+  .looseObject({
+    id: z.number(),
+    version: z.string(),
+    status: z.enum(["loading", "ready", "applied", "failed"]),
+    started_at: z.string(),
+  })
+  .nullable();
+
+// fcc_license_load_begin returns bigint, fcc_license_load_rows integer.
+const loadNumberSchema: z.ZodType<number> = z.number();
+
+// archive_pending_slices: returns table (slice_start timestamptz, slice_end timestamptz).
+const archiveSlicesSchema: z.ZodType<ArchiveSlice[] | null> = z
+  .array(z.looseObject({ slice_start: z.string(), slice_end: z.string() }))
+  .nullable();
+
+/**
+ * A row of archive_columns: returns table (row_count int, columns json). The count
+ * may arrive as a number or as text, and Number() reads either, as it always has.
+ */
+interface SliceColumnsRow {
+  row_count?: number | string | null;
+  columns?: ArchiveColumns | null;
+}
+
+// A column's values are whatever its SQL type encodes as in JSON; ARCHIVE_SCHEMAS
+// (archive.ts) types each column when the slice is encoded.
+const archiveColumnsSchema: z.ZodType<ArchiveColumns> = z.record(z.string(), z.array(z.json()));
+const sliceColumnsRowsSchema: z.ZodType<SliceColumnsRow[] | null> = z
+  .array(
+    z.looseObject({
+      row_count: z.union([z.number(), z.string()]).nullable().optional(),
+      columns: archiveColumnsSchema.nullable().optional(),
+    }),
+  )
+  .nullable();
+
+/** A row of archive_ndjson_slices, before its count is read as a number. */
+interface NdjsonSliceRow {
+  source: Source;
+  slice_start: string;
+  slice_end: string;
+  row_count: number | string;
+  object_path: string;
+}
+
+// archive_ndjson_slices: returns table (source text, slice_start timestamptz,
+// slice_end timestamptz, row_count int, object_path text).
+const ndjsonSliceRowsSchema: z.ZodType<NdjsonSliceRow[] | null> = z
+  .array(
+    z.looseObject({
+      source: sourceSchema,
+      slice_start: z.string(),
+      slice_end: z.string(),
+      row_count: z.union([z.number(), z.string()]),
+      object_path: z.string(),
+    }),
+  )
+  .nullable();
+
+// archive_repoint_slice: returns boolean.
+const repointedSchema: z.ZodType<boolean | null> = z.boolean().nullable();
 
 function requireEnv(name: string): string {
   const value = Deno.env.get(name);
   if (value === undefined || value === "") {
-    throw new Error(`missing environment variable ${name}`);
+    throw new ConfigError(`missing environment variable ${name}`, { cause: undefined });
   }
   return value;
 }
 
+/** The error for a failed PostgREST call: "<what> failed: <message>", with the HTTP status. */
+function callFailed(what: string, error: PostgrestError, status: number): FunctionCallError {
+  return new FunctionCallError(`${what} failed: ${error.message}`, { cause: error, status });
+}
+
+/** A count an RPC returned, or 0 when it returned null. */
+function countOrZero(count: number | null): number {
+  if (count === null) {
+    return 0;
+  }
+  return count;
+}
+
 /** Service-role client. SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are injected by the Edge runtime. */
 export function createServiceClient(): SupabaseClient {
-  return createClient(requireEnv("SUPABASE_URL"), requireEnv("SUPABASE_SERVICE_ROLE_KEY"), {
+  // What createClient does, typed as the plain SupabaseClient this returns.
+  return new SupabaseClient(requireEnv("SUPABASE_URL"), requireEnv("SUPABASE_SERVICE_ROLE_KEY"), {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 }
@@ -50,29 +164,29 @@ export function createIngestDb(client: SupabaseClient): IngestDb {
         .eq("source", source)
         .single();
       if (result.error !== null) {
-        throw new Error(`ingest_state read failed: ${result.error.message}`);
+        throw callFailed("ingest_state read", result.error, result.status);
       }
-      if (typeof result.data.last_epoch === "string") {
-        return result.data.last_epoch;
-      }
-      return null;
+      const data: unknown = result.data;
+      return parseWith(epochRowSchema, data, "getLastEpoch: ingest_state row").last_epoch;
     },
 
     async ingestSpots(spots: NormalizedSpot[]): Promise<InsertedSpot[]> {
       const result = await client.rpc("ingest_spots", { p_spots: spots });
       if (result.error !== null) {
-        throw new Error(`ingest_spots failed: ${result.error.message}`);
+        throw callFailed("ingest_spots", result.error, result.status);
       }
-      if (result.data === null || result.data === undefined) {
+      const data: unknown = result.data;
+      const rows = parseWith(insertedSpotsSchema, data, "ingestSpots: ingest_spots result");
+      if (rows === null) {
         return [];
       }
-      return result.data as InsertedSpot[];
+      return rows;
     },
 
     async recordSpotFailures(failures: SpotFailure[]): Promise<void> {
       const result = await client.from("ingest_failures").insert(failures);
       if (result.error !== null) {
-        throw new Error(`ingest_failures insert failed: ${result.error.message}`);
+        throw callFailed("ingest_failures insert", result.error, result.status);
       }
     },
 
@@ -83,7 +197,7 @@ export function createIngestDb(client: SupabaseClient): IngestDb {
         p_epoch: epoch,
       });
       if (result.error !== null) {
-        throw new Error(`record_ingest_success failed: ${result.error.message}`);
+        throw callFailed("record_ingest_success", result.error, result.status);
       }
     },
 
@@ -93,19 +207,19 @@ export function createIngestDb(client: SupabaseClient): IngestDb {
         p_error: message,
       });
       if (result.error !== null) {
-        throw new Error(`record_ingest_failure failed: ${result.error.message}`);
+        throw callFailed("record_ingest_failure", result.error, result.status);
       }
     },
 
     async matchPendingSpots(): Promise<number> {
       const result = await client.rpc("match_pending_spots");
       if (result.error !== null) {
-        throw new Error(`match_pending_spots failed: ${result.error.message}`);
+        throw callFailed("match_pending_spots", result.error, result.status);
       }
-      if (typeof result.data === "number") {
-        return result.data;
-      }
-      return 0;
+      const data: unknown = result.data;
+      return countOrZero(
+        parseWith(countSchema, data, "matchPendingSpots: match_pending_spots result"),
+      );
     },
   };
 }
@@ -121,12 +235,19 @@ export function createWatchlistDb(client: SupabaseClient): WatchlistDb {
         p_callsigns: callsigns,
       });
       if (result.error !== null) {
-        throw new Error(`watched_among failed: ${result.error.message}`);
+        throw callFailed("watched_among", result.error, result.status);
       }
-      if (Array.isArray(result.data)) {
-        return result.data.filter((c): c is string => typeof c === "string");
+      const data: unknown = result.data;
+      const returned = parseWith(callsignsSchema, data, "watchedAmong: watched_among result");
+      const watched: string[] = [];
+      if (returned !== null) {
+        for (const callsign of returned) {
+          if (callsign !== null) {
+            watched.push(callsign);
+          }
+        }
       }
-      return [];
+      return watched;
     },
   };
 }
@@ -139,29 +260,44 @@ export async function loadCty(client: SupabaseClient, data: CtyData): Promise<vo
     p_prefixes: data.prefixes,
   });
   if (result.error !== null) {
-    throw new Error(`load_cty failed: ${result.error.message}`);
+    throw callFailed("load_cty", result.error, result.status);
   }
 }
 
 /** LicenseDb over the fcc_license_load_* RPCs. */
 export function createLicenseDb(client: SupabaseClient): LicenseDb {
-  async function call<T>(fn: string, args: Record<string, unknown> | undefined): Promise<T> {
+  /** Calls the RPC and returns its result unvalidated; throws when the call fails. */
+  async function call(fn: string, args: Record<string, unknown> | undefined): Promise<unknown> {
     const result = await client.rpc(fn, args);
     if (result.error !== null) {
-      throw new Error(`${fn} failed: ${result.error.message}`);
+      throw callFailed(fn, result.error, result.status);
     }
-    return result.data as T;
+    const data: unknown = result.data;
+    return data;
   }
   return {
-    loadStatus: () => call<LicenseLoad | null>("fcc_license_load_status", undefined),
-    beginLoad: (version) => call<number>("fcc_license_load_begin", { p_version: version }),
-    stageRows: (load, kind, rows) =>
-      call<number>("fcc_license_load_rows", { p_load: load, p_kind: kind, p_rows: rows }),
-    async finishLoad(load, counts): Promise<void> {
-      await call<null>("fcc_license_load_finish", { p_load: load, p_counts: counts });
+    async loadStatus(): Promise<LicenseLoad | null> {
+      const data = await call("fcc_license_load_status", undefined);
+      return parseWith(licenseLoadSchema, data, "loadStatus: fcc_license_load_status result");
     },
-    async abandonLoad(load, error): Promise<void> {
-      await call<null>("fcc_license_load_abandon", { p_load: load, p_error: error });
+    async beginLoad(version: string): Promise<number> {
+      const data = await call("fcc_license_load_begin", { p_version: version });
+      return parseWith(loadNumberSchema, data, "beginLoad: fcc_license_load_begin result");
+    },
+    async stageRows(load: number, kind: UlsKind, rows: UlsRow[]): Promise<number> {
+      const data = await call("fcc_license_load_rows", {
+        p_load: load,
+        p_kind: kind,
+        p_rows: rows,
+      });
+      return parseWith(loadNumberSchema, data, "stageRows: fcc_license_load_rows result");
+    },
+    // These two return void, so there is no result to read.
+    async finishLoad(load: number, counts: UlsCounts): Promise<void> {
+      await call("fcc_license_load_finish", { p_load: load, p_counts: counts });
+    },
+    async abandonLoad(load: number, error: string): Promise<void> {
+      await call("fcc_license_load_abandon", { p_load: load, p_error: error });
     },
   };
 }
@@ -171,12 +307,10 @@ export function createRbnDb(client: SupabaseClient): RbnDb {
     async ingestRbnSpots(rows: RbnSpotRow[]): Promise<number> {
       const result = await client.rpc("ingest_rbn_spots", { p_rows: rows });
       if (result.error !== null) {
-        throw new Error(`ingest_rbn_spots failed: ${result.error.message}`);
+        throw callFailed("ingest_rbn_spots", result.error, result.status);
       }
-      if (typeof result.data === "number") {
-        return result.data;
-      }
-      return 0;
+      const data: unknown = result.data;
+      return countOrZero(parseWith(countSchema, data, "ingestRbnSpots: ingest_rbn_spots result"));
     },
   };
 }
@@ -186,12 +320,12 @@ export function createAprsDb(client: SupabaseClient): AprsDb {
     async ingestAprsPackets(rows: AprsPacketRow[]): Promise<number> {
       const result = await client.rpc("ingest_aprs_packets", { p_rows: rows });
       if (result.error !== null) {
-        throw new Error(`ingest_aprs_packets failed: ${result.error.message}`);
+        throw callFailed("ingest_aprs_packets", result.error, result.status);
       }
-      if (typeof result.data === "number") {
-        return result.data;
-      }
-      return 0;
+      const data: unknown = result.data;
+      return countOrZero(
+        parseWith(countSchema, data, "ingestAprsPackets: ingest_aprs_packets result"),
+      );
     },
   };
 }
@@ -205,35 +339,37 @@ export function createArchiveDb(client: SupabaseClient): ArchiveDb {
         p_limit: limit,
       });
       if (result.error !== null) {
-        throw new Error(`archive_pending_slices failed: ${result.error.message}`);
+        throw callFailed("archive_pending_slices", result.error, result.status);
       }
-      if (result.data === null || result.data === undefined) {
+      const data: unknown = result.data;
+      const slices = parseWith(
+        archiveSlicesSchema,
+        data,
+        "pendingSlices: archive_pending_slices result",
+      );
+      if (slices === null) {
         return [];
       }
-      return result.data as ArchiveSlice[];
+      return slices;
     },
 
-    async sliceColumns(
-      source: Source,
-      slice: ArchiveSlice,
-    ): Promise<{ row_count: number; columns: ArchiveColumns | null }> {
+    async sliceColumns(source: Source, slice: ArchiveSlice): Promise<ArchiveSliceColumns> {
       const result = await client.rpc("archive_columns", {
         p_source: source,
         p_from: slice.slice_start,
         p_to: slice.slice_end,
       });
       if (result.error !== null) {
-        throw new Error(`archive_columns failed: ${result.error.message}`);
+        throw callFailed("archive_columns", result.error, result.status);
       }
-      const rows = result.data as
-        | Array<{ row_count: number; columns: ArchiveColumns | null }>
-        | null;
-      // row_count is bigint in SQL; Number() keeps the result a number whatever the client returns.
-      let rowCount: unknown = 0;
+      const data: unknown = result.data;
+      const rows = parseWith(sliceColumnsRowsSchema, data, "sliceColumns: archive_columns result");
+      // An empty slice has no row, or a row with neither field.
+      let rowCount: number | string = 0;
       let columns: ArchiveColumns | null = null;
-      if (rows !== null && rows !== undefined) {
+      if (rows !== null) {
         const row = rows[0];
-        if (row !== null && row !== undefined) {
+        if (row !== undefined) {
           if (row.row_count !== null && row.row_count !== undefined) {
             rowCount = row.row_count;
           }
@@ -255,7 +391,7 @@ export function createArchiveDb(client: SupabaseClient): ArchiveDb {
         p_object_path: entry.object_path,
       });
       if (result.error !== null) {
-        throw new Error(`log_archive failed: ${result.error.message}`);
+        throw callFailed("log_archive", result.error, result.status);
       }
     },
   };
@@ -267,13 +403,9 @@ export function createConvertDb(client: SupabaseClient): ConvertDb {
     async ndjsonSlices(after: ConvertCursor | null, limit: number): Promise<NdjsonSlice[]> {
       let afterStart: string | null = null;
       let afterSource: Source | null = null;
-      if (after !== null && after !== undefined) {
-        if (after.slice_start !== null && after.slice_start !== undefined) {
-          afterStart = after.slice_start;
-        }
-        if (after.source !== null && after.source !== undefined) {
-          afterSource = after.source;
-        }
+      if (after !== null) {
+        afterStart = after.slice_start;
+        afterSource = after.source;
       }
       const result = await client.rpc("archive_ndjson_slices", {
         p_after_start: afterStart,
@@ -281,24 +413,32 @@ export function createConvertDb(client: SupabaseClient): ConvertDb {
         p_limit: limit,
       });
       if (result.error !== null) {
-        throw new Error(`archive_ndjson_slices failed: ${result.error.message}`);
+        throw callFailed("archive_ndjson_slices", result.error, result.status);
       }
-      if (result.data === null || result.data === undefined) {
-        return [];
-      }
+      const data: unknown = result.data;
+      const rows = parseWith(
+        ndjsonSliceRowsSchema,
+        data,
+        "ndjsonSlices: archive_ndjson_slices result",
+      );
       const slices: NdjsonSlice[] = [];
-      for (const s of result.data as NdjsonSlice[]) {
-        // row_count is bigint in SQL; Number() keeps it a number whatever the client returns.
-        const rowCount: unknown = s.row_count;
-        slices.push(Object.assign({}, s, { row_count: Number(rowCount) }));
+      if (rows === null) {
+        return slices;
+      }
+      for (const row of rows) {
+        slices.push({
+          source: row.source,
+          slice_start: row.slice_start,
+          slice_end: row.slice_end,
+          // Number() reads the count whether it arrives as a number or as text.
+          row_count: Number(row.row_count),
+          object_path: row.object_path,
+        });
       }
       return slices;
     },
 
-    async repointSlice(
-      slice: NdjsonSlice,
-      to: { object_path: string; bytes: number },
-    ): Promise<boolean> {
+    async repointSlice(slice: NdjsonSlice, to: RepointTarget): Promise<boolean> {
       const result = await client.rpc("archive_repoint_slice", {
         p_source: slice.source,
         p_slice_start: slice.slice_start,
@@ -308,9 +448,15 @@ export function createConvertDb(client: SupabaseClient): ConvertDb {
         p_bytes: to.bytes,
       });
       if (result.error !== null) {
-        throw new Error(`archive_repoint_slice failed: ${result.error.message}`);
+        throw callFailed("archive_repoint_slice", result.error, result.status);
       }
-      return result.data === true;
+      const data: unknown = result.data;
+      const repointed = parseWith(
+        repointedSchema,
+        data,
+        "repointSlice: archive_repoint_slice result",
+      );
+      return repointed === true;
     },
   };
 }
