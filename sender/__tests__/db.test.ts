@@ -19,9 +19,25 @@ import {
   withTimeout,
 } from "../db.ts";
 
-const DATABASE_URL = Deno.env.get("SENDER_TEST_DATABASE_URL")?.trim() || undefined;
+/** SENDER_TEST_DATABASE_URL, trimmed; unset or blank is undefined. */
+function testDatabaseUrl(): string | undefined {
+  const value = Deno.env.get("SENDER_TEST_DATABASE_URL");
+  if (value === undefined) {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  if (trimmed === "") {
+    return undefined;
+  }
+  return trimmed;
+}
 
-Deno.test("SENDER_RPCS is exactly the sender role's allowlist", () => {
+const DATABASE_URL = testDatabaseUrl();
+
+/** Does nothing: a promise executor that never settles, or a log that drops every line. */
+function noop(): void {}
+
+Deno.test("SENDER_RPCS is exactly the sender role's allowlist", function (): void {
   assertEquals(Object.keys(SENDER_RPCS).sort(), [
     "claim_deliveries",
     "delivery_queue_stats",
@@ -34,7 +50,7 @@ Deno.test("SENDER_RPCS is exactly the sender role's allowlist", () => {
   ]);
 });
 
-Deno.test("rpcStatement casts the heartbeat's times and memory", () => {
+Deno.test("rpcStatement casts the heartbeat's times and memory", function (): void {
   assertEquals(
     rpcStatement("record_sender_heartbeat", {
       p_started_at: "2026-10-21T12:00:00.000Z",
@@ -53,47 +69,57 @@ Deno.test("rpcStatement casts the heartbeat's times and memory", () => {
   );
 });
 
-Deno.test("rpcStatement names and casts every parameter in the function's order", () => {
-  assertEquals(rpcStatement("claim_deliveries", { p_limit: 200, p_vt: 60 }), {
-    text: "select * from public.claim_deliveries(p_limit => $1::int, p_vt => $2::int)",
-    params: [{ value: 200, type: "int" }, { value: 60, type: "int" }],
-  });
-  assertEquals(
-    rpcStatement("mark_deliveries_failed", {
-      p_error: "HTTP 500",
-      p_delay_seconds: 30,
-      p_msg_ids: [10],
-      p_delivery_ids: [1],
-    }),
-    {
-      text: "select * from public.mark_deliveries_failed(p_delivery_ids => $1::bigint[], " +
-        "p_msg_ids => $2::bigint[], p_error => $3::text, p_delay_seconds => $4::int)",
-      params: [
-        { value: [1], type: "bigint[]" },
-        { value: [10], type: "bigint[]" },
-        { value: "HTTP 500", type: "text" },
-        { value: 30, type: "int" },
-      ],
-    },
-  );
-  assertEquals(rpcStatement("delivery_queue_stats", {}), {
-    text: "select * from public.delivery_queue_stats()",
-    params: [],
-  });
-  // A missing argument (throttle_destination without Retry-After) is null.
-  const throttle = rpcStatement("throttle_destination", { p_destination_id: "u", p_msg_ids: [1] });
-  assertEquals(throttle.params[2], { value: null, type: "int" });
-  assertEquals(
-    rpcStatement("throttle_destination", { p_destination_id: "u", p_msg_ids: [1], p_seconds: null })
-      .params[2],
-    {
-      value: null,
-      type: "int",
-    },
-  );
-});
+Deno.test(
+  "rpcStatement names and casts every parameter in the function's order",
+  function (): void {
+    assertEquals(rpcStatement("claim_deliveries", { p_limit: 200, p_vt: 60 }), {
+      text: "select * from public.claim_deliveries(p_limit => $1::int, p_vt => $2::int)",
+      params: [{ value: 200, type: "int" }, { value: 60, type: "int" }],
+    });
+    assertEquals(
+      rpcStatement("mark_deliveries_failed", {
+        p_error: "HTTP 500",
+        p_delay_seconds: 30,
+        p_msg_ids: [10],
+        p_delivery_ids: [1],
+      }),
+      {
+        text: "select * from public.mark_deliveries_failed(p_delivery_ids => $1::bigint[], " +
+          "p_msg_ids => $2::bigint[], p_error => $3::text, p_delay_seconds => $4::int)",
+        params: [
+          { value: [1], type: "bigint[]" },
+          { value: [10], type: "bigint[]" },
+          { value: "HTTP 500", type: "text" },
+          { value: 30, type: "int" },
+        ],
+      },
+    );
+    assertEquals(rpcStatement("delivery_queue_stats", {}), {
+      text: "select * from public.delivery_queue_stats()",
+      params: [],
+    });
+    // A missing argument (throttle_destination without Retry-After) is null.
+    const throttle = rpcStatement("throttle_destination", {
+      p_destination_id: "u",
+      p_msg_ids: [1],
+    });
+    assertEquals(throttle.params[2], { value: null, type: "int" });
+    assertEquals(
+      rpcStatement("throttle_destination", {
+        p_destination_id: "u",
+        p_msg_ids: [1],
+        p_seconds: null,
+      })
+        .params[2],
+      {
+        value: null,
+        type: "int",
+      },
+    );
+  },
+);
 
-Deno.test("rpcStatement refuses functions and parameters outside the allowlist", () => {
+Deno.test("rpcStatement refuses functions and parameters outside the allowlist", function (): void {
   assertThrows(
     () => rpcStatement("delay_deliveries", {}),
     Error,
@@ -120,9 +146,12 @@ function fakeSql(rows: Array<Record<string, unknown>> = [], failure?: Error) {
   const sql: SqlClient = {
     unsafe(text, params, options) {
       executed.push({ text, params, options });
-      return failure ? Promise.reject(failure) : Promise.resolve(rows);
+      if (failure !== undefined) {
+        return Promise.reject(failure);
+      }
+      return Promise.resolve(rows);
     },
-    json: (value) => ({ json: value }) as unknown as SqlParam,
+    json: (value) => ({ json: value }),
     end(options) {
       ended.push(options);
       return Promise.resolve();
@@ -131,104 +160,113 @@ function fakeSql(rows: Array<Record<string, unknown>> = [], failure?: Error) {
   return { sql, executed, ended };
 }
 
-Deno.test("senderDb runs the statement prepared, returns the rows as data and wraps jsonb with sql.json", async () => {
-  const fake = fakeSql([{ msg_id: 7, delivery_id: 3 }]);
-  const db = senderDb(fake.sql);
-  assertEquals(await db.rpc("claim_deliveries", { p_limit: 5, p_vt: 60 }), {
-    data: [{ msg_id: 7, delivery_id: 3 }],
-    error: null,
-  });
-  assertEquals(fake.executed[0], {
-    text: "select * from public.claim_deliveries(p_limit => $1::int, p_vt => $2::int)",
-    params: [5, 60],
-    options: { prepare: true },
-  });
-  await db.rpc("record_push_results", { p_ok: ["https://a"], p_errors: { "https://b": "410" } });
-  assertEquals(fake.executed[1]!.params, [["https://a"], { json: { "https://b": "410" } }]);
-  await db.close();
-  assertEquals(fake.ended, [{ timeout: 5 }]);
-});
+Deno.test(
+  "senderDb runs the statement prepared, returns the rows as data and wraps jsonb with sql.json",
+  async function (): Promise<void> {
+    const fake = fakeSql([{ msg_id: 7, delivery_id: 3 }]);
+    const db = senderDb(fake.sql);
+    assertEquals(await db.rpc("claim_deliveries", { p_limit: 5, p_vt: 60 }), {
+      data: [{ msg_id: 7, delivery_id: 3 }],
+      error: null,
+    });
+    assertEquals(fake.executed[0], {
+      text: "select * from public.claim_deliveries(p_limit => $1::int, p_vt => $2::int)",
+      params: [5, 60],
+      options: { prepare: true },
+    });
+    await db.rpc("record_push_results", { p_ok: ["https://a"], p_errors: { "https://b": "410" } });
+    assertEquals(fake.executed[1]!.params, [["https://a"], { json: { "https://b": "410" } }]);
+    await db.close();
+    assertEquals(fake.ended, [{ timeout: 5 }]);
+  },
+);
 
-Deno.test("senderDb turns a thrown error, or a call outside the allowlist, into an error message", async () => {
-  const failing = senderDb(
-    fakeSql([], new Error("permission denied for function claim_deliveries")).sql,
-  );
-  assertEquals(await failing.rpc("claim_deliveries", { p_limit: 1, p_vt: 1 }), {
-    data: null,
-    error: "permission denied for function claim_deliveries",
-  });
-  const fake = fakeSql();
-  assertEquals(await senderDb(fake.sql).rpc("delay_deliveries", {}), {
-    data: null,
-    error: "delay_deliveries is not in the sender's RPC allowlist",
-  });
-  assertEquals(fake.executed, []); // never reached the database
-});
+Deno.test(
+  "senderDb turns a thrown error, or a call outside the allowlist, into an error message",
+  async function (): Promise<void> {
+    const failing = senderDb(
+      fakeSql([], new Error("permission denied for function claim_deliveries")).sql,
+    );
+    assertEquals(await failing.rpc("claim_deliveries", { p_limit: 1, p_vt: 1 }), {
+      data: null,
+      error: "permission denied for function claim_deliveries",
+    });
+    const fake = fakeSql();
+    assertEquals(await senderDb(fake.sql).rpc("delay_deliveries", {}), {
+      data: null,
+      error: "delay_deliveries is not in the sender's RPC allowlist",
+    });
+    assertEquals(fake.executed, []); // never reached the database
+  },
+);
 
-Deno.test("clientOptions takes the connection from the URL and sets every option postgres.js has a PG* fallback for", () => {
-  const options = clientOptions({
-    databaseUrl:
-      "postgresql://delivery_sender.abc:p%40ss@aws-0-us-east-1.pooler.supabase.com/postgres",
-    databaseSsl: true,
-  });
-  assertEquals(
-    [options.host, options.port, options.user, options.password, options.database, options.ssl],
-    [
-      "aws-0-us-east-1.pooler.supabase.com",
-      5432,
-      "delivery_sender.abc",
-      "p@ss",
-      "postgres",
-      "require",
-    ],
-  );
-  assertEquals([options.max, options.prepare, options.connection.application_name], [
-    2,
-    true,
-    "longlines-sender",
-  ]);
-  const local = clientOptions({
-    databaseUrl: "postgresql://u:pw@127.0.0.1:54322/",
-    databaseSsl: false,
-  });
-  assertEquals([local.port, local.database, local.ssl], [54322, "postgres", false]);
-  // Every key postgres.js would otherwise read as PG<KEY> from the environment.
-  for (
-    const key of [
-      "max",
-      "ssl",
-      "sslnegotiation",
-      "idle_timeout",
-      "connect_timeout",
-      "max_lifetime",
-      "max_pipeline",
-      "backoff",
-      "keep_alive",
-      "prepare",
-      "debug",
-      "fetch_types",
-      "publications",
-      "target_session_attrs",
-    ]
-  ) {
-    assertEquals(key in options, true, key);
-  }
-  // int8 and timestamps: Number and the raw string, like PostgREST.
-  assertEquals(options.types.bigint.parse("42"), 42);
-  assertEquals(options.types.bigint.serialize(42), "42");
-  assertEquals(options.types.date.parse("2026-10-15 12:00:00+00"), "2026-10-15 12:00:00+00");
-  assertEquals(
-    options.types.date.serialize(new Date("2026-10-15T12:00:00Z")),
-    "2026-10-15T12:00:00.000Z",
-  );
-  assertEquals(options.types.date.serialize("x"), "x");
-  assertEquals(typeof options.backoff(1), "number");
-});
+Deno.test(
+  "clientOptions takes the connection from the URL and sets every option postgres.js has a PG* fallback for",
+  function (): void {
+    const options = clientOptions({
+      databaseUrl:
+        "postgresql://delivery_sender.abc:p%40ss@aws-0-us-east-1.pooler.supabase.com/postgres",
+      databaseSsl: true,
+    });
+    assertEquals(
+      [options.host, options.port, options.user, options.password, options.database, options.ssl],
+      [
+        "aws-0-us-east-1.pooler.supabase.com",
+        5432,
+        "delivery_sender.abc",
+        "p@ss",
+        "postgres",
+        "require",
+      ],
+    );
+    assertEquals([options.max, options.prepare, options.connection.application_name], [
+      2,
+      true,
+      "longlines-sender",
+    ]);
+    const local = clientOptions({
+      databaseUrl: "postgresql://u:pw@127.0.0.1:54322/",
+      databaseSsl: false,
+    });
+    assertEquals([local.port, local.database, local.ssl], [54322, "postgres", false]);
+    // Every key postgres.js would otherwise read as PG<KEY> from the environment.
+    for (
+      const key of [
+        "max",
+        "ssl",
+        "sslnegotiation",
+        "idle_timeout",
+        "connect_timeout",
+        "max_lifetime",
+        "max_pipeline",
+        "backoff",
+        "keep_alive",
+        "prepare",
+        "debug",
+        "fetch_types",
+        "publications",
+        "target_session_attrs",
+      ]
+    ) {
+      assertEquals(key in options, true, key);
+    }
+    // int8 and timestamps: Number and the raw string, like PostgREST.
+    assertEquals(options.types.bigint.parse("42"), 42);
+    assertEquals(options.types.bigint.serialize(42), "42");
+    assertEquals(options.types.date.parse("2026-10-15 12:00:00+00"), "2026-10-15 12:00:00+00");
+    assertEquals(
+      options.types.date.serialize(new Date("2026-10-15T12:00:00Z")),
+      "2026-10-15T12:00:00.000Z",
+    );
+    assertEquals(options.types.date.serialize("x"), "x");
+    assertEquals(typeof options.backoff(1), "number");
+  },
+);
 
 const POOLER = "postgresql://u:pw@aws-0-us-east-1.pooler.supabase.com:5432/postgres";
 const PEM = "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----";
 
-Deno.test("clientOptions verifies the server certificate only with a CA", () => {
+Deno.test("clientOptions verifies the server certificate only with a CA", function (): void {
   // No CA: encrypted, unverified ("require" sets rejectUnauthorized false in postgres.js).
   assertEquals(clientOptions({ databaseUrl: POOLER, databaseSsl: true }).ssl, "require");
   assertEquals(
@@ -263,108 +301,133 @@ Deno.test("clientOptions verifies the server certificate only with a CA", () => 
   );
 });
 
-Deno.test("withTimeout passes a settled value through and rejects after the timeout", async () => {
-  assertEquals(await withTimeout(Promise.resolve(1), 1_000, "slow"), 1);
-  await assertRejects(() => withTimeout(new Promise(() => {}), 10, "slow"), Error, "slow");
-  await assertRejects(
-    () => withTimeout(Promise.reject(new Error("boom")), 1_000, "slow"),
-    Error,
-    "boom",
-  );
-});
+Deno.test(
+  "withTimeout passes a settled value through and rejects after the timeout",
+  async function (): Promise<void> {
+    assertEquals(await withTimeout(Promise.resolve(1), 1_000, "slow"), 1);
+    await assertRejects(() => withTimeout(new Promise(noop), 10, "slow"), Error, "slow");
+    await assertRejects(
+      () => withTimeout(Promise.reject(new Error("boom")), 1_000, "slow"),
+      Error,
+      "boom",
+    );
+  },
+);
 
 /** A clock and sleep for openSenderDb: sleeping moves the clock. */
 function fakeClock() {
   let t = 0;
   const slept: number[] = [];
+  function sleep(ms: number) {
+    slept.push(ms);
+    t += ms;
+    return Promise.resolve();
+  }
   return {
     now: () => t,
-    sleep: (ms: number) => {
-      slept.push(ms);
-      t += ms;
-      return Promise.resolve();
-    },
+    sleep,
     slept,
   };
 }
 
-Deno.test("openSenderDb retries a failed probe with doubling delays and returns once it answers", async () => {
-  const clock = fakeClock();
-  const logs: string[] = [];
-  const clients: ReturnType<typeof fakeSql>[] = [];
-  const db = await openSenderDb({ databaseUrl: POOLER, databaseSsl: true, databaseCa: PEM }, {
-    ...clock,
-    log: (m) => logs.push(m),
-    connect: () => {
-      const fake = clients.length < 4
-        ? fakeSql([], new Error("connection refused"))
-        : fakeSql([{ depth: 0 }]);
+Deno.test(
+  "openSenderDb retries a failed probe with doubling delays and returns once it answers",
+  async function (): Promise<void> {
+    const clock = fakeClock();
+    const logs: string[] = [];
+    const clients: ReturnType<typeof fakeSql>[] = [];
+    // The first four pools fail their probe; the fifth answers.
+    function connect() {
+      let fake = fakeSql([{ depth: 0 }]);
+      if (clients.length < 4) {
+        fake = fakeSql([], new Error("connection refused"));
+      }
       clients.push(fake);
       return fake.sql;
-    },
-  });
-  assertEquals(clock.slept, [RETRY_MIN_MS, 2 * RETRY_MIN_MS, 4 * RETRY_MIN_MS, 8 * RETRY_MIN_MS]);
-  assertEquals(
-    logs[0],
-    `database probe failed: connection refused; retrying in ${RETRY_MIN_MS} ms`,
-  );
-  assertEquals(logs.length, 4); // a CA was given: no TLS warning
-  // Every failed pool is closed; the one that answered stays open.
-  assertEquals(clients.map((c) => c.ended.length), [1, 1, 1, 1, 0]);
-  assertEquals(clients[4]!.executed[0]!.text, "select * from public.delivery_queue_stats()");
-  await db.close();
-});
+    }
+    const db = await openSenderDb({ databaseUrl: POOLER, databaseSsl: true, databaseCa: PEM }, {
+      now: clock.now,
+      sleep: clock.sleep,
+      log: (m) => logs.push(m),
+      connect,
+    });
+    assertEquals(clock.slept, [RETRY_MIN_MS, 2 * RETRY_MIN_MS, 4 * RETRY_MIN_MS, 8 * RETRY_MIN_MS]);
+    assertEquals(
+      logs[0],
+      `database probe failed: connection refused; retrying in ${RETRY_MIN_MS} ms`,
+    );
+    assertEquals(logs.length, 4); // a CA was given: no TLS warning
+    // Every failed pool is closed; the one that answered stays open.
+    assertEquals(clients.map((c) => c.ended.length), [1, 1, 1, 1, 0]);
+    assertEquals(clients[4]!.executed[0]!.text, "select * from public.delivery_queue_stats()");
+    await db.close();
+  },
+);
 
-Deno.test("openSenderDb caps the delay, gives up at the deadline and warns about unverified TLS", async () => {
-  const clock = fakeClock();
-  const logs: string[] = [];
-  let attempts = 0;
-  await assertRejects(
-    () =>
-      openSenderDb({ databaseUrl: POOLER, databaseSsl: true }, {
-        ...clock,
-        log: (m) => logs.push(m),
-        connect: () => {
-          attempts++;
-          return fakeSql([], new Error("password authentication failed")).sql;
-        },
-      }),
-    Error,
-    "database probe failed: password authentication failed",
-  );
-  assertEquals(OPEN_DEADLINE_MS, 300_000);
-  assertEquals(Math.max(...clock.slept), RETRY_MAX_MS);
-  // It never sleeps past the deadline.
-  assertEquals(clock.slept.reduce((a, b) => a + b, 0) <= OPEN_DEADLINE_MS, true);
-  assertEquals(attempts, clock.slept.length + 1);
-  assertEquals(logs[0]!.includes("does not verify the server certificate"), true);
-  assertEquals(logs[0]!.includes("SENDER_DATABASE_CA"), true);
-});
+Deno.test(
+  "openSenderDb caps the delay, gives up at the deadline and warns about unverified TLS",
+  async function (): Promise<void> {
+    const clock = fakeClock();
+    const logs: string[] = [];
+    let attempts = 0;
+    function connect() {
+      attempts++;
+      return fakeSql([], new Error("password authentication failed")).sql;
+    }
+    await assertRejects(
+      () =>
+        openSenderDb({ databaseUrl: POOLER, databaseSsl: true }, {
+          now: clock.now,
+          sleep: clock.sleep,
+          log: (m) => logs.push(m),
+          connect,
+        }),
+      Error,
+      "database probe failed: password authentication failed",
+    );
+    assertEquals(OPEN_DEADLINE_MS, 300_000);
+    let longest = -Infinity;
+    let total = 0;
+    for (const ms of clock.slept) {
+      longest = Math.max(longest, ms);
+      total += ms;
+    }
+    assertEquals(longest, RETRY_MAX_MS);
+    // It never sleeps past the deadline.
+    assertEquals(total <= OPEN_DEADLINE_MS, true);
+    assertEquals(attempts, clock.slept.length + 1);
+    assertEquals(logs[0]!.includes("does not verify the server certificate"), true);
+    assertEquals(logs[0]!.includes("SENDER_DATABASE_CA"), true);
+  },
+);
 
-Deno.test("openSenderDb counts a probe that never answers as a failure", async () => {
-  assertEquals(PROBE_TIMEOUT_MS, 30_000);
-  let ended = 0;
-  const hung: SqlClient = {
-    unsafe: () => new Promise(() => {}),
-    json: (value) => ({ json: value }) as unknown as SqlParam,
-    end() {
-      ended++;
-      return Promise.reject(new Error("already closed"));
-    },
-  };
-  await assertRejects(
-    () =>
-      openSenderDb({ databaseUrl: POOLER, databaseSsl: false }, {
-        connect: () => hung,
-        probeTimeoutMs: 10,
-        deadlineMs: 0,
-        log: () => {},
-      }),
-    Error,
-    "database probe failed: no answer within 10 ms",
-  );
-  assertEquals(ended, 1);
-});
+Deno.test(
+  "openSenderDb counts a probe that never answers as a failure",
+  async function (): Promise<void> {
+    assertEquals(PROBE_TIMEOUT_MS, 30_000);
+    let ended = 0;
+    const hung: SqlClient = {
+      unsafe: () => new Promise(noop),
+      json: (value) => ({ json: value }),
+      end() {
+        ended++;
+        return Promise.reject(new Error("already closed"));
+      },
+    };
+    await assertRejects(
+      () =>
+        openSenderDb({ databaseUrl: POOLER, databaseSsl: false }, {
+          connect: () => hung,
+          probeTimeoutMs: 10,
+          deadlineMs: 0,
+          log: noop,
+        }),
+      Error,
+      "database probe failed: no answer within 10 ms",
+    );
+    assertEquals(ended, 1);
+  },
+);
 
 Deno.test({
   name: "openSenderDb calls the allowlisted RPCs on a real database with int8 as Number",
