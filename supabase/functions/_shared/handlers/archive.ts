@@ -22,7 +22,7 @@ export interface ArchiveDeps {
 export function handleArchive(
   req: Request,
   deps: ArchiveDeps,
-  now: Date = new Date(),
+  now: Date,
 ): Promise<Response> {
   return timed(() => archive(req, deps, now), performanceClock);
 }

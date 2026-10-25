@@ -33,7 +33,7 @@ export interface SendTestDeps {
 export async function handleSendTest(
   req: Request,
   deps: SendTestDeps,
-  now: Date = new Date(),
+  now: Date,
 ): Promise<Response> {
   const preflight = preflightResponse(req, DEFAULT_METHODS);
   if (preflight !== null) {
@@ -178,7 +178,7 @@ export async function sendTestTo(
   destinationId: string,
   send: SendTestDeps["send"],
   now: Date,
-  spotId: number | null = null,
+  spotId: number | null,
 ): Promise<Response> {
   // Not a uuid cannot be a destination; PostgREST would answer 22P02.
   if (!isUuid(destinationId)) {

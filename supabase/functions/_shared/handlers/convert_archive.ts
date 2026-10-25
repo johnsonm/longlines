@@ -22,7 +22,7 @@ export function handleConvertArchive(req: Request, deps: ConvertArchiveDeps): Pr
   return timed(() => convert(req, deps), performanceClock);
 }
 
-function failure(error: unknown, status: number, prefix = ""): Response {
+function failure(error: unknown, status: number, prefix: string): Response {
   let message: string;
   if (error instanceof Error) {
     message = error.message;
@@ -54,7 +54,7 @@ async function convert(req: Request, deps: ConvertArchiveDeps): Promise<Response
   try {
     store = deps.store();
   } catch (error) {
-    return failure(error, 500);
+    return failure(error, 500, "");
   }
   try {
     const summary = await runConvert(createConvertDb(deps.db()), store, request);
@@ -65,6 +65,6 @@ async function convert(req: Request, deps: ConvertArchiveDeps): Promise<Response
     }
     return Response.json(summary, { status });
   } catch (error) {
-    return failure(error, 500);
+    return failure(error, 500, "");
   }
 }

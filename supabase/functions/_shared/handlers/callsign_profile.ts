@@ -241,7 +241,7 @@ export async function lookupLimit(
   deps: Pick<ProfileDeps, "clientIpHeader" | "key">,
   fn: string,
   unavailable: string,
-  headers: Record<string, string> = {},
+  headers: Record<string, string>,
 ): Promise<Response | null> {
   if (deps.key === undefined) {
     console.error(`${fn}: missing environment variable SUPABASE_SERVICE_ROLE_KEY`);
@@ -285,7 +285,7 @@ export async function handleProfile(req: Request, deps: ProfileDeps): Promise<Re
   }
 
   const db = deps.db();
-  const limited = await lookupLimit(req, db, deps, "callsign-profile", LOOKUP_UNAVAILABLE);
+  const limited = await lookupLimit(req, db, deps, "callsign-profile", LOOKUP_UNAVAILABLE, {});
   if (limited !== null) {
     return limited;
   }

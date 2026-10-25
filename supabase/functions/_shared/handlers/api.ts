@@ -54,7 +54,7 @@ interface TokenRow {
 export async function handleApi(
   req: Request,
   deps: ApiDeps,
-  now: Date = new Date(),
+  now: Date,
 ): Promise<Response> {
   // A browser sends a preflight before any request with an Authorization header; it carries no token.
   const preflight = preflightResponse(req, API_METHODS);
@@ -128,7 +128,7 @@ export async function handleApi(
     if (id !== undefined && id !== null) {
       destinationId = id;
     }
-    return await sendTestTo(db, caller.user_id, destinationId, deps.send, now);
+    return await sendTestTo(db, caller.user_id, destinationId, deps.send, now, null);
   }
 
   const result = await db.rpc("api_call", {
