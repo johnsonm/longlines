@@ -26,7 +26,7 @@ deno task check       # type-check the Edge Function entrypoints
 deno task lint
 deno task fmt
 npm ci                # once, at the root: ESLint and the type packages it reads (README "Linting the Deno code")
-npm run lint          # strict typescript-eslint over the Deno code; eslint.config.ts's pendingStyle areas are skipped
+npm run lint          # strict typescript-eslint over the Deno code; eslint.config.ts's zodPending areas skip the Part 2 rules
 npm run typecheck     # deno check every entrypoint and scripts/*.ts
 
 supabase start                # local stack, applies all migrations
