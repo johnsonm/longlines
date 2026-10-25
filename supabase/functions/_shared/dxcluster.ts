@@ -154,7 +154,7 @@ async function normalizeDxSpot(raw: JsonObject, now: Date): Promise<NormalizeRes
 export function runDxclusterPush(
   body: unknown,
   db: IngestDb,
-  now: Date = new Date(),
+  now: Date,
 ): Promise<IngestSummary> {
   return runIngest(dxclusterAdapter(body), db, now);
 }

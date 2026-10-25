@@ -28,7 +28,7 @@ function errorMessage(error: unknown): string {
 export async function runRbnPush(
   body: unknown,
   db: RbnPushDb,
-  now: Date = new Date(),
+  now: Date,
 ): Promise<IngestSummary> {
   const rows: RbnSpotRow[] = [];
   const kept: JsonObject[] = [];

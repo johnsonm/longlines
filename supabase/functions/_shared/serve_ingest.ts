@@ -29,7 +29,7 @@ export function ingestHandler(
       if (!await isServiceRole(req, deps.serviceRoleKey)) {
         return Response.json({ error: "Forbidden" }, { status: 403 });
       }
-      return await respond(adapter.source, () => runIngest(adapter, deps.db()));
+      return await respond(adapter.source, () => runIngest(adapter, deps.db(), new Date()));
     }
     return timed(run, performanceClock);
   }

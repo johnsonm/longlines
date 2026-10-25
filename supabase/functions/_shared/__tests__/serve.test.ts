@@ -33,12 +33,16 @@ function pushHandler(
   function run(body: unknown, d: IngestDb): ReturnType<typeof runIngest> {
     bodies.push(body);
     const base = adapter([]);
-    return runIngest({
-      source: "rbn",
-      fetchSpots: base.fetchSpots,
-      parseFeed: base.parseFeed,
-      normalize: base.normalize,
-    }, d);
+    return runIngest(
+      {
+        source: "rbn",
+        fetchSpots: base.fetchSpots,
+        parseFeed: base.parseFeed,
+        normalize: base.normalize,
+      },
+      d,
+      new Date(),
+    );
   }
   function secret(): string | undefined {
     if ("secret" in overrides) {

@@ -213,7 +213,7 @@ function errorMessage(error: unknown): string {
 export async function runAprsPush(
   body: unknown,
   db: AprsPushDb,
-  now: Date = new Date(),
+  now: Date,
 ): Promise<IngestSummary> {
   const started = performance.now();
   const rows: AprsPacketRow[] = [];

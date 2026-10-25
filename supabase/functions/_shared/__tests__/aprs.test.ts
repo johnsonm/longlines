@@ -218,7 +218,7 @@ Deno.test(
       line,
       received_at: RECEIVED,
     }));
-    const summary = await runAprsPush({ lines }, db);
+    const summary = await runAprsPush({ lines }, db, new Date());
     assertEquals(calls.stored.length, 1);
     assertEquals(calls.stored[0]!.length, 20);
     assertEquals(calls.failures.flat().map((f) => [f.source, f.error]), [
@@ -243,7 +243,7 @@ Deno.test(
     const fake = fakeDb();
     const db = fake.db;
     const calls = fake.calls;
-    const summary = await runAprsPush({ lines: [] }, db);
+    const summary = await runAprsPush({ lines: [] }, db, new Date());
     assertEquals(calls.stored, []);
     assertEquals(calls.failures, []);
     assertEquals(calls.success, [["aprs", 0, null]]);
@@ -257,7 +257,11 @@ Deno.test(
     const fake = fakeDb();
     const db = fake.db;
     const calls = fake.calls;
-    await runAprsPush({ lines: [{ line: `${POSITION}\u0000`, received_at: RECEIVED }] }, db);
+    await runAprsPush(
+      { lines: [{ line: `${POSITION}\u0000`, received_at: RECEIVED }] },
+      db,
+      new Date(),
+    );
     assertEquals(calls.failures[0]![0]!.raw_payload["line"], POSITION);
   },
 );
@@ -266,12 +270,13 @@ Deno.test(
   "runAprsPush records a failure and rethrows on a bad body or a failed insert",
   async function (): Promise<void> {
     const bad = fakeDb();
-    await assertRejects(() => runAprsPush({ nope: 1 }, bad.db), Error, '"lines"');
+    await assertRejects(() => runAprsPush({ nope: 1 }, bad.db, new Date()), Error, '"lines"');
     assertEquals(bad.calls.failure, [["aprs", 'expected a "lines" array from the relay']]);
 
     const full = fakeDb({ storeFails: true });
     await assertRejects(
-      () => runAprsPush({ lines: [{ line: POSITION, received_at: RECEIVED }] }, full.db),
+      () =>
+        runAprsPush({ lines: [{ line: POSITION, received_at: RECEIVED }] }, full.db, new Date()),
       Error,
       "disk full",
     );
@@ -346,7 +351,7 @@ Deno.test(
     db.recordFailure = () => Promise.reject(new Error("db down"));
     const errors = await capturingErrors(() =>
       assertRejects(
-        () => runAprsPush({ lines: [{ line: POSITION, received_at: RECEIVED }] }, db),
+        () => runAprsPush({ lines: [{ line: POSITION, received_at: RECEIVED }] }, db, new Date()),
         Error,
         "disk full",
       )
