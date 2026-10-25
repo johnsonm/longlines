@@ -176,7 +176,7 @@ Deno.test(
   "pota.normalize stores the raw item as raw_payload, own __proto__ key included",
   async function (): Promise<void> {
     const raw: JsonObject = JSON.parse(
-      JSON.stringify(spot(58161562)).replace("{", '{"__proto__":{"x":1},'),
+      '{"__proto__":{"x":1},' + JSON.stringify(spot(58161562)).slice(1),
     );
     const result = await pota.normalize(raw, NOW);
     if (result.kind !== "spot") {
