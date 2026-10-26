@@ -1,5 +1,5 @@
 import { assertEquals, assertRejects } from "@std/assert";
-import { ValidationError } from "../../supabase/functions/_shared/errors.ts";
+import { TimeoutError, ValidationError } from "../../supabase/functions/_shared/errors.ts";
 import type {
   LicenseLoad,
   LoadLicensesRequest,
@@ -441,8 +441,8 @@ Deno.test(
               readTimeoutMs: 50,
             },
           ),
-        Error,
-        "no data for 0.05 s",
+        TimeoutError,
+        ".dat: no data for 0.05 s",
       );
       const controller = new AbortController();
       const remote = await openHttpZip(url, controller.signal, fetch, STREAM_HEADER_TIMEOUT_MS);

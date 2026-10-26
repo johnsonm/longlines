@@ -13,16 +13,19 @@ import { isUuid } from "../api/routes.ts";
 import { userFromRequest } from "../auth.ts";
 import { DEFAULT_METHODS, json, preflightResponse } from "../cors.ts";
 import { pushBookkeeping, type SendResult } from "../delivery/send.ts";
-import type {
-  DeliveryDestination,
-  DeliverySpot,
-  DiscordSettings,
-  PendingDelivery,
-  PushDevice,
-  PushSettings,
-  WebhookField,
-  WebhookHeader,
-  WebhookSettings,
+import {
+  type DeliveryDestination,
+  type DeliverySpot,
+  deliverySpotSchema,
+  type DiscordSettings,
+  discordSettingsSchema,
+  type PendingDelivery,
+  type PushDevice,
+  pushDeviceSchema,
+  type PushSettings,
+  pushSettingsSchema,
+  type WebhookSettings,
+  webhookSettingsSchema,
 } from "../delivery/types.ts";
 import { ValidationError } from "../errors.ts";
 import { parseWith } from "../validate.ts";
@@ -134,112 +137,9 @@ export const TOO_MANY_TESTS = "Too many tests. Wait a minute and try again.";
 export const DESTINATION_THROTTLED =
   "This destination asked Long Lines to slow down. Try the test again in a few minutes.";
 
-// The shapes below are derived from the SQL that builds them: delivery_spot_json and
-// push_sample_spot, the push/discord/webhook spot_fields renderers, the settings tables and
-// destinations (migrations 20261016000400, 20261018000100, 20261018000300, 20261021000300). Every
-// key is always present; null only where the delivery types allow it. RPC jsonb can gain keys
-// across deploys, so every object is loose.
-
-const nullableText = z.string().nullable();
-
-const discordGridItemSchema = z.looseObject({ name: z.string(), value: z.string() });
-
-const webhookFieldSchema: z.ZodType<WebhookField> = z.looseObject({
-  key: z.string(),
-  value: z.union([z.string(), z.number()]).nullable(),
-});
-
-// A spot as the test RPCs render it: the raw_spots row (or the sample) plus the keys its
-// destination type's renderer adds, which are absent for the other types.
-const deliverySpotSchema: z.ZodType<DeliverySpot> = z.looseObject({
-  id: z.number(),
-  source: z.string(),
-  spot_time: z.string(),
-  callsign: z.string(),
-  base_callsign: nullableText,
-  spotter: nullableText,
-  frequency_khz: z.number(),
-  band: nullableText,
-  mode: nullableText,
-  mode_family: nullableText,
-  comment: z.string(),
-  pota_reference: nullableText,
-  pota_park_name: nullableText,
-  pota_location: nullableText,
-  sota_summit_ref: nullableText,
-  wwff_reference: nullableText,
-  wwff_reference_name: nullableText,
-  push_title: z.string().optional(),
-  push_body: z.string().optional(),
-  push_url: z.string().optional(),
-  push_source_url: nullableText.optional(),
-  discord_style: z.enum(["card", "plain"]).optional(),
-  discord_title: z.string().optional(),
-  discord_description: z.string().optional(),
-  discord_grid: z.array(discordGridItemSchema).optional(),
-  discord_footer: nullableText.optional(),
-  discord_color: z.number().optional(),
-  discord_url: nullableText.optional(),
-  discord_line: z.string().optional(),
-  discord_suppress_embeds: z.boolean().optional(),
-  webhook_fields: z.array(webhookFieldSchema).optional(),
-  webhook_connection: z.string().optional(),
-});
-
-const separatorSchema = z.enum(["dot", "comma", "newline"]);
-
-// push_destination_settings, less destination_id.
-const pushSettingsSchema: z.ZodType<PushSettings> = z.looseObject({
-  title_fields: z.array(z.string()),
-  body_fields: z.array(z.string()),
-  show_field_names: z.boolean(),
-  body_separator: separatorSchema,
-  tap_target: z.enum(["profile", "source"]),
-  action_buttons: z.boolean(),
-  urgency: z.enum(["low", "normal", "high"]),
-  ttl_seconds: z.number(),
-  replace_same_station: z.boolean(),
-  sound: z.boolean(),
-  quiet_enabled: z.boolean(),
-  quiet_from: z.string(),
-  quiet_until: z.string(),
-  quiet_mode: z.enum(["silent", "skip"]),
-});
-
-// push_member_devices: the destination's unblocked member devices.
-const pushDeviceSchema: z.ZodType<PushDevice> = z.looseObject({
-  endpoint: z.string(),
-  p256dh: z.string(),
-  auth: z.string(),
-});
-
-// discord_destination_settings, less destination_id.
-const discordSettingsSchema: z.ZodType<DiscordSettings> = z.looseObject({
-  style: z.enum(["card", "plain"]),
-  title_fields: z.array(z.string()),
-  detail_fields: z.array(z.string()),
-  grid_fields: z.array(z.string()),
-  title_link: z.enum(["profile", "source", "none"]),
-  card_color: z.enum(["source", "blue", "green", "purple", "orange", "red", "grey"]),
-  footer: z.boolean(),
-  line_fields: z.array(z.string()),
-  bold_first: z.boolean(),
-  link_preview: z.enum(["hidden", "shown"]),
-  show_field_names: z.boolean(),
-  separator: separatorSchema,
-  batch_seconds: z.number(),
-});
-
-// webhook_header_values: the extra headers, in position order, their values from Vault.
-const webhookHeaderSchema: z.ZodType<WebhookHeader> = z.looseObject({
-  name: z.string(),
-  value: z.string(),
-});
-
-const webhookSettingsSchema: z.ZodType<WebhookSettings> = z.looseObject({
-  batch_seconds: z.number(),
-  headers: z.array(webhookHeaderSchema),
-});
+// The test RPCs build the destination's settings and the spot with the claim's own functions
+// (push_spot_fields, discord_spot_fields, webhook_spot_fields, webhook_header_values, the
+// settings tables), so they are read with the claim's schemas from delivery/types.ts.
 
 /** What push_test_delivery returns: the destination's settings, its members and the rendered spot. */
 interface PushTest {
@@ -354,11 +254,11 @@ const destinationRowSchema: z.ZodType<DestinationRow> = z.looseObject({
   id: z.string(),
   type: z.enum(["discord", "webhook", "push"]),
   name: z.string(),
-  url: nullableText,
-  signing_secret: nullableText,
+  url: z.string().nullable(),
+  signing_secret: z.string().nullable(),
   health: z.enum(["ok", "failing", "paused"]),
   consecutive_failures: z.number(),
-  throttled_until: nullableText,
+  throttled_until: z.string().nullable(),
 });
 
 /** The 500 for a database result of the wrong shape; anything else is rethrown. */
@@ -403,7 +303,7 @@ export async function sendTestTo(
     .eq("id", destinationId)
     .eq("user_id", userId)
     .maybeSingle();
-  const data = loaded.data;
+  const data: unknown = loaded.data;
   const error = loaded.error;
   if (error !== null) {
     console.error(`send-test: loading destination ${destinationId} failed: ${error.message}`);

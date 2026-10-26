@@ -3,6 +3,7 @@
 // only with SENDER_TEST_DATABASE_URL set (CI's migrations job points it at the
 // fresh local stack; never a hosted database).
 import { assertEquals, assertRejects, assertThrows } from "@std/assert";
+import { TimeoutError } from "../../supabase/functions/_shared/errors.ts";
 import { isLocalHost } from "../config.ts";
 import { RETRY_MAX_MS, RETRY_MIN_MS } from "../config.ts";
 import {
@@ -18,7 +19,6 @@ import {
   type SqlClient,
   type SqlParam,
   sslOption,
-  TimeoutError,
   withTimeout,
 } from "../db.ts";
 

@@ -48,3 +48,11 @@ export class ConfigError extends Error {
     this.name = "ConfigError";
   }
 }
+
+/** A wait did not end in time: no answer, no response headers or no data within its limit. */
+export class TimeoutError extends Error {
+  constructor(message: string, context: ErrorContext) {
+    super(message, { cause: context.cause });
+    this.name = "TimeoutError";
+  }
+}

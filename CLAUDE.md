@@ -26,7 +26,7 @@ deno task check       # type-check the Edge Function entrypoints
 deno task lint
 deno task fmt
 npm ci                # once, at the root: ESLint and the type packages it reads (README "Linting the Deno code")
-npm run lint          # strict typescript-eslint over the Deno code; eslint.config.ts's zodPending areas skip the Part 2 rules
+npm run lint          # strict typescript-eslint over the Deno code (style, Zod and error rules)
 npm run typecheck     # deno check every entrypoint and scripts/*.ts
 
 supabase start                # local stack, applies all migrations
@@ -106,16 +106,17 @@ The conventions are `docs/superpowers/specs/2026-10-22-strict-eslint-conventions
 - After every change, run `npm run lint` and `npm run typecheck`. Fix every error before finishing.
 - Never disable lint rules, add `eslint-disable` comments, or edit `eslint.config.ts` /
   `tsconfig.json` to silence errors. If a rule seems wrong, stop and ask. The one sanctioned
-  edit: the PR that refactors an area removes that area's globs from the ratchet list
-  (`zodPending`).
-- External input is `unknown`. Narrow it with a Zod schema; never use `as` (enforced per area
-  as Zod lands).
-- New code must not add `as` casts, even where lint allows them; existing casts stay until Part 2.
+  edit: a new error class's name goes in `preserve-caught-error`'s `errorClassNames`.
+- External input is `unknown`. Narrow it with a Zod schema; never use `as` (lint refuses every
+  type assertion outside tests).
 - Validate all external data with Zod. Declare an interface, then a schema annotated
   `z.ZodType<ThatInterface>`: `z.strictObject` for our own inputs (request bodies, our functions'
   replies), `z.looseObject` for third-party data and DB/RPC jsonb that can gain keys across
   deploys.
-- Throw only Error subclasses (`_shared/errors.ts`); wrap with `{ cause }` when adding context.
+- Throw only Error subclasses: `_shared/errors.ts` (`ValidationError`, `FunctionCallError`,
+  `ConfigError`, `TimeoutError`), or a module-local class when none of those means the same thing.
+  Wrap with `{ cause }` when adding context. Read one producer (an RPC, a function's reply) with
+  one schema: export it next to the interface and import it where else it is read.
   Catch only at boundaries (handlers, the per-item isolation this file requires, main loops,
   shutdown). A catch handles specific error classes or rethrows. Never swallow errors.
 - A client that holds configuration is a factory returning an interface implementation or a class

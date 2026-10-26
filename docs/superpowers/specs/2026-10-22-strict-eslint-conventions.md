@@ -1,6 +1,6 @@
 # Strict ESLint for the Deno code: conventions
 
-Date: 2026-10-22. Status: **in progress**. Part 1 (style, enforced by ESLint) lands as one tooling
+Date: 2026-10-22. Status: **complete** (the wrap-up PR, 2026-10-26, was the last step). Part 1 (style, enforced by ESLint) lands as one tooling
 PR (0b) and one PR per area; Part 2 (Zod at every external boundary and a strict error style)
 follows the same areas. Brad merges them one at a time: 0a runtime config, 0b tooling, Part 1
 ingest, archive, handlers, delivery, relay, sender, then Part 2 setup, surface, the same six
@@ -93,7 +93,8 @@ formatting only relay or sender files, pass the root config:
   Part 2 setup PR the Part 2 rules (see "Part 2" below).
 - Deferred to Part 2, off in `zodPending` areas: `no-unsafe-argument`, `no-unsafe-assignment`,
   `no-unsafe-call`, `no-unsafe-member-access`, `no-unsafe-return`, `consistent-type-assertions`
-  and `no-unnecessary-condition`. Each area turns them on as its Zod schemas land.
+  and `no-unnecessary-condition`. Each area turned them on as its Zod schemas landed; since the
+  Part 2 sender PR every source file has them.
 - Tests (`**/__tests__/**/*.ts`) keep every syntax and style ban (`no-restricted-syntax`,
   `no-ternary`, `func-style`, `curly`, `eqeqeq`, `prefer-const`, `no-var`,
   `max-statements-per-line`), the promise rules (`no-floating-promises` catches an un-awaited
@@ -259,15 +260,17 @@ three error class names, since it checks only the built-in ones otherwise) and s
 values, optional parameters and hand-written type guards (`value is T`). The bans are two named
 arrays, `styleSyntax` (Part 1's) and `zodSyntax` (the six new ones), and the main block uses both.
 
-- `zodPending` lists the six areas (the same globs as "Areas" below). Its block turns off the seven
-  deferred rules, `no-empty` and `preserve-caught-error`, and sets `no-restricted-syntax` to
-  `styleSyntax` alone, so pending files keep every Part 1 rule. scripts/ and the new
+- `zodPending` listed the six areas (the same globs as "Areas" below). Its block turned off the seven
+  deferred rules, `no-empty` and `preserve-caught-error`, and set `no-restricted-syntax` to
+  `styleSyntax` alone, so pending files kept every Part 1 rule. scripts/ and the new
   `_shared/errors.ts`, `_shared/validate.ts` and their tests are outside it and get the full rules.
 - The surface PR moved the default-parameter and optional-parameter selectors from `zodSyntax`
   into `styleSyntax`, the list the pending block keeps, so they apply everywhere. `zodSyntax` now
   holds the four Zod and type-guard bans.
-- Each Part 2 area PR removes its globs from `zodPending`, and nothing else edits the list. The
-  wrap-up PR deletes the empty block.
+- Each Part 2 area PR removed its globs from `zodPending`. The sender PR, the last area, deleted
+  the emptied list and its block.
+- The wrap-up PR gave `preserve-caught-error` every error class name in the code: errors.ts's
+  four and the module-local ones. A new class's name goes in that list.
 - The tests block keeps the narrowing rules off for good.
 
 ### Interfaces
@@ -305,7 +308,8 @@ frequency. Every refinement that could reject data accepted today goes in the PR
 ### Errors
 
 Use `_shared/errors.ts` (`ValidationError` with `where`, `FunctionCallError` with `status`,
-`ConfigError`) and never edit it. Constructors are `(message, { cause, ...context })`. Add
+`ConfigError`, and since the wrap-up `TimeoutError`). Area PRs never edited it; the wrap-up added
+`TimeoutError` when three modules had a class of their own for it (see "Wrap-up"). Constructors are `(message, { cause, ...context })`. Add
 context by wrapping: `throw new X("...", { cause: caught })`.
 
 ### Boundaries
@@ -492,3 +496,22 @@ deleted.
 - **The relay's and the sender's `deno.json` map zod before either loads it**, so the Part 2
   areas can import it without touching the app configs.
 - **`preserve-caught-error` takes `errorClassNames`** (see "Canary").
+
+## Wrap-up
+
+The last PR of the effort (2026-10-26). `zodPending` was already gone (the Part 2 sender PR);
+`npm run lint` reported 0 before and after.
+
+- **One shared class.** `TimeoutError` joined `errors.ts`: the sender's `withTimeout` had its own,
+  and the relay threw `LicenseImportError` and `ZipError` for the same thing (a download with no
+  data, a range request with no headers in time). `LicenseImportError` now means only an abort and
+  `ZipError` only a zip that cannot be read. The other module-local classes each mean something no
+  other does and stay where they are, all with errors.ts's `(message, { cause })` constructor.
+- **One schema per producer.** send-test reads the test RPCs with the claim's schemas
+  (`delivery/types.ts`), so a webhook header whose Vault value no longer decrypts is skipped in a
+  test as in a delivery; db.ts and the relay read `fcc_license_load_status` with
+  `licenseLoadSchema` (`uls.ts`).
+- **`preserve-caught-error`** names every error class in the code.
+- **Left as they are, on purpose:** hand-thrown `ValidationError` messages do not repeat `where`
+  (it is in the context; `parseWith`'s do); schemas that read timestamps and counts as plain
+  strings and numbers were not tightened, since that could refuse data accepted today.

@@ -10,9 +10,14 @@
 // keeps failing costs the FCC two downloads a day at most.
 
 import { z } from "zod";
-import { ValidationError } from "../supabase/functions/_shared/errors.ts";
+import {
+  type ErrorContext,
+  TimeoutError,
+  ValidationError,
+} from "../supabase/functions/_shared/errors.ts";
 import {
   type LicenseLoad,
+  licenseLoadSchema,
   type LoadLicensesRequest,
   parseUlsRecord,
   ULS_KINDS,
@@ -37,23 +42,17 @@ export const MIN_RECORDS: UlsCounts = { HD: 500_000, EN: 500_000, AM: 500_000 };
 
 const RETRY_AFTER_MS = 12 * 3_600_000;
 
-/** The import stopped before its data did: the signal aborted, or the download went quiet. */
+/** The import stopped before its data did: the signal aborted. */
 class LicenseImportError extends Error {
-  constructor(message: string) {
-    super(message);
+  constructor(message: string, context: ErrorContext) {
+    super(message, { cause: context.cause });
     this.name = "LicenseImportError";
   }
 }
 
 // The replies load-licenses sends (run in _shared/handlers/load_licenses.ts). Our own function's
-// replies, so strict; the load inside the status reply is fcc_license_load_status' jsonb, which
-// can gain keys across deploys, so loose (as db.ts reads it).
-const licenseLoadSchema: z.ZodType<LicenseLoad> = z.looseObject({
-  id: z.number(),
-  version: z.string(),
-  status: z.enum(["loading", "ready", "applied", "failed"]),
-  started_at: z.string(),
-});
+// replies, so strict; the load inside the status reply is fcc_license_load_status' jsonb, read
+// with the schema db.ts reads it with (licenseLoadSchema, loose).
 
 /** status: the newest load, or null before the first. A reply without `load` reads as null. */
 interface StatusReply {
@@ -156,15 +155,16 @@ function isAborted(signal: AbortSignal): boolean {
   return signal.aborted;
 }
 
-/** Abortable read that fails when the server goes quiet. */
+/** Abortable read that fails when the server goes quiet; `what` names the download. */
 async function readWithin<T>(
   reader: ReadableStreamDefaultReader<T>,
   ms: number,
+  what: string,
 ): Promise<ReadableStreamReadResult<T>> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>(function arm(_resolve, reject): void {
     timer = setTimeout(function fail(): void {
-      reject(new LicenseImportError(`no data for ${String(ms / 1000)} s`));
+      reject(new TimeoutError(`${what}: no data for ${String(ms / 1000)} s`, { cause: undefined }));
     }, ms);
   });
   try {
@@ -254,13 +254,13 @@ export async function importLicenses(
     try {
       for (;;) {
         if (isAborted(signal)) {
-          throw new LicenseImportError("license import aborted");
+          throw new LicenseImportError("license import aborted", { cause: undefined });
         }
         let readTimeoutMs = 120_000;
         if (options.readTimeoutMs !== undefined) {
           readTimeoutMs = options.readTimeoutMs;
         }
-        const result = await readWithin(reader, readTimeoutMs);
+        const result = await readWithin(reader, readTimeoutMs, `${kind}.dat`);
         if (result.done) {
           break;
         }

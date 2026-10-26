@@ -164,7 +164,10 @@ export async function handleApi(
     }
     return json({ error: result.error.message }, status, {});
   }
-  return json(result.data, route.status, {});
+  // api_call builds the reply from the RPCs the web app calls (api_destination_json and the
+  // like); it is relayed as built, so it is not parsed here.
+  const reply: unknown = result.data;
+  return json(reply, route.status, {});
 }
 
 /**

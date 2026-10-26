@@ -14,9 +14,10 @@
 // Only these fields leave the parser. EN also carries street address, city,
 // ZIP, PO box, phone, email and FRN; none of them is read.
 //
-// The only import is errors.ts, which imports nothing, so the relay (which loads
-// this module) needs no package for it.
+// The imports are errors.ts, which imports nothing, and zod, which the relay (which loads
+// this module) maps.
 
+import { z } from "zod";
 import { ValidationError } from "./errors.ts";
 
 export const ULS_KINDS = ["HD", "EN", "AM"] as const;
@@ -288,6 +289,17 @@ export interface LicenseLoad {
   status: "loading" | "ready" | "applied" | "failed";
   started_at: string;
 }
+
+/**
+ * fcc_license_load_status' jsonb, as db.ts reads it and as load-licenses hands it to the relay.
+ * RPC jsonb that can gain keys across deploys: loose.
+ */
+export const licenseLoadSchema: z.ZodType<LicenseLoad> = z.looseObject({
+  id: z.number(),
+  version: z.string(),
+  status: z.enum(["loading", "ready", "applied", "failed"]),
+  started_at: z.string(),
+});
 
 /** Rows staged per file. */
 export type UlsCounts = Record<UlsKind, number>;

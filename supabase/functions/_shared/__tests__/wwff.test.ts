@@ -164,6 +164,12 @@ Deno.test("wwff.normalize throws on an unprocessable spot", async function (): P
     ValidationError,
     "spot_time",
   );
+  // Finite but past Date's range: one failed spot, not a RangeError that fails the run.
+  await assertRejects(
+    () => wwff.normalize(Object.assign({}, spot(157369), { spot_time: 1e13 }), NOW),
+    ValidationError,
+    "spot_time is outside the range of a date",
+  );
   await assertRejects(() =>
     wwff.normalize(Object.assign({}, spot(157369), { frequency_khz: null }), NOW)
   );

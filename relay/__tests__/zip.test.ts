@@ -2,6 +2,7 @@ import { assertEquals, assertRejects } from "@std/assert";
 import {
   ConfigError,
   FunctionCallError,
+  TimeoutError,
   ValidationError,
 } from "../../supabase/functions/_shared/errors.ts";
 import {
@@ -193,7 +194,7 @@ Deno.test(
       const entries = await readZipDirectory(remote);
       await assertRejects(
         () => openZipEntry(remote, entries[1]!),
-        Error,
+        TimeoutError,
         "no response within 100 ms",
       );
       // Once headers arrive the timer is gone: reading after it would have fired still works.
