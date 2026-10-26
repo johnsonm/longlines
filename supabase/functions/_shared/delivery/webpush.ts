@@ -2,6 +2,10 @@
 // encryption (RFC 8291, with the RFC 8188 header). No dependency; the RFC 8291
 // Appendix A vector in __tests__/webpush.test.ts pins the encryption.
 
+import { z } from "zod";
+import { ConfigError, ValidationError } from "../errors.ts";
+import { parseWith } from "../validate.ts";
+
 export interface VapidKeys {
   /** base64url uncompressed P-256 point (65 bytes). */
   publicKey: string;
@@ -71,7 +75,10 @@ function concat(...parts: Uint8Array[]): Uint8Array<ArrayBuffer> {
 /** A P-256 JWK from an uncompressed public point and, optionally, the private scalar. */
 function p256Jwk(publicKey: Uint8Array, d: string | undefined): JsonWebKey {
   if (publicKey.length !== 65 || publicKey[0] !== 0x04) {
-    throw new Error("Expected an uncompressed P-256 public key");
+    throw new ValidationError("Expected an uncompressed P-256 public key", {
+      cause: undefined,
+      where: "p256Jwk: public key",
+    });
   }
   const jwk: JsonWebKey = {
     kty: "EC",
@@ -129,13 +136,22 @@ export async function encryptPushPayload(
   const uaPublic = base64UrlDecode(keys.p256dh);
   const authSecret = base64UrlDecode(keys.auth);
   if (authSecret.length !== 16) {
-    throw new Error("Subscription auth secret must be 16 bytes");
+    throw new ValidationError("Subscription auth secret must be 16 bytes", {
+      cause: undefined,
+      where: "encryptPushPayload: subscription auth",
+    });
   }
   if (uaPublic.length !== 65 || uaPublic[0] !== 0x04) {
-    throw new Error("Subscription p256dh must be an uncompressed P-256 key");
+    throw new ValidationError("Subscription p256dh must be an uncompressed P-256 key", {
+      cause: undefined,
+      where: "encryptPushPayload: subscription p256dh",
+    });
   }
   if (plaintext.length > MAX_PUSH_PLAINTEXT_BYTES) {
-    throw new Error("Push payload is too large for one record");
+    throw new ValidationError("Push payload is too large for one record", {
+      cause: undefined,
+      where: "encryptPushPayload: plaintext",
+    });
   }
 
   let salt: Uint8Array<ArrayBuffer>;
@@ -177,14 +193,46 @@ export async function encryptPushPayload(
   return concat(header, server.publicRaw, ciphertext);
 }
 
+/** The members of a P-256 private JWK that importKey reads; an exporter's others are ignored. */
+interface PrivateJwk {
+  kty?: string;
+  crv?: string;
+  x?: string;
+  y?: string;
+  d?: string;
+}
+
+// A VAPID private key given as a JWK (from an exporter, or LONGLINES_VAPID_PRIVATE_KEY): loose,
+// since exporters add key_ops, ext and alg. importKey checks the values.
+const privateJwkSchema: z.ZodType<PrivateJwk> = z.looseObject({
+  kty: z.string().optional(),
+  crv: z.string().optional(),
+  x: z.string().optional(),
+  y: z.string().optional(),
+  d: z.string().optional(),
+});
+
+/** The private key's JWK text, parsed; ConfigError when it is not JSON. */
+function parseJwkText(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    // Only JSON.parse runs here, and it throws only SyntaxError.
+    if (error instanceof SyntaxError) {
+      throw new ConfigError("VAPID private key is not valid JWK JSON", { cause: error });
+    }
+    throw error;
+  }
+}
+
 async function vapidSigningKey(keys: VapidKeys): Promise<CryptoKey> {
   const text = keys.privateKey.trim();
-  let jwk: JsonWebKey;
+  let jwk: PrivateJwk;
   if (text.startsWith("{")) {
-    jwk = JSON.parse(text) as JsonWebKey;
+    jwk = parseWith(privateJwkSchema, parseJwkText(text), "vapidSigningKey: private key JWK");
   } else {
     if (base64UrlDecode(text).length !== 32) {
-      throw new Error("VAPID private key must be 32 bytes");
+      throw new ConfigError("VAPID private key must be 32 bytes", { cause: undefined });
     }
     jwk = p256Jwk(base64UrlDecode(keys.publicKey), text);
   }
@@ -200,7 +248,9 @@ async function vapidSigningKey(keys: VapidKeys): Promise<CryptoKey> {
 
 /**
  * The `Authorization` header for a push request (RFC 8292): an ES256 JWT for
- * the endpoint's origin, valid for 12 hours, plus the public key.
+ * the endpoint's origin, valid for 12 hours, plus the public key. A key that
+ * cannot sign throws ConfigError or ValidationError (its shape), or the
+ * DOMException WebCrypto or atob raised.
  */
 export async function vapidAuthorization(
   endpoint: string,
@@ -235,7 +285,10 @@ export async function generateVapidKeys(subject: string): Promise<VapidKeys> {
   const jwk = await crypto.subtle.exportKey("jwk", pair.privateKey);
   const d = jwk.d;
   if (d === undefined || d === "") {
-    throw new Error("The runtime did not export the private key");
+    throw new ValidationError("The runtime did not export the private key", {
+      cause: undefined,
+      where: "generateVapidKeys: exported private key",
+    });
   }
   return { publicKey: base64UrlEncode(publicRaw), privateKey: d, subject };
 }
