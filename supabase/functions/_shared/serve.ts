@@ -63,7 +63,7 @@ export function pushIngestHandler<D>(
       return Response.json({ source, error: message }, { status: 500 });
     }
     let provided = req.headers.get("x-relay-secret");
-    if (provided === null || provided === undefined) {
+    if (provided === null) {
       provided = "";
     }
     if (!await secretsMatch(provided, expected)) {
@@ -74,8 +74,14 @@ export function pushIngestHandler<D>(
       let body: unknown;
       try {
         body = await req.json();
-      } catch {
-        return Response.json({ source, error: "request body is not JSON" }, { status: 400 });
+      } catch (error) {
+        // Bad JSON is the relay's fault; anything else (a broken stream) is ours.
+        if (error instanceof SyntaxError) {
+          return Response.json({ source, error: "request body is not JSON" }, { status: 400 });
+        }
+        const message = errorMessage(error);
+        console.error(`ingest-${source}: reading the request body failed: ${message}`);
+        return Response.json({ source, error: message }, { status: 500 });
       }
       return respond(source, () => run(body, deps.db(), new Date()));
     }
