@@ -7,6 +7,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { type ConvertRequest, convertRequest, runConvert } from "../archive_convert.ts";
 import { isServiceRole } from "../auth.ts";
 import { createConvertDb } from "../db.ts";
+import { ValidationError } from "../errors.ts";
 import { performanceClock, timed } from "../timing.ts";
 import type { ArchiveObjectStore } from "../types.ts";
 
@@ -48,14 +49,22 @@ async function convert(req: Request, deps: ConvertArchiveDeps): Promise<Response
     }
     request = convertRequest(body);
   } catch (error) {
-    return failure(error, 400, "Bad request: ");
+    // Not JSON, or not a conversion request: the caller's fault. Anything else (a broken stream)
+    // is ours.
+    if (error instanceof SyntaxError || error instanceof ValidationError) {
+      return failure(error, 400, "Bad request: ");
+    }
+    return failure(error, 500, "");
   }
   let store: ArchiveObjectStore;
   try {
     store = deps.store();
   } catch (error) {
+    // A ConfigError when the LONGLINES_ARCHIVE_S3_* secrets are missing or bad; any failure is a 500.
     return failure(error, 500, "");
   }
+  // The boundary: a failed listing or RPC, or anything else runConvert throws, answers 500 with
+  // its message; a failed slice is in the summary instead.
   try {
     const summary = await runConvert(createConvertDb(deps.db()), store, request);
     console.log(JSON.stringify(summary));
