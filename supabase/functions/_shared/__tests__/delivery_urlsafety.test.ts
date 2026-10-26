@@ -3,6 +3,7 @@ import {
   assertSafeDestinationUrl,
   assertSafePushEndpoint,
   assertSafeResolvedHost,
+  defaultResolver,
   hostOf,
   isDeniedHostname,
   isPrivateIp,
@@ -305,5 +306,49 @@ Deno.test(
     assertEquals(hostOf(new URL("https://localhost.../x")), "localhost");
     assertEquals(hostOf(new URL("https://example.com./x")), "example.com");
     assertEquals(hostOf(new URL("https://[::1]/x")), "::1");
+  },
+);
+
+/** A lookup with an A record and no AAAA, as for an IPv4-only host. */
+function noAaaa(_host: string, type: string): Promise<string[]> {
+  if (type === "A") {
+    return Promise.resolve(["93.184.216.34"]);
+  }
+  return Promise.reject(new Deno.errors.NotFound("no AAAA"));
+}
+
+Deno.test(
+  "defaultResolver keeps one record type's failure quiet and both failures as the cause",
+  async function (): Promise<void> {
+    const original = Deno.resolveDns;
+    // No live DNS in tests: the runtime's lookup is replaced for the duration.
+    function stub(lookup: (host: string, type: string) => Promise<string[]>): void {
+      Object.defineProperty(Deno, "resolveDns", {
+        value: lookup,
+        configurable: true,
+        writable: true,
+      });
+    }
+    try {
+      stub(noAaaa);
+      assertEquals(await defaultResolver("v4.example.com"), ["93.184.216.34"]);
+
+      stub(() => Promise.reject(new Deno.errors.NotFound("NXDOMAIN")));
+      const error = await assertRejects(
+        () => defaultResolver("nowhere.example.com"),
+        UnsafeUrlError,
+        "nowhere.example.com did not resolve",
+      );
+      if (!(error.cause instanceof AggregateError)) {
+        throw new Error("expected an AggregateError cause");
+      }
+      assertEquals(error.cause.errors.length, 2);
+    } finally {
+      Object.defineProperty(Deno, "resolveDns", {
+        value: original,
+        configurable: true,
+        writable: true,
+      });
+    }
   },
 );

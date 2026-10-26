@@ -268,7 +268,7 @@ export async function lookupLimit(
   }
   let count: number;
   try {
-    count = parseWith(lookupCountSchema, lookups.data, `${fn}: record_profile_lookup result`);
+    count = parseWith(lookupCountSchema, lookups.data, "lookupLimit: record_profile_lookup result");
   } catch (error) {
     if (!(error instanceof ValidationError)) {
       throw error;

@@ -55,7 +55,12 @@ interface WwffSpot {
 // Third-party feed: loose, since WWFF sends more fields than these and may add some.
 const wwffSpotSchema: z.ZodType<WwffSpot> = z.looseObject({
   id: spotIdSchema,
-  spot_time: z.number(),
+  // Finite is not enough: 1e13 seconds is past Date's range, and toISOString would throw a
+  // RangeError that fails the whole run instead of this spot.
+  spot_time: z.number().refine(
+    (seconds) => !Number.isNaN(new Date(seconds * 1000).getTime()),
+    { error: "spot_time is outside the range of a date" },
+  ),
   activator: requiredTextSchema,
   spotter: optionalTextSchema,
   frequency_khz: frequencySchema,
@@ -103,7 +108,7 @@ export const wwff: SourceAdapter = {
       raw["remarks"],
     ]);
 
-    // z.number() admits only finite values, so this is always a valid date.
+    // wwffSpotSchema admits only seconds within Date's range, so this is always a valid date.
     const spotTime = new Date(spot.spot_time * 1000);
     if (isTooOld(spotTime, now, MAX_AGE_MS)) {
       return { kind: "skip", reason: "too_old" };

@@ -280,7 +280,11 @@ export function assertSafePushEndpoint(url: string): URL {
   return parsed;
 }
 
-/** Resolves A and AAAA records. Null when the runtime cannot resolve DNS at all. */
+/**
+ * Resolves A and AAAA records. Null when the runtime cannot resolve DNS at all. One failed lookup
+ * is only a missing record type (an IPv4-only host has no AAAA); when both fail it throws
+ * assertSafeResolvedHost's "did not resolve", with both failures as the cause.
+ */
 export async function defaultResolver(host: string): Promise<string[] | null> {
   if (typeof Deno.resolveDns !== "function") {
     return null;
@@ -290,12 +294,18 @@ export async function defaultResolver(host: string): Promise<string[] | null> {
     Deno.resolveDns(host, "AAAA"),
   ]);
   const addresses: string[] = [];
+  const failures: unknown[] = [];
   for (const r of lookups) {
     if (r.status === "fulfilled") {
       for (const address of r.value) {
         addresses.push(address);
       }
+    } else {
+      failures.push(r.reason);
     }
+  }
+  if (failures.length === lookups.length) {
+    throw new UnsafeUrlError(`${host} did not resolve`, { cause: new AggregateError(failures) });
   }
   return addresses;
 }

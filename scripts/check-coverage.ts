@@ -22,32 +22,46 @@ if (!Number.isFinite(min) || min <= 0 || min > 100) {
   Deno.exit(2);
 }
 
-const ROOTS = [
-  {
-    name: "Edge Function",
-    dir: new URL("../supabase/functions/", import.meta.url).pathname,
-    skip: [/\/__tests__\//, /^[^/]+\/index\.ts$/, /(^|\/)types\.ts$/],
-  },
-  {
-    name: "Relay",
-    dir: new URL("../relay/", import.meta.url).pathname,
-    skip: [/^__tests__\//, /^main\.ts$/],
-  },
-  {
-    name: "Sender",
-    dir: new URL("../sender/", import.meta.url).pathname,
-    skip: [/^__tests__\//, /^main\.ts$/],
-  },
-];
-
 interface Totals {
   found: number;
   hit: number;
   reported: Set<string>;
 }
-const totals = new Map<string, Totals>(
-  ROOTS.map((r) => [r.dir, { found: 0, hit: 0, reported: new Set<string>() }]),
-);
+
+function emptyTotals(): Totals {
+  return { found: 0, hit: 0, reported: new Set<string>() };
+}
+
+const ROOTS = [
+  {
+    name: "Edge Function",
+    dir: new URL("../supabase/functions/", import.meta.url).pathname,
+    skip: [/\/__tests__\//, /^[^/]+\/index\.ts$/, /(^|\/)types\.ts$/],
+    total: emptyTotals(),
+  },
+  {
+    name: "Relay",
+    dir: new URL("../relay/", import.meta.url).pathname,
+    skip: [/^__tests__\//, /^main\.ts$/],
+    total: emptyTotals(),
+  },
+  {
+    name: "Sender",
+    dir: new URL("../sender/", import.meta.url).pathname,
+    skip: [/^__tests__\//, /^main\.ts$/],
+    total: emptyTotals(),
+  },
+];
+
+/** An LF/LH count. A value that is not one would make the total NaN, and NaN passes every check. */
+function lineCount(line: string): number {
+  const n = Number(line.slice(3));
+  if (!Number.isSafeInteger(n) || n < 0) {
+    console.error(`check-coverage.ts: not a line count: "${line}"`);
+    Deno.exit(2);
+  }
+  return n;
+}
 
 let current: Totals | undefined;
 let currentRel = "";
@@ -59,15 +73,15 @@ for (const line of (await Deno.readTextFile(lcovPath)).split("\n")) {
       current = undefined;
       currentRel = "";
     } else {
-      current = totals.get(root.dir);
+      current = root.total;
       currentRel = path.slice(root.dir.length);
     }
   } else if (current === undefined) {
     continue;
   } else if (line.startsWith("LF:")) {
-    current.found += Number(line.slice(3));
+    current.found += lineCount(line);
   } else if (line.startsWith("LH:")) {
-    current.hit += Number(line.slice(3));
+    current.hit += lineCount(line);
   } else if (line === "end_of_record") {
     current.reported.add(currentRel);
   }
@@ -86,10 +100,7 @@ async function* sources(dir: string, prefix: string): AsyncGenerator<string> {
 
 let failed = false;
 for (const root of ROOTS) {
-  const total = totals.get(root.dir);
-  if (total === undefined) {
-    throw new Error(`check-coverage.ts: no totals for ${root.dir}`);
-  }
+  const total = root.total;
   const missing: string[] = [];
   for await (const rel of sources(root.dir, "")) {
     if (!root.skip.some((re) => re.test(rel)) && !total.reported.has(rel)) {

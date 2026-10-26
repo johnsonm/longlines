@@ -150,7 +150,10 @@ export async function ndjsonText(bytes: Uint8Array): Promise<string> {
 export function epochMillis(value: string): number {
   const millis = timestampMillis(value);
   if (millis === null) {
-    throw new ValidationError(notTimestamp(value), { cause: undefined, where: "epochMillis" });
+    throw new ValidationError(notTimestamp(value), {
+      cause: undefined,
+      where: "epochMillis: timestamp",
+    });
   }
   return millis;
 }
