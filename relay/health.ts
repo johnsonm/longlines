@@ -14,6 +14,7 @@ export interface FeedHealth {
   staleMs?: number;
 }
 
+/** One feed in the /healthz body. */
 interface FeedReport {
   id: string;
   healthy: boolean;
@@ -25,6 +26,12 @@ interface FeedReport {
   pushed: number;
 }
 
+/** The /healthz body. */
+interface HealthReport {
+  healthy: boolean;
+  feeds: FeedReport[];
+}
+
 export function healthHandler(
   feeds: readonly FeedHealth[],
   startedAt: Date,
@@ -34,12 +41,12 @@ export function healthHandler(
   function feedReport(f: FeedHealth, t: number): FeedReport {
     let last = startedAt;
     let lastDataAt: string | null = null;
-    if (f.status.lastDataAt !== null && f.status.lastDataAt !== undefined) {
+    if (f.status.lastDataAt !== null) {
       last = f.status.lastDataAt;
       lastDataAt = f.status.lastDataAt.toISOString();
     }
     let feedStaleMs = staleMs;
-    if (f.staleMs !== undefined && f.staleMs !== null) {
+    if (f.staleMs !== undefined) {
       feedStaleMs = f.staleMs;
     }
     return {
@@ -65,7 +72,8 @@ export function healthHandler(
     if (healthy) {
       status = 200;
     }
-    return Response.json({ healthy, feeds: report }, { status });
+    const body: HealthReport = { healthy, feeds: report };
+    return Response.json(body, { status });
   }
   return handler;
 }

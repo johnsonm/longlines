@@ -5,9 +5,6 @@ import tseslint from "typescript-eslint";
 // rules and skip the Part 2 ones. The PR that converts an area removes its globs, and nothing else
 // edits this list. Deleted when empty.
 const zodPending = [
-  // relay
-  "relay/*.ts",
-  "relay/__tests__/*.ts",
   // sender
   "sender/*.ts",
   "sender/__tests__/*.ts",

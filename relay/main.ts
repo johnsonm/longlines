@@ -16,7 +16,7 @@ function env(name: string): string | undefined {
 function defaultFeeds(): Feed[] {
   const aprs = aprsFeed(env);
   const feeds = [RBN_FEED, dxclusterFeed(env)];
-  if (aprs !== null && aprs !== undefined) {
+  if (aprs !== null) {
     feeds.push(aprs);
   }
   return feeds;

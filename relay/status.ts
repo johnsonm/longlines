@@ -14,11 +14,18 @@ export interface StatusFeed {
   status: SessionStatus;
 }
 
+/** One feed's connection in the heartbeat. */
+export interface RelayStatusFeed {
+  id: string;
+  connected: boolean;
+}
+
+/** The relay-status request body (the handler's strict schema in handlers/relay_status.ts). */
 export interface RelayStatusBody {
   started_at: string;
   rss_bytes: number;
   reconnects: number;
-  feeds: Array<{ id: string; connected: boolean }>;
+  feeds: RelayStatusFeed[];
 }
 
 /** Every connect after a feed's first is a reconnect. */
@@ -51,11 +58,9 @@ export interface StatusLoop {
   rss?: () => number;
 }
 
-function errorMessage(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return String(error);
+// TypeScript keeps `signal.aborted` narrowed across awaits after a check; this reads it afresh.
+function isAborted(signal: AbortSignal): boolean {
+  return signal.aborted;
 }
 
 function processRss(): number {
@@ -64,19 +69,24 @@ function processRss(): number {
 
 export async function runStatusLoop(loop: StatusLoop): Promise<void> {
   let rss = processRss;
-  if (loop.rss !== undefined && loop.rss !== null) {
+  if (loop.rss !== undefined) {
     rss = loop.rss;
   }
   let intervalMs = STATUS_MS;
-  if (loop.intervalMs !== undefined && loop.intervalMs !== null) {
+  if (loop.intervalMs !== undefined) {
     intervalMs = loop.intervalMs;
   }
   while (!loop.signal.aborted) {
     try {
       await loop.post(statusBody(loop.feeds, loop.startedAt, rss()), loop.signal);
     } catch (error) {
-      if (!loop.signal.aborted) {
-        loop.log(`[status] ${errorMessage(error)}`);
+      // The heartbeat boundary: a failed post is logged, never retried; the next one goes out on
+      // time. Anything that is not an Error is thrown.
+      if (!(error instanceof Error)) {
+        throw error;
+      }
+      if (!isAborted(loop.signal)) {
+        loop.log(`[status] ${error.message}`);
       }
     }
     await loop.sleep(intervalMs, loop.signal);

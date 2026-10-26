@@ -184,15 +184,20 @@ Deno.test("Forwarder.flush is a no-op while a push is in flight", async function
   assertEquals(s.pushes, [[line(1)]]);
 });
 
-Deno.test("Forwarder logs a non-Error rejection as text", async function (): Promise<void> {
+Deno.test("Forwarder throws a push rejection that is not an Error", async function (): Promise<
+  void
+> {
   const logs: string[] = [];
   const f = new Forwarder({
     now: () => 0,
     log: (m) => logs.push(m),
     push: () => rejectWith("socket hang up"),
   });
-  await f.flush();
-  assertEquals(logs, ["push failed (0 lines, retry in 5 s): socket hang up"]);
+  f.add(line(1));
+  const reason: unknown = await f.flush().catch((error: unknown) => error);
+  assertEquals(reason, "socket hang up");
+  assertEquals(logs, []);
+  assertEquals(f.buffered, 1);
 });
 
 Deno.test(

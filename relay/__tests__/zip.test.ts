@@ -1,5 +1,10 @@
 import { assertEquals, assertRejects } from "@std/assert";
 import {
+  ConfigError,
+  FunctionCallError,
+  ValidationError,
+} from "../../supabase/functions/_shared/errors.ts";
+import {
   crc32,
   openHttpZip,
   openZipEntry,
@@ -40,6 +45,32 @@ Deno.test(
     assertEquals(await readAll(await openZipEntry(src, entries[0]!)), "HD 5000\n");
     assertEquals(await readAll(await openZipEntry(src, entries[1]!)), big);
     assertEquals(await readAll(await openZipEntry(src, entries[2]!)), "AM|1|||K1ABC|E|\r\n");
+  },
+);
+
+Deno.test(
+  "openZipEntry inflates chunks backed by a SharedArrayBuffer",
+  async function (): Promise<void> {
+    const zip = await buildZip(FILES, "");
+    const shared = new Uint8Array(new SharedArrayBuffer(zip.length));
+    shared.set(zip);
+    const src = {
+      size: shared.length,
+      bytes: (start: number, end: number) => Promise.resolve(shared.slice(start, end)),
+      stream(start: number, end: number): Promise<ReadableStream<Uint8Array>> {
+        const chunk = shared.subarray(start, end);
+        return Promise.resolve(
+          new ReadableStream<Uint8Array>({
+            start(controller): void {
+              controller.enqueue(chunk);
+              controller.close();
+            },
+          }),
+        );
+      },
+    };
+    const entries = await readZipDirectory(src);
+    assertEquals(await readAll(await openZipEntry(src, entries[1]!)), big);
   },
 );
 
@@ -194,7 +225,7 @@ Deno.test(
           countingFetch,
           STREAM_HEADER_TIMEOUT_MS,
         ),
-      Error,
+      ConfigError,
       "https is required",
     );
     assertEquals(fetched, 0);
@@ -218,7 +249,11 @@ Deno.test(
       );
       const entries = await readZipDirectory(remote);
       served.republish("Sun, 18 Oct 2026 13:18:48 GMT", undefined);
-      await assertRejects(() => openZipEntry(remote, entries[1]!), Error, "expected 206");
+      await assertRejects(
+        () => openZipEntry(remote, entries[1]!),
+        FunctionCallError,
+        "expected 206",
+      );
       assertEquals(requests.at(-1)!.ifRange, "Sun, 11 Oct 2026 13:18:48 GMT");
     } finally {
       await server.shutdown();
@@ -239,7 +274,7 @@ Deno.test(
         fetch,
         STREAM_HEADER_TIMEOUT_MS,
       );
-      await assertRejects(() => readZipDirectory(remote), Error, "expected 206");
+      await assertRejects(() => readZipDirectory(remote), FunctionCallError, "expected 206");
       const hd = {
         name: "HD.dat",
         method: 8,
@@ -248,12 +283,12 @@ Deno.test(
         headerOffset: 0,
         crc32: 0,
       };
-      await assertRejects(() => remote.stream(0, 10), Error, "expected 206");
-      await assertRejects(() => openZipEntry(remote, hd), Error, "expected 206");
+      await assertRejects(() => remote.stream(0, 10), FunctionCallError, "expected 206");
+      await assertRejects(() => openZipEntry(remote, hd), FunctionCallError, "expected 206");
       await assertRejects(
         () =>
           openHttpZip(noDate.url, new AbortController().signal, fetch, STREAM_HEADER_TIMEOUT_MS),
-        Error,
+        ValidationError,
         "no Last-Modified or ETag",
       );
       await assertRejects(
@@ -264,7 +299,7 @@ Deno.test(
             () => Promise.resolve(new Response(null, { status: 404 })),
             STREAM_HEADER_TIMEOUT_MS,
           ),
-        Error,
+        FunctionCallError,
         "HTTP 404",
       );
     } finally {
@@ -337,15 +372,15 @@ Deno.test(
         fetch,
         STREAM_HEADER_TIMEOUT_MS,
       );
-      await assertRejects(() => a.bytes(0, 100), Error, "does not match");
+      await assertRejects(() => a.bytes(0, 100), ValidationError, "does not match");
       const b = await openHttpZip(
         shifted.url,
         new AbortController().signal,
         fetch,
         STREAM_HEADER_TIMEOUT_MS,
       );
-      await assertRejects(() => readZipDirectory(b), Error, "does not match");
-      await assertRejects(() => b.stream(10, 20), Error, "does not match");
+      await assertRejects(() => readZipDirectory(b), ValidationError, "does not match");
+      await assertRejects(() => b.stream(10, 20), ValidationError, "does not match");
     } finally {
       await short.server.shutdown();
       await shifted.server.shutdown();
@@ -378,7 +413,7 @@ Deno.test(
       fake,
       STREAM_HEADER_TIMEOUT_MS,
     );
-    await assertRejects(() => remote.bytes(0, 10), Error, "5 of 10 bytes");
+    await assertRejects(() => remote.bytes(0, 10), ValidationError, "5 of 10 bytes");
   },
 );
 
@@ -402,7 +437,11 @@ Deno.test(
       assertEquals(await readAll(await openZipEntry(remote, entries[2]!)), "AM|1|||K1ABC|E|\r\n");
       assertEquals(requests.slice(1).every((r) => r.ifRange === '"abc123"'), true);
       served.republish("Sun, 18 Oct 2026 13:18:48 GMT", '"def456"');
-      await assertRejects(() => openZipEntry(remote, entries[1]!), Error, "expected 206");
+      await assertRejects(
+        () => openZipEntry(remote, entries[1]!),
+        FunctionCallError,
+        "expected 206",
+      );
     } finally {
       await server.shutdown();
     }

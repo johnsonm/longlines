@@ -7,8 +7,24 @@
 // Covers what the FCC's files use: stored or deflated entries, no zip64, no
 // encryption. Anything else throws.
 
+import {
+  ConfigError,
+  FunctionCallError,
+  ValidationError,
+} from "../supabase/functions/_shared/errors.ts";
 import { userAgent } from "../supabase/functions/_shared/http.ts";
 import { isLocalHost } from "./config.ts";
+
+/**
+ * The zip cannot be read: its bytes are not a zip this module reads, an entry's data does not
+ * match its central directory record, or a range request sent no headers in time.
+ */
+class ZipError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ZipError";
+  }
+}
 
 /** Random access to a file's bytes. */
 export interface RangeSource {
@@ -54,11 +70,11 @@ export function crc32(bytes: Uint8Array, previous: number): number {
   for (let i = 0; i < bytes.length; i++) {
     const b = bytes[i];
     if (b === undefined) {
-      throw new Error("crc32: byte index out of range");
+      throw new ZipError("crc32: byte index out of range");
     }
     const t = CRC_TABLE[(c ^ b) & 0xff];
     if (t === undefined) {
-      throw new Error("crc32: table index out of range");
+      throw new ZipError("crc32: table index out of range");
     }
     c = t ^ (c >>> 8);
   }
@@ -84,13 +100,13 @@ export async function readZipDirectory(src: RangeSource): Promise<ZipEntry[]> {
     }
   }
   if (eocd < 0) {
-    throw new Error("not a zip file: no end of central directory");
+    throw new ZipError("not a zip file: no end of central directory");
   }
   const count = view.getUint16(eocd + 10, true);
   const dirSize = view.getUint32(eocd + 12, true);
   const dirOffset = view.getUint32(eocd + 16, true);
   if (count === 0xffff || dirOffset === 0xffffffff) {
-    throw new Error("zip64 is not supported");
+    throw new ZipError("zip64 is not supported");
   }
 
   let dir: Uint8Array;
@@ -104,7 +120,7 @@ export async function readZipDirectory(src: RangeSource): Promise<ZipEntry[]> {
   let p = 0;
   for (let n = 0; n < count; n++) {
     if (p + 46 > dir.length || d.getUint32(p, true) !== CENTRAL) {
-      throw new Error("corrupt zip central directory");
+      throw new ZipError("corrupt zip central directory");
     }
     const flags = d.getUint16(p + 8, true);
     const nameLength = d.getUint16(p + 28, true);
@@ -117,15 +133,33 @@ export async function readZipDirectory(src: RangeSource): Promise<ZipEntry[]> {
       crc32: d.getUint32(p + 16, true),
     };
     if ((flags & 1) !== 0) {
-      throw new Error(`${entry.name} is encrypted`);
+      throw new ZipError(`${entry.name} is encrypted`);
     }
     if ([entry.compressedSize, entry.size, entry.headerOffset].includes(0xffffffff)) {
-      throw new Error("zip64 is not supported");
+      throw new ZipError("zip64 is not supported");
     }
     entries.push(entry);
     p += 46 + nameLength + d.getUint16(p + 30, true) + d.getUint16(p + 32, true);
   }
   return entries;
+}
+
+/**
+ * Raw deflate through DecompressionStream. Its writable takes BufferSource, which a
+ * Uint8Array over an ArrayBufferLike is not to TypeScript, so each chunk goes in as a view of
+ * its ArrayBuffer (no copy); one over a SharedArrayBuffer, which fetch never yields, is copied.
+ */
+function inflateRaw(raw: ReadableStream<Uint8Array>): ReadableStream<Uint8Array> {
+  const views = new TransformStream<Uint8Array, BufferSource>({
+    transform(chunk, controller): void {
+      if (chunk.buffer instanceof ArrayBuffer) {
+        controller.enqueue(new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength));
+      } else {
+        controller.enqueue(chunk.slice());
+      }
+    },
+  });
+  return raw.pipeThrough(views).pipeThrough(new DecompressionStream("deflate-raw"));
 }
 
 /**
@@ -137,20 +171,20 @@ export async function openZipEntry(
   entry: ZipEntry,
 ): Promise<ReadableStream<Uint8Array>> {
   if (entry.method !== 0 && entry.method !== 8) {
-    throw new Error(`${entry.name}: compression method ${String(entry.method)} is not supported`);
+    throw new ZipError(
+      `${entry.name}: compression method ${String(entry.method)} is not supported`,
+    );
   }
   const header = await src.bytes(entry.headerOffset, entry.headerOffset + 30);
   const h = new DataView(header.buffer, header.byteOffset, header.byteLength);
   if (header.length < 30 || h.getUint32(0, true) !== LOCAL) {
-    throw new Error(`${entry.name}: corrupt local header`);
+    throw new ZipError(`${entry.name}: corrupt local header`);
   }
   const start = entry.headerOffset + 30 + h.getUint16(26, true) + h.getUint16(28, true);
   const raw = await src.stream(start, start + entry.compressedSize);
   let data: ReadableStream<Uint8Array>;
   if (entry.method === 8) {
-    data = raw.pipeThrough(
-      new DecompressionStream("deflate-raw") as TransformStream<Uint8Array, Uint8Array>,
-    );
+    data = inflateRaw(raw);
   } else {
     data = raw;
   }
@@ -162,7 +196,7 @@ export async function openZipEntry(
       transform(chunk, controller): void {
         seen += chunk.length;
         if (seen > entry.size) {
-          controller.error(new Error(`${entry.name}: more than ${String(entry.size)} bytes`));
+          controller.error(new ZipError(`${entry.name}: more than ${String(entry.size)} bytes`));
         } else {
           crc = crc32(chunk, crc);
           controller.enqueue(chunk);
@@ -171,10 +205,10 @@ export async function openZipEntry(
       flush(controller): void {
         if (seen !== entry.size) {
           controller.error(
-            new Error(`${entry.name}: ${String(seen)} of ${String(entry.size)} bytes`),
+            new ZipError(`${entry.name}: ${String(seen)} of ${String(entry.size)} bytes`),
           );
         } else if (crc !== entry.crc32) {
-          controller.error(new Error(`${entry.name}: CRC-32 mismatch`));
+          controller.error(new ZipError(`${entry.name}: CRC-32 mismatch`));
         }
       },
     }),
@@ -193,7 +227,7 @@ export interface HttpZip extends RangeSource {
 /** A strong entity tag (`"..."`), the only kind RFC 9110 allows in If-Range. */
 function strongEtag(etag: string | null): string | null {
   let tag = "";
-  if (etag !== null && etag !== undefined) {
+  if (etag !== null) {
     tag = etag.trim();
   }
   if (/^"[^"]*"$/.test(tag)) {
@@ -222,7 +256,9 @@ export async function openHttpZip(
   const protocol = parsed.protocol;
   const hostname = parsed.hostname;
   if (protocol !== "https:" && !(protocol === "http:" && isLocalHost(hostname))) {
-    throw new Error(`${url}: https is required outside local development`);
+    throw new ConfigError(`${url}: https is required outside local development`, {
+      cause: undefined,
+    });
   }
   const headers = { "User-Agent": userAgent() };
   const head = await fetchFn(url, {
@@ -230,21 +266,28 @@ export async function openHttpZip(
     headers,
     signal: AbortSignal.any([signal, AbortSignal.timeout(30_000)]),
   });
-  if (head.body !== null && head.body !== undefined) {
+  if (head.body !== null) {
     await head.body.cancel();
   }
   if (!head.ok) {
-    throw new Error(`HEAD ${url}: HTTP ${String(head.status)}`);
+    throw new FunctionCallError(`HEAD ${url}: HTTP ${String(head.status)}`, {
+      cause: undefined,
+      status: head.status,
+    });
   }
+  const headWhere = `openHttpZip: HEAD ${url} headers`;
   const size = Number(head.headers.get("content-length"));
   const lastModified = head.headers.get("last-modified");
   const etag = strongEtag(head.headers.get("etag"));
   if (!Number.isSafeInteger(size) || size <= 0) {
-    throw new Error(`HEAD ${url}: no Content-Length`);
+    throw new ValidationError(`HEAD ${url}: no Content-Length`, {
+      cause: undefined,
+      where: headWhere,
+    });
   }
-  const noLastModified = lastModified === null || lastModified === undefined ||
-    lastModified === "";
-  const noEtag = etag === null || etag === undefined || etag === "";
+  const noLastModified = lastModified === null || lastModified === "";
+  // strongEtag never returns "".
+  const noEtag = etag === null;
   if (noLastModified && noEtag) {
     let message: string;
     if (head.headers.has("etag")) {
@@ -253,19 +296,19 @@ export async function openHttpZip(
     } else {
       message = `HEAD ${url}: no Last-Modified or ETag`;
     }
-    throw new Error(message);
+    throw new ValidationError(message, { cause: undefined, where: headWhere });
   }
   let version = "";
-  if (lastModified !== null && lastModified !== undefined) {
+  if (lastModified !== null) {
     version = lastModified;
-  } else if (etag !== null && etag !== undefined) {
+  } else if (etag !== null) {
     version = etag;
   }
   // RFC 9110 13.1.5: send the strong entity tag when there is one, a date otherwise.
   let ifRange = "";
-  if (etag !== null && etag !== undefined) {
+  if (etag !== null) {
     ifRange = etag;
-  } else if (lastModified !== null && lastModified !== undefined) {
+  } else if (lastModified !== null) {
     ifRange = lastModified;
   }
 
@@ -291,22 +334,28 @@ export async function openHttpZip(
     });
     const what = `GET ${url} bytes ${String(start)}-${String(end - 1)}`;
     if (res.status !== 206) {
-      if (res.body !== null && res.body !== undefined) {
+      if (res.body !== null) {
         await res.body.cancel();
       }
-      throw new Error(`${what}: HTTP ${String(res.status)}, expected 206`);
+      throw new FunctionCallError(`${what}: HTTP ${String(res.status)}, expected 206`, {
+        cause: undefined,
+        status: res.status,
+      });
     }
     // A shifted or partial range would put the wrong bytes at every offset.
     let contentRange = "";
     const contentRangeHeader = res.headers.get("content-range");
-    if (contentRangeHeader !== null && contentRangeHeader !== undefined) {
+    if (contentRangeHeader !== null) {
       contentRange = contentRangeHeader;
     }
     if (!contentRange.startsWith(`bytes ${String(start)}-${String(end - 1)}/`)) {
-      if (res.body !== null && res.body !== undefined) {
+      if (res.body !== null) {
         await res.body.cancel();
       }
-      throw new Error(`${what}: Content-Range "${contentRange}" does not match`);
+      throw new ValidationError(`${what}: Content-Range "${contentRange}" does not match`, {
+        cause: undefined,
+        where: `openHttpZip: ${what} headers`,
+      });
     }
     return res;
   }
@@ -318,10 +367,10 @@ export async function openHttpZip(
       const res = await range(start, end, AbortSignal.timeout(60_000));
       const body = new Uint8Array(await res.arrayBuffer());
       if (body.length !== end - start) {
-        throw new Error(
-          `GET ${url} bytes ${String(start)}-${String(end - 1)}: ${String(body.length)} of ${
-            String(end - start)
-          } bytes`,
+        const what = `GET ${url} bytes ${String(start)}-${String(end - 1)}`;
+        throw new ValidationError(
+          `${what}: ${String(body.length)} of ${String(end - start)} bytes`,
+          { cause: undefined, where: `openHttpZip: ${what} body` },
         );
       }
       return body;
@@ -333,7 +382,7 @@ export async function openHttpZip(
       const headerTimeout = new AbortController();
       function abortHeaders(): void {
         headerTimeout.abort(
-          new Error(
+          new ZipError(
             `GET ${url} bytes ${String(start)}-${String(end - 1)}: no response within ${
               String(streamHeaderTimeoutMs)
             } ms`,
@@ -347,8 +396,11 @@ export async function openHttpZip(
       } finally {
         clearTimeout(timer);
       }
-      if (res.body === null || res.body === undefined) {
-        throw new Error(`GET ${url}: empty body`);
+      if (res.body === null) {
+        throw new ValidationError(`GET ${url}: empty body`, {
+          cause: undefined,
+          where: `openHttpZip: GET ${url} body`,
+        });
       }
       return res.body;
     },

@@ -20,12 +20,19 @@ const STALE_MS = 10 * 60_000;
  */
 const DRAIN_MS = 20_000;
 
+/** A running feed: its /healthz figures, its forwarder, and a promise that settles when it stops. */
+interface StartedFeed {
+  health: FeedHealth;
+  done: Promise<void>;
+  forwarder: Forwarder;
+}
+
 function startFeed(
   feed: Feed,
   config: RelayConfig,
   signal: AbortSignal,
   logLine: (message: string) => void,
-): { health: FeedHealth; done: Promise<void>; forwarder: Forwarder } {
+): StartedFeed {
   function log(message: string): void {
     logLine(`[${feed.id}] ${message}`);
   }
@@ -44,7 +51,7 @@ function startFeed(
   }
   const forwarder = new Forwarder(forwarderOptions);
   let loginCall = config.loginCall;
-  if (feed.loginCall !== undefined && feed.loginCall !== null) {
+  if (feed.loginCall !== undefined) {
     loginCall = feed.loginCall;
   }
   const status: SessionStatus = { connected: false, lastDataAt: null, connects: 0 };
@@ -123,6 +130,12 @@ function logToConsole(message: string): void {
   console.log(message);
 }
 
+/** The Health page heartbeat's interval and memory figure (tests). */
+export interface RelayStatusOptions {
+  intervalMs?: number;
+  rss?: () => number;
+}
+
 export interface RelayOptions {
   /** Health server bind address; 0.0.0.0 so Fly's health check can reach it. */
   hostname?: string;
@@ -130,7 +143,7 @@ export interface RelayOptions {
   /** Overrides for the license load's timing and limits (tests). */
   licenses?: Partial<Omit<LicenseImportLoop, "zipUrl" | "client" | "signal" | "log">>;
   /** The Health page heartbeat's interval and memory figure (tests). */
-  status?: { intervalMs?: number; rss?: () => number };
+  status?: RelayStatusOptions;
 }
 
 export interface Relay {
@@ -151,7 +164,7 @@ export function startRelay(
   options: RelayOptions,
 ): Relay {
   let log: (message: string) => void = logToConsole;
-  if (options.log !== undefined && options.log !== null) {
+  if (options.log !== undefined) {
     log = options.log;
   }
   const controller = new AbortController();
@@ -210,7 +223,7 @@ export function startRelay(
   const status = runStatusLoop(statusLoop);
 
   let hostname = "0.0.0.0";
-  if (options.hostname !== undefined && options.hostname !== null) {
+  if (options.hostname !== undefined) {
     hostname = options.hostname;
   }
   function onListen(): void {
@@ -247,7 +260,7 @@ export function startRelay(
     addr: server.addr,
     done: allDone(),
     shutdown(): Promise<void> {
-      if (stopping === null || stopping === undefined) {
+      if (stopping === null) {
         stopping = stop();
       }
       return stopping;

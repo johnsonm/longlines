@@ -1,4 +1,9 @@
 import { assertEquals, assertRejects, assertThrows } from "@std/assert";
+import {
+  ConfigError,
+  FunctionCallError,
+  ValidationError,
+} from "../../supabase/functions/_shared/errors.ts";
 import { FCC_AMATEUR_ZIP, loadConfig } from "../config.ts";
 import {
   APRS_DEFAULT_HOST,
@@ -50,13 +55,24 @@ Deno.test("loadConfig reads the environment and normalises values", function ():
 Deno.test("loadConfig rejects missing values, plain http off localhost and bad ports", function (): void {
   assertThrows(
     () => loadConfig(env(withValues(BASE, { LONGLINES_RELAY_SECRET: " " }))),
-    Error,
+    ConfigError,
     "LONGLINES_RELAY_SECRET",
   );
-  assertThrows(() =>
-    loadConfig(env(withValues(BASE, { LONGLINES_FUNCTIONS_URL: "http://abc.supabase.co" })))
+  assertThrows(
+    () => loadConfig(env(withValues(BASE, { LONGLINES_FUNCTIONS_URL: "http://abc.supabase.co" }))),
+    ConfigError,
+    "https",
   );
-  assertThrows(() => loadConfig(env(withValues(BASE, { RELAY_HEALTH_PORT: "x" }))));
+  assertThrows(
+    () => loadConfig(env(withValues(BASE, { LONGLINES_FUNCTIONS_URL: "not a url" }))),
+    ConfigError,
+    "LONGLINES_FUNCTIONS_URL must be a URL",
+  );
+  assertThrows(
+    () => loadConfig(env(withValues(BASE, { RELAY_HEALTH_PORT: "x" }))),
+    ConfigError,
+    "RELAY_HEALTH_PORT",
+  );
   assertEquals(
     loadConfig(
       env(withValues(BASE, { LONGLINES_FUNCTIONS_URL: "http://127.0.0.1:54321/functions/v1" })),
@@ -89,8 +105,8 @@ Deno.test("loadConfig turns the license load off, off locally, or points it at a
   );
   assertThrows(
     () => loadConfig(env(withValues(BASE, { RELAY_LICENSES: "no" }))),
-    Error,
-    "RELAY_LICENSES",
+    ConfigError,
+    "RELAY_LICENSES must be off or a URL",
   );
 });
 
@@ -194,7 +210,7 @@ Deno.test("aprsLoginCall accepts a call or call-SSID of at most nine characters"
   for (
     const bad of ["", "N0CALL-LLL", "KK4PWJ-123", "N0 CALL", "N0CALL/P", "ABCDEFGHIJ", "AB-CD-1"]
   ) {
-    assertThrows(() => aprsLoginCall(bad), Error, "APRS_LOGIN_CALL", bad);
+    assertThrows(() => aprsLoginCall(bad), ConfigError, "APRS_LOGIN_CALL", bad);
   }
   // Ten characters with an SSID is still too long.
   assertThrows(() => aprsLoginCall("KK4PWJA-10"), Error, "nine");
@@ -263,11 +279,29 @@ Deno.test("functionClient throws on non-2xx", async function (): Promise<void> {
     secret: "s",
     fetchFn: fakeFetch(401, "{}").fn,
   });
-  await assertRejects(
+  const error = await assertRejects(
     () => client.push([], undefined),
-    Error,
+    FunctionCallError,
     "HTTP 401",
   );
+  assertEquals(error.status, 401);
+});
+
+Deno.test("functionClient throws a ValidationError for a 2xx reply that is not JSON", async function (): Promise<
+  void
+> {
+  const client = functionClient({
+    functionsUrl: "https://x",
+    functionName: "ingest-rbn",
+    secret: "s",
+    fetchFn: fakeFetch(200, "ok").fn,
+  });
+  const error = await assertRejects(
+    () => client.push([], undefined),
+    ValidationError,
+    "FunctionPoster.post: ingest-rbn reply: not JSON",
+  );
+  assertEquals(error.cause instanceof SyntaxError, true);
 });
 
 Deno.test(

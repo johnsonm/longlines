@@ -1,5 +1,7 @@
 // Relay configuration from the environment (Fly secrets in production).
 
+import { ConfigError } from "../supabase/functions/_shared/errors.ts";
+
 /** The FCC's weekly full amateur license file (relay/licenses.ts). */
 export const FCC_AMATEUR_ZIP = "https://data.fcc.gov/download/pub/uls/complete/l_amat.zip";
 
@@ -31,7 +33,7 @@ function trimmed(value: string | undefined): string {
 function required(env: (name: string) => string | undefined, name: string): string {
   const value = trimmed(env(name));
   if (value === "") {
-    throw new Error(`missing environment variable ${name}`);
+    throw new ConfigError(`missing environment variable ${name}`, { cause: undefined });
   }
   return value;
 }
@@ -40,7 +42,7 @@ function required(env: (name: string) => string | undefined, name: string): stri
 export function portNumber(value: string, name: string): number {
   const port = Number(value);
   if (!Number.isInteger(port) || port <= 0 || port > 65535) {
-    throw new Error(`${name} must be a port number`);
+    throw new ConfigError(`${name} must be a port number`, { cause: undefined });
   }
   return port;
 }
@@ -61,27 +63,32 @@ function licenseZipUrl(value: string | undefined, localFunctions: boolean): stri
   if (v.toLowerCase() === "off") {
     return null;
   }
-  let url: URL;
-  try {
-    url = new URL(v);
-  } catch {
-    throw new Error("RELAY_LICENSES must be off or a URL");
+  if (!URL.canParse(v)) {
+    throw new ConfigError("RELAY_LICENSES must be off or a URL", { cause: undefined });
   }
+  const url = new URL(v);
   if (url.protocol !== "https:" && !(url.protocol === "http:" && isLocalHost(url.hostname))) {
-    throw new Error("RELAY_LICENSES must use https outside local development");
+    throw new ConfigError("RELAY_LICENSES must use https outside local development", {
+      cause: undefined,
+    });
   }
   return v;
 }
 
 export function loadConfig(env: (name: string) => string | undefined): RelayConfig {
   const functionsUrl = required(env, "LONGLINES_FUNCTIONS_URL").replace(/\/+$/, "");
+  if (!URL.canParse(functionsUrl)) {
+    throw new ConfigError("LONGLINES_FUNCTIONS_URL must be a URL", { cause: undefined });
+  }
   const url = new URL(functionsUrl);
   const local = isLocalHost(url.hostname);
   if (url.protocol !== "https:" && !local) {
-    throw new Error("LONGLINES_FUNCTIONS_URL must use https outside local development");
+    throw new ConfigError("LONGLINES_FUNCTIONS_URL must use https outside local development", {
+      cause: undefined,
+    });
   }
   let healthPort = env("RELAY_HEALTH_PORT");
-  if (healthPort === undefined || healthPort === null) {
+  if (healthPort === undefined) {
     healthPort = "8080";
   }
   const port = portNumber(healthPort, "RELAY_HEALTH_PORT");

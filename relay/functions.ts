@@ -1,6 +1,7 @@
 // The relay's calls to its Edge Functions: push a batch of lines, or POST any
 // JSON body (the license load).
 
+import { FunctionCallError, ValidationError } from "../supabase/functions/_shared/errors.ts";
 import { userAgent } from "../supabase/functions/_shared/http.ts";
 
 export interface RelayLine {
@@ -24,8 +25,9 @@ export interface FunctionPosterConfig {
 }
 
 /**
- * POSTs JSON bodies to one Edge Function with the relay secret: the parsed reply, or an error
- * for non-2xx. Each request aborts after TIMEOUT_MS, or sooner when `signal` aborts.
+ * POSTs JSON bodies to one Edge Function with the relay secret: the parsed reply, a
+ * FunctionCallError for non-2xx, or a ValidationError for a reply that is not JSON. Each request
+ * aborts after TIMEOUT_MS, or sooner when `signal` aborts. Callers validate the reply they read.
  */
 export class FunctionPoster {
   private readonly url: string;
@@ -60,9 +62,29 @@ export class FunctionPoster {
     });
     const text = await res.text();
     if (!res.ok) {
-      throw new Error(`POST ${this.functionName}: HTTP ${String(res.status)} ${text}`);
+      throw new FunctionCallError(`POST ${this.functionName}: HTTP ${String(res.status)} ${text}`, {
+        cause: undefined,
+        status: res.status,
+      });
     }
-    return JSON.parse(text);
+    return parseReply(text, this.functionName);
+  }
+}
+
+/**
+ * The reply text as JSON. A 2xx reply that is not JSON throws a ValidationError naming the
+ * function; JSON.parse throws only SyntaxError, so that is the one class caught.
+ */
+function parseReply(text: string, functionName: string): unknown {
+  const where = `FunctionPoster.post: ${functionName} reply`;
+  try {
+    const reply: unknown = JSON.parse(text);
+    return reply;
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      throw new ValidationError(`${where}: not JSON: ${error.message}`, { cause: error, where });
+    }
+    throw error;
   }
 }
 

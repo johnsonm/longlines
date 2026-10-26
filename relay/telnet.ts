@@ -222,6 +222,11 @@ export function abortableSleep(ms: number, signal: AbortSignal): Promise<void> {
   });
 }
 
+// TypeScript keeps `signal.aborted` narrowed across awaits after a check; this reads it afresh.
+function isAborted(signal: AbortSignal): boolean {
+  return signal.aborted;
+}
+
 /** Read one chunk, or null on EOF or when nothing arrives within idleMs (connection closed). */
 async function readWithIdleTimeout(
   conn: Conn,
@@ -267,7 +272,7 @@ async function runSession(opts: Required<TelnetOptions>): Promise<void> {
     while (!opts.signal.aborted) {
       const n = await readWithIdleTimeout(conn, buf, opts.idleMs, opts.signal);
       if (n === null) {
-        if (!opts.signal.aborted) {
+        if (!isAborted(opts.signal)) {
           opts.log("connection closed or idle; reconnecting");
         }
         return;
@@ -288,10 +293,20 @@ async function runSession(opts: Required<TelnetOptions>): Promise<void> {
     }
   } finally {
     opts.status.connected = false;
-    try {
-      conn.close();
-    } catch {
-      // Already closed by the idle timeout or abort.
+    closeConn(conn);
+  }
+}
+
+/**
+ * Closes a session's connection, which the abort may have closed already. Kept outside the loop
+ * boundary: closing it twice throws BadResource, the one error ignored here.
+ */
+function closeConn(conn: Conn): void {
+  try {
+    conn.close();
+  } catch (error) {
+    if (!(error instanceof Deno.errors.BadResource)) {
+      throw error;
     }
   }
 }
@@ -311,11 +326,11 @@ function logToConsole(message: string): void {
 /** Keep a session open until the signal aborts, reconnecting with backoff. */
 export async function runTelnet(options: TelnetOptions): Promise<void> {
   let telnet = true;
-  if (options.telnet !== undefined && options.telnet !== null) {
+  if (options.telnet !== undefined) {
     telnet = options.telnet;
   }
   let loginLine = options.loginCall;
-  if (options.loginLine !== undefined && options.loginLine !== null) {
+  if (options.loginLine !== undefined) {
     loginLine = options.loginLine;
   }
   const opts: Required<TelnetOptions> = {
@@ -360,18 +375,16 @@ export async function runTelnet(options: TelnetOptions): Promise<void> {
     try {
       await runSession(opts);
     } catch (error) {
-      if (opts.signal.aborted) {
+      // The reconnect loop boundary: a failed session is logged and the loop reconnects.
+      if (isAborted(opts.signal)) {
         break;
       }
-      let message: string;
-      if (error instanceof Error) {
-        message = error.message;
-      } else {
-        message = String(error);
+      if (!(error instanceof Error)) {
+        throw error;
       }
-      opts.log(`session error: ${message}`);
+      opts.log(`session error: ${error.message}`);
     }
-    if (opts.signal.aborted) {
+    if (isAborted(opts.signal)) {
       break;
     }
     delay = nextDelay(delay, opts.now().getTime() - started, opts.backoff, Math.random);

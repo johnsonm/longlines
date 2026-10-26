@@ -9,6 +9,8 @@
 // deploy mid-load) is retried after twelve hours, not at once, so a load that
 // keeps failing costs the FCC two downloads a day at most.
 
+import { z } from "zod";
+import { ValidationError } from "../supabase/functions/_shared/errors.ts";
 import {
   type LicenseLoad,
   type LoadLicensesRequest,
@@ -19,6 +21,7 @@ import {
   UlsRecords,
   type UlsRow,
 } from "../supabase/functions/_shared/uls.ts";
+import { parseWith } from "../supabase/functions/_shared/validate.ts";
 import { abortableSleep } from "./telnet.ts";
 import {
   type HttpZip,
@@ -34,6 +37,47 @@ export const MIN_RECORDS: UlsCounts = { HD: 500_000, EN: 500_000, AM: 500_000 };
 
 const RETRY_AFTER_MS = 12 * 3_600_000;
 
+/** The import stopped before its data did: the signal aborted, or the download went quiet. */
+class LicenseImportError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "LicenseImportError";
+  }
+}
+
+// The replies load-licenses sends (run in _shared/handlers/load_licenses.ts). Our own function's
+// replies, so strict; the load inside the status reply is fcc_license_load_status' jsonb, which
+// can gain keys across deploys, so loose (as db.ts reads it).
+const licenseLoadSchema: z.ZodType<LicenseLoad> = z.looseObject({
+  id: z.number(),
+  version: z.string(),
+  status: z.enum(["loading", "ready", "applied", "failed"]),
+  started_at: z.string(),
+});
+
+/** status: the newest load, or null before the first. A reply without `load` reads as null. */
+interface StatusReply {
+  load?: LicenseLoad | null;
+}
+
+const statusReplySchema: z.ZodType<StatusReply> = z.strictObject({
+  load: licenseLoadSchema.nullable().optional(),
+});
+
+/** begin: the new load's id. */
+interface BeginReply {
+  load: number;
+}
+
+const beginReplySchema: z.ZodType<BeginReply> = z.strictObject({ load: z.number() });
+
+/** rows: the file's rows staged so far. */
+interface RowsReply {
+  staged: number;
+}
+
+const rowsReplySchema: z.ZodType<RowsReply> = z.strictObject({ staged: z.number() });
+
 /** load-licenses, one method per action. */
 export interface LicenseClient {
   status(): Promise<LicenseLoad | null>;
@@ -48,24 +92,23 @@ export interface LicenseClient {
 export function licenseClient(
   post: (body: LoadLicensesRequest) => Promise<unknown>,
 ): LicenseClient {
-  async function field(body: LoadLicensesRequest, name: string): Promise<unknown> {
-    const reply = (await post(body)) as Record<string, unknown> | null;
-    if (reply === null || reply === undefined) {
-      return undefined;
-    }
-    return reply[name];
-  }
   return {
     async status(): Promise<LicenseLoad | null> {
-      let load = await field({ action: "status" }, "load");
-      if (load === undefined) {
-        load = null;
+      const raw = await post({ action: "status" });
+      const reply = parseWith(statusReplySchema, raw, "licenseClient.status: load-licenses reply");
+      if (reply.load === undefined) {
+        return null;
       }
-      return load as LicenseLoad | null;
+      return reply.load;
     },
-    begin: async (version) => Number(await field({ action: "begin", version }, "load")),
-    rows: async (load, kind, rows) =>
-      Number(await field({ action: "rows", load, kind, rows }, "staged")),
+    async begin(version): Promise<number> {
+      const raw = await post({ action: "begin", version });
+      return parseWith(beginReplySchema, raw, "licenseClient.begin: load-licenses reply").load;
+    },
+    async rows(load, kind, rows): Promise<number> {
+      const raw = await post({ action: "rows", load, kind, rows });
+      return parseWith(rowsReplySchema, raw, "licenseClient.rows: load-licenses reply").staged;
+    },
     async finish(load, counts): Promise<void> {
       await post({ action: "finish", load, counts });
     },
@@ -108,6 +151,11 @@ function errorMessage(error: unknown): string {
   return String(error);
 }
 
+// TypeScript keeps `signal.aborted` narrowed across awaits after a check; this reads it afresh.
+function isAborted(signal: AbortSignal): boolean {
+  return signal.aborted;
+}
+
 /** Abortable read that fails when the server goes quiet. */
 async function readWithin<T>(
   reader: ReadableStreamDefaultReader<T>,
@@ -116,7 +164,7 @@ async function readWithin<T>(
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>(function arm(_resolve, reject): void {
     timer = setTimeout(function fail(): void {
-      reject(new Error(`no data for ${String(ms / 1000)} s`));
+      reject(new LicenseImportError(`no data for ${String(ms / 1000)} s`));
     }, ms);
   });
   try {
@@ -135,15 +183,15 @@ export async function importLicenses(
   const log = options.log;
   const signal = options.signal;
   let batchSize = 5_000;
-  if (options.batchSize !== null && options.batchSize !== undefined) {
+  if (options.batchSize !== undefined) {
     batchSize = options.batchSize;
   }
   let minRecords = MIN_RECORDS;
-  if (options.minRecords !== null && options.minRecords !== undefined) {
+  if (options.minRecords !== undefined) {
     minRecords = options.minRecords;
   }
   let retryDelays = [5_000, 30_000];
-  if (options.retryDelaysMs !== null && options.retryDelaysMs !== undefined) {
+  if (options.retryDelaysMs !== undefined) {
     retryDelays = options.retryDelaysMs;
   }
 
@@ -151,7 +199,10 @@ export async function importLicenses(
   function entryFor(kind: UlsKind): ZipEntry {
     const entry = entries.find((e) => e.name === `${kind}.dat`);
     if (entry === undefined) {
-      throw new Error(`${kind}.dat is not in the zip`);
+      throw new ValidationError(`${kind}.dat is not in the zip`, {
+        cause: undefined,
+        where: "importLicenses: zip directory",
+      });
     }
     return entry;
   }
@@ -167,8 +218,10 @@ export async function importLicenses(
         staged[kind] = await client.rows(load, kind, rows);
         return;
       } catch (error) {
+        // Kept outside the loop boundary: a failed post (HTTP, network, timeout, a bad reply) is
+        // retried after each delay in turn, then thrown. Anything that is not an Error is thrown.
         const delay = retryDelays[attempt];
-        if (delay === undefined || signal.aborted) {
+        if (!(error instanceof Error) || delay === undefined || signal.aborted) {
           throw error;
         }
         await abortableSleep(delay, signal);
@@ -197,13 +250,14 @@ export async function importLicenses(
         }
       }
     }
+    let readToEnd = false;
     try {
       for (;;) {
-        if (signal.aborted) {
-          throw new Error("license import aborted");
+        if (isAborted(signal)) {
+          throw new LicenseImportError("license import aborted");
         }
         let readTimeoutMs = 120_000;
-        if (options.readTimeoutMs !== null && options.readTimeoutMs !== undefined) {
+        if (options.readTimeoutMs !== undefined) {
           readTimeoutMs = options.readTimeoutMs;
         }
         const result = await readWithin(reader, readTimeoutMs);
@@ -212,13 +266,13 @@ export async function importLicenses(
         }
         await take(records.push(result.value));
       }
-    } catch (error) {
-      try {
+      readToEnd = true;
+    } finally {
+      // Stop the download when the file was not read to its end. On a stream that errored,
+      // cancel rejects with the error the read already threw, so the same error goes on.
+      if (!readToEnd) {
         await reader.cancel();
-      } catch {
-        // Best effort: the read's own error is the one to report.
       }
-      throw error;
     }
     await take(records.flush());
     if (batch.length > 0) {
@@ -226,10 +280,11 @@ export async function importLicenses(
     }
     log(`${kind}.dat: ${String(staged[kind])} staged, ${String(skipped)} skipped`);
     if (staged[kind] < minRecords[kind]) {
-      throw new Error(
+      throw new ValidationError(
         `${kind}.dat has ${String(staged[kind])} records, expected at least ${
           String(minRecords[kind])
         }`,
+        { cause: undefined, where: `importLicenses: ${kind}.dat` },
       );
     }
   }
@@ -240,16 +295,32 @@ export async function importLicenses(
     }
     await client.finish(load, staged);
   } catch (error) {
-    // Free the staged rows now rather than at the next begin, 12 hours on. Best
-    // effort: begin empties staging anyway.
-    try {
-      await client.abandon(load, errorMessage(error));
-    } catch {
-      // Ignored: the load's own error is the one to report.
-    }
+    // Kept outside the loop boundary: free the staged rows now rather than at the
+    // next begin, 12 hours on, then throw the load's own error on.
+    await abandonLoad(client, load, error, log);
     throw error;
   }
   return staged;
+}
+
+/**
+ * Abandons a failed load. Best effort, since begin empties staging anyway: a failed abandon is
+ * logged, so that the load's own error is the one thrown. Anything that is not an Error is thrown.
+ */
+async function abandonLoad(
+  client: LicenseClient,
+  load: number,
+  loadError: unknown,
+  log: (message: string) => void,
+): Promise<void> {
+  try {
+    await client.abandon(load, errorMessage(loadError));
+  } catch (error) {
+    if (!(error instanceof Error)) {
+      throw error;
+    }
+    log(`abandon failed: ${error.message}`);
+  }
 }
 
 export interface LicenseImportLoop extends ImportOptions {
@@ -272,7 +343,7 @@ export async function checkLicenses(options: LicenseImportLoop): Promise<UlsCoun
   const latest = await options.client.status();
   let now: Date;
   const nowFn = options.now;
-  if (nowFn !== null && nowFn !== undefined) {
+  if (nowFn !== undefined) {
     now = nowFn();
   } else {
     now = new Date();
@@ -291,20 +362,24 @@ export async function runLicenseImports(options: LicenseImportLoop): Promise<voi
   const signal = options.signal;
   const log = options.log;
   let firstCheckMs = 5 * 60_000;
-  if (options.firstCheckMs !== null && options.firstCheckMs !== undefined) {
+  if (options.firstCheckMs !== undefined) {
     firstCheckMs = options.firstCheckMs;
   }
   await abortableSleep(firstCheckMs, signal);
-  while (!signal.aborted) {
+  while (!isAborted(signal)) {
     try {
       await checkLicenses(options);
     } catch (error) {
-      if (!signal.aborted) {
-        log(`load failed: ${errorMessage(error)}`);
+      // The loop boundary: a failed check is logged and retried at the next one.
+      if (!(error instanceof Error)) {
+        throw error;
+      }
+      if (!isAborted(signal)) {
+        log(`load failed: ${error.message}`);
       }
     }
     let checkMs = 6 * 3_600_000;
-    if (options.checkMs !== null && options.checkMs !== undefined) {
+    if (options.checkMs !== undefined) {
       checkMs = options.checkMs;
     }
     await abortableSleep(checkMs, signal);
