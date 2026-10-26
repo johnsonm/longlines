@@ -1,4 +1,4 @@
-import { assertEquals, assertMatch } from "@std/assert";
+import { assertEquals, assertMatch, assertRejects } from "@std/assert";
 import {
   MAX_RETRY_AFTER_SECONDS,
   retryAfterSeconds,
@@ -12,6 +12,7 @@ import { base64UrlDecode, base64UrlEncode, type VapidKeys } from "../delivery/we
 import { signWebhookBody } from "../delivery/hmac.ts";
 import {
   PinnedConnectError,
+  PinnedHttpError,
   type pinnedPost,
   type PinnedPostInit,
   type PinnedResponse,
@@ -199,6 +200,12 @@ Deno.test(
       ],
       [new Response(null, { status: 429, headers: { "Retry-After": "3000000000" } }), 86_400],
       [new Response("not json", { status: 429 }), null],
+      // A body of another shape counts as no body: the header decides.
+      [
+        Response.json({ retry_after: true }, { status: 429, headers: { "Retry-After": "5" } }),
+        5,
+      ],
+      [Response.json([7], { status: 429, headers: { "Retry-After": "4" } }), 4],
     ];
     async function send(base: string, expected: number | null): Promise<void> {
       const d = dest(`${base}/api/webhooks/1/abc`, "discord");
@@ -646,7 +653,7 @@ Deno.test(
     const posts: Post[] = [];
     function refusedFirst(a: string): number | Error {
       if (a === "192.0.2.1") {
-        return new PinnedConnectError("Connection refused");
+        return new PinnedConnectError("Connection refused", { cause: undefined });
       }
       return 200;
     }
@@ -659,7 +666,7 @@ Deno.test(
     // Refused everywhere: at most three addresses, then the last error.
     const all: Post[] = [];
     function refused(): Error {
-      return new PinnedConnectError("Connection refused");
+      return new PinnedConnectError("Connection refused", { cause: undefined });
     }
     assertEquals(
       await sendWebhook(d, batch, { resolver, webhookPost: recordingPost(all, refused) }),
@@ -670,7 +677,7 @@ Deno.test(
     // Anything after connecting may have reached the receiver: no second try.
     const once: Post[] = [];
     function timedOut(): Error {
-      return new Error("timed out after 10000 ms");
+      return new PinnedHttpError("timed out after 10000 ms", { cause: undefined });
     }
     assertEquals(
       await sendWebhook(d, batch, { resolver, webhookPost: recordingPost(once, timedOut) }),
@@ -691,7 +698,7 @@ Deno.test(
     const posts: Post[] = [];
     function v4Refused(a: string): number | Error {
       if (a === "127.0.0.1") {
-        return new PinnedConnectError("Connection refused");
+        return new PinnedConnectError("Connection refused", { cause: undefined });
       }
       return 204;
     }
@@ -956,6 +963,25 @@ Deno.test(
 );
 
 Deno.test(
+  "sendWebhook rethrows what pinnedPost never throws, for runDeliveryBatch to fail the batch",
+  async function (): Promise<void> {
+    const d = webhookDest("https://hooks.example.com/hook", 0, []);
+    function bug(): Error {
+      return new TypeError("bug in the request");
+    }
+    await assertRejects(
+      () =>
+        sendWebhook(d, [renderedWebhook(1, d)], {
+          resolver: () => Promise.resolve(["93.184.216.34"]),
+          webhookPost: recordingPost([], bug),
+        }),
+      TypeError,
+      "bug in the request",
+    );
+  },
+);
+
+Deno.test(
   "sendWebhook reports the last status received when a later request fails to connect",
   async function (): Promise<void> {
     const d = webhookDest("https://hooks.example.com/hook", 0, []);
@@ -965,7 +991,7 @@ Deno.test(
       if (n === 1) {
         return 202;
       }
-      return new Error("reset");
+      return new PinnedConnectError("reset", { cause: undefined });
     }
     const result = await sendWebhook(d, [renderedWebhook(1, d), renderedWebhook(2, d)], {
       resolver: () => Promise.resolve(["93.184.216.34"]),
@@ -1484,7 +1510,33 @@ Deno.test(
         vapid: { publicKey: keys.publicKey, privateKey: "short", subject: keys.subject },
       });
       assertEquals(result, { ok: false, sent: 0, error: "Push isn't configured on the server." });
+      // A JWK-form key that is not JSON reads the same.
+      const jwk = await sendPush(d, [delivery(1, d)], {
+        allowInsecure: true,
+        vapid: { publicKey: keys.publicKey, privateKey: "{not json", subject: keys.subject },
+      });
+      assertEquals(jwk, { ok: false, sent: 0, error: "Push isn't configured on the server." });
       assertEquals(requests, []);
+    });
+  },
+);
+
+Deno.test(
+  "sendPush reports a device's malformed subscription keys on that device alone",
+  async function (): Promise<void> {
+    await withPushServer(async function (base, requests): Promise<void> {
+      const bad = { endpoint: `${base}/201/bad`, p256dh: "AAAA", auth: UA.auth };
+      const d = pushDest([bad, device(base, "/201/good")]);
+      const result = await sendPush(d, [delivery(1, d)], {
+        allowInsecure: true,
+        vapid: await vapid(),
+      });
+      assertEquals(result.ok, true);
+      assertEquals(result.deviceResults, {
+        ok: [`${base}/201/good`],
+        errors: { [`${base}/201/bad`]: "Subscription p256dh must be an uncompressed P-256 key" },
+      });
+      assertEquals(requests.map((r) => r.path), ["/201/good"]);
     });
   },
 );

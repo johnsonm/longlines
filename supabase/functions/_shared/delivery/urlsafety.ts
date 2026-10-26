@@ -2,6 +2,20 @@
 // SQL and adding a DNS check so a hostname cannot be pointed at an internal
 // address after it was accepted.
 
+import type { ErrorContext } from "../errors.ts";
+
+/**
+ * A destination URL, push endpoint or resolved address failed a check here. The
+ * message is user-facing: it becomes the destination's or the device's last error.
+ */
+export class UnsafeUrlError extends Error {
+  override readonly name = "UnsafeUrlError";
+
+  constructor(message: string, context: ErrorContext) {
+    super(message, { cause: context.cause });
+  }
+}
+
 export type Resolver = (host: string) => Promise<string[] | null>;
 
 function parseIpv4(ip: string): number | null {
@@ -211,16 +225,14 @@ export function isDeniedHostname(host: string): boolean {
     DENIED_HOST_SUFFIXES.some((suffix) => host.endsWith(suffix));
 }
 
-/** Throws with a user-facing message when the URL must not be used for the type. */
+/** Throws UnsafeUrlError, with a user-facing message, when the URL must not be used for the type. */
 export function assertSafeDestinationUrl(type: "discord" | "webhook", url: string): URL {
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    throw new Error("Use an https URL.");
+  if (!URL.canParse(url)) {
+    throw new UnsafeUrlError("Use an https URL.", { cause: undefined });
   }
+  const parsed = new URL(url);
   if (parsed.protocol !== "https:") {
-    throw new Error("Use an https URL.");
+    throw new UnsafeUrlError("Use an https URL.", { cause: undefined });
   }
   const host = hostOf(parsed);
   if (type === "discord") {
@@ -228,7 +240,7 @@ export function assertSafeDestinationUrl(type: "discord" | "webhook", url: strin
       !["discord.com", "discordapp.com"].includes(host) ||
       !parsed.pathname.startsWith("/api/webhooks/")
     ) {
-      throw new Error("Use a Discord webhook URL.");
+      throw new UnsafeUrlError("Use a Discord webhook URL.", { cause: undefined });
     }
     return parsed;
   }
@@ -236,7 +248,7 @@ export function assertSafeDestinationUrl(type: "discord" | "webhook", url: strin
     parsed.username !== "" || parsed.password !== "" || isDeniedHostname(host) ||
     (isIpLiteral(host) && isPrivateIp(host))
   ) {
-    throw new Error("That address is not allowed.");
+    throw new UnsafeUrlError("That address is not allowed.", { cause: undefined });
   }
   return parsed;
 }
@@ -248,24 +260,22 @@ const PUSH_HOSTS = ["fcm.googleapis.com", "updates.push.services.mozilla.com"];
 const PUSH_HOST_SUFFIXES = [".push.apple.com", ".notify.windows.com"];
 
 /**
- * Throws unless the URL is https on a known push-service host, with no port
+ * Throws UnsafeUrlError unless the URL is https on a known push-service host, with no port
  * or credentials. Push endpoints come from the browser, so this is the SSRF
  * guard for push delivery.
  */
 export function assertSafePushEndpoint(url: string): URL {
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    throw new Error("Use a browser push service.");
+  if (!URL.canParse(url)) {
+    throw new UnsafeUrlError("Use a browser push service.", { cause: undefined });
   }
+  const parsed = new URL(url);
   const host = hostOf(parsed);
   if (
     parsed.protocol !== "https:" || parsed.port !== "" || parsed.username !== "" ||
     parsed.password !== "" ||
     !(PUSH_HOSTS.includes(host) || PUSH_HOST_SUFFIXES.some((suffix) => host.endsWith(suffix)))
   ) {
-    throw new Error("Use a browser push service.");
+    throw new UnsafeUrlError("Use a browser push service.", { cause: undefined });
   }
   return parsed;
 }
@@ -308,13 +318,15 @@ export async function assertSafeResolvedHost(
   const addresses = await resolve(host);
   if (addresses === null) {
     // Fail closed: without DNS we cannot rule out a private address.
-    throw new Error("DNS resolution is unavailable in this runtime; webhook not sent");
+    throw new UnsafeUrlError("DNS resolution is unavailable in this runtime; webhook not sent", {
+      cause: undefined,
+    });
   }
   if (addresses.length === 0) {
-    throw new Error(`${host} did not resolve`);
+    throw new UnsafeUrlError(`${host} did not resolve`, { cause: undefined });
   }
   if (addresses.some(isPrivateIp)) {
-    throw new Error(`${host} resolves to a private address`);
+    throw new UnsafeUrlError(`${host} resolves to a private address`, { cause: undefined });
   }
   return addresses;
 }

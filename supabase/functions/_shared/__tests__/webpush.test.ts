@@ -1,4 +1,5 @@
 import { assert, assertEquals, assertMatch, assertRejects } from "@std/assert";
+import { ConfigError, ValidationError } from "../errors.ts";
 import {
   base64UrlDecode,
   base64UrlEncode,
@@ -103,7 +104,7 @@ Deno.test(
     assertEquals(body.length, 4096);
     await assertRejects(
       () => encryptPushPayload(new Uint8Array(MAX_PUSH_PLAINTEXT_BYTES + 1), keys, {}),
-      Error,
+      ValidationError,
       "too large",
     );
   },
@@ -115,12 +116,12 @@ Deno.test(
     const plaintext = new TextEncoder().encode("x");
     await assertRejects(
       () => encryptPushPayload(plaintext, { p256dh: RFC.uaPublic, auth: "AAAA" }, {}),
-      Error,
+      ValidationError,
       "auth",
     );
     await assertRejects(
       () => encryptPushPayload(plaintext, { p256dh: "AAAA", auth: RFC.authSecret }, {}),
-      Error,
+      ValidationError,
       "p256dh",
     );
   },
@@ -243,12 +244,45 @@ Deno.test(
 
 Deno.test("vapidAuthorization rejects a malformed private key", async function (): Promise<void> {
   const keys = (await testVapid()).keys;
-  await assertRejects(() =>
-    vapidAuthorization(
-      "https://fcm.googleapis.com/x",
-      { publicKey: keys.publicKey, privateKey: "short", subject: keys.subject },
-      new Date(),
-    )
+  await assertRejects(
+    () =>
+      vapidAuthorization(
+        "https://fcm.googleapis.com/x",
+        { publicKey: keys.publicKey, privateKey: "short", subject: keys.subject },
+        new Date(),
+      ),
+    DOMException,
+  );
+  await assertRejects(
+    () =>
+      vapidAuthorization(
+        "https://fcm.googleapis.com/x",
+        { publicKey: keys.publicKey, privateKey: "AAAA", subject: keys.subject },
+        new Date(),
+      ),
+    ConfigError,
+    "32 bytes",
+  );
+  // A JWK that is not JSON, or whose members are not strings.
+  await assertRejects(
+    () =>
+      vapidAuthorization(
+        "https://fcm.googleapis.com/x",
+        { publicKey: keys.publicKey, privateKey: "{not json", subject: keys.subject },
+        new Date(),
+      ),
+    ConfigError,
+    "not valid JWK JSON",
+  );
+  await assertRejects(
+    () =>
+      vapidAuthorization(
+        "https://fcm.googleapis.com/x",
+        { publicKey: keys.publicKey, privateKey: '{"kty":"EC","d":7}', subject: keys.subject },
+        new Date(),
+      ),
+    ValidationError,
+    "vapidSigningKey: private key JWK: d: ",
   );
   assertMatch(keys.publicKey, /^B[A-Za-z0-9_-]{86}$/);
 });

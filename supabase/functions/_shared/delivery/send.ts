@@ -2,6 +2,8 @@
 // sends as much of the batch as it can, in order, and reports how many
 // deliveries went out so the worker can mark exactly those as sent.
 
+import { z } from "zod";
+import { ConfigError, ValidationError } from "../errors.ts";
 import { signWebhookBody } from "./hmac.ts";
 import {
   DISCORD_MESSAGES_PER_RUN,
@@ -20,8 +22,15 @@ import {
   defaultResolver,
   hostOf,
   type Resolver,
+  UnsafeUrlError,
 } from "./urlsafety.ts";
-import { PinnedConnectError, pinnedPost, type PinnedResponse } from "./pinned_http.ts";
+import {
+  PinnedConnectError,
+  PinnedHttpError,
+  pinnedPost,
+  type PinnedPostInit,
+  type PinnedResponse,
+} from "./pinned_http.ts";
 import { encryptPushPayload, vapidAuthorization, type VapidKeys } from "./webpush.ts";
 import type { DeliveryDestination, PendingDelivery, PushDevice, PushSettings } from "./types.ts";
 
@@ -102,6 +111,14 @@ function errorMessage(error: unknown): string {
   return String(error);
 }
 
+/**
+ * What fetch rejects with: TypeError for a network or request error, DOMException for the
+ * AbortSignal timeout. Anything else is a bug and goes to runDeliveryBatch's boundary.
+ */
+function isFetchError(error: unknown): boolean {
+  return error instanceof TypeError || error instanceof DOMException;
+}
+
 // Redirects are never followed: a safe public hostname could otherwise send
 // us to an internal address after the URL check. With redirect: "manual" the
 // runtime reports the 3xx itself (status 0 "opaqueredirect" in some runtimes).
@@ -121,7 +138,10 @@ export async function sendDiscord(
     try {
       assertSafeDestinationUrl("discord", destination.url);
     } catch (error) {
-      return { ok: false, sent: 0, error: errorMessage(error) };
+      if (!(error instanceof UnsafeUrlError)) {
+        throw error;
+      }
+      return { ok: false, sent: 0, error: error.message };
     }
   }
 
@@ -152,6 +172,9 @@ export async function sendDiscord(
         redirect: "manual",
       });
     } catch (error) {
+      if (!isFetchError(error)) {
+        throw error;
+      }
       return { ok: false, sent, error: `Discord request failed: ${errorMessage(error)}` };
     }
     if (isRedirect(response)) {
@@ -204,21 +227,42 @@ export function retryAfterSeconds(value: unknown): number | null {
   return Math.min(Math.ceil(seconds), MAX_RETRY_AFTER_SECONDS);
 }
 
+/** The part of Discord's 429 body the sender reads. */
+interface DiscordRateLimitBody {
+  /** Seconds, fractional. */
+  retry_after?: number | string;
+}
+
+// Discord's 429 reply: third-party, so loose (it also carries message, global and code).
+const discordRateLimitBodySchema: z.ZodType<DiscordRateLimitBody> = z.looseObject({
+  retry_after: z.union([z.number(), z.string()]).optional(),
+});
+
+/** A response body as JSON, or null when it is not JSON or cannot be read. */
+async function jsonBodyOrNull(response: Response): Promise<unknown> {
+  try {
+    const body: unknown = await response.json();
+    return body;
+  } catch (error) {
+    // SyntaxError: not JSON. TypeError: the body broke off or was already read.
+    if (error instanceof SyntaxError || error instanceof TypeError) {
+      return null;
+    }
+    throw error;
+  }
+}
+
 /**
  * Discord reports retry_after in seconds (fractional) in the body, or a
- * Retry-After header; null when it gave neither, so SQL picks the delay.
+ * Retry-After header; null when it gave neither, so SQL picks the delay. A body
+ * of another shape counts as no body.
  */
 async function retryAfterSecondsOf(response: Response): Promise<number | null> {
   const header = response.headers.get("retry-after");
-  let body: unknown = null;
-  try {
-    body = await response.json();
-  } catch {
-    // no JSON body
-  }
-  let fromBody: unknown = undefined;
-  if (typeof body === "object" && body !== null) {
-    fromBody = (body as { retry_after?: unknown }).retry_after;
+  const body = discordRateLimitBodySchema.safeParse(await jsonBodyOrNull(response));
+  let fromBody: number | string | undefined = undefined;
+  if (body.success) {
+    fromBody = body.data.retry_after;
   }
   const bodySeconds = retryAfterSeconds(fromBody);
   if (bodySeconds !== null) {
@@ -241,12 +285,10 @@ async function webhookTarget(
   options: SendOptions,
 ): Promise<{ url: URL; addresses: string[] }> {
   if (options.allowInsecure === true) {
-    let url: URL;
-    try {
-      url = new URL(rawUrl);
-    } catch {
-      throw new Error("Use an https URL.");
+    if (!URL.canParse(rawUrl)) {
+      throw new UnsafeUrlError("Use an https URL.", { cause: undefined });
     }
+    const url = new URL(rawUrl);
     const host = hostOf(url);
     // Deno.connect takes only the first answer for a name; fetch tried both loopbacks.
     const loopback = host === "localhost" || host.endsWith(".localhost");
@@ -263,6 +305,33 @@ async function webhookTarget(
   }
   const addresses = await assertSafeResolvedHost(hostOf(url), resolver);
   return { url, addresses: addresses.slice(0, WEBHOOK_MAX_ADDRESSES) };
+}
+
+/**
+ * Posts to the first of the target's addresses, from index `from` on, that
+ * takes the connection, and returns the response and that address's index.
+ * Throws pinnedPost's PinnedHttpError; a PinnedConnectError (nothing was sent)
+ * moves to the next address, and the last one is thrown when none is left.
+ */
+async function postFrom(
+  post: typeof pinnedPost,
+  target: { url: URL; addresses: string[] },
+  from: number,
+  init: PinnedPostInit,
+): Promise<{ response: PinnedResponse; at: number }> {
+  let refused = new PinnedConnectError("no checked address to connect to", { cause: undefined });
+  for (const entry of target.addresses.slice(from).entries()) {
+    try {
+      return { response: await post(target.url, entry[1], init), at: from + entry[0] };
+    } catch (error) {
+      // Kept narrow: only a refused connection may try another address.
+      if (!(error instanceof PinnedConnectError)) {
+        throw error;
+      }
+      refused = error;
+    }
+  }
+  throw refused;
 }
 
 /**
@@ -292,12 +361,12 @@ export async function sendWebhook(
   try {
     target = await webhookTarget(destination.url, options);
   } catch (error) {
-    return { ok: false, sent: 0, attempted: firstCount, error: errorMessage(error) };
+    if (!(error instanceof UnsafeUrlError)) {
+      throw error;
+    }
+    return { ok: false, sent: 0, attempted: firstCount, error: error.message };
   }
-  if (
-    destination.signing_secret === undefined || destination.signing_secret === null ||
-    destination.signing_secret === ""
-  ) {
+  if (destination.signing_secret === null || destination.signing_secret === "") {
     return {
       ok: false,
       sent: 0,
@@ -334,38 +403,29 @@ export async function sendWebhook(
     for (const header of extra) {
       headers.push(header);
     }
-    let response: PinnedResponse;
+    let posted: { response: PinnedResponse; at: number };
     try {
-      for (;;) {
-        try {
-          const address = target.addresses[at];
-          if (address === undefined) {
-            throw new Error("sendWebhook: no address to connect to");
-          }
-          response = await post(target.url, address, {
-            headers,
-            body,
-            timeoutMs: WEBHOOK_TIMEOUT_MS,
-            allowInsecure: options.allowInsecure,
-          });
-          break;
-        } catch (error) {
-          // Nothing was sent when the connection itself failed, so another address is safe.
-          if (!(error instanceof PinnedConnectError) || at + 1 >= target.addresses.length) {
-            throw error;
-          }
-          at++;
-        }
-      }
+      posted = await postFrom(post, target, at, {
+        headers,
+        body,
+        timeoutMs: WEBHOOK_TIMEOUT_MS,
+        allowInsecure: options.allowInsecure,
+      });
     } catch (error) {
+      // pinnedPost's own failures end the run here, counted as this request's attempt.
+      if (!(error instanceof PinnedHttpError)) {
+        throw error;
+      }
       return webhookFailure(
         sent,
         attempted,
         status,
-        `Webhook request failed: ${errorMessage(error)}`,
+        `Webhook request failed: ${error.message}`,
         null,
       );
     }
+    at = posted.at;
+    const response = posted.response;
     status = response.status;
     if (response.status >= 300 && response.status < 400) {
       return webhookFailure(
@@ -439,7 +499,7 @@ export function sendToDestination(
 
 /** How one device's run ended, and how many notifications it took before that. */
 type DeviceOutcome =
-  & { accepted: number }
+  & { endpoint: string; accepted: number }
   & (
     | { kind: "accepted" }
     | { kind: "gone" }
@@ -463,14 +523,15 @@ async function pushToDevice(
   settings: PushSettings,
   options: SendOptions,
 ): Promise<DeviceOutcome> {
+  const endpoint = device.endpoint;
   let accepted = 0;
   try {
     if (options.allowInsecure !== true) {
-      assertSafePushEndpoint(device.endpoint);
+      assertSafePushEndpoint(endpoint);
     }
-    const vapid = authorization(device.endpoint);
+    const vapid = authorization(endpoint);
     if (vapid === undefined) {
-      throw new Error("Use a browser push service.");
+      throw new UnsafeUrlError("Use a browser push service.", { cause: undefined });
     }
     for (const entry of payloads.entries()) {
       const index = entry[0];
@@ -499,7 +560,15 @@ async function pushToDevice(
           redirect: "manual",
         });
       } catch (error) {
-        return { kind: "error", accepted, error: `Push request failed: ${errorMessage(error)}` };
+        if (!isFetchError(error)) {
+          throw error;
+        }
+        return {
+          kind: "error",
+          endpoint,
+          accepted,
+          error: `Push request failed: ${errorMessage(error)}`,
+        };
       }
       if (response.body !== null) {
         await response.body.cancel();
@@ -507,29 +576,40 @@ async function pushToDevice(
       if (isRedirect(response)) {
         return {
           kind: "error",
+          endpoint,
           accepted,
           error: `Push redirected (HTTP ${String(response.status)}); redirects are not followed`,
         };
       }
       if (response.status === 404 || response.status === 410) {
-        return { kind: "gone", accepted };
+        return { kind: "gone", endpoint, accepted };
       }
       if (response.status === 429) {
         return {
           kind: "rate_limited",
+          endpoint,
           accepted,
           // Null without a Retry-After, so SQL picks the level's backoff.
           retryAfterSeconds: retryAfterSeconds(response.headers.get("retry-after")),
         };
       }
       if (response.status !== 201 && response.status !== 202) {
-        return { kind: "error", accepted, error: `Push HTTP ${String(response.status)}` };
+        return { kind: "error", endpoint, accepted, error: `Push HTTP ${String(response.status)}` };
       }
       accepted++;
     }
-    return { kind: "accepted", accepted };
+    return { kind: "accepted", endpoint, accepted };
   } catch (error) {
-    return { kind: "error", accepted, error: errorMessage(error) };
+    // This device's own failure, so the other devices still get theirs: an endpoint
+    // urlsafety refused, subscription keys of the wrong shape, or the DOMException atob or
+    // WebCrypto raised over them. Anything else is a bug and goes to runDeliveryBatch.
+    if (
+      error instanceof UnsafeUrlError || error instanceof ValidationError ||
+      error instanceof DOMException
+    ) {
+      return { kind: "error", endpoint, accepted, error: error.message };
+    }
+    throw error;
   }
 }
 
@@ -545,19 +625,24 @@ async function vapidHeaders(
 ): Promise<Map<string, string> | null> {
   const headers = new Map<string, string>();
   for (const device of devices) {
-    let origin: string;
-    try {
-      origin = new URL(device.endpoint).origin;
-    } catch {
+    if (!URL.canParse(device.endpoint)) {
       continue; // the device's own allowlist check reports it
     }
+    const origin = new URL(device.endpoint).origin;
     if (headers.has(origin)) {
       continue;
     }
     try {
       headers.set(origin, await vapidAuthorization(origin, vapid, now));
-    } catch {
-      return null;
+    } catch (error) {
+      // A key that cannot sign (vapidAuthorization's errors): the server's configuration.
+      if (
+        error instanceof ConfigError || error instanceof ValidationError ||
+        error instanceof DOMException
+      ) {
+        return null;
+      }
+      throw error;
     }
   }
   return headers;
@@ -603,7 +688,7 @@ export async function sendPush(
   }
   const settings = pushSettingsOf(destination);
   let devices: PushDevice[] = [];
-  if (destination.devices !== undefined && destination.devices !== null) {
+  if (destination.devices !== undefined) {
     devices = destination.devices;
   }
   if (devices.length === 0) {
@@ -615,7 +700,7 @@ export async function sendPush(
   }
 
   let quietNow = false;
-  if (destination.quiet_now !== undefined && destination.quiet_now !== null) {
+  if (destination.quiet_now !== undefined) {
     quietNow = destination.quiet_now;
   }
   const notifications = pushNotifications(
@@ -628,6 +713,9 @@ export async function sendPush(
   // A function declaration does not keep the null check's narrowing, so it reads a non-null copy.
   const originHeaders: Map<string, string> = headers;
   function authorization(endpoint: string): string | undefined {
+    if (!URL.canParse(endpoint)) {
+      return undefined;
+    }
     return originHeaders.get(new URL(endpoint).origin);
   }
   const outcomes = await Promise.all(
@@ -644,14 +732,8 @@ export async function sendPush(
   let rateLimited = false;
   let retryAfter: number | null = null;
   let firstError: string | undefined;
-  for (const entry of outcomes.entries()) {
-    const index = entry[0];
-    const outcome = entry[1];
-    const device = devices[index];
-    if (device === undefined) {
-      throw new Error("sendPush: no device for a push outcome");
-    }
-    const endpoint = device.endpoint;
+  for (const outcome of outcomes) {
+    const endpoint = outcome.endpoint;
     if (outcome.accepted > 0) {
       reached = true;
     }

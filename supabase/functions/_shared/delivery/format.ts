@@ -6,6 +6,7 @@ import type {
   DeliverySpot,
   DiscordEmbed,
   DiscordEmbedField,
+  DiscordGridItem,
   DiscordMessage,
   DiscordSettings,
   PendingDelivery,
@@ -48,15 +49,18 @@ const SOURCE_LABELS: Record<string, string> = {
 
 export function sourceLabel(source: string): string {
   const label = SOURCE_LABELS[source];
-  if (label === undefined || label === null) {
+  if (label === undefined) {
     return source;
   }
   return label;
 }
 
-/** True for a string with text: what a truthiness test on an optional string meant. */
-function isNonEmpty(value: string | null | undefined): value is string {
-  return value !== undefined && value !== null && value !== "";
+/** The value when it has text, else null: what a truthiness test on an optional string meant. */
+function textOf(value: string | null | undefined): string | null {
+  if (value === undefined || value === null || value === "") {
+    return null;
+  }
+  return value;
 }
 
 export function chunk<T>(items: readonly T[], size: number): T[][] {
@@ -75,20 +79,23 @@ export function utcClock(iso: string): string {
 /** "14062.0 kHz CW (20m)": the Discord description and the legacy push body's first line. */
 export function spotDescription(spot: DeliverySpot): string {
   const parts = [`${spot.frequency_khz.toFixed(1)} kHz`];
-  if (isNonEmpty(spot.mode)) {
-    parts.push(spot.mode.toUpperCase());
+  const mode = textOf(spot.mode);
+  if (mode !== null) {
+    parts.push(mode.toUpperCase());
   }
-  if (isNonEmpty(spot.band)) {
-    parts.push(`(${spot.band})`);
+  const band = textOf(spot.band);
+  if (band !== null) {
+    parts.push(`(${band})`);
   }
   return parts.join(" ");
 }
 
 export function embedForSpot(spot: DeliverySpot): DiscordEmbed {
   const fields: DiscordEmbedField[] = [];
-  function add(name: string, value: string | null | undefined): void {
-    if (isNonEmpty(value)) {
-      fields.push({ name, value, inline: true });
+  function add(name: string, value: string | null): void {
+    const text = textOf(value);
+    if (text !== null) {
+      fields.push({ name, value: text, inline: true });
     }
   }
   add("Reference", spot.pota_reference);
@@ -124,25 +131,28 @@ export function cardEmbed(spot: DeliverySpot): DiscordEmbed {
   if (spot.discord_title === undefined) {
     return embedForSpot(spot);
   }
-  let grid: Array<{ name: string; value: string }> = [];
-  if (spot.discord_grid !== undefined && spot.discord_grid !== null) {
+  let grid: DiscordGridItem[] = [];
+  if (spot.discord_grid !== undefined) {
     grid = spot.discord_grid;
   }
   const embed: DiscordEmbed = {
     title: spot.discord_title,
     fields: grid.map((f) => ({ name: f.name, value: f.value, inline: true })),
   };
-  if (isNonEmpty(spot.discord_description)) {
-    embed.description = spot.discord_description;
+  const description = textOf(spot.discord_description);
+  if (description !== null) {
+    embed.description = description;
   }
-  if (isNonEmpty(spot.discord_url)) {
-    embed.url = spot.discord_url;
+  const url = textOf(spot.discord_url);
+  if (url !== null) {
+    embed.url = url;
   }
   if (spot.discord_color !== undefined) {
     embed.color = spot.discord_color;
   }
-  if (isNonEmpty(spot.discord_footer)) {
-    embed.footer = { text: spot.discord_footer };
+  const footer = textOf(spot.discord_footer);
+  if (footer !== null) {
+    embed.footer = { text: footer };
   }
   return embed;
 }
@@ -172,7 +182,7 @@ export function discordBatches(
   destination: Pick<DeliveryDestination, "discord">,
 ): DiscordBatch[] {
   const settings: DiscordSettings | undefined = destination.discord;
-  if (settings === undefined || settings === null) {
+  if (settings === undefined) {
     return chunk(spots, DISCORD_EMBEDS_PER_MESSAGE).map((group) => ({
       message: { embeds: group.map(embedForSpot), allowed_mentions: noMentions() },
       spots: group.length,
@@ -201,10 +211,10 @@ export function discordBatches(
 /** What Discord counts toward a message's 6,000 characters for one embed. */
 export function embedChars(embed: DiscordEmbed): number {
   let chars = embed.title.length;
-  if (embed.description !== undefined && embed.description !== null) {
+  if (embed.description !== undefined) {
     chars += embed.description.length;
   }
-  if (embed.footer !== undefined && embed.footer !== null) {
+  if (embed.footer !== undefined) {
     chars += embed.footer.text.length;
   }
   for (const f of embed.fields) {
@@ -244,7 +254,7 @@ function packCards(spots: readonly DeliverySpot[], size: number): DiscordEmbed[]
 
 /** A plain spot's line as SQL rendered it, or its call when the claim had no line. */
 function plainLine(spot: DeliverySpot): string {
-  if (spot.discord_line === undefined || spot.discord_line === null) {
+  if (spot.discord_line === undefined) {
     return spot.callsign;
   }
   return spot.discord_line;
@@ -332,13 +342,11 @@ function isRendered(delivery: PendingDelivery): boolean {
  */
 export function webhookItem(delivery: PendingDelivery): WebhookItem {
   let connection = "";
-  if (
-    delivery.spot.webhook_connection !== undefined && delivery.spot.webhook_connection !== null
-  ) {
+  if (delivery.spot.webhook_connection !== undefined) {
     connection = delivery.spot.webhook_connection;
   }
   let fields: WebhookField[] = [];
-  if (delivery.spot.webhook_fields !== undefined && delivery.spot.webhook_fields !== null) {
+  if (delivery.spot.webhook_fields !== undefined) {
     fields = delivery.spot.webhook_fields;
   }
   return {
@@ -360,7 +368,7 @@ export function webhookRequests(
   deliveries: readonly PendingDelivery[],
 ): WebhookRequest[] {
   const settings = destination.webhook;
-  if (settings === undefined || settings === null || !deliveries.every(isRendered)) {
+  if (settings === undefined || !deliveries.every(isRendered)) {
     return webhookPayloads(deliveries);
   }
   if (settings.batch_seconds === 0) {
@@ -411,7 +419,8 @@ export function extraHeaderAllowed(name: string): boolean {
  * The destination's extra headers, in position order, without any SQL should
  * already have refused: a reserved or malformed name, a repeated name, or a
  * value outside printable ASCII. Defence in depth: a line break in a value
- * would otherwise split the request.
+ * would otherwise split the request. (A claimed header that is not two strings
+ * never gets here: webhookSettingsSchema drops it.)
  */
 export function webhookExtraHeaders(
   destination: Pick<DeliveryDestination, "webhook">,
@@ -419,19 +428,10 @@ export function webhookExtraHeaders(
   const seen = new Set<string>();
   const out: WebhookHeader[] = [];
   let headers: WebhookHeader[] = [];
-  const webhook = destination.webhook;
-  if (webhook !== undefined && webhook !== null) {
-    if (webhook.headers !== undefined && webhook.headers !== null) {
-      headers = webhook.headers;
-    }
+  if (destination.webhook !== undefined) {
+    headers = destination.webhook.headers;
   }
   for (const header of headers) {
-    if (header === undefined || header === null) {
-      continue;
-    }
-    if (typeof header.name !== "string" || typeof header.value !== "string") {
-      continue;
-    }
     const lower = header.name.toLowerCase();
     if (!extraHeaderAllowed(header.name) || !HEADER_VALUE.test(header.value) || seen.has(lower)) {
       continue;
@@ -468,7 +468,7 @@ export const LEGACY_PUSH_SETTINGS: PushSettings = {
 
 /** The push settings a destination carries, or the legacy ones when the claim had none. */
 export function pushSettingsOf(destination: Pick<DeliveryDestination, "push">): PushSettings {
-  if (destination.push === undefined || destination.push === null) {
+  if (destination.push === undefined) {
     return LEGACY_PUSH_SETTINGS;
   }
   return destination.push;
@@ -491,14 +491,21 @@ export function pushSkipped(destination: Pick<DeliveryDestination, "push" | "qui
  * this and the `/call/` fallback in pushForSpot can go.
  */
 function legacyPushBody(spot: DeliverySpot): string {
-  const facts = [
-    spot.pota_reference,
-    spot.pota_park_name,
-    spot.sota_summit_ref,
-    spot.wwff_reference,
-    spot.wwff_reference_name,
-  ]
-    .filter(isNonEmpty);
+  const facts: string[] = [];
+  for (
+    const value of [
+      spot.pota_reference,
+      spot.pota_park_name,
+      spot.sota_summit_ref,
+      spot.wwff_reference,
+      spot.wwff_reference_name,
+    ]
+  ) {
+    const text = textOf(value);
+    if (text !== null) {
+      facts.push(text);
+    }
+  }
   facts.push(sourceLabel(spot.source));
   return `${spotDescription(spot)}\n${facts.join(" · ")}`;
 }
@@ -516,11 +523,11 @@ function pushForSpot(
   const call = spot.callsign.toUpperCase();
   const silent = !settings.sound || (quietNow && settings.quiet_mode === "silent");
   let title = spot.callsign;
-  if (spot.push_title !== undefined && spot.push_title !== null) {
+  if (spot.push_title !== undefined) {
     title = spot.push_title;
   }
   let body: string;
-  if (spot.push_body !== undefined && spot.push_body !== null) {
+  if (spot.push_body !== undefined) {
     body = spot.push_body;
   } else {
     body = legacyPushBody(spot);
@@ -530,12 +537,12 @@ function pushForSpot(
     tag = `spot:${call}`;
   }
   let url: string;
-  if (spot.push_url !== undefined && spot.push_url !== null) {
+  if (spot.push_url !== undefined) {
     url = spot.push_url;
   } else {
     // The base call comes from SQL; the profile page resolves a typed call itself.
     let base = spot.callsign;
-    if (spot.base_callsign !== undefined && spot.base_callsign !== null) {
+    if (spot.base_callsign !== null) {
       base = spot.base_callsign;
     }
     url = `/call/${encodeURIComponent(base)}`;
@@ -548,12 +555,13 @@ function pushForSpot(
     silent,
     renotify: !silent,
   };
-  if (isNonEmpty(spot.push_source_url)) {
-    notification.sourceUrl = spot.push_source_url;
+  const sourceUrl = textOf(spot.push_source_url);
+  if (sourceUrl !== null) {
+    notification.sourceUrl = sourceUrl;
   }
   if (settings.action_buttons) {
     notification.actions = [{ action: "profile", title: "Open profile" }];
-    if (isNonEmpty(spot.push_source_url)) {
+    if (sourceUrl !== null) {
       notification.actions.push({ action: "source", title: `Open on ${sourceLabel(spot.source)}` });
     }
   }
@@ -587,7 +595,7 @@ export function pushPayload(notification: PushNotification): string {
 export function backoffSeconds(attempt: number): number {
   const steps = [30, 60, 120, 300, 900];
   const step = steps[Math.max(attempt, 1) - 1];
-  if (step === undefined || step === null) {
+  if (step === undefined) {
     return 1800;
   }
   return step;

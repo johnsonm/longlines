@@ -1,5 +1,10 @@
 import { assert, assertEquals, assertMatch, assertRejects } from "@std/assert";
-import { MAX_RESPONSE_HEAD_BYTES, pinnedPost } from "../delivery/pinned_http.ts";
+import {
+  MAX_RESPONSE_HEAD_BYTES,
+  PinnedConnectError,
+  PinnedHttpError,
+  pinnedPost,
+} from "../delivery/pinned_http.ts";
 
 // fixtures/tls: a test CA (ca.pem, its key discarded) that signed P-256 leaf
 // certificates for "localhost" and "other.test", valid until 2126. Made with
@@ -167,7 +172,7 @@ Deno.test(
               timeoutMs: init.timeoutMs,
               caCerts: [CA],
             }),
-          Error,
+          PinnedHttpError,
           'certificate not valid for name "localhost"',
         );
       },
@@ -184,7 +189,7 @@ Deno.test(
       async function (port: number): Promise<void> {
         await assertRejects(
           () => pinnedPost(new URL(`https://localhost:${port}/`), "127.0.0.1", init),
-          Error,
+          PinnedHttpError,
           "UnknownIssuer",
         );
       },
@@ -342,7 +347,7 @@ Deno.test(
               timeoutMs: init.timeoutMs,
               caCerts: [CA],
             }),
-          Error,
+          PinnedHttpError,
           "response headers exceed",
         );
       },
@@ -368,6 +373,15 @@ Deno.test(
         encoder.encode("HTTP/1.1 200 OK\r\nNo colon here\r\nRetry-After: 3\r\n"),
       ],
       ["a bad header name", encoder.encode("HTTP/1.1 200 OK\r\nBad Name: x\r\nRetry-After: 3\r\n")],
+      // Values Headers refuses: skipped before append, never thrown on.
+      [
+        "a NUL in a value",
+        encoder.encode("HTTP/1.1 200 OK\r\nX-Nul: a\u0000b\r\nRetry-After: 3\r\n"),
+      ],
+      [
+        "a lone CR in a value",
+        encoder.encode("HTTP/1.1 200 OK\r\nX-Cr: a\rb\r\nRetry-After: 3\r\n"),
+      ],
     ];
     for (const entry of heads) {
       const label = entry[0];
@@ -438,7 +452,7 @@ Deno.test(
                 timeoutMs: init.timeoutMs,
                 allowInsecure: true,
               }),
-            Error,
+            PinnedHttpError,
             message,
           );
         },
@@ -464,7 +478,7 @@ Deno.test(
               timeoutMs: 200,
               caCerts: [CA],
             }),
-          Error,
+          PinnedHttpError,
           "timed out after 200 ms",
         );
         assert(Date.now() - started < 2000);
@@ -491,7 +505,7 @@ Deno.test(
               signal: ac.signal,
               caCerts: [CA],
             }),
-          Error,
+          PinnedHttpError,
           "aborted",
         );
       },
@@ -506,7 +520,7 @@ Deno.test(
           timeoutMs: init.timeoutMs,
           signal: aborted.signal,
         }),
-      Error,
+      PinnedHttpError,
       "aborted",
     );
   },
@@ -535,7 +549,7 @@ Deno.test(
             body: init.body,
             timeoutMs: init.timeoutMs,
           }),
-        Error,
+        PinnedHttpError,
         message,
       );
     }
@@ -547,12 +561,12 @@ Deno.test(
   async function (): Promise<void> {
     await assertRejects(
       () => pinnedPost(new URL("http://localhost:1/"), "127.0.0.1", init),
-      Error,
+      PinnedHttpError,
       "Use an https URL.",
     );
     await assertRejects(
       () => pinnedPost(new URL("https://u:p@localhost:1/"), "127.0.0.1", init),
-      Error,
+      PinnedHttpError,
       "URL has credentials",
     );
   },
@@ -564,10 +578,12 @@ Deno.test(
     const listener = Deno.listen({ hostname: "127.0.0.1", port: 0 });
     const port = listener.addr.port;
     listener.close();
-    const error = await assertRejects(() =>
-      pinnedPost(new URL(`https://localhost:${port}/`), "127.0.0.1", init)
+    const error = await assertRejects(
+      () => pinnedPost(new URL(`https://localhost:${port}/`), "127.0.0.1", init),
+      PinnedConnectError,
     );
     assertMatch(String(error), /refused|connect/i);
+    assert(error.cause instanceof Error);
   },
 );
 

@@ -1,5 +1,7 @@
 // Shapes shared by the sender and the send-test and api functions. `PendingDelivery`
-// mirrors a row from the claim_deliveries RPC.
+// mirrors a row from the claim_deliveries RPC; pendingDeliverySchema validates one.
+
+import { z } from "zod";
 
 export interface DeliverySpot {
   id: number;
@@ -40,7 +42,7 @@ export interface DeliverySpot {
   discord_title?: string;
   /** May be "" when no detail field has a value. */
   discord_description?: string;
-  discord_grid?: Array<{ name: string; value: string }>;
+  discord_grid?: DiscordGridItem[];
   discord_footer?: string | null;
   discord_color?: number;
   discord_url?: string | null;
@@ -56,6 +58,12 @@ export interface DeliverySpot {
   webhook_fields?: WebhookField[];
   /** Webhook only, from SQL: the name of the connection that matched. */
   webhook_connection?: string;
+}
+
+/** One field of a Discord card's grid, its name and value rendered by SQL (discord_grid). */
+export interface DiscordGridItem {
+  name: string;
+  value: string;
 }
 
 /** One rendered spot field of a webhook body, in the destination's order. */
@@ -221,3 +229,168 @@ export interface PushNotification {
   silent?: boolean;
   renotify?: boolean;
 }
+
+// The claim's shapes, derived from the SQL that builds them (claim_deliveries as of
+// 20261021000600): delivery_spot_json plus the renderer's keys for the destination's type
+// (push_spot_fields, discord_spot_fields, webhook_spot_fields), and the destination's columns
+// plus its type's settings (push_member_devices, push_destination_settings, push_quiet_now,
+// discord_destination_settings, webhook_header_values). RPC jsonb can gain keys across deploys,
+// so every object is loose. A key format.ts or send.ts reads with a fallback is optional, so a
+// claim from before a migration still parses (the sender and the migration ship in either order).
+
+const nullableTextSchema = z.string().nullable();
+
+const discordGridItemSchema: z.ZodType<DiscordGridItem> = z.looseObject({
+  name: z.string(),
+  value: z.string(),
+});
+
+const webhookFieldSchema: z.ZodType<WebhookField> = z.looseObject({
+  key: z.string(),
+  value: z.union([z.string(), z.number()]).nullable(),
+});
+
+/**
+ * A spot as the claim hands it over. The stored columns are declared in jsonb's key order
+ * (shorter keys first, then bytewise), the order the claim sends them: a looseObject puts its
+ * declared keys first, and the legacy webhook body (webhookSpot) keeps the claim's order.
+ */
+export const deliverySpotSchema: z.ZodType<DeliverySpot> = z.looseObject({
+  id: z.number(),
+  band: nullableTextSchema,
+  mode: nullableTextSchema,
+  source: z.string(),
+  comment: z.string(),
+  spotter: nullableTextSchema,
+  callsign: z.string(),
+  spot_time: z.string(),
+  mode_family: nullableTextSchema,
+  base_callsign: nullableTextSchema,
+  frequency_khz: z.number(),
+  pota_location: nullableTextSchema,
+  pota_park_name: nullableTextSchema,
+  pota_reference: nullableTextSchema,
+  wwff_reference: nullableTextSchema,
+  sota_summit_ref: nullableTextSchema,
+  wwff_reference_name: nullableTextSchema,
+  push_title: z.string().optional(),
+  push_body: z.string().optional(),
+  push_url: z.string().optional(),
+  push_source_url: nullableTextSchema.optional(),
+  discord_style: z.enum(["card", "plain"]).optional(),
+  discord_title: z.string().optional(),
+  discord_description: z.string().optional(),
+  discord_grid: z.array(discordGridItemSchema).optional(),
+  discord_footer: nullableTextSchema.optional(),
+  discord_color: z.number().optional(),
+  discord_url: nullableTextSchema.optional(),
+  discord_line: z.string().optional(),
+  discord_suppress_embeds: z.boolean().optional(),
+  webhook_fields: z.array(webhookFieldSchema).optional(),
+  webhook_connection: z.string().optional(),
+});
+
+const separatorSchema = z.enum(["dot", "comma", "newline"]);
+
+/** push_destination_settings, less destination_id. */
+export const pushSettingsSchema: z.ZodType<PushSettings> = z.looseObject({
+  title_fields: z.array(z.string()),
+  body_fields: z.array(z.string()),
+  show_field_names: z.boolean(),
+  body_separator: separatorSchema,
+  tap_target: z.enum(["profile", "source"]),
+  action_buttons: z.boolean(),
+  urgency: z.enum(["low", "normal", "high"]),
+  ttl_seconds: z.number(),
+  replace_same_station: z.boolean(),
+  sound: z.boolean(),
+  quiet_enabled: z.boolean(),
+  quiet_from: z.string(),
+  quiet_until: z.string(),
+  quiet_mode: z.enum(["silent", "skip"]),
+});
+
+/** push_member_devices: one of the destination's unblocked member devices. */
+export const pushDeviceSchema: z.ZodType<PushDevice> = z.looseObject({
+  endpoint: z.string(),
+  p256dh: z.string(),
+  auth: z.string(),
+});
+
+/** discord_destination_settings, less destination_id. */
+export const discordSettingsSchema: z.ZodType<DiscordSettings> = z.looseObject({
+  style: z.enum(["card", "plain"]),
+  title_fields: z.array(z.string()),
+  detail_fields: z.array(z.string()),
+  grid_fields: z.array(z.string()),
+  title_link: z.enum(["profile", "source", "none"]),
+  card_color: z.enum(["source", "blue", "green", "purple", "orange", "red", "grey"]),
+  footer: z.boolean(),
+  line_fields: z.array(z.string()),
+  bold_first: z.boolean(),
+  link_preview: z.enum(["hidden", "shown"]),
+  show_field_names: z.boolean(),
+  separator: separatorSchema,
+  batch_seconds: z.number(),
+});
+
+const webhookHeaderSchema: z.ZodType<WebhookHeader> = z.looseObject({
+  name: z.string(),
+  value: z.string(),
+});
+
+/** The headers that are a name and a value, in order; webhookExtraHeaders always skipped the rest. */
+function presentHeaders(headers: ReadonlyArray<WebhookHeader | null>): WebhookHeader[] {
+  const out: WebhookHeader[] = [];
+  for (const header of headers) {
+    if (header !== null) {
+      out.push(header);
+    }
+  }
+  return out;
+}
+
+/**
+ * webhook_header_values: the extra headers in position order. A header that is not two strings
+ * (a Vault secret that no longer decrypts reads as null) is dropped rather than failing the row.
+ */
+const webhookHeadersSchema: z.ZodType<WebhookHeader[]> = z
+  .array(webhookHeaderSchema.nullable().catch(null))
+  .transform(presentHeaders);
+
+/** The claim's webhook settings: the batch window and the extra headers. */
+export const webhookSettingsSchema: z.ZodType<WebhookSettings> = z.looseObject({
+  batch_seconds: z.number(),
+  headers: webhookHeadersSchema,
+});
+
+/** The destination's columns plus its type's settings, as claim_deliveries builds them. */
+export const deliveryDestinationSchema: z.ZodType<DeliveryDestination> = z.looseObject({
+  id: z.string(),
+  type: z.enum(["discord", "webhook", "push"]),
+  name: z.string(),
+  url: nullableTextSchema,
+  signing_secret: nullableTextSchema,
+  health: z.enum(["ok", "failing", "paused"]),
+  consecutive_failures: z.number(),
+  devices: z.array(pushDeviceSchema).optional(),
+  push: pushSettingsSchema.optional(),
+  quiet_now: z.boolean().optional(),
+  discord: discordSettingsSchema.optional(),
+  webhook: webhookSettingsSchema.optional(),
+});
+
+/**
+ * One claim_deliveries row. The sender's postgres.js client returns int8 as a number and
+ * timestamps as strings (sender/db.ts clientOptions), as PostgREST does.
+ */
+export const pendingDeliverySchema: z.ZodType<PendingDelivery> = z.looseObject({
+  msg_id: z.number(),
+  delivery_id: z.number(),
+  subscription_id: z.string(),
+  attempts: z.number(),
+  created_at: z.string(),
+  destination: deliveryDestinationSchema,
+  spot: deliverySpotSchema,
+  test: z.boolean().optional(),
+});

@@ -1,16 +1,20 @@
 // One delivery cycle: claim queued deliveries, send them grouped by
 // destination, record the outcomes. Run only by the sender process (the
-// deliver Edge Function is gone since 20261015001400), which bundles it without
-// an import map, so it talks to the database only through `DeliveryRpc` and
-// imports nothing that needs one (it must load under `deno run --no-config`).
+// deliver Edge Function is gone since 20261015001400), whose image loads it with
+// sender/deno.json as the import map, so it talks to the database only through
+// `DeliveryRpc` and imports no package that map lacks (zod is the only one).
 //
 // Policy lives in SQL. The claim is rate-aware and newest first, expiry sets
 // `dropped_at` before anything is claimed, and a throttle is a column on the
 // destination; this loop only sends what it was handed and reports back.
 
+import { z } from "zod";
+import { type ErrorContext, ValidationError } from "../errors.ts";
+import { type JsonObject, jsonObjectSchema } from "../types.ts";
+import { parseWith } from "../validate.ts";
 import { backoffSeconds } from "./format.ts";
 import { pushBookkeeping, type SendResult } from "./send.ts";
-import type { DeliveryDestination, PendingDelivery } from "./types.ts";
+import { type DeliveryDestination, type PendingDelivery, pendingDeliverySchema } from "./types.ts";
 
 export const CLAIM_LIMIT = 200;
 export const VISIBILITY_SECONDS = 60;
@@ -97,16 +101,25 @@ export interface DeliveryBatchResult {
   failed: number;
   throttled: number;
   skipped_paused: number;
+  /** Every destination's unattempted rows, plus claimed rows that did not parse (claimedRows). */
   unattempted: number;
-  /** Bookkeeping RPCs that failed; the cycle still completes. */
+  /** Bookkeeping RPCs that failed and claimed rows that did not parse; the cycle still completes. */
   errors: string[];
   destinations: DestinationResult[];
 }
 
-/** `claim_deliveries` itself failed, so nothing was sent. */
+/** `claim_deliveries` itself failed, or answered with something other than rows, so nothing was sent. */
 export class ClaimError extends Error {
   override readonly name = "ClaimError";
+
+  constructor(message: string, context: ErrorContext) {
+    super(message, { cause: context.cause });
+  }
 }
+
+/** claim_deliveries' result: rows (each checked by claimedRows), or null when it claimed none. */
+const claimResultSchema: z.ZodType<JsonObject[] | null> = z.array(jsonObjectSchema).nullable();
+
 /**
  * Claims up to `claimLimit` deliveries and sends them, one batch per
  * destination, up to `concurrency` destinations at a time. Successful ids are
@@ -132,11 +145,11 @@ export async function runDeliveryBatch(
   };
 
   let claimLimit = CLAIM_LIMIT;
-  if (options.claimLimit !== null && options.claimLimit !== undefined) {
+  if (options.claimLimit !== undefined) {
     claimLimit = options.claimLimit;
   }
   let visibilitySeconds = VISIBILITY_SECONDS;
-  if (options.visibilitySeconds !== null && options.visibilitySeconds !== undefined) {
+  if (options.visibilitySeconds !== undefined) {
     visibilitySeconds = options.visibilitySeconds;
   }
   const claimed = await db.rpc("claim_deliveries", {
@@ -144,75 +157,64 @@ export async function runDeliveryBatch(
     p_vt: visibilitySeconds,
   });
   if (claimed.error !== null) {
-    throw new ClaimError(claimed.error);
+    throw new ClaimError(claimed.error, { cause: undefined });
   }
   let progress: (step: ProgressStep) => void = noProgress;
-  if (options.onProgress !== null && options.onProgress !== undefined) {
+  if (options.onProgress !== undefined) {
     progress = options.onProgress;
   }
   let sleep: (ms: number) => Promise<void> = defaultSleep;
-  if (options.sleep !== null && options.sleep !== undefined) {
+  if (options.sleep !== undefined) {
     sleep = options.sleep;
   }
   function bookkeep(fn: string, args: Record<string, unknown>): Promise<void> {
     return rpcOrLog(db, result, fn, args, progress, sleep);
   }
   progress("claim");
-  let data = claimed.data;
-  if (data === null || data === undefined) {
-    data = [];
-  }
-  const rows = data as PendingDelivery[];
-  result.claimed = rows.length;
+  const rows = claimedRows(claimed.data, result);
 
   // Rows arrive in claim order (newest first per destination); keep that
   // order within each group so Discord messages and webhook requests go out
   // the way SQL ranked them.
-  const groups = new Map<string, PendingDelivery[]>();
+  const groups = new Map<string, DestinationBatch>();
   for (const row of rows) {
-    let list = groups.get(row.destination.id);
-    if (list === null || list === undefined) {
-      list = [];
+    const group = groups.get(row.destination.id);
+    if (group === undefined) {
+      groups.set(row.destination.id, { destination: row.destination, batch: [row] });
+    } else {
+      group.batch.push(row);
     }
-    list.push(row);
-    groups.set(row.destination.id, list);
   }
 
-  async function sendBatch(batch: PendingDelivery[]): Promise<Outcome> {
-    const first = batch[0];
-    if (first === undefined) {
-      throw new Error("runDeliveryBatch: a destination batch has no rows");
-    }
-    const destination = first.destination;
+  async function sendBatch(group: DestinationBatch): Promise<Outcome> {
+    const destination = group.destination;
+    const batch = group.batch;
     // The claim leaves paused destinations out; this is the belt to its braces.
     // Their messages reappear after the visibility timeout.
     if (destination.health === "paused") {
-      return { batch, sent: null };
+      return { destination, batch, sent: null };
     }
     let sent: SendResult;
     try {
       sent = await send(destination, batch, now);
     } catch (error) {
-      // A send function reports its own failures; a throw is a bug in what
-      // runs around the request (formatting, signing). It fails this
-      // destination's rows like any other failure (no `attempted`, so the whole
-      // batch counts an attempt and a webhook row's retries run out) instead of
-      // rejecting the cycle before the ack and re-sending every other
-      // destination's delivered rows.
-      let message: string;
-      if (error instanceof Error) {
-        message = error.message;
-      } else {
-        message = String(error);
+      // The per-destination boundary. A send function reports its own
+      // failures; a throw is a bug in what runs around the request
+      // (formatting, signing). It fails this destination's rows like any other
+      // failure (no `attempted`, so the whole batch counts an attempt and a
+      // webhook row's retries run out) instead of rejecting the cycle before
+      // the ack and re-sending every other destination's delivered rows.
+      if (!(error instanceof Error)) {
+        throw error;
       }
-      sent = { ok: false, sent: 0, error: `send threw: ${message}` };
+      sent = { ok: false, sent: 0, error: `send threw: ${error.message}` };
     }
     progress("send");
-    return { batch, sent };
+    return { destination, batch, sent };
   }
 
   let concurrency = DEFAULT_CONCURRENCY;
-  if (options.concurrency !== null && options.concurrency !== undefined) {
+  if (options.concurrency !== undefined) {
     concurrency = options.concurrency;
   }
   const outcomes = await mapBounded(
@@ -248,11 +250,7 @@ export async function runDeliveryBatch(
   for (const outcome of outcomes) {
     const batch = outcome.batch;
     const sent = outcome.sent;
-    const first = batch[0];
-    if (first === undefined) {
-      throw new Error("runDeliveryBatch: a destination batch has no rows");
-    }
-    const destination = first.destination;
+    const destination = outcome.destination;
     const per: DestinationResult = {
       id: destination.id,
       type: destination.type,
@@ -291,7 +289,7 @@ export async function runDeliveryBatch(
       // Only the rows that were in a request count an attempt (a webhook's
       // `attempted`); the rest are left for the claim's visibility timeout.
       let reported = batch.length;
-      if (sent.attempted !== null && sent.attempted !== undefined) {
+      if (sent.attempted !== undefined) {
         reported = sent.attempted;
       }
       const attempted = Math.min(Math.max(reported, sent.sent), batch.length);
@@ -300,7 +298,7 @@ export async function runDeliveryBatch(
       per.unattempted = skipped;
       result.unattempted += skipped;
       let error = "unknown error";
-      if (sent.error !== null && sent.error !== undefined) {
+      if (sent.error !== undefined) {
         error = sent.error;
       }
       per.error = error;
@@ -328,10 +326,57 @@ export async function runDeliveryBatch(
   return result;
 }
 
+/** One destination's claimed rows, in claim order. */
+interface DestinationBatch {
+  destination: DeliveryDestination;
+  batch: PendingDelivery[];
+}
+
 interface Outcome {
+  destination: DeliveryDestination;
   batch: PendingDelivery[];
   /** Null when the destination was paused and nothing was sent. */
   sent: SendResult | null;
+}
+
+/**
+ * The claim's rows that parse, in claim order; sets `result.claimed` to every row claimed.
+ * Throws ClaimError when the result is not rows at all. A row that does not parse is never
+ * sent: it counts as unattempted, its issues go in `result.errors`, and its message reappears
+ * after the visibility timeout until the claim's expiry sweep drops it, so one malformed row
+ * cannot hold up every other destination's deliveries.
+ */
+function claimedRows(data: unknown, result: DeliveryBatchResult): PendingDelivery[] {
+  let raw: JsonObject[] | null;
+  try {
+    raw = parseWith(claimResultSchema, data, "runDeliveryBatch: claim_deliveries result");
+  } catch (error) {
+    // Not rows: as good as a failed claim, so the sender backs off rather than exiting.
+    if (error instanceof ValidationError) {
+      throw new ClaimError(error.message, { cause: error });
+    }
+    throw error;
+  }
+  const rows: PendingDelivery[] = [];
+  if (raw === null) {
+    return rows;
+  }
+  result.claimed = raw.length;
+  for (const entry of raw.entries()) {
+    const where = `runDeliveryBatch: claim_deliveries row ${String(entry[0])}`;
+    try {
+      rows.push(parseWith(pendingDeliverySchema, entry[1], where));
+    } catch (error) {
+      // Per-row isolation inside the per-destination boundary: only a row of the wrong shape.
+      if (!(error instanceof ValidationError)) {
+        throw error;
+      }
+      result.unattempted++;
+      result.errors.push(error.message);
+      console.error(`deliver: ${error.message}; left for the visibility timeout`);
+    }
+  }
+  return rows;
 }
 
 /** The default onProgress: nobody is watching. */
@@ -351,15 +396,11 @@ async function mapBounded<T, R>(
   fn: (item: T) => Promise<R>,
 ): Promise<R[]> {
   const results: R[] = [];
-  let next = 0;
+  // One iterator shared by every worker: each takes the next item when it is free.
+  const pending = items.entries();
   async function worker(): Promise<void> {
-    while (next < items.length) {
-      const index = next++;
-      const item = items[index];
-      if (item === undefined) {
-        throw new Error(`mapBounded: no item at index ${String(index)}`);
-      }
-      results[index] = await fn(item);
+    for (const entry of pending) {
+      results[entry[0]] = await fn(entry[1]);
     }
   }
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));

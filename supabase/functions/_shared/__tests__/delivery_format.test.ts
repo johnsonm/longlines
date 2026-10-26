@@ -37,6 +37,7 @@ import type {
   WebhookField,
   WebhookItem,
 } from "../delivery/types.ts";
+import { deliverySpotSchema, webhookSettingsSchema } from "../delivery/types.ts";
 
 const spot: DeliverySpot = {
   id: 42,
@@ -896,7 +897,6 @@ Deno.test(
           { name: "X-Long", value: "a".repeat(1025) },
           { name: "authorization", value: "again" },
           { name: "X-Api-Key", value: "k ~!" },
-          { name: 5, value: "x" } as unknown as { name: string; value: string },
         ],
       },
     });
@@ -905,5 +905,53 @@ Deno.test(
       { name: "X-Api-Key", value: "k ~!" },
     ]);
     assertEquals(webhookExtraHeaders({}), []);
+  },
+);
+
+Deno.test(
+  "webhookSettingsSchema drops a claimed header that is not a name and a value",
+  function (): void {
+    const settings = webhookSettingsSchema.parse({
+      batch_seconds: 0,
+      headers: [
+        { name: "X-One", value: "1" },
+        { name: 5, value: "x" },
+        { name: "X-Vault", value: null },
+        null,
+        "X-Bare",
+        { name: "X-Two", value: "2", position: 2 },
+      ],
+    });
+    assertEquals(settings.headers.map((h) => [h.name, h.value]), [["X-One", "1"], ["X-Two", "2"]]);
+  },
+);
+
+Deno.test(
+  "deliverySpotSchema keeps a claimed spot's columns in the claim's order for the legacy body",
+  function (): void {
+    // jsonb's key order (shorter keys first, then bytewise), as claim_deliveries sends a spot.
+    const claimed = {
+      id: 7,
+      band: "20m",
+      mode: "cw",
+      source: "pota",
+      comment: "",
+      spotter: null,
+      callsign: "W1AW",
+      spot_time: "2026-10-05T13:45:00Z",
+      mode_family: "cw",
+      base_callsign: "W1AW",
+      frequency_khz: 14062,
+      pota_location: null,
+      pota_park_name: null,
+      pota_reference: null,
+      wwff_reference: null,
+      sota_summit_ref: null,
+      wwff_reference_name: null,
+    };
+    assertEquals(
+      Object.keys(webhookSpot(deliverySpotSchema.parse(claimed))),
+      Object.keys(claimed),
+    );
   },
 );

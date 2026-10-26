@@ -5,15 +5,6 @@ import tseslint from "typescript-eslint";
 // rules and skip the Part 2 ones. The PR that converts an area removes its globs, and nothing else
 // edits this list. Deleted when empty.
 const zodPending = [
-  // delivery
-  "supabase/functions/_shared/delivery/*.ts",
-  "supabase/functions/_shared/__tests__/delivery_format.test.ts",
-  "supabase/functions/_shared/__tests__/delivery_hmac.test.ts",
-  "supabase/functions/_shared/__tests__/delivery_run.test.ts",
-  "supabase/functions/_shared/__tests__/delivery_send.test.ts",
-  "supabase/functions/_shared/__tests__/delivery_urlsafety.test.ts",
-  "supabase/functions/_shared/__tests__/pinned_http.test.ts",
-  "supabase/functions/_shared/__tests__/webpush.test.ts",
   // relay
   "relay/*.ts",
   "relay/__tests__/*.ts",
