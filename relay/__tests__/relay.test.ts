@@ -125,6 +125,7 @@ Deno.test(
       loginCall: "N0CALL",
       healthPort: 0,
       licenseZipUrl: null,
+      catalogUrls: null,
     };
     const logs: string[] = [];
     const relay = startRelay(config, [feed], {
@@ -189,6 +190,7 @@ Deno.test(
         loginCall: "N0CALL",
         healthPort: 0,
         licenseZipUrl: null,
+        catalogUrls: null,
       },
       [localFeed(RBN_FEED, telnet.port)],
       { hostname: "127.0.0.1", log: noop },
@@ -219,6 +221,7 @@ Deno.test(
         loginCall: "N0CALL",
         healthPort: 0,
         licenseZipUrl: null,
+        catalogUrls: null,
       },
       [feed],
       { hostname: "127.0.0.1", log: noop },
@@ -282,6 +285,7 @@ Deno.test(
         loginCall: "RELAYCALL",
         healthPort: 0,
         licenseZipUrl: null,
+        catalogUrls: null,
       },
       [feed],
       { hostname: "127.0.0.1", log: noop },

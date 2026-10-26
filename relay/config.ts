@@ -1,9 +1,20 @@
 // Relay configuration from the environment (Fly secrets in production).
 
 import { ConfigError } from "../supabase/functions/_shared/errors.ts";
+import type { ReferenceProgram } from "../supabase/functions/_shared/reference_catalog.ts";
 
 /** The FCC's weekly full amateur license file (relay/licenses.ts). */
 export const FCC_AMATEUR_ZIP = "https://data.fcc.gov/download/pub/uls/complete/l_amat.zip";
+
+/** Each program's official reference list (relay/catalogs.ts). */
+export type CatalogUrls = Readonly<Record<ReferenceProgram, string>>;
+
+/** The programs' published lists, checked 2026-10-26. */
+export const CATALOG_URLS: CatalogUrls = {
+  pota: "https://pota.app/all_parks_ext.csv",
+  sota: "https://storage.sota.org.uk/summitslist.csv",
+  wwff: "https://wwff.co/wwff-data/wwff_directory.csv",
+};
 
 export interface RelayConfig {
   /** Supabase functions base URL, e.g. https://<ref>.supabase.co/functions/v1 */
@@ -15,6 +26,8 @@ export interface RelayConfig {
   healthPort: number;
   /** Zip the weekly license load reads (relay/licenses.ts); null when it is off. */
   licenseZipUrl: string | null;
+  /** The lists the weekly reference load reads (relay/catalogs.ts); null when it is off. */
+  catalogUrls: CatalogUrls | null;
 }
 
 /** Hosts allowed over plain http: local development only. */
@@ -75,6 +88,27 @@ function licenseZipUrl(value: string | undefined, localFunctions: boolean): stri
   return v;
 }
 
+/**
+ * RELAY_CATALOGS: "off", "on", or unset for on. Unset with local functions means off, so a local
+ * relay run does not download 60 MB of lists unless asked to (RELAY_CATALOGS=on).
+ */
+function catalogUrls(value: string | undefined, localFunctions: boolean): CatalogUrls | null {
+  const v = trimmed(value).toLowerCase();
+  if (v === "") {
+    if (localFunctions) {
+      return null;
+    }
+    return CATALOG_URLS;
+  }
+  if (v === "off") {
+    return null;
+  }
+  if (v === "on") {
+    return CATALOG_URLS;
+  }
+  throw new ConfigError("RELAY_CATALOGS must be on or off", { cause: undefined });
+}
+
 export function loadConfig(env: (name: string) => string | undefined): RelayConfig {
   const functionsUrl = required(env, "LONGLINES_FUNCTIONS_URL").replace(/\/+$/, "");
   if (!URL.canParse(functionsUrl)) {
@@ -98,5 +132,6 @@ export function loadConfig(env: (name: string) => string | undefined): RelayConf
     loginCall: required(env, "RELAY_LOGIN_CALL").toUpperCase(),
     healthPort: port,
     licenseZipUrl: licenseZipUrl(env("RELAY_LICENSES"), local),
+    catalogUrls: catalogUrls(env("RELAY_CATALOGS"), local),
   };
 }

@@ -1,7 +1,8 @@
 // The relay itself: one telnet (or TCP) session and forwarder per feed, the weekly
-// license load (licenses.ts), the Health page heartbeat (status.ts) and the /healthz server. main.ts is the process shell around it (environment,
+// license load (licenses.ts), the weekly reference list load (catalogs.ts), the Health page heartbeat (status.ts) and the /healthz server. main.ts is the process shell around it (environment,
 // signals, exit code); everything here runs in tests against local servers.
 
+import { type CatalogImportLoop, referenceClient, runCatalogImports } from "./catalogs.ts";
 import type { RelayConfig } from "./config.ts";
 import type { Feed } from "./feeds.ts";
 import { Forwarder, type ForwarderOptions } from "./forwarder.ts";
@@ -142,6 +143,8 @@ export interface RelayOptions {
   log?: (message: string) => void;
   /** Overrides for the license load's timing and limits (tests). */
   licenses?: Partial<Omit<LicenseImportLoop, "zipUrl" | "client" | "signal" | "log">>;
+  /** Overrides for the reference list load's timing, limits, clock and fetch (tests). */
+  catalogs?: Partial<Omit<CatalogImportLoop, "urls" | "client" | "signal" | "log">>;
   /** The Health page heartbeat's interval and memory figure (tests). */
   status?: RelayStatusOptions;
 }
@@ -202,6 +205,43 @@ export function startRelay(
     licenses = runLicenseImports(loop);
   }
 
+  function logCatalogs(message: string): void {
+    log(`[catalogs] ${message}`);
+  }
+  let catalogs: Promise<void> | null = null;
+  if (config.catalogUrls !== null) {
+    const catalogPoster = new FunctionPoster({
+      functionsUrl: config.functionsUrl,
+      functionName: "load-references",
+      secret: config.relaySecret,
+      fetchFn: fetch,
+    });
+    const loop: CatalogImportLoop = {
+      urls: config.catalogUrls,
+      client: referenceClient((body) => catalogPoster.post(body, undefined)),
+      signal: controller.signal,
+      log: logCatalogs,
+      fetchFn: fetch,
+      now: () => new Date(),
+    };
+    const overrides = options.catalogs;
+    if (overrides !== undefined) {
+      if (overrides.fetchFn !== undefined) {
+        loop.fetchFn = overrides.fetchFn;
+      }
+      if (overrides.now !== undefined) {
+        loop.now = overrides.now;
+      }
+      loop.batchSize = overrides.batchSize;
+      loop.readTimeoutMs = overrides.readTimeoutMs;
+      loop.headerTimeoutMs = overrides.headerTimeoutMs;
+      loop.retryDelaysMs = overrides.retryDelaysMs;
+      loop.firstCheckMs = overrides.firstCheckMs;
+      loop.checkMs = overrides.checkMs;
+    }
+    catalogs = runCatalogImports(loop);
+  }
+
   const statusPoster = new FunctionPoster({
     functionsUrl: config.functionsUrl,
     functionName: "relay-status",
@@ -243,6 +283,10 @@ export function startRelay(
     // No license load runs without a zip URL.
     if (licenses !== null) {
       waits.push(licenses);
+    }
+    // Nor a reference list load without its URLs.
+    if (catalogs !== null) {
+      waits.push(catalogs);
     }
     waits.push(status);
     await Promise.all(waits);

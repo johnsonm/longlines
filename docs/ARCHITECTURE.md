@@ -695,8 +695,9 @@ uses about 20 MB). Issue #13 records the options that were weighed first.
   entry plus a source adapter and an `ingest-<source>` function built with `servePush`.
   `_shared/relay_lines.ts` holds what the pushed sources share: the request body and the `HHMMZ`
   dating.
-- **Not only telnet.** The relay also runs the weekly FCC license load, because the file is too
-  big for an Edge Function (see "Licenses (FCC)").
+- **Not only telnet.** The relay also runs the weekly FCC license load and the weekly POTA, SOTA
+  and WWFF reference list load, because the files are too big for an Edge Function (see
+  "Licenses (FCC)" and "Reference catalog").
 
 ## DX Cluster
 
@@ -1107,6 +1108,60 @@ registries can load into it later; FCC is the only loader for now.
   is public FCC data, but a direct read would show the license of a call in `hidden_callsigns`,
   so clients get licenses only through `callsign_profile()` (the `callsign-profile` function).
   `20261012000050` granted `select` to `anon` and `authenticated`; `20261012000070` revokes it.
+
+# Reference catalog
+
+```mermaid
+flowchart LR
+  R[relay, daily check] -- "HEAD, then GET when due" --> P[[pota.app, sota.org.uk, wwff.co lists]]
+  R -- "status, begin, rows x 2,000, finish" --> F[load-references function]
+  F -- "*_reference_load(s) RPCs" --> S[(reference_catalog_stage, reference_catalog_loads)]
+  C[pg_cron :55 hourly] -- "apply_reference_loads()" --> S
+  C -- "per program" --> L[(reference_catalog)]
+```
+
+Reference pages name a park, summit or WWFF reference from its program's own list (spec
+`docs/superpowers/specs/2026-10-26-reference-profiles-design.md`, decisions 2 and 3).
+`reference_catalog` holds one narrow row per reference, keyed `(program, reference)` with the
+reference upper case: name, active, location, region, country, coordinates, grid, SOTA's altitude
+and points, and the valid dates. No raw upstream row is kept.
+
+- **Where it runs.** The three lists are 10 to 25 MB of CSV (POTA `all_parks_ext.csv`, SOTA
+  `summitslist.csv`, WWFF `wwff_directory.csv`), too much to parse in one Edge Function request,
+  so the relay loads them (`relay/catalogs.ts`), the way it loads the FCC licenses. Once a day it
+  HEADs each list with its User-Agent. A program's list is downloaded when its last applied load
+  is at least seven days old and the file's `Last-Modified` is newer (`reference_load_status`);
+  POTA's file changes daily, so the week is what keeps it to one download per program a week. One
+  program at a time, so at most one download is open. A version whose newest load was refused,
+  finished or applied is never downloaded again, and a load that did not finish is retried after
+  twelve hours. A relay whose functions URL is local loads nothing unless `RELAY_CATALOGS=on`.
+- **Parsing.** `_shared/reference_catalog.ts` is a streaming CSV reader with no dependency and the
+  per-program column mapping (spec "Schema > Catalog"). Columns are found by header name, never
+  position; SOTA's title line before its header is skipped. An empty value or `-` is null,
+  coordinates of 0, 0 are none, and SOTA's grid is derived from its coordinates at the length
+  POTA's file uses. A row whose reference is not letters and digits joined by `/` or `-` is
+  counted as a skip.
+- **Staging.** The relay posts 2,000 rows per request to `load-references` (relay secret,
+  `verify_jwt = false`; the function accepts up to 5,000). `begin_reference_load` abandons the
+  program's open loads. `stage_reference_rows` skips a reference already staged in the load and
+  answers the load's running total, kept on the load row in the same transaction, so a batch
+  retried after a lost reply is neither counted twice nor lost; the relay passes the last total to
+  `finish_reference_load`. When the relay gives up (a failed batch, a short read, a shutdown) it
+  calls `abandon`, which deletes the staged rows at once. The stage is a logged table, unlike the
+  license staging, so a crash between finish and apply does not empty it.
+- **A truncated list never replaces a good one.** `finish_reference_load` refuses a load whose
+  stage differs from the relay's count or holds fewer rows than `reference_load_floor(program)`:
+  90% of the program's current rows, or 10,000 on a first load. The refusal is committed by that
+  call (it does not raise) and its staged rows go.
+- **The swap.** `apply_reference_loads()` runs from pg_cron at :55. Per program, in its own
+  subtransaction, it takes the newest finished load newer than the last applied one, checks the
+  count and the floor again, deletes the program's rows and inserts the stage set-based, so a
+  reader sees the old list or the new one. SOTA's ~180,000 rows take a few seconds, which fits
+  the cron session but not the API's 8 s statement timeout, so the swap is not an RPC. When a run
+  swaps nothing while some program's newest load is refused, it raises, so `/health`'s Scheduled
+  jobs card shows the job failing until a good load lands.
+- **Access.** Service-role only: the three tables (RLS on, no policies) and every RPC. Clients
+  will read the catalog only through the reference profile (PR 4).
 
 # Callsign profiles
 

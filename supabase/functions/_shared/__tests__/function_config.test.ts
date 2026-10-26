@@ -216,7 +216,16 @@ Deno.test("the isServiceRole check finds the functions that use it", function ()
 
 Deno.test("no verify_jwt = false function imports isServiceRole", function (): void {
   const open = functionsWithoutJwt();
-  for (const fn of ["sign-in", "ingest-rbn", "callsign-profile", "band-map", "group-page"]) {
+  for (
+    const fn of [
+      "sign-in",
+      "ingest-rbn",
+      "callsign-profile",
+      "band-map",
+      "group-page",
+      "load-references",
+    ]
+  ) {
     assertEquals(open.includes(fn), true, `config.toml lists ${fn} with verify_jwt = false`);
   }
   const offenders = open.flatMap((fn) => modulesUsingIsServiceRole(fn).map((m) => `${fn}: ${m}`));

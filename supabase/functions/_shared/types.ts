@@ -2,6 +2,12 @@ import { z } from "zod";
 import type { AprsPacketType } from "./aprs.ts";
 import type { ModeFamily } from "./modes.ts";
 import type { LicenseLoad, UlsCounts, UlsKind, UlsRow } from "./uls.ts";
+import type {
+  ReferenceCatalogRow,
+  ReferenceFinishState,
+  ReferenceLoadStatus,
+  ReferenceProgram,
+} from "./reference_catalog.ts";
 
 export type Source = "pota" | "sotawatch" | "rbn" | "dxcluster" | "aprs" | "wwff" | "wwbota";
 
@@ -286,5 +292,22 @@ export interface LicenseDb {
   /** Marks the load ready for apply_license_loads; throws when the staged counts differ. */
   finishLoad(load: number, counts: UlsCounts): Promise<void>;
   /** Fails a load the relay gave up on and empties staging. */
+  abandonLoad(load: number, error: string): Promise<void>;
+}
+
+/** The reference list load's staging RPCs (20261026000100). Implemented by db.ts. */
+export interface ReferenceDb {
+  /** Per program, the last applied load and the newest one. */
+  loadStatus(): Promise<ReferenceLoadStatus>;
+  /** Starts a load of one program's list, abandoning its open one; returns its id. */
+  beginLoad(program: ReferenceProgram, version: string): Promise<number>;
+  /**
+   * Stages one batch (a reference already staged in the load is skipped); returns the load's rows
+   * staged so far, so a retried batch reports the right total.
+   */
+  stageRows(load: number, rows: ReferenceCatalogRow[]): Promise<number>;
+  /** Ends staging: finished, or refused when incomplete or below the floor. */
+  finishLoad(load: number, rows: number): Promise<ReferenceFinishState>;
+  /** Abandons a load the relay gave up on and deletes its staged rows. */
   abandonLoad(load: number, error: string): Promise<void>;
 }

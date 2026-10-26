@@ -865,6 +865,54 @@ isOneToOne: true
                   Relationships: [
                     
                   ]
+                },"reference_catalog": {
+                  Row: {
+                    "active": boolean,"altitude_m": number | null,"country": string | null,"grid": string | null,"latitude": number | null,"location": string | null,"longitude": number | null,"name": string | null,"points": number | null,"program": string,"reference": string,"region": string | null,"valid_from": string | null,"valid_to": string | null
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "active": boolean,"altitude_m"?: number | null,"country"?: string | null,"grid"?: string | null,"latitude"?: number | null,"location"?: string | null,"longitude"?: number | null,"name"?: string | null,"points"?: number | null,"program": string,"reference": string,"region"?: string | null,"valid_from"?: string | null,"valid_to"?: string | null
+                  }
+                  Update: {
+                    "active"?: boolean,"altitude_m"?: number | null,"country"?: string | null,"grid"?: string | null,"latitude"?: number | null,"location"?: string | null,"longitude"?: number | null,"name"?: string | null,"points"?: number | null,"program"?: string,"reference"?: string,"region"?: string | null,"valid_from"?: string | null,"valid_to"?: string | null
+                  }
+                  Relationships: [
+                    
+                  ]
+                },"reference_catalog_loads": {
+                  Row: {
+                    "applied_at": string | null,"error": string | null,"finished_at": string | null,"id": number,"program": string,"staged_rows": number,"started_at": string,"state": string,"version": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "applied_at"?: string | null,"error"?: string | null,"finished_at"?: string | null,"id"?: never,"program": string,"staged_rows"?: number,"started_at"?: string,"state"?: string,"version": string
+                  }
+                  Update: {
+                    "applied_at"?: string | null,"error"?: string | null,"finished_at"?: string | null,"id"?: never,"program"?: string,"staged_rows"?: number,"started_at"?: string,"state"?: string,"version"?: string
+                  }
+                  Relationships: [
+                    
+                  ]
+                },"reference_catalog_stage": {
+                  Row: {
+                    "active": boolean,"altitude_m": number | null,"country": string | null,"grid": string | null,"latitude": number | null,"load_id": number,"location": string | null,"longitude": number | null,"name": string | null,"points": number | null,"program": string,"reference": string,"region": string | null,"valid_from": string | null,"valid_to": string | null
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "active": boolean,"altitude_m"?: number | null,"country"?: string | null,"grid"?: string | null,"latitude"?: number | null,"load_id": number,"location"?: string | null,"longitude"?: number | null,"name"?: string | null,"points"?: number | null,"program": string,"reference": string,"region"?: string | null,"valid_from"?: string | null,"valid_to"?: string | null
+                  }
+                  Update: {
+                    "active"?: boolean,"altitude_m"?: number | null,"country"?: string | null,"grid"?: string | null,"latitude"?: number | null,"load_id"?: number,"location"?: string | null,"longitude"?: number | null,"name"?: string | null,"points"?: number | null,"program"?: string,"reference"?: string,"region"?: string | null,"valid_from"?: string | null,"valid_to"?: string | null
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "reference_catalog_stage_load_id_fkey"
+      columns: ["load_id"]
+isOneToOne: false
+      referencedRelation: "reference_catalog_loads"
+      referencedColumns: ["id"]
+    }
+                  ]
                 },"send_test_limits": {
                   Row: {
                     "destination_id": string,"tests": number,"user_id": string,"window_start": string
@@ -1085,7 +1133,10 @@ isOneToOne: true
                 }
           }
           Functions: {
-            "api_call":
+            "abandon_reference_load":
+{ Args: { "p_error": string,"p_load": number }; Returns: undefined
+                           },
+"api_call":
 { Args: { "p_args": Json,"p_op": string,"p_token_id": string }; Returns: Json
                            },
 "api_destination_json":
@@ -1101,6 +1152,9 @@ isOneToOne: true
 { Args: Record<PropertyKey, never>; Returns: string
                            },
 "apply_license_loads":
+{ Args: Record<PropertyKey, never>; Returns: undefined
+                           },
+"apply_reference_loads":
 { Args: Record<PropertyKey, never>; Returns: undefined
                            },
 "aprs_day_archived":
@@ -1155,6 +1209,9 @@ isOneToOne: true
                            },
 "base64url_bytes":
 { Args: { "p_text": string }; Returns: string
+                           },
+"begin_reference_load":
+{ Args: { "p_program": string,"p_version": string }; Returns: number
                            },
 "begin_sign_in_attempt":
 { Args: { "p_client": string,"p_identifier": string }; Returns: number
@@ -1348,6 +1405,9 @@ isOneToOne: true
 { Args: { "p_day": string }; Returns: {
               "exact": boolean,"spots": number
             }[]
+                           },
+"finish_reference_load":
+{ Args: { "p_load": number,"p_rows": number }; Returns: string
                            },
 "first_rollup_day":
 { Args: Record<PropertyKey, never>; Returns: string
@@ -1635,6 +1695,12 @@ isOneToOne: true
 "record_sender_heartbeat":
 { Args: { "p_last_progress_at": string,"p_rss_bytes": number,"p_started_at": string }; Returns: undefined
                            },
+"reference_load_floor":
+{ Args: { "p_program": string }; Returns: number
+                           },
+"reference_load_status":
+{ Args: Record<PropertyKey, never>; Returns: Json
+                           },
 "refresh_stats_rollups":
 { Args: Record<PropertyKey, never>; Returns: undefined
                            },
@@ -1740,6 +1806,9 @@ isOneToOne: true
                            },
 "spot_source_url":
 { Args: { "p_spot": Json }; Returns: string
+                           },
+"stage_reference_rows":
+{ Args: { "p_load": number,"p_rows": Json }; Returns: number
                            },
 "stats_payload_without_hidden":
 { Args: { "p_payload": Json }; Returns: Json

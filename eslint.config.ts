@@ -90,6 +90,7 @@ export default tseslint.config(
           "FunctionCallError",
           "ConfigError",
           "TimeoutError",
+          "CatalogImportError",
           "ClaimError",
           "DatabaseOpenError",
           "LicenseImportError",
