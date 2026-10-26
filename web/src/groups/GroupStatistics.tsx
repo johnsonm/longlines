@@ -10,7 +10,7 @@ import { ChartCard, GRID, Kpi } from "../stats/parts";
 import { plural } from "../profile/format";
 import { GroupHeatMap } from "./GroupHeatMap";
 import {
-  activationsLine, comparisonLine, heardAgo, modeLabel, PERIODS, periodDays, placesLine, totalActivations, updatedAgo,
+  activationsLine, comparisonLine, heardAgo, modeLabel, PERIODS, periodDays, placesLine, totalActivations, totalPlaces, updatedAgo,
 } from "./stats/model";
 import type { GroupMember, GroupPeriod, GroupStatistics as Stats, TopList } from "./stats/types";
 
@@ -69,7 +69,7 @@ export function GroupStatistics({ stats, period, onPeriod, now: pinned }: Props)
           <Kpi label="Activations" value={fmt(totalActivations(kpis.activations))} detail={activationsLine(kpis.activations)} />
         </Grid>
         <Grid size={{ xs: 6, md: 3 }}>
-          <Kpi label="Places activated" value={fmt(kpis.places.parks + kpis.places.summits)} detail={placesLine(kpis.places)} />
+          <Kpi label="Places activated" value={fmt(totalPlaces(kpis.places))} detail={placesLine(kpis.places)} />
         </Grid>
       </Grid>
 
@@ -241,7 +241,7 @@ function PlacesCard({ places }: { places: Stats["places"] }) {
       : []),
   ];
   return (
-    <ChartCard title="Most activated places" subheader="Parks and summits the club activated in the period">
+    <ChartCard title="Most activated places" subheader="Parks, summits and bunkers the club activated in the period">
       <DataGrid
         {...GRID}
         rows={places.map((p) => ({ ...p, id: `${p.program}/${p.reference}` }))}

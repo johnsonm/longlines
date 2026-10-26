@@ -35,7 +35,8 @@ begin
   assert first_pass = 6, format('expected 6 inserted rows, got %s', first_pass);
   assert (select wwff_reference from raw_spots where source = 'wwff' and source_spot_id = '157368') = 'KFF-6101',
     'expected the wwff row to store its reference';
-  assert (select wwbota_references from raw_spots where source = 'wwbota') = array['B/EA-0103', 'B/EA-0104', 'B/EA-0105'],
+  assert (select wwbota_references from raw_spots where source = 'wwbota' and source_spot_id = '2026-10-26T17:23:08.479344Z')
+    = array['B/EA-0103', 'B/EA-0104', 'B/EA-0105'],
     'expected the wwbota row to store every bunker';
   assert (select mode_family from raw_spots where source = 'pota' and source_spot_id = 'smoke-1') = 'digital',
     'expected smoke-1 to store mode_family digital';

@@ -22,7 +22,7 @@ export interface DeliverySpot {
   sota_summit_ref: string | null;
   wwff_reference: string | null;
   wwff_reference_name: string | null;
-  /** Every bunker of a WWBOTA spot; absent on rows claimed before migration 20261026000100. */
+  /** Every bunker of a WWBOTA spot; absent on rows claimed before migration 20261026001000. */
   wwbota_references?: string[] | null;
   /** The first bunker's name; absent like wwbota_references. */
   wwbota_reference_name?: string | null;

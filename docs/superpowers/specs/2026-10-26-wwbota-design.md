@@ -128,8 +128,12 @@ WWFF. There is no relay change and no firehose table.
 
 - `spot_stream` adds a `'WWBOTA'` arm to `program`; `reference` is the first WWBOTA reference and
   `reference_name` its name. An n-fer credits its first bunker only, as a POTA 2-fer credits the
-  park the spot names. The rollups, `callsign_profile` and `group_statistics_at` are generic over
-  program.
+  park the spot names. The rollups and `callsign_profile` are generic over program.
+- `group_statistics_at` names its programs in the KPIs, so it gains `kpis.activations.wwbota` and
+  `kpis.places.bunkers` (its places list was already generic). The page names them only when
+  nonzero ("26 POTA, 5 SOTA, 1 WWBOTA"; "19 parks, 3 summits, 1 bunker"), and the places card
+  subheader becomes "Parks, summits and bunkers the club activated in the period". A payload
+  cached before the migration lacks the keys; the web reads them with `?? 0`.
 - Web: the `Program` types gain `"WWBOTA"`. The activations KPI keeps its label; its detail lists
   WWBOTA only when there are bunkers ("1 WWBOTA bunker"). The references card subheader becomes
   "Parks, summits, WWFF references and bunkers, most recent first". `wwbota` gets a source color.
@@ -176,6 +180,6 @@ WWFF. There is no relay change and no firehose table.
 ## Rollout
 
 1. Merge. The migration applies and the cron job starts calling `ingest-wwbota`, which 404s until
-   step 2.
+   step 2; for those minutes `/health` reports the job failing and the pulled check delayed.
 2. `supabase functions deploy ingest-wwbota`, then redeploy every function (shared code changed).
 3. Check `ingest_health` for `wwbota` and the catalog tile after a few minutes.

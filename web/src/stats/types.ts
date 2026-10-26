@@ -18,7 +18,7 @@ export type StatsPayload = {
   };
   peakHour: number; // 0-23 UTC
   busiestSlot: { day: string; hour: number }; // day is YYYY-MM-DD
-  daily: { day: string; pota: number; sota: number; wwff: number; rbn: number; aprs: number; dx: number; wwbota?: number }[]; // exactly 7, oldest first, zero-filled; wwbota from 20261026000100, for the catalog's rates only
+  daily: { day: string; pota: number; sota: number; wwff: number; rbn: number; aprs: number; dx: number; wwbota?: number }[]; // exactly 7, oldest first, zero-filled; wwbota from 20261026001000, for the catalog's rates only
   hourly: { hour: string; pota: number; sota: number; wwff: number; rbn: number; aprs: number; dx: number; wwbota?: number }[]; // exactly 168, oldest first, zero-filled, ending at the last complete hour; hour is ISO UTC
   potaByState: Record<string, number>; // 50 states + DC, zero-filled
   // Spots per country of the station on the air (cty.dat entity of the call as spotted, as ISO 3166-1

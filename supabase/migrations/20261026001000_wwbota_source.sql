@@ -5,9 +5,10 @@
 -- stores spots in raw_spots through ingest_spots, like WWFF. A spot can name
 -- several bunkers: every reference goes in wwbota_references, the first
 -- bunker's name in wwbota_reference_name. A WWBOTA spot matches only
--- connections that list wwbota (as with DX Cluster and WWFF). Profiles and
--- group statistics pick WWBOTA up through spot_stream; the Stats snapshot only
--- gains its daily and hourly counts, for the catalog's rates.
+-- connections that list wwbota (as with DX Cluster and WWFF). Profiles pick
+-- WWBOTA up through spot_stream, group statistics count it as WWBOTA
+-- activations and bunkers, and the Stats snapshot only gains its daily and
+-- hourly counts, for the catalog's rates.
 
 -- ---------------------------------------------------------------------------
 -- 1. Tables
@@ -571,9 +572,9 @@ from (values ('pota'), ('sotawatch'), ('rbn'), ('dxcluster'), ('aprs'), ('wwff')
 -- ---------------------------------------------------------------------------
 
 -- spot_stream: as in 20261015001000, with a WWBOTA arm. An n-fer credits its
--- first bunker, as a POTA spot credits the park it names. The rollups,
--- callsign_profile and group_statistics_at are generic over program; days
--- already rolled up are never re-rolled.
+-- first bunker, as a POTA spot credits the park it names. The rollups and
+-- callsign_profile are generic over program; days already rolled up are never
+-- re-rolled. group_statistics_at names its programs and is redefined below.
 create or replace view spot_stream with (security_invoker = true) as
 select r.source,
        r.spot_time,
@@ -616,6 +617,232 @@ from rbn_spots s;
 -- ---------------------------------------------------------------------------
 -- 8. Stats: daily and hourly counts only
 -- ---------------------------------------------------------------------------
+
+-- group_statistics_at: as in 20261019000400, with WWBOTA in the KPIs the way WWFF is: a wwbota
+-- activations count and a bunkers places count, so a bunker in the places list
+-- also counts above it. Same signature, so the grants carry over.
+create or replace function public.group_statistics_at(p_group_id uuid, p_period text, p_now timestamptz)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+set plan_cache_mode = force_custom_plan
+as $$
+declare
+  v_days      int := case p_period when '7d' then 7 when '30d' then 30 end;
+  v_today     date := (p_now at time zone 'utc')::date;
+  v_year      date := (p_now at time zone 'utc')::date - 364;
+  v_from      date;
+  v_prev      date;
+  v_live_from date;
+  v_bases     text[];
+begin
+  if v_days is null then
+    raise exception 'Not a valid period.';
+  end if;
+  if not exists (select 1 from callsign_groups g where g.id = p_group_id) then
+    return null;
+  end if;
+  v_from := v_today - (v_days - 1);
+  v_prev := v_from - v_days;
+
+  v_bases := public.group_member_bases(p_group_id);
+
+  -- callsign_profile's live window: the oldest of the last 14 days without a
+  -- marker, never before the first marker. Today never has one.
+  select min(g.d)::date into v_live_from
+  from generate_series(greatest(v_today - 14, (select min(day) from callsign_rollup_days)), v_today,
+                       interval '1 day') as g(d)
+  where not exists (select 1 from callsign_rollup_days r where r.day = g.d::date);
+
+  return (
+    with live as materialized (
+      select s.base_callsign as base, (s.spot_time at time zone 'utc')::date as day, s.spot_time,
+             s.band, s.mode_bucket
+      from spot_stream s
+      where s.base_callsign = any (v_bases)
+        and s.spot_time >= v_live_from::timestamp at time zone 'utc'
+        and s.spot_time < (v_today + 1)::timestamp at time zone 'utc'
+        and not exists (select 1 from callsign_rollup_days d
+                        where d.day = (s.spot_time at time zone 'utc')::date)
+    ),
+    day_spots as (
+      select base, day, sum(n)::bigint as spots
+      from (
+        select d.base, d.day, d.spots::bigint as n
+        from callsign_days d
+        where d.base = any (v_bases) and d.day >= v_year and d.day <= v_today
+        union all
+        -- Days rolled up before callsign_days existed and not yet filled by
+        -- backfill_callsign_days: their day-grain activity rows, which
+        -- compaction keeps until the fill (20261019000200).
+        select a.base, a.period, a.spots::bigint
+        from callsign_activity a
+        join callsign_rollup_days r on r.day = a.period and r.days_filled_at is null
+        where a.base = any (v_bases) and a.role = 'heard' and a.grain = 'day'
+          and a.period >= v_year and a.period <= v_today
+        union all
+        select l.base, l.day, count(*) from live l group by l.base, l.day
+      ) x
+      group by base, day
+    ),
+    mix as (
+      select base, band, mode_bucket, sum(n)::bigint as n
+      from (
+        select a.base, a.band, a.mode_bucket, a.spots::bigint as n
+        from callsign_activity a
+        where a.base = any (v_bases) and a.role = 'heard' and a.grain = 'day'
+          and a.period >= v_from and a.period <= v_today
+        union all
+        select l.base, l.band, l.mode_bucket, count(*) from live l where l.day >= v_from group by 1, 2, 3
+      ) x
+      group by base, band, mode_bucket
+    ),
+    refs as materialized (
+      select s.base_callsign as base, s.program, s.reference, (s.spot_time at time zone 'utc')::date as day,
+             s.reference_name, s.spot_time
+      from spot_stream s
+      where s.base_callsign = any (v_bases) and s.program is not null
+        and s.spot_time >= v_from::timestamp at time zone 'utc'
+        and s.spot_time < (v_today + 1)::timestamp at time zone 'utc'
+    ),
+    activations as (
+      select distinct base, program, reference, day from refs
+    ),
+    per_member as (
+      select b.base,
+             coalesce(sum(d.spots), 0)::bigint as spots,
+             count(d.day) filter (where d.spots > 0) as days
+      from unnest(v_bases) as b(base)
+      left join day_spots d on d.base = b.base and d.day >= v_from
+      group by b.base
+    ),
+    main_mode as (
+      select distinct on (base) base, mode_bucket
+      from (select base, mode_bucket, sum(n) as n from mix group by base, mode_bucket) x
+      order by base, n desc, array_position(array['CW', 'SSB', 'FT8/FT4', 'FM', 'Other'], mode_bucket)
+    ),
+    live_last as (
+      select base, max(spot_time) as t from live group by base
+    ),
+    last_heard as (
+      select b.base, greatest(s.last_spot, ll.t) as t
+      from unnest(v_bases) as b(base)
+      left join callsign_seen s on s.base = b.base
+      left join live_last ll on ll.base = b.base
+    ),
+    kpis as (
+      select jsonb_build_object(
+        'spots', (select coalesce(sum(spots), 0)::bigint from day_spots where day >= v_from),
+        'previousSpots', (select coalesce(sum(spots), 0)::bigint from day_spots where day >= v_prev and day < v_from),
+        'membersHeard', (select count(*) from per_member where spots > 0),
+        'activations', (select jsonb_build_object(
+                          'pota', count(*) filter (where program = 'POTA'),
+                          'sota', count(*) filter (where program = 'SOTA'),
+                          'wwff', count(*) filter (where program = 'WWFF'),
+                          'wwbota', count(*) filter (where program = 'WWBOTA'))
+                        from activations),
+        'places', (select jsonb_build_object(
+                     'parks', count(distinct program || ':' || reference) filter (where program in ('POTA', 'WWFF')),
+                     'summits', count(distinct reference) filter (where program = 'SOTA'),
+                     'bunkers', count(distinct reference) filter (where program = 'WWBOTA'))
+                   from activations)) as v
+    ),
+    daily as (
+      select jsonb_agg(jsonb_build_object('day', to_char(g.d, 'YYYY-MM-DD'), 'spots', coalesce(x.n, 0))
+                       order by g.d) as v
+      from generate_series(v_from, v_today, interval '1 day') as g(d)
+      left join (select day, sum(spots)::bigint as n from day_spots group by day) x on x.day = g.d::date
+    ),
+    calendar as (
+      select coalesce(jsonb_agg(jsonb_build_object('day', to_char(c.day, 'YYYY-MM-DD'), 'spots', c.n,
+                                                   'members', c.m) order by c.day), '[]') as v
+      from (select day, sum(spots)::bigint as n, count(*) filter (where spots > 0) as m
+            from day_spots group by day having sum(spots) > 0) c
+    ),
+    top_rows as (
+      select 'spots' as list, base, spots as value from per_member
+      union all select 'days', base, days from per_member
+      union all select 'cw', base, sum(n)::bigint from mix where mode_bucket = 'CW' group by base
+      union all select 'ssb', base, sum(n)::bigint from mix where mode_bucket = 'SSB' group by base
+      union all select 'digital', base, sum(n)::bigint from mix where mode_bucket = 'FT8/FT4' group by base
+      union all select 'parks', base, count(distinct reference) from activations where program = 'POTA' group by base
+    ),
+    top_ranked as (
+      select list, base, value, row_number() over (partition by list order by value desc, base) as r
+      from top_rows
+      where value > 0
+    ),
+    top_json as (
+      select jsonb_object_agg(l.list, coalesce(
+               (select jsonb_agg(jsonb_build_object('callsign', t.base, 'value', t.value) order by t.r)
+                from top_ranked t where t.list = l.list and t.r <= 3), '[]')) as v
+      from unnest(array['spots', 'days', 'cw', 'ssb', 'digital', 'parks']) as l(list)
+    ),
+    members_json as (
+      select coalesce(jsonb_agg(jsonb_build_object(
+               'callsign', p.base, 'spots', p.spots, 'days', p.days, 'mainMode', mm.mode_bucket,
+               'lastHeard', to_char(lh.t at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'))
+             order by p.spots desc, p.days desc, p.base), '[]') as v
+      from per_member p
+      left join main_mode mm on mm.base = p.base
+      left join last_heard lh on lh.base = p.base
+    ),
+    -- callsign_profile's bands: fixed order, zero-filled, other bands left out.
+    bands as (
+      select jsonb_agg(jsonb_build_object(
+               'band', bo.band, 'spots', coalesce((select sum(m.n) from mix m where m.band = bo.band), 0)::bigint)
+             order by bo.ord) as v
+      from (values ('160m', 1), ('80m', 2), ('60m', 3), ('40m', 4), ('30m', 5), ('20m', 6),
+                   ('17m', 7), ('15m', 8), ('12m', 9), ('10m', 10), ('6m', 11), ('2m', 12)) as bo(band, ord)
+    ),
+    modes as (
+      select coalesce(jsonb_agg(jsonb_build_object('label', ml.label, 'spots', c.n) order by ml.ord), '[]') as v
+      from (values ('CW', 1), ('SSB', 2), ('FT8/FT4', 3), ('FM', 4), ('Other', 5)) as ml(label, ord)
+      join (select mode_bucket, sum(n)::bigint as n from mix group by mode_bucket) c on c.mode_bucket = ml.label
+      where c.n > 0
+    ),
+    -- Each reference's newest name in the period (SOTA summits have none).
+    place_names as (
+      select distinct on (program, reference) program, reference, reference_name as name
+      from refs
+      where reference_name is not null
+      order by program, reference, spot_time desc
+    ),
+    places as (
+      select coalesce(jsonb_agg(jsonb_build_object(
+               'reference', p.reference, 'name', p.name, 'program', p.program, 'times', p.times,
+               'by', to_jsonb(p.by_calls))
+             order by p.times desc, p.reference), '[]') as v
+      from (
+        select t.program, t.reference, t.times, t.by_calls, n.name
+        from (
+          select a.program, a.reference, count(*) as times, array_agg(distinct a.base order by a.base) as by_calls
+          from activations a
+          group by a.program, a.reference
+          order by times desc, a.reference
+          limit 10
+        ) t
+        left join place_names n on n.program = t.program and n.reference = t.reference
+      ) p
+    )
+    select jsonb_build_object(
+             'period', p_period,
+             'generatedAt', to_char(p_now at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+             'memberCount', cardinality(v_bases),
+             'kpis', kpis.v,
+             'daily', daily.v,
+             'calendar', calendar.v,
+             'top', top_json.v,
+             'members', members_json.v,
+             'bands', bands.v,
+             'modes', modes.v,
+             'places', places.v)
+    from kpis, daily, calendar, top_json, members_json, bands, modes, places
+  );
+end;
+$$;
 
 -- build_stats_snapshot_at: as in 20261022000100, with daily[].wwbota and hourly[].wwbota, for
 -- the catalog's rates. Like DX Cluster's dx, they come from their own CTEs

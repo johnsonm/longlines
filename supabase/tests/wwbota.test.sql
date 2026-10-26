@@ -1,4 +1,4 @@
--- pgTAP: WWBOTA as a source (20261026000100): the source checks, the
+-- pgTAP: WWBOTA as a source (20261026001000): the source checks, the
 -- ingest_state row and cron job, every bunker through ingest, opt-in
 -- matching, the reference rule on a later bunker of an n-fer, rendering, the
 -- read models and spot_stream, and hourly archiving from raw_spots.

@@ -271,8 +271,9 @@ The design is `docs/superpowers/specs/2026-10-26-wwbota-design.md`.
 - One spot names several bunkers: `raw_spots.wwbota_references` (`text[]`, every reference in the
   feed's order, at most `MAX_REFERENCES`) and `wwbota_reference_name` (the first bunker's). The
   reference rule searches every bunker; `render_push_field('reference')` joins them with ", ";
-  `spot_stream`, `callsign_group_rows` and the archive's string column take the first (archive:
-  all, joined with `,`). There is no `spot_source_url` for WWBOTA.
+  `spot_stream` and `callsign_group_rows` take the first; the archive's string column holds all
+  of them joined with `,`. There is no `spot_source_url` for WWBOTA. Group statistics count it as
+  `kpis.activations.wwbota` and `kpis.places.bunkers` (named only when nonzero).
 - WWBOTA is opt-in like WWFF and is not a Stats peer: the snapshot has only `daily[].wwbota` and
   `hourly[].wwbota` (optional keys, for the catalog's rates), from their own CTEs like `dx`. Do not
   add it to `in_window`, totals, bands, countries or top lists without being asked. It stays off

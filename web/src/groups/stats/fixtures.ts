@@ -30,8 +30,8 @@ export const STATS: GroupStatistics = {
     spots: 10082,
     previousSpots: 9002,
     membersHeard: 11,
-    activations: { pota: 26, sota: 5, wwff: 0 },
-    places: { parks: 19, summits: 3 },
+    activations: { pota: 26, sota: 5, wwff: 0, wwbota: 0 },
+    places: { parks: 19, summits: 3, bunkers: 0 },
   },
   daily: Array.from({ length: 30 }, (_, i) => ({ day: day(i - 29), spots: i * 10 })),
   calendar: [

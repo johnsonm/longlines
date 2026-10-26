@@ -128,11 +128,11 @@ export function noLicenseMessage(usPrefix: boolean): string {
 const PROGRAM_NOUNS: Record<string, [string, string]> = {
   POTA: ["park", "parks"],
   SOTA: ["summit", "summits"],
-  WWBOTA: ["bunker", "bunkers"],
+  WWBOTA: ["WWBOTA bunker", "WWBOTA bunkers"],
 };
 
 /**
- * The "Park/summit/WWFF visits" KPI's detail: "3 parks, 2 summits, 1 WWFF reference", then "2 bunkers"
+ * The "Park/summit/WWFF visits" KPI's detail: "3 parks, 2 summits, 1 WWFF reference", then "2 WWBOTA bunkers"
  * only when there are any. Programs without a noun read "N <program> references".
  */
 export function activationsDetail(activations: HeardProfile["activations"]): string {

@@ -813,7 +813,8 @@ firehose table.
   `place_name` the first bunker's name, for push, Discord and webhooks alike. There is no source
   URL: WWBOTA has no public page per bunker. The Discord card color is gold.
 - **Elsewhere.** `spot_stream` has a `'WWBOTA'` program arm that credits an n-fer's first bunker,
-  so profiles and group statistics pick it up. It is archived hourly from `raw_spots`, with the
+  so profiles pick it up; `group_statistics_at` names its programs, so it gains
+  `kpis.activations.wwbota` and `kpis.places.bunkers`. It is archived hourly from `raw_spots`, with the
   references as one comma-joined string. Stats gains only `daily[].wwbota` and `hourly[].wwbota`
   (for the catalog's rates), from their own CTEs like DX Cluster's `dx`; WWBOTA is not a Stats
   peer and stays off the band map.

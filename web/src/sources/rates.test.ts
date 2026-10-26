@@ -43,7 +43,7 @@ describe("sourceRates", () => {
     const beforeWwff = week(() => 1).map(({ wwff: _wwff, ...rest }) => rest) as unknown as Hour[];
     expect(sourceRates(beforeWwff, "wwff")).toBeNull();
     expect(sourceRates(week(() => 12, "wwff"), "wwff")?.average).toBe(12);
-    // Snapshots before 20261026000100 have no wwbota key.
+    // Snapshots before 20261026001000 have no wwbota key.
     expect(sourceRates(week(() => 1), "wwbota")).toBeNull();
     expect(sourceRates(week(() => 2, "wwbota"), "wwbota")?.average).toBe(2);
   });

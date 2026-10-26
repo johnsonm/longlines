@@ -107,6 +107,8 @@ No new roll-up, cron job or ingest change.
      counts SOTA.
    - WWFF is a peer, as on the Stats page: the activations line names it when it is nonzero, and
      WWFF references appear in "Most activated places".
+   - WWBOTA (2026-10-26) is counted the same way: `activations.wwbota` and `places.bunkers`, both
+     named only when nonzero, and bunkers appear in "Most activated places" with program `WWBOTA`.
    - **Days** are distinct UTC days with at least one spot.
    - **Last heard** is the newer of `callsign_seen.last_spot` and the newest live spot.
 7. **One write path.** `save_callsign_group(payload)` gains optional `public` and
@@ -462,8 +464,10 @@ Counts take the singular at 1 ("1 member", "used by 1 connection").
   {7|30} days *(added)* | Same as the previous {7|30} days *(added)* | None in the previous {7|30}
   days *(added)*
 - Active members · {N} of {N} · Heard at least once
-- Activations · {N} · {N} POTA, {N} SOTA (and ", {N} WWFF" when nonzero *(added)*)
-- Places activated · {N} · {N} parks, {N} summits
+- Activations · {N} · {N} POTA, {N} SOTA (and ", {N} WWFF" when nonzero *(added)*; and
+  ", {N} WWBOTA" when nonzero *(added 2026-10-26)*)
+- Places activated · {N} · {N} parks, {N} summits (and ", {N} bunkers" when nonzero *(added
+  2026-10-26)*)
 - Heat map card: Club activity over the past year · Spots heard each day for all members
   combined. Hover a day for the count. Ignores the period above.
 - Tooltip: {N} spots · {Weekday, Month D, YYYY} · {N} members on the air | No spots *(added, a
@@ -490,7 +494,8 @@ Counts take the singular at 1 ("1 member", "used by 1 connection").
 - Bands card: Bands · Club spots by band
 - Modes card: Modes · Club spots by mode · legend CW · SSB · FT8 and FT4 (and FM, Other when
   present)
-- Places card: Most activated places · Parks and summits the club activated in the period ·
+- Places card: Most activated places · Parks, summits and bunkers the club activated in the period
+  *(amended 2026-10-26)* ·
   columns Reference · Name · Program · Times · By (phones drop By) · empty: No activations in the
   period *(added)*
 

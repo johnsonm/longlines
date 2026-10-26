@@ -840,7 +840,7 @@ bunker the spot names in `wwbota_references` and the first bunker's name in
 `wwbota_reference_name`. There is no relay side.
 
 First deploy, in this order: merge (the Supabase GitHub integration applies
-`20261026000100_wwbota_source`; the cron job then calls `ingest-wwbota`, which answers 404 until
+`20261026001000_wwbota_source`; the cron job then calls `ingest-wwbota`, which answers 404 until
 the next step), then deploy the new function and redeploy every function, since `_shared` changed
 (`Source`, `NormalizedSpot`, the archive columns, the delivery spot shape):
 
@@ -849,6 +849,10 @@ supabase functions deploy ingest-wwbota
 supabase functions deploy archive    # wwbota in the run order, two new Parquet columns
 supabase functions deploy api send-test convert-archive   # the delivery spot shape
 ```
+
+Between the merge and the first deploy every `ingest-wwbota` run answers 404, so `/health` shows
+"A scheduled job keeps failing" for that job and "No success yet from WWBOTA" under pulled sources.
+Both clear within a few minutes of the deploy; deploy right after the merge.
 
 Is it running?
 

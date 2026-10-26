@@ -36,8 +36,9 @@ export interface GroupStatistics {
     spots: number;
     previousSpots: number;
     membersHeard: number;
-    activations: { pota: number; sota: number; wwff: number };
-    places: { parks: number; summits: number }; // parks are POTA and WWFF references
+    // wwbota and bunkers from 20261026001000; a payload cached before it lacks them, so read them with ?? 0.
+    activations: { pota: number; sota: number; wwff: number; wwbota?: number };
+    places: { parks: number; summits: number; bunkers?: number }; // parks are POTA and WWFF references
   };
   daily: { day: string; spots: number }[]; // the period's days, oldest first, zero filled
   calendar: { day: string; spots: number; members: number }[]; // the past 365 days with spots, oldest first

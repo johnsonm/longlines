@@ -1177,6 +1177,11 @@ isOneToOne: true
 "callsign_available":
 { Args: { "p_callsign": string }; Returns: boolean
                            },
+"callsign_group_rows":
+{ Args: { "p_id": string }; Returns: {
+              "callsigns": (string)[],"id": string,"member_count": number,"name": string,"on_air": Json,"subscription_count": number,"updated_at": string
+            }[]
+                           },
 "callsign_matches":
 { Args: { "p_base": string,"p_call": string,"p_callsigns": (string)[] }; Returns: boolean
                            },
@@ -1534,6 +1539,9 @@ isOneToOne: true
                            },
 "preview_webhook_request":
 { Args: { "p_destination_id"?: string,"p_settings": Json,"p_spot_id"?: number }; Returns: Json
+                           },
+"profile_cache_ttl":
+{ Args: Record<PropertyKey, never>; Returns: string
                            },
 "prune_callsign_lookups":
 { Args: Record<PropertyKey, never>; Returns: undefined

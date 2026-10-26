@@ -151,7 +151,7 @@ Deno.test("objectPath names APRS-IS slices by their five-minute start", function
 Deno.test("ARCHIVE_SCHEMAS matches the columns archive_columns returns", function (): void {
   const sql = Deno.readTextFileSync(
     new URL(
-      "../../../migrations/20261026000100_wwbota_source.sql",
+      "../../../migrations/20261026001000_wwbota_source.sql",
       import.meta.url,
     ),
   );

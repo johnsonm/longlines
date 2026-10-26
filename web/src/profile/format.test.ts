@@ -101,7 +101,7 @@ describe("profile format", () => {
     expect(activationsDetail(activations)).toBe("3 parks, 1 summit, 2 WWFF references");
     expect(activationsDetail([])).toBe("0 parks, 0 summits, 0 WWFF references");
     expect(activationsDetail([...activations, { program: "WWBOTA", references: 2, activations: 2 }]))
-      .toBe("3 parks, 1 summit, 2 WWFF references, 2 bunkers");
+      .toBe("3 parks, 1 summit, 2 WWFF references, 2 WWBOTA bunkers");
     expect(totalActivations(activations)).toBe(11);
     expect(totalActivations([])).toBe(0);
   });
