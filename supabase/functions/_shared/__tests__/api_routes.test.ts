@@ -266,3 +266,11 @@ Deno.test("routeArgs builds each input kind, the path id winning", function (): 
     body: { name: "A" },
   });
 });
+
+Deno.test("parseBody passes the object through, an own __proto__ key included", function (): void {
+  const body = parseBody('{"__proto__": {"admin": true}, "name": "NC"}');
+  assertEquals(body !== null && Object.keys(body), ["__proto__", "name"]);
+  assertEquals(parseBody("[1]"), null);
+  assertEquals(parseBody("null"), null);
+  assertEquals(parseBody("{"), null);
+});

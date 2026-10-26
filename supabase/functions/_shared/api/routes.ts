@@ -4,6 +4,9 @@
 // shape checks here. API clients call subscriptions connections, so their
 // routes are /v1/connections; the operations keep their names.
 
+import { z } from "zod";
+import { jsonObjectSchema } from "../types.ts";
+
 export type Scope = "read" | "write";
 
 export type JsonObject = Record<string, unknown>;
@@ -127,7 +130,7 @@ export function apiPath(pathname: string): string | null {
     return null;
   }
   let rest = "";
-  if (match[1] !== undefined && match[1] !== null) {
+  if (match[1] !== undefined) {
     rest = match[1];
   }
   return rest.replace(/\/+$/, "");
@@ -152,7 +155,7 @@ export function matchRoute(method: string, path: string): RouteMatch {
     for (const part of parts) {
       let segment = "";
       const value = segments[i];
-      if (value !== undefined && value !== null) {
+      if (value !== undefined) {
         segment = value;
       }
       i++;
@@ -174,7 +177,7 @@ export function matchRoute(method: string, path: string): RouteMatch {
     }
     if (routeMethod === method) {
       let lowered: string | undefined;
-      if (id !== undefined && id !== null) {
+      if (id !== undefined) {
         lowered = id.toLowerCase();
       }
       return { kind: "route", route, id: lowered };
@@ -187,64 +190,108 @@ export function matchRoute(method: string, path: string): RouteMatch {
   return { kind: "not_found" };
 }
 
-/** Each scalar type's test and the phrase its error message uses. */
-const SCALARS: Readonly<Record<Scalar, { test: (v: unknown) => boolean; noun: string }>> = {
-  string: { test: (v) => typeof v === "string", noun: "a string" },
-  boolean: { test: (v) => typeof v === "boolean", noun: "a boolean" },
-  number: { test: (v) => typeof v === "number" && Number.isFinite(v), noun: "a number" },
+/** Each scalar type's schema, null allowed (SQL reads it as left out), for a key's message. */
+const SCALARS: Readonly<
+  Record<Scalar, (message: string) => z.ZodType<string | boolean | number | null>>
+> = {
+  string: (message) => z.string({ error: message }).nullable(),
+  boolean: (message) => z.boolean({ error: message }).nullable(),
+  // z.number() refuses NaN and both infinities, as Number.isFinite did.
+  number: (message) => z.number({ error: message }).nullable(),
 };
+
+/** The phrase each scalar type's message uses. */
+const SCALAR_NOUNS: Readonly<Record<Scalar, string>> = {
+  string: "a string",
+  boolean: "a boolean",
+  number: "a number",
+};
+
+/** A route's body checks: its required lists, then the shape of every key it names. */
+interface BodySchemas {
+  required: z.ZodType<JsonObject>;
+  fields: z.ZodType<JsonObject>;
+}
+
+// A key the body must have, as a list with at least one item. Anything else that is present passes
+// here; the field schema then says what is wrong with it.
+function requiredSchema(key: string): z.ZodType {
+  return z.custom((value) => value !== undefined, { error: `${key} is required.` })
+    .refine((value) => !Array.isArray(value) || value.length > 0, {
+      error: `${key} can't be empty.`,
+    });
+}
+
+// A list of strings. A null list is refused: SQL would fail on it with a Postgres message rather
+// than read it as empty.
+function stringListSchema(key: string): z.ZodType<string[] | undefined> {
+  const message = `${key} must be a list of strings.`;
+  return z.array(z.string({ error: message }), { error: message })
+    .max(MAX_LIST_ITEMS, {
+      error: `${key} can hold at most ${MAX_LIST_ITEMS.toLocaleString("en-US")} items per request.`,
+    })
+    .optional();
+}
+
+// A list whose items SQL checks (normalize_subscription_rules for rules), so any item passes here.
+function listSchema(key: string): z.ZodType<unknown[] | undefined> {
+  return z.array(z.custom(), { error: `${key} must be a list.` }).optional();
+}
+
+/**
+ * The schemas for a route's body. Loose: API bodies are open, and api_call reads the keys it knows
+ * and ignores the rest (docs/openapi.yaml allows other properties), so only the keys the route names
+ * are checked. Keys are checked in the order the hand-written checks used (required lists, then
+ * lists of strings, other lists and scalars), so the first issue is the message they gave.
+ */
+function bodySchemas(route: Route): BodySchemas {
+  const required: Record<string, z.ZodType> = {};
+  for (const key of keysOrNone(route.required)) {
+    required[key] = requiredSchema(key);
+  }
+  const fields: Record<string, z.ZodType> = {};
+  for (const key of keysOrNone(route.arrays)) {
+    fields[key] = stringListSchema(key);
+  }
+  for (const key of keysOrNone(route.lists)) {
+    fields[key] = listSchema(key);
+  }
+  if (route.scalars !== undefined) {
+    for (const entry of Object.entries(route.scalars)) {
+      const key = entry[0];
+      const type = entry[1];
+      fields[key] = SCALARS[type](`${key} must be ${SCALAR_NOUNS[type]}.`).optional();
+    }
+  }
+  return { required: z.looseObject(required), fields: z.looseObject(fields) };
+}
+
+// Built once per route, on its first request.
+const routeBodySchemas = new WeakMap<Route, BodySchemas>();
 
 /** A message for the first body field of the wrong shape, or null when the body is acceptable. */
 export function checkBody(route: Route, body: JsonObject): string | null {
-  for (const key of keysOrNone(route.required)) {
-    if (body[key] === undefined) {
-      return `${key} is required.`;
-    }
-    if (Array.isArray(body[key]) && body[key].length === 0) {
-      return `${key} can't be empty.`;
-    }
+  let schemas = routeBodySchemas.get(route);
+  if (schemas === undefined) {
+    schemas = bodySchemas(route);
+    routeBodySchemas.set(route, schemas);
   }
-  // A null list is refused: SQL would fail on it with a Postgres message rather than read it as empty.
-  for (const key of keysOrNone(route.arrays)) {
-    const value = body[key];
-    if (value === undefined) {
-      continue;
+  for (const schema of [schemas.required, schemas.fields]) {
+    const result = schema.safeParse(body);
+    if (!result.success) {
+      const issue = result.error.issues[0];
+      if (issue === undefined) {
+        return "Send a JSON object.";
+      }
+      return issue.message;
     }
-    if (!Array.isArray(value) || !value.every((v) => typeof v === "string")) {
-      return `${key} must be a list of strings.`;
-    }
-    if (value.length > MAX_LIST_ITEMS) {
-      return `${key} can hold at most ${MAX_LIST_ITEMS.toLocaleString("en-US")} items per request.`;
-    }
-  }
-  for (const key of keysOrNone(route.lists)) {
-    const value = body[key];
-    if (value !== undefined && !Array.isArray(value)) {
-      return `${key} must be a list.`;
-    }
-  }
-  let scalars: Readonly<Record<string, Scalar>> = {};
-  if (route.scalars !== undefined && route.scalars !== null) {
-    scalars = route.scalars;
-  }
-  for (const entry of Object.entries(scalars)) {
-    const key = entry[0];
-    const type = entry[1];
-    const value = body[key];
-    if (value === undefined || value === null) {
-      continue;
-    }
-    if (SCALARS[type].test(value)) {
-      continue;
-    }
-    return `${key} must be ${SCALARS[type].noun}.`;
   }
   return null;
 }
 
 /** A route's optional key list, or none when it is left out. */
 function keysOrNone(keys: readonly string[] | undefined): readonly string[] {
-  if (keys === undefined || keys === null) {
+  if (keys === undefined) {
     return [];
   }
   return keys;
@@ -262,7 +309,7 @@ export function numberSurvivesParse(source: string): boolean {
     return false;
   }
   let fraction = "";
-  if (match[2] !== undefined && match[2] !== null) {
+  if (match[2] !== undefined) {
     fraction = match[2];
   }
   // The pattern always captures the integer part; String() only satisfies the type.
@@ -280,15 +327,22 @@ export function numberSurvivesParse(source: string): boolean {
  */
 export function parseBody(text: string): JsonObject | null {
   let value: unknown;
+  // JSON has no non-throwing parse, so this keeps one catch, for SyntaxError only: text that is
+  // not JSON is a body that is not an object.
   try {
     value = JSON.parse(text, exactNumbers);
-  } catch {
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      return null;
+    }
+    throw error;
+  }
+  // Passed through, not copied, so a "__proto__" field reaches api_call as the plain key it is.
+  const body = jsonObjectSchema.safeParse(value);
+  if (!body.success) {
     return null;
   }
-  if (value !== null && typeof value === "object" && !Array.isArray(value)) {
-    return value as JsonObject;
-  }
-  return null;
+  return body.data;
 }
 
 // The reviver's third argument (JSON.parse source text access) is missing from TypeScript's lib, and

@@ -9,6 +9,7 @@
 // lives in SQL; this module only routes, checks shapes and maps errors.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { z } from "zod";
 import { errorStatus } from "../api/errors.ts";
 import {
   apiPath,
@@ -21,6 +22,8 @@ import {
 } from "../api/routes.ts";
 import { apiToken, hashApiToken } from "../api/token.ts";
 import { json, preflightResponse } from "../cors.ts";
+import { ValidationError } from "../errors.ts";
+import { parseWith } from "../validate.ts";
 import { type SendTestDeps, sendTestTo } from "./test_delivery.ts";
 
 export const MAX_REQUESTS_PER_MINUTE = 60;
@@ -44,12 +47,22 @@ export interface ApiDeps {
   send: SendTestDeps["send"];
 }
 
+/** A row of authenticate_api_request: the token, its owner, its scope and this minute's count. */
 interface TokenRow {
   token_id: string;
   user_id: string;
   scope: "read" | "write";
   requests: number;
 }
+
+// authenticate_api_request returns a table (20261013000300): no row for an unknown or revoked
+// token; null reads the same. RPC rows can gain columns across deploys, so loose.
+const tokenRowsSchema: z.ZodType<TokenRow[] | null> = z.array(z.looseObject({
+  token_id: z.string(),
+  user_id: z.string(),
+  scope: z.enum(["read", "write"]),
+  requests: z.number(),
+})).nullable();
 
 export async function handleApi(
   req: Request,
@@ -90,12 +103,20 @@ export async function handleApi(
   if (auth.error !== null) {
     return serverError("authenticate_api_request", auth.error.message);
   }
-  const rows = auth.data as TokenRow[] | null;
+  let rows: TokenRow[] | null;
+  try {
+    rows = parseWith(tokenRowsSchema, auth.data, "handleApi: authenticate_api_request result");
+  } catch (error) {
+    if (error instanceof ValidationError) {
+      return serverError("authenticate_api_request", error.message);
+    }
+    throw error;
+  }
   let caller: TokenRow | undefined;
-  if (rows !== null && rows !== undefined) {
+  if (rows !== null) {
     caller = rows[0];
   }
-  if (caller === undefined || caller === null) {
+  if (caller === undefined) {
     return json({ error: BAD_TOKEN }, 401, {});
   }
   if (caller.requests > MAX_REQUESTS_PER_MINUTE) {
@@ -125,7 +146,7 @@ export async function handleApi(
 
   if (route.op === "send_test") {
     let destinationId = "";
-    if (id !== undefined && id !== null) {
+    if (id !== undefined) {
       destinationId = id;
     }
     return await sendTestTo(db, caller.user_id, destinationId, deps.send, now, null);

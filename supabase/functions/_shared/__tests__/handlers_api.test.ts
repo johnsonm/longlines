@@ -31,6 +31,11 @@ const DEST: DeliveryDestination = {
   consecutive_failures: 0,
 };
 
+/** A destination as sendTestTo's select returns it: every column, throttled_until included. */
+function loaded(destination: DeliveryDestination): unknown {
+  return Object.assign({}, destination, { throttled_until: null });
+}
+
 function request(
   method: string,
   path: string,
@@ -289,6 +294,24 @@ Deno.test(
 );
 
 Deno.test(
+  "handleApi reports a token lookup of the wrong shape as a server error",
+  async function (): Promise<void> {
+    for (const data of [[{ token_id: "t1", user_id: "u1", scope: "admin", requests: 1 }], "t1"]) {
+      const failed = await run(request("GET", "/api/v1/groups", undefined, TOKEN), {
+        rpc: { authenticate_api_request: { data } },
+      }, SENT_ONE);
+      assertEquals([failed.res.status, failed.body], [500, { error: SERVER_ERROR }]);
+      assertEquals(failed.calls.rpc.length, 1);
+    }
+    // No row, or null, is an unknown token.
+    const none = await run(request("GET", "/api/v1/groups", undefined, TOKEN), {
+      rpc: { authenticate_api_request: { data: null } },
+    }, SENT_ONE);
+    assertEquals([none.res.status, none.body], [401, { error: BAD_TOKEN }]);
+  },
+);
+
+Deno.test(
   "handleApi reports a failed token lookup as a server error",
   async function (): Promise<void> {
     const failed = await run(request("GET", "/api/v1/groups", undefined, TOKEN), {
@@ -298,9 +321,30 @@ Deno.test(
   },
 );
 
+// What webhook_test_delivery returns for the sample spot.
 const WEBHOOK_TEST = {
   webhook: { batch_seconds: 0, headers: [] },
-  spot: { id: 0, webhook_connection: "Test", webhook_fields: [{ key: "id", value: 0 }] },
+  spot: {
+    id: 0,
+    source: "pota",
+    spot_time: NOW.toISOString(),
+    callsign: "N0CALL",
+    base_callsign: "N0CALL",
+    spotter: "LONGLINES",
+    frequency_khz: 14062,
+    band: "20m",
+    mode: "cw",
+    mode_family: "cw",
+    comment: "Test spot from Long Lines. Not a real activation.",
+    pota_reference: "US-0000",
+    pota_park_name: "Test Park",
+    pota_location: "US-TEST",
+    sota_summit_ref: null,
+    wwff_reference: null,
+    wwff_reference_name: null,
+    webhook_connection: "Test",
+    webhook_fields: [{ key: "id", value: 0 }],
+  },
 };
 
 Deno.test(
@@ -309,7 +353,7 @@ Deno.test(
     const tested = await run(
       request("POST", `/api/v1/destinations/${ID}/test`, undefined, TOKEN),
       {
-        from: { destinations: { data: DEST } },
+        from: { destinations: { data: loaded(DEST) } },
         rpc: { webhook_test_delivery: { data: WEBHOOK_TEST } },
       },
       { ok: true, sent: 1, attempted: 1, status: 204 },
@@ -343,7 +387,7 @@ Deno.test(
     const failed = await run(
       request("POST", `/api/v1/destinations/${ID}/test`, undefined, TOKEN),
       {
-        from: { destinations: { data: DEST } },
+        from: { destinations: { data: loaded(DEST) } },
         rpc: { webhook_test_delivery: { data: WEBHOOK_TEST } },
       },
       { ok: false, sent: 0, attempted: 1, status: 500, error: "Webhook HTTP 500" },
