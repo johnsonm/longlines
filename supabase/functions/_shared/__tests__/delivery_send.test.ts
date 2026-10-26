@@ -646,7 +646,7 @@ Deno.test(
     const posts: Post[] = [];
     function refusedFirst(a: string): number | Error {
       if (a === "192.0.2.1") {
-        return new PinnedConnectError("Connection refused");
+        return new PinnedConnectError("Connection refused", { cause: undefined });
       }
       return 200;
     }
@@ -659,7 +659,7 @@ Deno.test(
     // Refused everywhere: at most three addresses, then the last error.
     const all: Post[] = [];
     function refused(): Error {
-      return new PinnedConnectError("Connection refused");
+      return new PinnedConnectError("Connection refused", { cause: undefined });
     }
     assertEquals(
       await sendWebhook(d, batch, { resolver, webhookPost: recordingPost(all, refused) }),
@@ -691,7 +691,7 @@ Deno.test(
     const posts: Post[] = [];
     function v4Refused(a: string): number | Error {
       if (a === "127.0.0.1") {
-        return new PinnedConnectError("Connection refused");
+        return new PinnedConnectError("Connection refused", { cause: undefined });
       }
       return 204;
     }

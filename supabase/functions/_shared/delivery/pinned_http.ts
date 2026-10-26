@@ -8,6 +8,8 @@
 // One request per connection (Connection: close); the response body is read
 // only as far as its framing says, capped, and discarded.
 
+import type { ErrorContext } from "../errors.ts";
+
 /**
  * Request headers, written in order after Host. Pairs keep their order
  * whatever the names; an object would move an integer-like name first.
@@ -28,10 +30,23 @@ export interface PinnedPostInit {
 }
 
 /**
+ * pinnedPost failed: a refused request, a transport or protocol error, a
+ * timeout or an abort. It is the only error pinnedPost throws; the transport's
+ * own error, when there was one, is the cause.
+ */
+export class PinnedHttpError extends Error {
+  override name = "PinnedHttpError";
+
+  constructor(message: string, context: ErrorContext) {
+    super(message, { cause: context.cause });
+  }
+}
+
+/**
  * The TCP connection to the address failed (refused, unreachable), so nothing
  * was sent and the caller may try another checked address.
  */
-export class PinnedConnectError extends Error {
+export class PinnedConnectError extends PinnedHttpError {
   override name = "PinnedConnectError";
 }
 
@@ -49,6 +64,10 @@ const MAX_CHUNK_LINE_BYTES = 1024;
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 const TOKEN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
+// The characters Headers refuses in a value (NUL, LF, CR), checked first rather than caught.
+const REFUSED_VALUE_CHARS = /[\0\r\n]/;
+// A chunk-size line: up to 8 hex digits, then optional whitespace and an extension.
+const CHUNK_SIZE_LINE = /^[0-9a-fA-F]{1,8}[ \t]*(;.*)?$/;
 // Framing headers come from this client, never from the caller.
 const RESERVED_HEADERS = ["host", "content-length", "connection", "transfer-encoding"];
 
@@ -137,7 +156,7 @@ function parseHead(text: string): PinnedResponse {
   }
   const status = /^HTTP\/1\.[01] ([1-9]\d\d)(?: .*)?$/.exec(first);
   if (status === null) {
-    throw new Error("malformed HTTP status line");
+    throw new PinnedHttpError("malformed HTTP status line", { cause: undefined });
   }
   const headers = new Headers();
   for (const line of lines.slice(1)) {
@@ -145,21 +164,19 @@ function parseHead(text: string): PinnedResponse {
       continue;
     }
     if (/^[ \t]/.test(line)) {
-      throw new Error("folded HTTP response header");
+      throw new PinnedHttpError("folded HTTP response header", { cause: undefined });
     }
     const colon = line.indexOf(":");
     let name = "";
     if (colon > 0) {
       name = line.slice(0, colon);
     }
-    if (!TOKEN.test(name)) {
+    const value = line.slice(colon + 1).trim();
+    // A value Headers refuses (NUL, say) is not one this client reads.
+    if (!TOKEN.test(name) || REFUSED_VALUE_CHARS.test(value)) {
       continue;
     }
-    try {
-      headers.append(name, line.slice(colon + 1).trim());
-    } catch {
-      // a value Headers refuses (NUL, say): not one this client reads
-    }
+    headers.append(name, value);
   }
   return { status: Number(status[1]), headers };
 }
@@ -171,25 +188,32 @@ async function readResponseHead(reader: Reader): Promise<PinnedResponse> {
     let end = headEnd(reader.buffered);
     while (end < 0) {
       if (headBytes + reader.buffered.length > MAX_RESPONSE_HEAD_BYTES) {
-        throw new Error(`response headers exceed ${String(MAX_RESPONSE_HEAD_BYTES)} bytes`);
+        throw headTooLarge();
       }
       if (!(await reader.fill())) {
-        throw new Error("connection closed before the response");
+        throw new PinnedHttpError("connection closed before the response", { cause: undefined });
       }
       end = headEnd(reader.buffered);
     }
     headBytes += end;
     if (headBytes > MAX_RESPONSE_HEAD_BYTES) {
-      throw new Error(`response headers exceed ${String(MAX_RESPONSE_HEAD_BYTES)} bytes`);
+      throw headTooLarge();
     }
     const response = parseHead(latin1(reader.consume(end)));
     if (response.status >= 200) {
       return response;
     }
     if (response.status === 101) {
-      throw new Error("unexpected HTTP 101 response");
+      throw new PinnedHttpError("unexpected HTTP 101 response", { cause: undefined });
     }
   }
+}
+
+function headTooLarge(): PinnedHttpError {
+  return new PinnedHttpError(
+    `response headers exceed ${String(MAX_RESPONSE_HEAD_BYTES)} bytes`,
+    { cause: undefined },
+  );
 }
 
 /** Discards up to MAX_RESPONSE_BODY_BYTES of body, stopping where the framing ends. */
@@ -240,15 +264,11 @@ async function drainBody(reader: Reader, response: PinnedResponse): Promise<void
       if (sizeLine === null) {
         return;
       }
-      const size = /^([0-9a-fA-F]{1,8})[ \t]*(;.*)?$/.exec(sizeLine);
-      if (size === null) {
+      if (!CHUNK_SIZE_LINE.test(sizeLine)) {
         return;
       }
-      const digits = size[1];
-      if (digits === undefined) {
-        throw new Error("chunk size line matched without its size, in drainBody");
-      }
-      const n = parseInt(digits, 16);
+      // parseInt reads the leading hex digits and stops at the first character that is not one.
+      const n = parseInt(sizeLine, 16);
       if (n === 0) {
         break;
       }
@@ -282,7 +302,7 @@ function requestHead(url: URL, headers: PinnedHeaders, length: number): string {
   const lines = [`POST ${path}${url.search} HTTP/1.1`, `Host: ${url.host}`];
   let pairs: ReadonlyArray<readonly [string, string]>;
   if (Array.isArray(headers)) {
-    pairs = headers as ReadonlyArray<readonly [string, string]>;
+    pairs = headers;
   } else {
     pairs = Object.entries(headers);
   }
@@ -290,13 +310,17 @@ function requestHead(url: URL, headers: PinnedHeaders, length: number): string {
     const name = pair[0];
     const value = pair[1];
     if (!TOKEN.test(name)) {
-      throw new Error(`invalid request header name ${JSON.stringify(name)}`);
+      throw new PinnedHttpError(`invalid request header name ${JSON.stringify(name)}`, {
+        cause: undefined,
+      });
     }
-    if (/[\r\n\0]/.test(value)) {
-      throw new Error(`invalid value for request header ${name}`);
+    if (REFUSED_VALUE_CHARS.test(value)) {
+      throw new PinnedHttpError(`invalid value for request header ${name}`, { cause: undefined });
     }
     if (RESERVED_HEADERS.includes(name.toLowerCase())) {
-      throw new Error(`request header ${name} is set by the client`);
+      throw new PinnedHttpError(`request header ${name} is set by the client`, {
+        cause: undefined,
+      });
     }
     lines.push(`${name}: ${value}`);
   }
@@ -315,9 +339,10 @@ async function writeAll(stream: Stream, bytes: Uint8Array): Promise<void> {
  * POSTs to `url` over a connection to `address` (an IPv4 or IPv6 literal the
  * caller has already judged safe), verifying TLS against the URL's hostname.
  * Only with `allowInsecure` may `address` be a name, which Deno.connect resolves.
- * Resolves with the final status and headers; throws on any transport,
- * protocol, timeout or abort error. Credentials in the URL are refused, as
- * fetch() refuses them.
+ * Resolves with the final status and headers; throws PinnedHttpError on any
+ * transport, protocol, timeout or abort error (PinnedConnectError when the
+ * connection itself failed). Credentials in the URL are refused, as fetch()
+ * refuses them.
  */
 export async function pinnedPost(
   url: URL,
@@ -326,10 +351,10 @@ export async function pinnedPost(
 ): Promise<PinnedResponse> {
   const tls = url.protocol === "https:";
   if (!tls && !(url.protocol === "http:" && init.allowInsecure === true)) {
-    throw new Error("Use an https URL.");
+    throw new PinnedHttpError("Use an https URL.", { cause: undefined });
   }
   if (url.username !== "" || url.password !== "") {
-    throw new Error("URL has credentials");
+    throw new PinnedHttpError("URL has credentials", { cause: undefined });
   }
   let port: number;
   if (url.port !== "") {
@@ -353,7 +378,7 @@ export async function pinnedPost(
 
   const timeout = AbortSignal.timeout(init.timeoutMs);
   let signal = timeout;
-  if (init.signal !== undefined && init.signal !== null) {
+  if (init.signal !== undefined) {
     signal = AbortSignal.any([timeout, init.signal]);
   }
   let stream: Stream | null = null;
@@ -365,22 +390,30 @@ export async function pinnedPost(
     closed = true;
     try {
       stream.close();
-    } catch {
-      // already closed by the peer
+    } catch (error) {
+      // Cleanup, kept narrow: the resource is already gone (a TLS upgrade took it over).
+      if (!(error instanceof Deno.errors.BadResource)) {
+        throw error;
+      }
     }
   }
-  function abortError(): Error {
+  function abortError(cause: unknown): PinnedHttpError {
     if (timeout.aborted) {
-      return new Error(`timed out after ${String(init.timeoutMs)} ms`);
+      return new PinnedHttpError(`timed out after ${String(init.timeoutMs)} ms`, { cause });
     }
-    return new Error("aborted");
+    return new PinnedHttpError("aborted", { cause });
+  }
+  // A call, not the property: the check below would otherwise narrow `signal.aborted` to false
+  // for the rest of the function, though the signal can abort at any await after it.
+  function aborted(): boolean {
+    return signal.aborted;
   }
   // Aborting closes the connection, which fails whichever read or write is pending.
   function onAbort(): void {
     close();
   }
   if (signal.aborted) {
-    throw abortError();
+    throw abortError(undefined);
   }
   signal.addEventListener("abort", onAbort, { once: true });
 
@@ -389,7 +422,7 @@ export async function pinnedPost(
     // Deno.connect takes no signal; race it, and close a connection that lands late.
     const tcp = await new Promise<Deno.TcpConn>(function race(resolve, reject): void {
       function late(): void {
-        reject(abortError());
+        reject(abortError(undefined));
       }
       signal.addEventListener("abort", late, { once: true });
       // Settles the race once Deno.connect does; started at once, as .then() would be.
@@ -398,20 +431,15 @@ export async function pinnedPost(
         try {
           conn = await connected;
         } catch (error: unknown) {
+          // Whatever Deno.connect failed with, nothing was sent: the caller may try another address.
           signal.removeEventListener("abort", late);
-          let message: string;
-          if (error instanceof Error) {
-            message = error.message;
-          } else {
-            message = String(error);
-          }
-          reject(new PinnedConnectError(message));
+          reject(new PinnedConnectError(errorMessage(error), { cause: error }));
           return;
         }
         signal.removeEventListener("abort", late);
         if (signal.aborted) {
           conn.close();
-          reject(abortError());
+          reject(abortError(undefined));
         } else {
           resolve(conn);
         }
@@ -433,20 +461,33 @@ export async function pinnedPost(
     const response = await readResponseHead(reader);
     try {
       await drainBody(reader, response);
-    } catch {
-      // The status is already known; a body that breaks off changes nothing.
+    } catch (error) {
+      // The status is already known; a body that breaks off changes nothing. drainBody
+      // only reads, so this is the connection's error (a Deno.errors class).
+      if (!(error instanceof Error)) {
+        throw error;
+      }
     }
     return response;
   } catch (error) {
-    if (signal.aborted) {
-      throw abortError();
+    // Everything leaves as a PinnedHttpError: an abort as the timeout or abort it was,
+    // the transport's own errors (Deno.errors, TLS) wrapped with their message.
+    if (aborted()) {
+      throw abortError(error);
     }
-    if (error instanceof Error) {
+    if (error instanceof PinnedHttpError) {
       throw error;
     }
-    throw new Error(String(error));
+    throw new PinnedHttpError(errorMessage(error), { cause: error });
   } finally {
     signal.removeEventListener("abort", onAbort);
     close();
   }
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
 }
