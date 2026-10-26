@@ -1423,7 +1423,7 @@ before they exist, it logs `[catalogs] check failed: ...` and tries again a day 
 breaks in the meantime.
 
 ```sh
-supabase db push                             # 20261026000100_reference_catalog
+supabase db push                             # 20261026001100_reference_catalog
 supabase functions deploy load-references    # new function: the GitHub integration skips it
 ```
 

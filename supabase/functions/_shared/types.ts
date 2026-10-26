@@ -295,7 +295,7 @@ export interface LicenseDb {
   abandonLoad(load: number, error: string): Promise<void>;
 }
 
-/** The reference list load's staging RPCs (20261026000100). Implemented by db.ts. */
+/** The reference list load's staging RPCs (20261026001100). Implemented by db.ts. */
 export interface ReferenceDb {
   /** Per program, the last applied load and the newest one. */
   loadStatus(): Promise<ReferenceLoadStatus>;

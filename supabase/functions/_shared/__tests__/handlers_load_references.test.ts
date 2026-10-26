@@ -68,7 +68,7 @@ const ROW: ReferenceCatalogRow = {
   valid_to: "2099-12-31",
 };
 
-// reference_load_status' jsonb, as 20261026000100 builds it.
+// reference_load_status' jsonb, as 20261026001100 builds it.
 const STATUS = {
   pota: {
     applied: {

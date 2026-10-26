@@ -1,4 +1,4 @@
--- pgTAP: reference list loads (20261026000100). Batches stage, finish refuses an incomplete stage
+-- pgTAP: reference list loads (20261026001100). Batches stage, finish refuses an incomplete stage
 -- or one below the floor (decision 3) and commits the refusal, apply swaps a finished stage into
 -- reference_catalog per program, raises when it swaps nothing while a program's newest load is
 -- refused (but not when it refused a load itself), WWFF countries come from cty.dat, and clients

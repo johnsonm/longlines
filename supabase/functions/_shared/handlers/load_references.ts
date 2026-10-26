@@ -1,6 +1,6 @@
 // The reference list load, called by the relay (relay/catalogs.ts) with the relay secret, one
 // action per POST: status, begin, rows (repeated), then finish or abandon. Each is one RPC of
-// 20261026000100; pg_cron's apply_reference_loads swaps a finished load into reference_catalog.
+// 20261026001100; pg_cron's apply_reference_loads swaps a finished load into reference_catalog.
 // A database error answers 500 with its message.
 
 import { z } from "zod";
