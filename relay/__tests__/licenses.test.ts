@@ -1,4 +1,5 @@
 import { assertEquals, assertRejects } from "@std/assert";
+import { ValidationError } from "../../supabase/functions/_shared/errors.ts";
 import type {
   LicenseLoad,
   LoadLicensesRequest,
@@ -150,6 +151,40 @@ Deno.test(
 );
 
 Deno.test(
+  "licenseClient refuses a reply that is not load-licenses' shape",
+  async function (): Promise<void> {
+    function replying(reply: unknown): LicenseClient {
+      return licenseClient(() => Promise.resolve(reply));
+    }
+    // A reply without `load` reads as no load yet, as before.
+    assertEquals(await replying({}).status(), null);
+    const loaded = { id: 3, version: VERSION, status: "ready", started_at: "2026-10-11T14:00:00Z" };
+    assertEquals(await replying({ load: loaded }).status(), loaded);
+    await assertRejects(
+      () => replying(null).status(),
+      ValidationError,
+      "licenseClient.status: load-licenses reply",
+    );
+    await assertRejects(
+      () =>
+        replying({ load: { id: 3, version: VERSION, status: "done", started_at: "x" } }).status(),
+      ValidationError,
+      "load.status",
+    );
+    await assertRejects(
+      () => replying({ load: "9" }).begin("v"),
+      ValidationError,
+      "licenseClient.begin: load-licenses reply: load",
+    );
+    await assertRejects(
+      () => replying({ staged: 2, extra: true }).rows(9, "AM", []),
+      ValidationError,
+      "licenseClient.rows: load-licenses reply",
+    );
+  },
+);
+
+Deno.test(
   "importLicenses stages HD, EN and AM in batches and finishes with the counts",
   async function (): Promise<void> {
     const served = serveZip(await ZIP, {});
@@ -276,6 +311,69 @@ Deno.test(
 );
 
 Deno.test(
+  "importLicenses abandons a load whose file fails its CRC-32 and throws that error",
+  async function (): Promise<void> {
+    const corrupt = serveZip(
+      await buildZip([
+        { name: "AM.dat", text: AM },
+        { name: "EN.dat", text: EN },
+        { name: "HD.dat", text: HD, crc: 1 },
+      ], ""),
+      {},
+    );
+    try {
+      const signal = new AbortController().signal;
+      const fake = fakeClient({});
+      await assertRejects(
+        async () =>
+          await importLicenses(
+            await openHttpZip(corrupt.url, signal, fetch, STREAM_HEADER_TIMEOUT_MS),
+            fake.client,
+            { log: ignoreLog, signal, minRecords: MIN },
+          ),
+        Error,
+        "HD.dat: CRC-32 mismatch",
+      );
+      assertEquals(fake.abandoned, ["HD.dat: CRC-32 mismatch"]);
+    } finally {
+      await corrupt.server.shutdown();
+    }
+  },
+);
+
+Deno.test(
+  "importLicenses logs a failed abandon and throws the load's own error",
+  async function (): Promise<void> {
+    const served = serveZip(await ZIP, {});
+    const fake = fakeClient({ failRows: 1 });
+    const logs: string[] = [];
+    const client: LicenseClient = {
+      status: fake.client.status,
+      begin: fake.client.begin,
+      rows: fake.client.rows,
+      finish: fake.client.finish,
+      abandon: () => Promise.reject(new Error("HTTP 500")),
+    };
+    try {
+      const signal = new AbortController().signal;
+      await assertRejects(
+        async () =>
+          await importLicenses(
+            await openHttpZip(served.url, signal, fetch, STREAM_HEADER_TIMEOUT_MS),
+            client,
+            { log: (m) => logs.push(m), signal, minRecords: MIN, retryDelaysMs: [] },
+          ),
+        Error,
+        "HTTP 503",
+      );
+      assertEquals(logs, ["abandon failed: HTTP 500"]);
+    } finally {
+      await served.server.shutdown();
+    }
+  },
+);
+
+Deno.test(
   "importLicenses refuses a short file or a zip without the three files",
   async function (): Promise<void> {
     const served = serveZip(await ZIP, {});
@@ -296,7 +394,7 @@ Deno.test(
               minRecords: { HD: 14, EN: 1, AM: 1 },
             },
           ),
-        Error,
+        ValidationError,
         "HD.dat has 13 records, expected at least 14",
       );
       assertEquals(short.finished, []);
@@ -311,7 +409,7 @@ Deno.test(
               signal,
             },
           ),
-        Error,
+        ValidationError,
         "EN.dat is not in the zip",
       );
     } finally {
