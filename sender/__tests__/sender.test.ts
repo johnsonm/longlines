@@ -7,7 +7,13 @@ import type {
 import type { SenderConfig } from "../config.ts";
 import type { SenderDb } from "../db.ts";
 import { healthHandler, type SenderStatus } from "../health.ts";
-import { abortableSleep, RETRY_MIN_MS, type SenderDeps, startSender } from "../sender.ts";
+import {
+  abortableSleep,
+  RETRY_MIN_MS,
+  type SenderDeps,
+  startSender,
+  WatchdogError,
+} from "../sender.ts";
 
 const T0 = new Date("2026-10-15T12:00:00Z");
 
@@ -375,7 +381,7 @@ Deno.test(
       now: clock.now,
       sleep: clock.sleep,
     });
-    const failing = assertRejects(() => sender.done, Error, "no progress for 120 s");
+    const failing = assertRejects(() => sender.done, WatchdogError, "no progress for 120 s");
 
     await waitFor("the first claim", () => db.of("claim_deliveries").length === 1);
     // Retries at 5, 15, 35 and 75 s (5 s doubling), the next would be 135 s.
@@ -423,7 +429,7 @@ Deno.test(
       now: clock.now,
       sleep: clock.sleep,
     });
-    const failing = assertRejects(() => sender.done, Error, "watchdog");
+    const failing = assertRejects(() => sender.done, WatchdogError, "watchdog");
     await waitFor("the claim", () => db.of("claim_deliveries").length === 1);
     await clock.advance(10_000);
     await failing;
@@ -499,7 +505,11 @@ Deno.test(
       now: clock.now,
       sleep: clock.sleep,
     });
-    const failing = assertRejects(() => sender.done, Error, "watchdog: no progress for 10 s");
+    const failing = assertRejects(
+      () => sender.done,
+      WatchdogError,
+      "watchdog: no progress for 10 s",
+    );
     await waitFor("the mark", () => db.of("mark_deliveries_sent").length === 1);
     await clock.advance(10_000);
     await failing;
@@ -658,6 +668,47 @@ Deno.test(
     await waitFor("the second stats call", () => db.of("delivery_queue_stats").length === 2);
     assertEquals(logs.includes("delivery_queue_stats failed: timeout"), true);
     assertEquals(sender.status().queue, { depth: 3, expired_last_hour: 1 });
+    await sender.shutdown();
+    await sender.done;
+  },
+);
+
+Deno.test(
+  "startSender logs stats rows of another shape as a failure and reads a null depth as 0",
+  async function (): Promise<void> {
+    let rows: unknown = null;
+    function answer(call: RpcCall) {
+      if (call.fn === "delivery_queue_stats" && rows !== null) {
+        return { data: rows };
+      }
+      return undefined;
+    }
+    const db = fakeDb(answer);
+    const clock = fakeClock(T0);
+    const logs: string[] = [];
+    const sender = startSender(config({ statsMs: 10_000 }), { db: db.db, send: allSent }, {
+      hostname: "127.0.0.1",
+      log: (m) => logs.push(m),
+      now: clock.now,
+      sleep: clock.sleep,
+    });
+    await waitFor("the stats", () => db.of("delivery_queue_stats").length === 1);
+    rows = [{ depth: "3", expired_last_hour: 1 }];
+    await clock.advance(10_000);
+    await waitFor("the second stats call", () => db.of("delivery_queue_stats").length === 2);
+    await waitFor(
+      "the failure",
+      () =>
+        logs.some((m) =>
+          m.startsWith("delivery_queue_stats failed: statsLoop: delivery_queue_stats rows: 0.depth")
+        ),
+    );
+    assertEquals(sender.status().queue, { depth: 3, expired_last_hour: 1 });
+    rows = [{ depth: null, expired_last_hour: 2 }];
+    await clock.advance(10_000);
+    await waitFor("the third stats call", () => db.of("delivery_queue_stats").length === 3);
+    await waitFor("the new figures", () => sender.status().queue!.expired_last_hour === 2);
+    assertEquals(sender.status().queue, { depth: 0, expired_last_hour: 2 });
     await sender.shutdown();
     await sender.done;
   },

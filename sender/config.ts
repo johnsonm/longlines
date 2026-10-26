@@ -7,6 +7,7 @@ import {
   type VapidKeys,
   vapidKeysFromEnv,
 } from "../supabase/functions/_shared/delivery/webpush.ts";
+import { ConfigError } from "../supabase/functions/_shared/errors.ts";
 
 export const DEFAULT_HEALTH_PORT = 8080;
 export const DEFAULT_POLL_MS = 5_000;
@@ -70,7 +71,7 @@ function trimmed(value: string | undefined): string {
 function required(env: (name: string) => string | undefined, name: string): string {
   const value = trimmed(env(name));
   if (value === "") {
-    throw new Error(`missing environment variable ${name}`);
+    throw new ConfigError(`missing environment variable ${name}`, { cause: undefined });
   }
   return value;
 }
@@ -79,7 +80,7 @@ function required(env: (name: string) => string | undefined, name: string): stri
 export function portNumber(value: string, name: string): number {
   const port = Number(value);
   if (!Number.isInteger(port) || port <= 0 || port > 65535) {
-    throw new Error(`${name} must be a port number`);
+    throw new ConfigError(`${name} must be a port number`, { cause: undefined });
   }
   return port;
 }
@@ -101,10 +102,12 @@ export function integerAtLeast(
   }
   const n = Number(v);
   if (!Number.isInteger(n) || n < min) {
-    throw new Error(`${name} must be a whole number of at least ${String(min)}`);
+    throw new ConfigError(`${name} must be a whole number of at least ${String(min)}`, {
+      cause: undefined,
+    });
   }
   if (max !== undefined && n > max) {
-    throw new Error(`${name} must be at most ${String(max)}`);
+    throw new ConfigError(`${name} must be at most ${String(max)}`, { cause: undefined });
   }
   return n;
 }
@@ -119,39 +122,51 @@ function databaseCa(value: string | undefined): string | undefined {
     return undefined;
   }
   if (!v.includes("-----BEGIN CERTIFICATE-----") || !v.includes("-----END CERTIFICATE-----")) {
-    throw new Error("SENDER_DATABASE_CA must be a PEM certificate (-----BEGIN CERTIFICATE-----)");
+    throw new ConfigError(
+      "SENDER_DATABASE_CA must be a PEM certificate (-----BEGIN CERTIFICATE-----)",
+      { cause: undefined },
+    );
   }
   return v;
+}
+
+/** SENDER_DATABASE_URL as databaseUrl checked it. */
+interface DatabaseUrl {
+  url: string;
+  /** The host is this machine (isLocalHost). */
+  local: boolean;
+  /** The URL's sslmode parameter, null when it has none. */
+  sslmode: string | null;
 }
 
 /**
  * SENDER_DATABASE_URL must be a postgres URL with a user, a password and a
  * host. The error messages never echo the value, which carries the password.
  */
-function databaseUrl(value: string): { url: string; local: boolean; sslmode: string | null } {
-  let url: URL;
-  try {
-    url = new URL(value);
-  } catch {
-    throw new Error("SENDER_DATABASE_URL must be a postgres:// URL");
+function databaseUrl(value: string): DatabaseUrl {
+  if (!URL.canParse(value)) {
+    throw new ConfigError("SENDER_DATABASE_URL must be a postgres:// URL", { cause: undefined });
   }
+  const url = new URL(value);
   if (url.protocol !== "postgres:" && url.protocol !== "postgresql:") {
-    throw new Error("SENDER_DATABASE_URL must be a postgres:// URL");
+    throw new ConfigError("SENDER_DATABASE_URL must be a postgres:// URL", { cause: undefined });
   }
   if (url.hostname === "") {
-    throw new Error("SENDER_DATABASE_URL must name a host");
+    throw new ConfigError("SENDER_DATABASE_URL must name a host", { cause: undefined });
   }
   if (url.username === "") {
-    throw new Error("SENDER_DATABASE_URL must name a user");
+    throw new ConfigError("SENDER_DATABASE_URL must name a user", { cause: undefined });
   }
   // postgres.js would fall back to PGPASSWORD, which the image does not allow it to read.
   if (url.password === "") {
-    throw new Error("SENDER_DATABASE_URL must carry a password");
+    throw new ConfigError("SENDER_DATABASE_URL must carry a password", { cause: undefined });
   }
   const local = isLocalHost(url.hostname);
   const sslmode = url.searchParams.get("sslmode");
   if (!local && (sslmode === "disable" || sslmode === "allow")) {
-    throw new Error("SENDER_DATABASE_URL must use TLS outside local development");
+    throw new ConfigError("SENDER_DATABASE_URL must use TLS outside local development", {
+      cause: undefined,
+    });
   }
   return { url: value, local, sslmode };
 }
@@ -160,17 +175,19 @@ export function loadConfig(env: (name: string) => string | undefined): SenderCon
   const db = databaseUrl(required(env, "SENDER_DATABASE_URL"));
   const allowInsecure = env("LONGLINES_ALLOW_INSECURE_DESTINATIONS") === "1";
   if (allowInsecure && !db.local) {
-    throw new Error(
+    throw new ConfigError(
       "LONGLINES_ALLOW_INSECURE_DESTINATIONS is for local development only (the database host is not local)",
+      { cause: undefined },
     );
   }
   const ca = databaseCa(env("SENDER_DATABASE_CA"));
   const verify = db.sslmode === "verify-full" || db.sslmode === "verify-ca";
   if (!db.local && verify && (ca === undefined || ca === "")) {
-    throw new Error(
+    throw new ConfigError(
       `SENDER_DATABASE_URL asks for sslmode=${
         String(db.sslmode)
       }, which needs SENDER_DATABASE_CA (the server's CA certificate)`,
+      { cause: undefined },
     );
   }
   const pollMs = integerAtLeast(
@@ -189,13 +206,14 @@ export function loadConfig(env: (name: string) => string | undefined): SenderCon
   );
   const minStaleMs = Math.max(pollMs, RETRY_MAX_MS) + STALE_MARGIN_MS;
   if (staleMs < minStaleMs) {
-    throw new Error(
+    throw new ConfigError(
       `SENDER_STALE_MS must be at least ${
         String(minStaleMs)
       } (the longer of SENDER_POLL_MS and the ` +
         `${String(RETRY_MAX_MS)} ms claim retry, plus ${
           String(STALE_MARGIN_MS)
         }), or the watchdog stops a healthy sender`,
+      { cause: undefined },
     );
   }
   // TLS is off for a local host, so there is nothing to verify.
@@ -204,7 +222,7 @@ export function loadConfig(env: (name: string) => string | undefined): SenderCon
     verifiedCa = undefined;
   }
   let healthPort = env("SENDER_HEALTH_PORT");
-  if (healthPort === undefined || healthPort === null) {
+  if (healthPort === undefined) {
     healthPort = String(DEFAULT_HEALTH_PORT);
   }
   return {

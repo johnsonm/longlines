@@ -7,6 +7,7 @@
 // throttles, expiry and destination health are all decided in SQL by the RPCs
 // the loop calls. This file only paces the calls and reports on them.
 
+import { z } from "zod";
 import {
   CLAIM_LIMIT,
   ClaimError,
@@ -15,6 +16,8 @@ import {
   type ProgressStep,
   runDeliveryBatch,
 } from "../supabase/functions/_shared/delivery/run.ts";
+import { ValidationError } from "../supabase/functions/_shared/errors.ts";
+import { parseWith } from "../supabase/functions/_shared/validate.ts";
 import { RETRY_MAX_MS, RETRY_MIN_MS, type SenderConfig } from "./config.ts";
 import type { SenderDb } from "./db.ts";
 import { healthHandler, type QueueStats, type SenderStatus, type SenderTotals } from "./health.ts";
@@ -24,6 +27,28 @@ import { healthHandler, type QueueStats, type SenderStatus, type SenderTotals } 
 export { RETRY_MAX_MS, RETRY_MIN_MS };
 /** How often the watchdog compares the last progress with staleMs. */
 export const WATCHDOG_TICK_MS = 1_000;
+
+/** The watchdog found no progress for staleMs; `done` rejects with it. */
+export class WatchdogError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "WatchdogError";
+  }
+}
+
+/**
+ * A delivery_queue_stats() row (20261015000400_rate_aware_claim.sql): two bigints, which
+ * db.ts reads as Number. depth is a scalar subquery over pgmq.metrics, so it may be null.
+ */
+interface QueueStatsRow {
+  depth: number | null;
+  expired_last_hour: number;
+}
+
+// Our RPC's rows, which can gain columns across deploys: loose.
+const queueStatsRowsSchema: z.ZodType<QueueStatsRow[]> = z.array(
+  z.looseObject({ depth: z.number().nullable(), expired_last_hour: z.number() }),
+);
 
 export interface SenderDeps {
   db: SenderDb;
@@ -97,23 +122,26 @@ export function startSender(
   options: SenderOptions,
 ): Sender {
   let log = logLine;
-  if (options.log !== undefined && options.log !== null) {
+  if (options.log !== undefined) {
     log = options.log;
   }
   let now = currentDate;
-  if (options.now !== undefined && options.now !== null) {
+  if (options.now !== undefined) {
     now = options.now;
   }
   let sleep = abortableSleep;
-  if (options.sleep !== undefined && options.sleep !== null) {
+  if (options.sleep !== undefined) {
     sleep = options.sleep;
   }
   let rss = processRss;
-  if (options.rss !== undefined && options.rss !== null) {
+  if (options.rss !== undefined) {
     rss = options.rss;
   }
   const controller = new AbortController();
   const signal = controller.signal;
+  function stopped(): boolean {
+    return signal.aborted;
+  }
 
   const startedAt = now();
   let lastClaimAt: Date | null = null;
@@ -184,7 +212,7 @@ export function startSender(
   // `done`.
   async function pollLoop(): Promise<void> {
     let claimLimit = CLAIM_LIMIT;
-    if (options.claimLimit !== undefined && options.claimLimit !== null) {
+    if (options.claimLimit !== undefined) {
       claimLimit = options.claimLimit;
     }
     function onProgress(step: ProgressStep): void {
@@ -242,15 +270,33 @@ export function startSender(
   async function statsLoop(): Promise<void> {
     while (!signal.aborted) {
       const stats = await deps.db.rpc("delivery_queue_stats", {});
-      const rows = stats.data as Array<Record<string, unknown>> | null;
-      let row: Record<string, unknown> | undefined = undefined;
-      if (rows !== null && rows !== undefined) {
-        row = rows[0];
+      let rows: QueueStatsRow[] = [];
+      let statsError = stats.error;
+      if (statsError === null) {
+        try {
+          rows = parseWith(
+            queueStatsRowsSchema,
+            stats.data,
+            "statsLoop: delivery_queue_stats rows",
+          );
+        } catch (error) {
+          // Rows of another shape count as a failed call: logged, the previous figures kept.
+          if (!(error instanceof ValidationError)) {
+            throw error;
+          }
+          statsError = error.message;
+        }
       }
-      if (stats.error !== null) {
-        log(`delivery_queue_stats failed: ${stats.error}`);
-      } else if (row !== undefined && row !== null) {
-        queue = { depth: Number(row.depth), expired_last_hour: Number(row.expired_last_hour) };
+      const row = rows[0];
+      if (statsError !== null) {
+        log(`delivery_queue_stats failed: ${statsError}`);
+      } else if (row !== undefined) {
+        // A null depth (no queue metrics) reads as 0, as Number(null) did.
+        let depth = 0;
+        if (row.depth !== null) {
+          depth = row.depth;
+        }
+        queue = { depth: depth, expired_last_hour: row.expired_last_hour };
         log(
           `queue depth ${String(queue.depth)}, ` +
             `expired in the last hour ${String(queue.expired_last_hour)}; ` +
@@ -259,7 +305,7 @@ export function startSender(
         );
       }
       let lastProgress: string | null = null;
-      if (lastProgressAt !== null && lastProgressAt !== undefined) {
+      if (lastProgressAt !== null) {
         lastProgress = lastProgressAt.toISOString();
       }
       const beat = await deps.db.rpc("record_sender_heartbeat", {
@@ -284,16 +330,19 @@ export function startSender(
   async function watchdogLoop(): Promise<void> {
     while (!signal.aborted) {
       await sleep(WATCHDOG_TICK_MS, signal);
-      if (signal.aborted) {
+      // Read through a call: TypeScript keeps the loop condition's narrowing across the await.
+      if (stopped()) {
         return;
       }
       let last = startedAt;
-      if (lastProgressAt !== null && lastProgressAt !== undefined) {
+      if (lastProgressAt !== null) {
         last = lastProgressAt;
       }
       const since = now().getTime() - last.getTime();
       if (since >= config.staleMs) {
-        const error = new Error(`watchdog: no progress for ${String(Math.round(since / 1000))} s`);
+        const error = new WatchdogError(
+          `watchdog: no progress for ${String(Math.round(since / 1000))} s`,
+        );
         log(error.message);
         fail(error);
       }
@@ -301,7 +350,7 @@ export function startSender(
   }
 
   let hostname = "0.0.0.0";
-  if (options.hostname !== undefined && options.hostname !== null) {
+  if (options.hostname !== undefined) {
     hostname = options.hostname;
   }
   const server = Deno.serve(
@@ -324,7 +373,8 @@ export function startSender(
     log("shutting down");
     controller.abort();
     if (failure === null) {
-      await loops.catch(noop);
+      // Wait for the loops to settle; a loop's error already reaches main through `done`.
+      await Promise.allSettled([loops]);
     }
     await deps.db.close();
     await server.shutdown();
@@ -334,7 +384,7 @@ export function startSender(
     done: Promise.race([loops, failed]),
     status,
     shutdown(): Promise<void> {
-      if (stopping === null || stopping === undefined) {
+      if (stopping === null) {
         stopping = stop();
       }
       return stopping;

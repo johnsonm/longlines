@@ -1,15 +1,6 @@
 // Plain, explicit, Go-style TypeScript for the Deno code (Edge Functions, relay, sender, scripts).
 import tseslint from "typescript-eslint";
 
-// Ratchet: areas whose Zod and error-handling refactor (Part 2) has not landed. They keep Part 1's
-// rules and skip the Part 2 ones. The PR that converts an area removes its globs, and nothing else
-// edits this list. Deleted when empty.
-const zodPending = [
-  // sender
-  "sender/*.ts",
-  "sender/__tests__/*.ts",
-];
-
 // Bans every file keeps, pending or not: Part 1's, plus Part 2's explicit parameters.
 const styleSyntax = [
   { selector: "ObjectPattern", message: "No destructuring. Access fields directly." },
@@ -96,23 +87,6 @@ export default tseslint.config(
         errorClassNames: ["ValidationError", "FunctionCallError", "ConfigError"],
       }],
       "no-restricted-syntax": ["error", ...styleSyntax, ...zodSyntax],
-    },
-  },
-  // Part 2 pending: the narrowing rules, the error rules and zodSyntax stay off until the area's
-  // Zod schemas land.
-  {
-    files: zodPending,
-    rules: {
-      "@typescript-eslint/no-unsafe-argument": "off",
-      "@typescript-eslint/no-unsafe-assignment": "off",
-      "@typescript-eslint/no-unsafe-call": "off",
-      "@typescript-eslint/no-unsafe-member-access": "off",
-      "@typescript-eslint/no-unsafe-return": "off",
-      "@typescript-eslint/consistent-type-assertions": "off",
-      "@typescript-eslint/no-unnecessary-condition": "off",
-      "no-empty": "off",
-      "preserve-caught-error": "off",
-      "no-restricted-syntax": ["error", ...styleSyntax],
     },
   },
   // Tests: syntax and style bans apply; fixture-typing rules do not, for good.

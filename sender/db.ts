@@ -9,14 +9,33 @@
 // later. jsr:@db/postgres has no LISTEN. Mapped in sender/deno.json, the image's
 // import map.
 import postgres, { type JSONValue, type ParameterOrJSON } from "postgres";
+import { z } from "zod";
 import type { DeliveryRpc } from "../supabase/functions/_shared/delivery/run.ts";
-import { RETRY_MAX_MS, RETRY_MIN_MS, type SenderConfig } from "./config.ts";
+import { parseWith } from "../supabase/functions/_shared/validate.ts";
+import { RETRY_MAX_MS, RETRY_MIN_MS } from "./config.ts";
 
-function errorMessage(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
+/** A call to a function or with a parameter outside SENDER_RPCS. */
+export class RpcAllowlistError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "RpcAllowlistError";
   }
-  return String(error);
+}
+
+/** withTimeout's promise did not settle in time. */
+export class TimeoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "TimeoutError";
+  }
+}
+
+/** The start-up probe still failed at OPEN_DEADLINE_MS. */
+export class DatabaseOpenError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "DatabaseOpenError";
+  }
 }
 
 type SqlType = "int" | "bigint" | "bigint[]" | "text" | "text[]" | "uuid" | "jsonb" | "timestamptz";
@@ -48,9 +67,15 @@ export const SENDER_RPCS: Readonly<Record<string, Readonly<Record<string, SqlTyp
   },
 };
 
+/** One argument of an RpcStatement: the caller's value and the type it is cast to. */
+export interface RpcParam {
+  value: unknown;
+  type: SqlType;
+}
+
 export interface RpcStatement {
   text: string;
-  params: Array<{ value: unknown; type: SqlType }>;
+  params: RpcParam[];
 }
 
 /**
@@ -64,15 +89,15 @@ export function rpcStatement(fn: string, args: Record<string, unknown>): RpcStat
   if (Object.hasOwn(SENDER_RPCS, fn)) {
     spec = SENDER_RPCS[fn];
   }
-  if (spec === undefined || spec === null) {
-    throw new Error(`${fn} is not in the sender's RPC allowlist`);
+  if (spec === undefined) {
+    throw new RpcAllowlistError(`${fn} is not in the sender's RPC allowlist`);
   }
   for (const name of Object.keys(args)) {
     if (!Object.hasOwn(spec, name)) {
-      throw new Error(`${fn} has no parameter ${name}`);
+      throw new RpcAllowlistError(`${fn} has no parameter ${name}`);
     }
   }
-  const params: RpcStatement["params"] = [];
+  const params: RpcParam[] = [];
   const placeholders: string[] = [];
   for (const entry of Object.entries(spec)) {
     const name = entry[0];
@@ -91,16 +116,47 @@ export function rpcStatement(fn: string, args: Record<string, unknown>): RpcStat
 /** A statement parameter as postgres.js takes it: a value, or sql.json()'s wrapper. */
 export type SqlParam = ParameterOrJSON<number | string>;
 
+/** postgres.js's unsafe() options the adapter sets. */
+export interface UnsafeOptions {
+  prepare: boolean;
+}
+
+/** postgres.js's end() options: seconds to wait for statements in flight. */
+export interface EndOptions {
+  timeout?: number;
+}
+
 /** The slice of postgres.js the adapter uses, so tests can pass a fake. */
 export interface SqlClient {
   unsafe(
     text: string,
     params: SqlParam[],
-    options: { prepare: boolean },
+    options: UnsafeOptions,
   ): PromiseLike<Iterable<Record<string, unknown>>>;
   json(value: JSONValue): SqlParam;
-  end(options: { timeout?: number } | undefined): Promise<void>;
+  end(options: EndOptions | undefined): Promise<void>;
 }
+
+/** Any other argument: what the allowlist's scalar and array types take, or null. */
+type PlainParam = number | string | null | number[] | string[];
+
+// The values the callers pass: run.ts and send.ts (ids, counts, seconds, endpoints, the error
+// text) and sender.ts (the heartbeat's ISO times and byte count). A missing argument is null.
+const intSchema: z.ZodType<PlainParam> = z.number().nullable();
+const intArraySchema: z.ZodType<PlainParam> = z.array(z.number()).nullable();
+const textSchema: z.ZodType<PlainParam> = z.string().nullable();
+const textArraySchema: z.ZodType<PlainParam> = z.array(z.string()).nullable();
+const PLAIN_PARAM_SCHEMAS: Readonly<Record<Exclude<SqlType, "jsonb">, z.ZodType<PlainParam>>> = {
+  int: intSchema,
+  bigint: intSchema,
+  "bigint[]": intArraySchema,
+  text: textSchema,
+  "text[]": textArraySchema,
+  uuid: textSchema,
+  timestamptz: textSchema,
+};
+// A jsonb argument: record_push_results' p_errors (send.ts PushDeviceResults.errors), or null.
+const jsonParamSchema: z.ZodType<JSONValue> = z.json();
 
 export interface SenderDb extends DeliveryRpc {
   /** Close the pool; waits up to a few seconds for an in-flight statement. */
@@ -113,12 +169,13 @@ export interface SenderDb extends DeliveryRpc {
  * failed call never throws.
  */
 export function senderDb(sql: SqlClient): SenderDb {
-  // A jsonb argument goes through sql.json(); the rest are passed as they are.
-  function paramValue(p: RpcStatement["params"][number]): unknown {
+  // Each value is checked against its SQL type; a jsonb argument then goes through sql.json().
+  function paramValue(p: RpcParam, index: number): SqlParam {
+    const where = `senderDb.rpc: parameter $${String(index + 1)}::${p.type}`;
     if (p.type === "jsonb") {
-      return sql.json(p.value as JSONValue);
+      return sql.json(parseWith(jsonParamSchema, p.value, where));
     }
-    return p.value;
+    return parseWith(PLAIN_PARAM_SCHEMAS[p.type], p.value, where);
   }
   return {
     async rpc(
@@ -127,24 +184,36 @@ export function senderDb(sql: SqlClient): SenderDb {
     ): Promise<{ data: unknown; error: string | null }> {
       try {
         const statement = rpcStatement(fn, args);
-        const rows = await sql.unsafe(
-          statement.text,
-          statement.params.map(paramValue) as SqlParam[],
-          { prepare: true },
-        );
+        const params: SqlParam[] = [];
+        for (const param of statement.params) {
+          params.push(paramValue(param, params.length));
+        }
+        const rows = await sql.unsafe(statement.text, params, { prepare: true });
         return { data: Array.from(rows), error: null };
       } catch (error) {
-        return { data: null, error: errorMessage(error) };
+        // The DeliveryRpc contract: a failed call is its message, like supabase-js's error.
+        // postgres.js rejects with Errors (PostgresError, or Error for a lost connection); the
+        // allowlist and the parameter checks throw ours.
+        if (error instanceof Error) {
+          return { data: null, error: error.message };
+        }
+        throw error;
       }
     },
     close: () => sql.end({ timeout: 5 }),
   };
 }
 
-/** What the client needs from the config; the CA settings default to an unverified TLS link. */
-export type DbConnectionConfig =
-  & Pick<SenderConfig, "databaseUrl" | "databaseSsl">
-  & Partial<Pick<SenderConfig, "databaseCa" | "databaseVerifyHost">>;
+/**
+ * What the client needs from the config (SenderConfig's fields of the same names); the CA
+ * settings default to an unverified TLS link.
+ */
+export interface DbConnectionConfig {
+  databaseUrl: string;
+  databaseSsl: boolean;
+  databaseCa?: string | undefined;
+  databaseVerifyHost?: boolean;
+}
 
 /** A certificate check that accepts any host name (sslmode=verify-ca). */
 function skipHostCheck(): undefined {
@@ -335,8 +404,12 @@ function sleepMs(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function ignoreCloseFailure(): void {
-  // Nothing to do: the next attempt opens a new pool.
+/** A rejection reason as log text. */
+function reasonText(reason: unknown): string {
+  if (reason instanceof Error) {
+    return reason.message;
+  }
+  return String(reason);
 }
 
 /** Rejects with `message` after `ms` unless `promise` settles first. */
@@ -344,7 +417,7 @@ export function withTimeout<T>(promise: PromiseLike<T>, ms: number, message: str
   let timer: ReturnType<typeof setTimeout> | undefined;
   function expire(_resolve: unknown, reject: (reason: Error) => void): void {
     function fire(): void {
-      reject(new Error(message));
+      reject(new TimeoutError(message));
     }
     timer = setTimeout(fire, ms);
   }
@@ -367,27 +440,27 @@ export async function openSenderDb(
   options: OpenOptions,
 ): Promise<SenderDb> {
   let log = logLine;
-  if (options.log !== undefined && options.log !== null) {
+  if (options.log !== undefined) {
     log = options.log;
   }
   let now = Date.now;
-  if (options.now !== undefined && options.now !== null) {
+  if (options.now !== undefined) {
     now = options.now;
   }
   let sleep = sleepMs;
-  if (options.sleep !== undefined && options.sleep !== null) {
+  if (options.sleep !== undefined) {
     sleep = options.sleep;
   }
   let connect = createClient;
-  if (options.connect !== undefined && options.connect !== null) {
+  if (options.connect !== undefined) {
     connect = options.connect;
   }
   let probeTimeoutMs = PROBE_TIMEOUT_MS;
-  if (options.probeTimeoutMs !== undefined && options.probeTimeoutMs !== null) {
+  if (options.probeTimeoutMs !== undefined) {
     probeTimeoutMs = options.probeTimeoutMs;
   }
   let deadlineMs = OPEN_DEADLINE_MS;
-  if (options.deadlineMs !== undefined && options.deadlineMs !== null) {
+  if (options.deadlineMs !== undefined) {
     deadlineMs = options.deadlineMs;
   }
   const deadline = now() + deadlineMs;
@@ -411,13 +484,22 @@ export async function openSenderDb(
         return db;
       }
       error = probe.error;
-    } catch (e) {
-      error = errorMessage(e);
+    } catch (caught) {
+      // db.rpc answers every Error as its message, so only the timeout reaches here.
+      if (!(caught instanceof TimeoutError)) {
+        throw caught;
+      }
+      error = caught.message;
     }
-    // end() waits at most its own timeout; a close that fails changes nothing here.
-    await db.close().catch(ignoreCloseFailure);
+    // end() waits at most its own timeout; a close that fails changes nothing here, since the
+    // next attempt opens a new pool, so it is only logged.
+    const closed = await Promise.allSettled([db.close()]);
+    const closeResult = closed[0];
+    if (closeResult.status === "rejected") {
+      log(`database close failed: ${reasonText(closeResult.reason)}`);
+    }
     if (now() + retryMs > deadline) {
-      throw new Error(`database probe failed: ${error}`);
+      throw new DatabaseOpenError(`database probe failed: ${error}`);
     }
     log(`database probe failed: ${error}; retrying in ${String(retryMs)} ms`);
     await sleep(retryMs);

@@ -1,4 +1,5 @@
 import { assertEquals, assertThrows } from "@std/assert";
+import { ConfigError } from "../../supabase/functions/_shared/errors.ts";
 import {
   DEFAULT_CONCURRENCY,
   DEFAULT_HEALTH_PORT,
@@ -99,7 +100,7 @@ Deno.test(
         loadConfig(
           env({ SENDER_DATABASE_URL: HOSTED, LONGLINES_ALLOW_INSECURE_DESTINATIONS: "1" }),
         ),
-      Error,
+      ConfigError,
       "local development only",
     );
     // Anything but "1" is off.
@@ -119,12 +120,12 @@ Deno.test(
     function bad(url: string, message: string) {
       const error = assertThrows(
         () => loadConfig(env({ SENDER_DATABASE_URL: url })),
-        Error,
+        ConfigError,
         message,
       );
       assertEquals(error.message.includes("pw"), false);
     }
-    assertThrows(() => loadConfig(env({})), Error, "SENDER_DATABASE_URL");
+    assertThrows(() => loadConfig(env({})), ConfigError, "SENDER_DATABASE_URL");
     bad("not a url", "postgres:// URL");
     bad("https://u:pw@db.example.org/postgres", "postgres:// URL");
     bad("postgresql://:pw@db.example.org/postgres", "must name a user");
@@ -142,32 +143,32 @@ Deno.test(
 Deno.test("loadConfig rejects bad ports and intervals, naming the variable", function (): void {
   assertThrows(
     () => loadConfig(env({ SENDER_DATABASE_URL: HOSTED, SENDER_HEALTH_PORT: "x" })),
-    Error,
+    ConfigError,
     "SENDER_HEALTH_PORT",
   );
   assertThrows(
     () => loadConfig(env({ SENDER_DATABASE_URL: HOSTED, SENDER_POLL_MS: "999" })),
-    Error,
+    ConfigError,
     "SENDER_POLL_MS",
   );
   assertThrows(
     () => loadConfig(env({ SENDER_DATABASE_URL: HOSTED, SENDER_POLL_MS: "1.5" })),
-    Error,
+    ConfigError,
     "SENDER_POLL_MS",
   );
   assertThrows(
     () => loadConfig(env({ SENDER_DATABASE_URL: HOSTED, SENDER_CONCURRENCY: "0" })),
-    Error,
+    ConfigError,
     "SENDER_CONCURRENCY",
   );
   assertThrows(
     () => loadConfig(env({ SENDER_DATABASE_URL: HOSTED, SENDER_STALE_MS: "abc" })),
-    Error,
+    ConfigError,
     "SENDER_STALE_MS",
   );
   assertThrows(
     () => loadConfig(env({ SENDER_DATABASE_URL: HOSTED, SENDER_STATS_MS: "-1" })),
-    Error,
+    ConfigError,
     "SENDER_STATS_MS",
   );
   assertEquals(
@@ -178,14 +179,14 @@ Deno.test("loadConfig rejects bad ports and intervals, naming the variable", fun
 
 Deno.test("portNumber, integerAtLeast and isLocalHost", function (): void {
   assertEquals(portNumber("8080", "P"), 8080);
-  assertThrows(() => portNumber("0", "P"), Error, "P must be a port number");
-  assertThrows(() => portNumber("70000", "P"), Error, "P must be a port number");
+  assertThrows(() => portNumber("0", "P"), ConfigError, "P must be a port number");
+  assertThrows(() => portNumber("70000", "P"), ConfigError, "P must be a port number");
   assertEquals(integerAtLeast(undefined, "X", 7, 1, undefined), 7);
   assertEquals(integerAtLeast("  ", "X", 7, 1, undefined), 7);
   assertEquals(integerAtLeast("3", "X", 7, 1, undefined), 3);
   assertThrows(
     () => integerAtLeast("0", "X", 7, 1, undefined),
-    Error,
+    ConfigError,
     "X must be a whole number of at least 1",
   );
   for (const host of ["127.0.0.1", "localhost", "host.docker.internal", "[::1]"]) {
@@ -220,13 +221,13 @@ Deno.test(
     for (const mode of ["verify-full", "verify-ca"]) {
       assertThrows(
         () => loadConfig(env({ SENDER_DATABASE_URL: `${HOSTED}?sslmode=${mode}` })),
-        Error,
+        ConfigError,
         `sslmode=${mode}, which needs SENDER_DATABASE_CA`,
       );
     }
     assertThrows(
       () => loadConfig(env({ SENDER_DATABASE_URL: HOSTED, SENDER_DATABASE_CA: "not a cert" })),
-      Error,
+      ConfigError,
       "SENDER_DATABASE_CA must be a PEM certificate",
     );
     // A blank value is unset; a local database has no TLS to verify.
@@ -257,13 +258,13 @@ Deno.test(
     for (const name of ["SENDER_POLL_MS", "SENDER_STALE_MS", "SENDER_STATS_MS"]) {
       assertThrows(
         () => loadConfig(env({ SENDER_DATABASE_URL: HOSTED, [name]: String(MAX_INTERVAL_MS + 1) })),
-        Error,
+        ConfigError,
         `${name} must be at most 3600000`,
       );
     }
     assertThrows(
       () => loadConfig(env({ SENDER_DATABASE_URL: HOSTED, SENDER_STALE_MS: "89999" })),
-      Error,
+      ConfigError,
       "SENDER_STALE_MS must be at least 90000",
     );
     assertEquals(
@@ -276,7 +277,7 @@ Deno.test(
         loadConfig(
           env({ SENDER_DATABASE_URL: HOSTED, SENDER_POLL_MS: "300000", SENDER_STALE_MS: "320000" }),
         ),
-      Error,
+      ConfigError,
       "SENDER_STALE_MS must be at least 330000",
     );
     // The longest poll that still fits under the cap.
