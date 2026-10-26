@@ -1,4 +1,4 @@
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { SupabaseClient } from "@supabase/supabase-js";
 import { createServiceClient } from "../_shared/db.ts";
 import { handleSignIn, type SignInDeps } from "../_shared/handlers/sign_in.ts";
 import { hmacKey } from "../_shared/hmac.ts";
@@ -20,9 +20,10 @@ function envOrEmpty(name: string): string {
   return value;
 }
 
-// Built per request, reading the URL and the anon key each time.
+// Built per request, reading the URL and the anon key each time. What createClient does, typed
+// as the plain SupabaseClient SignInDeps takes (as createServiceClient in db.ts).
 function anon(): SupabaseClient {
-  return createClient(
+  return new SupabaseClient(
     envOrEmpty("SUPABASE_URL"),
     envOrEmpty("SUPABASE_ANON_KEY"),
     {

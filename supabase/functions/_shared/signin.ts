@@ -1,5 +1,8 @@
 // Pure helpers for the sign-in function.
 
+import { z } from "zod";
+import { parseWith } from "./validate.ts";
+
 export const GENERIC_SIGN_IN_ERROR = "That callsign or email and password don't match.";
 /** Past the limit; says nothing about whether the credentials were right. */
 export const TOO_MANY_ATTEMPTS = "Too many attempts. Try again in a few minutes.";
@@ -26,24 +29,20 @@ export function normalizeIdentifier(identifier: string): string {
   return trimmed.toUpperCase();
 }
 
+// The web app's request body (signIn in web/src/lib/api.ts): strict. The identifier is checked
+// trimmed but kept as sent; normalizeIdentifier trims it.
+const signInBodySchema: z.ZodType<SignInBody> = z.strictObject({
+  identifier: z.string({ error: "identifier required" })
+    .refine((identifier) => identifier.trim() !== "", { error: "identifier required" })
+    .refine((identifier) => identifier.trim().length <= MAX_IDENTIFIER_LENGTH, {
+      error: "identifier too long",
+    }),
+  password: z.string({ error: "password required" })
+    .min(1, { error: "password required" })
+    .max(MAX_PASSWORD_LENGTH, { error: "password too long" }),
+}, { error: "expected an object with only identifier and password" });
+
+/** The sign-in request body. Throws ValidationError naming the first field that is wrong. */
 export function parseSignInBody(body: unknown): SignInBody {
-  if (typeof body !== "object" || body === null) {
-    throw new Error("expected an object");
-  }
-  const fields = body as Record<string, unknown>;
-  const identifier = fields.identifier;
-  const password = fields.password;
-  if (typeof identifier !== "string" || identifier.trim() === "") {
-    throw new Error("identifier required");
-  }
-  if (identifier.trim().length > MAX_IDENTIFIER_LENGTH) {
-    throw new Error("identifier too long");
-  }
-  if (typeof password !== "string" || password === "") {
-    throw new Error("password required");
-  }
-  if (password.length > MAX_PASSWORD_LENGTH) {
-    throw new Error("password too long");
-  }
-  return { identifier, password };
+  return parseWith(signInBodySchema, body, "parseSignInBody: request body");
 }

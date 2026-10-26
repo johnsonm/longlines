@@ -15,7 +15,9 @@
 // (which may differ for an email with no account) does not show.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { z } from "zod";
 import { DEFAULT_METHODS, json, preflightResponse } from "../cors.ts";
+import { ValidationError } from "../errors.ts";
 import {
   GENERIC_SIGN_IN_ERROR,
   normalizeIdentifier,
@@ -23,6 +25,7 @@ import {
   type SignInBody,
   TOO_MANY_ATTEMPTS,
 } from "../signin.ts";
+import { parseWith } from "../validate.ts";
 import { rateLimitKey } from "./callsign_profile.ts";
 
 export const EMAIL_NOT_CONFIRMED = "Check your email to confirm your account first.";
@@ -43,6 +46,11 @@ export interface SignInDeps {
   clock?: () => number;
   sleep?: (ms: number) => Promise<void>;
 }
+
+// email_for_identifier returns text: the account's email, or null when there is none.
+const emailSchema: z.ZodType<string | null> = z.string().nullable();
+// begin_sign_in_attempt returns bigint: the attempt's id, or null past the limit.
+const attemptIdSchema: z.ZodType<number | null> = z.number().nullable();
 
 function monotonicNow(): number {
   return performance.now();
@@ -72,9 +80,15 @@ export async function handleSignIn(req: Request, deps: SignInDeps): Promise<Resp
 
   let body: SignInBody;
   try {
-    body = parseSignInBody(await req.json());
-  } catch {
-    return json({ error: "Send an identifier and a password." }, 400, {});
+    const raw: unknown = await req.json();
+    body = parseSignInBody(raw);
+  } catch (error) {
+    // Not JSON, or not the body sign-in takes: the client's fault. Anything else is ours.
+    if (error instanceof SyntaxError || error instanceof ValidationError) {
+      return json({ error: "Send an identifier and a password." }, 400, {});
+    }
+    console.error(`sign-in: reading the request body failed: ${errorText(error)}`);
+    return json({ error: SIGN_IN_UNAVAILABLE }, 500, {});
   }
   const identifier = normalizeIdentifier(body.identifier);
 
@@ -90,9 +104,15 @@ export async function handleSignIn(req: Request, deps: SignInDeps): Promise<Resp
     console.error(`sign-in: lookup failed: ${lookup.error.message}`);
     return json({ error: SIGN_IN_UNAVAILABLE }, 500, {});
   }
+  let email: string | null;
+  try {
+    email = parseWith(emailSchema, lookup.data, "handleSignIn: email_for_identifier result");
+  } catch (error) {
+    return unavailable(error);
+  }
   let resolved: string | null = null;
-  if (typeof lookup.data === "string") {
-    resolved = lookup.data.toLowerCase();
+  if (email !== null) {
+    resolved = email.toLowerCase();
   }
 
   // One budget per account: the resolved email whether the user typed it or
@@ -109,10 +129,20 @@ export async function handleSignIn(req: Request, deps: SignInDeps): Promise<Resp
     console.error(`sign-in: attempt log failed: ${attempt.error.message}`);
     return json({ error: SIGN_IN_UNAVAILABLE }, 500, {});
   }
-  if (typeof attempt.data !== "number") {
+  let attempted: number | null;
+  try {
+    attempted = parseWith(
+      attemptIdSchema,
+      attempt.data,
+      "handleSignIn: begin_sign_in_attempt result",
+    );
+  } catch (error) {
+    return unavailable(error);
+  }
+  if (attempted === null) {
     return json({ error: TOO_MANY_ATTEMPTS }, 429, {});
   }
-  const attemptId = attempt.data;
+  const attemptId = attempted;
 
   // Anything but a wrong password leaves the attempt uncounted.
   async function forget(): Promise<void> {
@@ -125,15 +155,15 @@ export async function handleSignIn(req: Request, deps: SignInDeps): Promise<Resp
   // Unknown callsigns still go through a password check, and every wrong
   // password waits out the floor, so the response does not reveal whether
   // the account exists.
-  let email: string;
+  let signInEmail: string;
   if (resolved !== null) {
-    email = resolved;
+    signInEmail = resolved;
   } else {
-    email = `unknown-${crypto.randomUUID()}@invalid`;
+    signInEmail = `unknown-${crypto.randomUUID()}@invalid`;
   }
 
   const auth = await deps.anon().auth.signInWithPassword({
-    email,
+    email: signInEmail,
     password: body.password,
   });
   const data = auth.data;
@@ -141,7 +171,7 @@ export async function handleSignIn(req: Request, deps: SignInDeps): Promise<Resp
   // The error's code and status, undefined when there is no error.
   let errorCode: string | undefined;
   let errorStatus: number | undefined;
-  if (error !== null && error !== undefined) {
+  if (error !== null) {
     errorCode = error.code;
     errorStatus = error.status;
   }
@@ -159,11 +189,11 @@ export async function handleSignIn(req: Request, deps: SignInDeps): Promise<Resp
   if (errorStatus === 429 || errorCode === "over_request_rate_limit") {
     return json({ error: TOO_MANY_ATTEMPTS }, 429, {});
   }
-  if ((error !== null && error !== undefined) || data.session === null) {
+  if (error !== null || data.session === null) {
     let why = "no session";
-    if (error !== null && error !== undefined) {
+    if (error !== null) {
       let code = error.name;
-      if (error.code !== undefined && error.code !== null) {
+      if (error.code !== undefined) {
         code = error.code;
       }
       why = `${code}: ${error.message}`;
@@ -181,4 +211,21 @@ export async function handleSignIn(req: Request, deps: SignInDeps): Promise<Resp
     200,
     {},
   );
+}
+
+/** An error's message, or the value as text when it is not an Error. */
+function errorText(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
+}
+
+/** The 500 for an RPC result of the wrong shape; anything else is rethrown. */
+function unavailable(error: unknown): Response {
+  if (!(error instanceof ValidationError)) {
+    throw error;
+  }
+  console.error(`sign-in: ${error.message}`);
+  return json({ error: SIGN_IN_UNAVAILABLE }, 500, {});
 }

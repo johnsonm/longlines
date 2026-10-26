@@ -134,7 +134,39 @@ Deno.test("handleSignIn rejects malformed and oversized bodies", async function 
     DEPS,
   );
   assertEquals(bigPassword.res.status, 400);
+  // Strict: the web app sends only these two keys.
+  const extra = await run(
+    post({ identifier: "kk4pwj", password: "x", remember: true }, CLIENT_IP),
+    {},
+    {},
+    DEPS,
+  );
+  assertEquals(extra.res.status, 400);
+  assertEquals(extra.admin.rpc, []);
 });
+
+Deno.test(
+  "handleSignIn answers 500 for RPC results of the wrong shape",
+  async function (): Promise<void> {
+    const lookup = await run(
+      post(GOOD, CLIENT_IP),
+      { rpc: { email_for_identifier: { data: 5 } } },
+      {},
+      DEPS,
+    );
+    assertEquals([lookup.res.status, lookup.body], [500, { error: SIGN_IN_UNAVAILABLE }]);
+    assertEquals(fns(lookup.admin), ["email_for_identifier"]);
+
+    const attempt = await run(
+      post(GOOD, CLIENT_IP),
+      { rpc: { begin_sign_in_attempt: { data: "41" } } },
+      {},
+      DEPS,
+    );
+    assertEquals([attempt.res.status, attempt.body], [500, { error: SIGN_IN_UNAVAILABLE }]);
+    assert(attempt.anon.signInWithPassword.length === 0);
+  },
+);
 
 Deno.test(
   "handleSignIn returns tokens and forgets the attempt for a right password",
