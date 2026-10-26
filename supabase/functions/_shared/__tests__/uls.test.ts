@@ -1,4 +1,5 @@
 import { assertEquals, assertThrows } from "@std/assert";
+import { ValidationError } from "../errors.ts";
 import { MAX_ULS_RECORD, parseUlsRecord, ulsDate, UlsRecords } from "../uls.ts";
 
 // Synthetic records in the l_amat.zip layout (made-up calls and people; the
@@ -117,7 +118,12 @@ Deno.test("UlsRecords ignores text before the first record", function (): void {
 Deno.test("UlsRecords throws on a line with no LF past the cap", function (): void {
   const splitter = new UlsRecords("HD");
   assertEquals(splitter.push("HD|1|"), []);
-  assertThrows(() => splitter.push("x".repeat(MAX_ULS_RECORD)), Error, "ULS line longer");
+  const error = assertThrows(
+    () => splitter.push("x".repeat(MAX_ULS_RECORD)),
+    ValidationError,
+    "ULS line longer",
+  );
+  assertEquals(error.where, "UlsRecords: HD.dat");
 });
 
 Deno.test(
@@ -132,7 +138,7 @@ Deno.test(
           splitter.push(piece);
         }
       },
-      Error,
+      ValidationError,
       "ULS record longer",
     );
   },

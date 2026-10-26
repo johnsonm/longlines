@@ -1,4 +1,5 @@
 import { assertEquals, assertThrows } from "@std/assert";
+import { ValidationError } from "../errors.ts";
 import { type CtyPrefix, fetchCty, parseCty } from "../cty.ts";
 import { userAgent } from "../http.ts";
 
@@ -111,17 +112,53 @@ Deno.test(
   "parseCty throws on malformed records instead of loading part of a file",
   function (): void {
     const header = "Somewhere:   01:  02:  EU:   10.00:   -20.00:    -1.0:  XX:";
-    assertThrows(() => parseCty("<html>Not Found</html>;"), Error, "header fields");
-    assertThrows(() => parseCty(`${header} XX,bad-alias;`), Error, 'bad alias "bad-alias"');
-    assertThrows(() => parseCty(header.replace("EU", "XX") + " XX;"), Error, "bad continent");
-    assertThrows(() => parseCty(header.replace("01", "1.5") + " XX;"), Error, "bad CQ zone");
-    assertThrows(() => parseCty(header.replace("02", "x") + " XX;"), Error, "bad ITU zone");
-    assertThrows(() => parseCty(header.replace("10.00", "") + " XX;"), Error, "bad latitude");
-    assertThrows(() => parseCty(header.replace("-20.00", "W") + " XX;"), Error, "bad longitude");
-    assertThrows(() => parseCty(`${header} XX{ZZ};`), Error, 'bad continent "ZZ"');
-    assertThrows(() => parseCty(header.replace("01", "  ") + " XX;"), Error, "bad CQ zone");
-    assertThrows(() => parseCty(header.replace("02", "0") + " XX;"), Error, "bad ITU zone");
-    assertThrows(() => parseCty(header.replace("01", "-1") + " XX;"), Error, "bad CQ zone");
+    assertThrows(() => parseCty("<html>Not Found</html>;"), ValidationError, "header fields");
+    assertThrows(
+      () => parseCty(`${header} XX,bad-alias;`),
+      ValidationError,
+      'bad alias "bad-alias"',
+    );
+    assertThrows(
+      () => parseCty(header.replace("EU", "XX") + " XX;"),
+      ValidationError,
+      "bad continent",
+    );
+    assertThrows(
+      () => parseCty(header.replace("01", "1.5") + " XX;"),
+      ValidationError,
+      "bad CQ zone",
+    );
+    assertThrows(
+      () => parseCty(header.replace("02", "x") + " XX;"),
+      ValidationError,
+      "bad ITU zone",
+    );
+    assertThrows(
+      () => parseCty(header.replace("10.00", "") + " XX;"),
+      ValidationError,
+      "bad latitude",
+    );
+    assertThrows(
+      () => parseCty(header.replace("-20.00", "W") + " XX;"),
+      ValidationError,
+      "bad longitude",
+    );
+    assertThrows(() => parseCty(`${header} XX{ZZ};`), ValidationError, 'bad continent "ZZ"');
+    assertThrows(
+      () => parseCty(header.replace("01", "  ") + " XX;"),
+      ValidationError,
+      "bad CQ zone",
+    );
+    assertThrows(
+      () => parseCty(header.replace("02", "0") + " XX;"),
+      ValidationError,
+      "bad ITU zone",
+    );
+    assertThrows(
+      () => parseCty(header.replace("01", "-1") + " XX;"),
+      ValidationError,
+      "bad CQ zone",
+    );
   },
 );
 
@@ -129,8 +166,8 @@ Deno.test("parseCty refuses a file cut off mid-download", function (): void {
   // Cut inside the last record's alias list: every complete record before it
   // would parse, and so would the cut one.
   const cut = fixture.slice(0, fixture.lastIndexOf(";", fixture.length - 10) - 3);
-  assertThrows(() => parseCty(cut), Error, "truncated download");
-  assertThrows(() => parseCty(""), Error, "truncated download");
+  assertThrows(() => parseCty(cut), ValidationError, "truncated download");
+  assertThrows(() => parseCty(""), ValidationError, "truncated download");
 });
 
 Deno.test("fetchCty sends the User-Agent and returns the body", async function (): Promise<void> {

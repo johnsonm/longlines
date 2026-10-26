@@ -1,4 +1,5 @@
 import { assertEquals, assertRejects, assertThrows } from "@std/assert";
+import { ConfigError, FunctionCallError } from "../errors.ts";
 import {
   ARCHIVE_S3_ENV,
   archiveS3Config,
@@ -35,7 +36,7 @@ Deno.test("archiveS3Config names every missing secret", function (): void {
   assertThrows(
     () =>
       archiveS3Config(env({ [ARCHIVE_S3_ENV.bucket]: undefined, [ARCHIVE_S3_ENV.region]: " " })),
-    Error,
+    ConfigError,
     "archive store not configured: missing LONGLINES_ARCHIVE_S3_REGION, LONGLINES_ARCHIVE_S3_BUCKET",
   );
 });
@@ -43,12 +44,12 @@ Deno.test("archiveS3Config names every missing secret", function (): void {
 Deno.test("archiveS3Config wants an https URL except for the local stack", function (): void {
   assertThrows(
     () => archiveS3Config(env({ [ARCHIVE_S3_ENV.endpoint]: "s3 please" })),
-    Error,
+    ConfigError,
     "is not a URL",
   );
   assertThrows(
     () => archiveS3Config(env({ [ARCHIVE_S3_ENV.endpoint]: "http://s3.example.com" })),
-    Error,
+    ConfigError,
     "must be https",
   );
   for (const local of ["http://127.0.0.1:54321/storage/v1/s3", "http://kong:8000/storage/v1/s3"]) {
@@ -81,8 +82,8 @@ Deno.test(
       status = 500;
       await assertRejects(
         () => store.upload("p", new Uint8Array([1])),
-        Error,
-        "archive upload failed for p: HTTP 500 InternalError",
+        FunctionCallError,
+        "S3 PUT p: HTTP 500 InternalError",
       );
     } finally {
       await server.shutdown();
@@ -119,13 +120,13 @@ Deno.test(
         `DELETE /longlines-archive/${path}`,
       ]);
       status = 403;
+      await assertRejects(() => store.read(path), FunctionCallError, `S3 GET ${path}: HTTP 403`);
+      await assertRejects(() => store.size(path), FunctionCallError, `S3 HEAD ${path}: HTTP 403`);
       await assertRejects(
-        () => store.read(path),
-        Error,
-        `archive read failed for ${path}: HTTP 403`,
+        () => store.remove(path),
+        FunctionCallError,
+        `S3 DELETE ${path}: HTTP 403`,
       );
-      await assertRejects(() => store.size(path), Error, `archive size check failed for ${path}`);
-      await assertRejects(() => store.remove(path), Error, `archive delete failed for ${path}`);
     } finally {
       await server.shutdown();
     }

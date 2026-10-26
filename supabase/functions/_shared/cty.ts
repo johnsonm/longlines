@@ -15,6 +15,7 @@
 // through to the parent country (IT9 -> I, Italy). "=VERyyyymmdd" carries the
 // file's version and "=VERSION" is a marker; neither is a callsign.
 
+import { ValidationError } from "./errors.ts";
 import { fetchText } from "./http.ts";
 
 export const CTY_URL = "https://www.country-files.com/cty/cty.dat";
@@ -52,11 +53,19 @@ export interface CtyData {
   prefixes: CtyPrefix[];
 }
 
+/** The file did not parse: cty.dat is third-party text, so this is a ValidationError. */
+function ctyError(message: string): ValidationError {
+  return new ValidationError(`cty.dat: ${message}`, {
+    cause: undefined,
+    where: "parseCty: cty.dat",
+  });
+}
+
 /** A zone number: a positive integer (Number("") would be 0). */
 function zone(text: string, what: string): number {
   const n = Number(text);
   if (!/^\d+$/.test(text) || n < 1) {
-    throw new Error(`cty.dat: bad ${what} "${text}"`);
+    throw ctyError(`bad ${what} "${text}"`);
   }
   return n;
 }
@@ -64,14 +73,14 @@ function zone(text: string, what: string): number {
 function num(text: string, what: string): number {
   const n = Number(text);
   if (text === "" || !Number.isFinite(n)) {
-    throw new Error(`cty.dat: bad ${what} "${text}"`);
+    throw ctyError(`bad ${what} "${text}"`);
   }
   return n;
 }
 
 function continent(text: string, where: string): string {
   if (!CONTINENTS.has(text)) {
-    throw new Error(`cty.dat: bad continent "${text}" in ${where}`);
+    throw ctyError(`bad continent "${text}" in ${where}`);
   }
   return text;
 }
@@ -83,6 +92,18 @@ function field(fields: string[], i: number): string {
     return "";
   }
   return f.trim();
+}
+
+/**
+ * Capture group i of an ALIAS or VERSION match. Their groups always take part
+ * (group 3 of ALIAS may match empty), so undefined only means the token was bad.
+ */
+function group(m: RegExpExecArray, i: number, token: string, name: string): string {
+  const g = m[i];
+  if (g === undefined) {
+    throw ctyError(`bad alias "${token}" in ${name}`);
+  }
+  return g;
 }
 
 /** The first capture group of re in text, or undefined when re does not match. */
@@ -102,7 +123,7 @@ export function parseCty(text: string): CtyData {
   const seen = new Set<string>();
   // Every record ends with ";", so a body cut off mid-download does not.
   if (!text.trimEnd().endsWith(";")) {
-    throw new Error('cty.dat: does not end with ";" (truncated download?)');
+    throw ctyError('does not end with ";" (truncated download?)');
   }
 
   for (const raw of text.split(";")) {
@@ -112,7 +133,7 @@ export function parseCty(text: string): CtyData {
     }
     const fields = record.split(":");
     if (fields.length !== 9) {
-      throw new Error(`cty.dat: expected 8 header fields in "${record.slice(0, 60)}"`);
+      throw ctyError(`expected 8 header fields in "${record.slice(0, 60)}"`);
     }
     // Field 6 is the UTC offset, which nothing stores.
     const name = field(fields, 0);
@@ -141,15 +162,15 @@ export function parseCty(text: string): CtyData {
     for (const token of aliasText.split(",").map((t) => t.trim()).filter((t) => t !== "")) {
       const m = ALIAS.exec(token);
       if (m === null) {
-        throw new Error(`cty.dat: bad alias "${token}" in ${name}`);
+        throw ctyError(`bad alias "${token}" in ${name}`);
       }
       const exact = m[1] === "=";
-      const pattern = m[2] as string;
-      const overrides = m[3] as string;
+      const pattern = group(m, 2, token, name);
+      const overrides = group(m, 3, token, name);
       if (exact) {
         const v = VERSION.exec(pattern);
         if (v !== null) {
-          version = v[1] as string;
+          version = group(v, 1, token, name);
           continue;
         }
         if (pattern === "VERSION") {

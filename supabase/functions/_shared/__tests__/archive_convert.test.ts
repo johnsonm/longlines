@@ -1,5 +1,6 @@
 import { assertEquals, assertExists, assertRejects, assertThrows } from "@std/assert";
 import { parquetReadObjects } from "hyparquet";
+import { ValidationError } from "../errors.ts";
 import { ARCHIVE_SCHEMAS, encodeParquet, MAX_ROWS_PER_RUN, objectPath } from "../archive.ts";
 import {
   convertRequest,
@@ -275,27 +276,47 @@ Deno.test("ndjsonColumns refuses lines it cannot map", function (): void {
   const line = fixture("aprs.ndjson").split("\n")[0]!;
   const row = JSON.parse(line);
   const cases: Array<[string, string]> = [
-    ["{not json", "line 1"],
-    ["[1]", "not a JSON object"],
-    [JSON.stringify(Object.assign({}, row, { line_md5: "x" })), "unknown column line_md5"],
-    [JSON.stringify(Object.assign({}, row, { igate: undefined })), "missing column igate"],
-    [JSON.stringify(Object.assign({}, row, { received_at: 5 })), "received_at is not a timestamp"],
-    [JSON.stringify(Object.assign({}, row, { received_at: "yesterday" })), "not a timestamp"],
-    [JSON.stringify(Object.assign({}, row, { path: 3 })), "path is not a string"],
+    ["{not json", "ndjsonColumns: line 1: Expected property name"],
+    ["[1]", "ndjsonColumns: line 1: (root): Invalid input: expected object, received array"],
+    [
+      JSON.stringify(Object.assign({}, row, { line_md5: "x" })),
+      'ndjsonColumns: line 1: (root): Unrecognized key: "line_md5"',
+    ],
+    [
+      JSON.stringify(Object.assign({}, row, { igate: undefined })),
+      "ndjsonColumns: line 1: igate: missing column",
+    ],
+    [
+      JSON.stringify(Object.assign({}, row, { received_at: 5 })),
+      "ndjsonColumns: line 1: received_at: not a timestamp: 5",
+    ],
+    [
+      JSON.stringify(Object.assign({}, row, { received_at: "yesterday" })),
+      'ndjsonColumns: line 1: received_at: not a timestamp: "yesterday"',
+    ],
+    [
+      JSON.stringify(Object.assign({}, row, { path: 3 })),
+      "ndjsonColumns: line 1: path: not a string: 3",
+    ],
   ];
   for (const c of cases) {
-    assertThrows(() => ndjsonColumns("aprs", c[0]), Error, c[1]);
+    assertThrows(() => ndjsonColumns("aprs", c[0]), ValidationError, c[1]);
   }
+  assertThrows(
+    () => ndjsonColumns("aprs", `${line}\n${JSON.stringify(Object.assign({}, row, { path: 3 }))}`),
+    ValidationError,
+    "ndjsonColumns: line 2: path: not a string: 3",
+  );
   const spot = JSON.parse(fixture("rbn.ndjson").split("\n")[0]!);
   assertThrows(
     () => ndjsonColumns("rbn", JSON.stringify(Object.assign({}, spot, { snr: 1.5 }))),
-    Error,
-    "snr is not a int32",
+    ValidationError,
+    "snr: not a int32: 1.5",
   );
   assertThrows(
     () => ndjsonColumns("rbn", JSON.stringify(Object.assign({}, spot, { frequency_khz: "14035" }))),
-    Error,
-    "frequency_khz is not a double",
+    ValidationError,
+    'frequency_khz: not a double: "14035"',
   );
   // raw_payload must be the line's last top-level value, as to_json writes it.
   const pota = JSON.parse(fixture("pota.ndjson").split("\n")[1]!);
@@ -308,7 +329,7 @@ Deno.test("ndjsonColumns refuses lines it cannot map", function (): void {
   assertThrows(
     () =>
       ndjsonColumns("pota", JSON.stringify(Object.assign({ raw_payload: pota.raw_payload }, rest))),
-    Error,
+    ValidationError,
     "could not locate raw_payload",
   );
   assertEquals(
@@ -316,6 +337,10 @@ Deno.test("ndjsonColumns refuses lines it cannot map", function (): void {
       .columns["raw_payload"],
     [null],
   );
+  // raw_payload is compared as JSON.parse read it, uncopied, so an own "__proto__" key
+  // (which a copying schema would drop) still matches its text.
+  const proto = JSON.stringify(rest).slice(0, -1) + ',"raw_payload":{"__proto__":1,"a":2}}';
+  assertEquals(ndjsonColumns("pota", proto).columns["raw_payload"], ['{"__proto__":1,"a":2}']);
 });
 
 Deno.test(
@@ -333,7 +358,11 @@ Deno.test(
     assertEquals(epochMillis("2026-10-11T19:40:01.5+05:30"), Date.UTC(2026, 9, 11, 14, 10, 1, 500));
     assertEquals(epochMillis("2026-10-11T09:10:01-05"), Date.UTC(2026, 9, 11, 14, 10, 1));
     assertEquals(epochMillis("1883-11-18T12:00:00-04:56:02"), Date.UTC(1883, 10, 18, 16, 56, 2));
-    assertThrows(() => epochMillis("2026-13-45T99:00:00+00:00"), Error, "not a timestamp");
+    assertThrows(
+      () => epochMillis("2026-13-45T99:00:00+00:00"),
+      ValidationError,
+      'not a timestamp: "2026-13-45T99:00:00+00:00"',
+    );
   },
 );
 
@@ -557,8 +586,17 @@ Deno.test("convertRequest reads limit and cursor, with defaults", function (): v
       { after: "2026-10-11" },
       { after: { slice_start: "nope", source: "rbn" } },
       { after: { slice_start: "2026-10-11T13:10:00Z", source: "pskreporter" } },
+      { limit: null },
+      // The body is ours, and so is the cursor (a summary's `next`): unknown keys are refused.
+      { after: { slice_start: "2026-10-11T13:10:00Z", source: "rbn", line: 1 } },
+      { lim: 1 },
     ]
   ) {
-    assertThrows(() => convertRequest(bad), Error, undefined, JSON.stringify(bad));
+    assertThrows(() => convertRequest(bad), ValidationError, undefined, JSON.stringify(bad));
   }
+  assertThrows(
+    () => convertRequest({ limit: 0 }),
+    ValidationError,
+    'convertRequest: request body: limit: "limit" must be an integer from 1 to 100',
+  );
 });
