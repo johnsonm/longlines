@@ -10,7 +10,7 @@ export { spotLabel } from "./pushModel";
 
 export const PICKER_SIZE = 10;
 /** Sources whose spots are raw_spots rows, which the preview RPCs read by id. RBN's recent list is its own table. */
-export const PICKER_SOURCES = ["pota", "sotawatch", "dxcluster", "wwff"];
+export const PICKER_SOURCES = ["pota", "sotawatch", "dxcluster", "wwff", "wwbota"];
 /** push_sample_spot() (the sample both previews use) is a POTA spot. */
 export const SAMPLE_SOURCE = "pota";
 

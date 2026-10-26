@@ -286,6 +286,7 @@ function Charts({ payload }: { payload: HealthPayload }) {
                 { label: "POTA", data: series.spots.pota, color: theme.palette.primary.main },
                 { label: "SOTAwatch", data: series.spots.sotawatch, color: theme.palette.secondary.main },
                 { label: "WWFF", data: series.spots.wwff, color: theme.palette.success.main },
+                { label: "WWBOTA", data: series.spots.wwbota, color: theme.palette.warning.main },
                 { label: "DX Cluster", data: series.spots.dxcluster, color: theme.palette.info.main },
               ]}
             />

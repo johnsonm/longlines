@@ -1,4 +1,4 @@
-// The HTTP shell for the pulled sources (POTA, SOTAwatch, WWFF), invoked by
+// The HTTP shell for the pulled sources (POTA, SOTAwatch, WWFF, WWBOTA), invoked by
 // pg_cron with the service-role key from Vault. Each run fetches the live
 // upstream feed, so only the service role may start one: the gateway's
 // verify_jwt also lets the public anon key and signed-in users through.

@@ -33,7 +33,7 @@ select set_eq($$ select jsonb_object_keys(public.health_snapshot('24h') -> 'seri
   array['match_waiting', 'delivery_waiting', 'oldest_ready_seconds', 'connections', 'db_bytes', 'failed', 'expired',
         'latency_p50', 'latency_p95', 'spots', 'sender_memory', 'relay_memory'], 'series keys');
 select set_eq($$ select jsonb_object_keys(public.health_snapshot('24h') -> 'series' -> 'spots') $$,
-  array['pota', 'sotawatch', 'wwff', 'dxcluster'], 'spots series: the four sources that are not firehoses');
+  array['pota', 'sotawatch', 'wwff', 'wwbota', 'dxcluster'], 'spots series: the five sources that are not firehoses');
 select results_eq(
   $$ select r, (p ->> 'bucket_seconds')::int, jsonb_array_length(p -> 'series' -> 'match_waiting'),
             jsonb_array_length(p -> 'series' -> 'spots' -> 'pota')
@@ -50,10 +50,11 @@ select is(public.health_snapshot('24h') -> 'limits',
 select throws_ok($$ select public.health_snapshot('2d') $$, '22023', 'Unknown range.', 'an unknown range is refused');
 
 -- Pulled sources: Delayed after 3 minutes without a success, or never.
-update ingest_state set last_success_at = pg_temp.ago(60) where source in ('pota', 'sotawatch', 'wwff');
+update ingest_state set last_success_at = pg_temp.ago(60) where source in ('pota', 'sotawatch', 'wwff', 'wwbota');
 select is(pg_temp.checks() -> 'pulled' ->> 'status', 'healthy', 'pulled: healthy within 3 minutes');
 select is(pg_temp.checks() -> 'pulled' -> 'sources',
-  '[{"source": "pota", "seconds": 60}, {"source": "sotawatch", "seconds": 60}, {"source": "wwff", "seconds": 60}]'::jsonb,
+  '[{"source": "pota", "seconds": 60}, {"source": "sotawatch", "seconds": 60}, {"source": "wwbota", "seconds": 60},
+    {"source": "wwff", "seconds": 60}]'::jsonb,
   'pulled: seconds since each success');
 update ingest_state set last_success_at = pg_temp.ago(181) where source = 'wwff';
 select is(pg_temp.checks() -> 'pulled' ->> 'status', 'delayed', 'pulled: delayed after 180 seconds');

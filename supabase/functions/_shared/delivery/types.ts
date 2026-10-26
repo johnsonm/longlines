@@ -22,6 +22,10 @@ export interface DeliverySpot {
   sota_summit_ref: string | null;
   wwff_reference: string | null;
   wwff_reference_name: string | null;
+  /** Every bunker of a WWBOTA spot; absent on rows claimed before migration 20261026001000. */
+  wwbota_references?: string[] | null;
+  /** The first bunker's name; absent like wwbota_references. */
+  wwbota_reference_name?: string | null;
   /**
    * Push only, from SQL (push_spot_fields): the title and body built from the
    * destination's picked fields, its tap URL and the spot's source page. Never
@@ -272,7 +276,9 @@ export const deliverySpotSchema: z.ZodType<DeliverySpot> = z.looseObject({
   pota_reference: nullableTextSchema,
   wwff_reference: nullableTextSchema,
   sota_summit_ref: nullableTextSchema,
+  wwbota_references: z.array(z.string()).nullable().optional(),
   wwff_reference_name: nullableTextSchema,
+  wwbota_reference_name: nullableTextSchema.optional(),
   push_title: z.string().optional(),
   push_body: z.string().optional(),
   push_url: z.string().optional(),

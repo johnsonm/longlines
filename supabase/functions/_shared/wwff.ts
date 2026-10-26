@@ -158,6 +158,8 @@ export const wwff: SourceAdapter = {
         sota_summit_ref: null,
         wwff_reference: reference,
         wwff_reference_name: trimmedText(spot.reference_name),
+        wwbota_references: null,
+        wwbota_reference_name: null,
         raw_payload: raw,
       },
     };

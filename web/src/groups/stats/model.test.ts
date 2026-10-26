@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   activationsLine, comparisonLine, groupHeatLevel, groupMeta, heardAgo, linkLabel, modeLabel, onAirLine, parsePeriod, periodDays,
-  placesLine, publicUrl, totalActivations, updatedAgo,
+  placesLine, publicUrl, totalActivations, totalPlaces, updatedAgo,
 } from "./model";
 
 const NOW = new Date("2026-10-19T15:00:00Z");
@@ -28,8 +28,15 @@ describe("group statistics model", () => {
     expect(activationsLine({ pota: 26, sota: 5, wwff: 0 })).toBe("26 POTA, 5 SOTA");
     expect(activationsLine({ pota: 26, sota: 5, wwff: 2 })).toBe("26 POTA, 5 SOTA, 2 WWFF");
     expect(totalActivations({ pota: 26, sota: 5, wwff: 2 })).toBe(33);
+    expect(activationsLine({ pota: 26, sota: 5, wwff: 2, wwbota: 1 })).toBe("26 POTA, 5 SOTA, 2 WWFF, 1 WWBOTA");
+    expect(activationsLine({ pota: 0, sota: 0, wwff: 0, wwbota: 0 })).toBe("0 POTA, 0 SOTA");
+    expect(totalActivations({ pota: 26, sota: 5, wwff: 2, wwbota: 1 })).toBe(34);
     expect(placesLine({ parks: 19, summits: 3 })).toBe("19 parks, 3 summits");
     expect(placesLine({ parks: 1, summits: 1 })).toBe("1 park, 1 summit");
+    expect(placesLine({ parks: 1, summits: 1, bunkers: 1 })).toBe("1 park, 1 summit, 1 bunker");
+    expect(placesLine({ parks: 0, summits: 0, bunkers: 0 })).toBe("0 parks, 0 summits");
+    expect(totalPlaces({ parks: 19, summits: 3 })).toBe(22);
+    expect(totalPlaces({ parks: 19, summits: 3, bunkers: 2 })).toBe(24);
   });
 
   it("words last heard", () => {

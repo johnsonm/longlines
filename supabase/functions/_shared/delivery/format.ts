@@ -45,6 +45,7 @@ const SOURCE_LABELS: Record<string, string> = {
   rbn: "RBN",
   dxcluster: "DX Cluster",
   wwff: "WWFF",
+  wwbota: "WWBOTA",
 };
 
 export function sourceLabel(source: string): string {
@@ -53,6 +54,14 @@ export function sourceLabel(source: string): string {
     return source;
   }
   return label;
+}
+
+/** A WWBOTA spot's bunkers joined with ", ", or null when it names none. */
+function bunkers(spot: DeliverySpot): string | null {
+  if (spot.wwbota_references === undefined || spot.wwbota_references === null) {
+    return null;
+  }
+  return spot.wwbota_references.join(", ");
 }
 
 /** The value when it has text, else null: what a truthiness test on an optional string meant. */
@@ -92,7 +101,7 @@ export function spotDescription(spot: DeliverySpot): string {
 
 export function embedForSpot(spot: DeliverySpot): DiscordEmbed {
   const fields: DiscordEmbedField[] = [];
-  function add(name: string, value: string | null): void {
+  function add(name: string, value: string | null | undefined): void {
     const text = textOf(value);
     if (text !== null) {
       fields.push({ name, value: text, inline: true });
@@ -103,6 +112,8 @@ export function embedForSpot(spot: DeliverySpot): DiscordEmbed {
   add("Summit", spot.sota_summit_ref);
   add("WWFF", spot.wwff_reference);
   add("Reserve", spot.wwff_reference_name);
+  add("WWBOTA", bunkers(spot));
+  add("Bunker", spot.wwbota_reference_name);
   add("Source", sourceLabel(spot.source));
   add("Spotter", spot.spotter);
   add("Time (UTC)", utcClock(spot.spot_time));
@@ -499,6 +510,8 @@ function legacyPushBody(spot: DeliverySpot): string {
       spot.sota_summit_ref,
       spot.wwff_reference,
       spot.wwff_reference_name,
+      bunkers(spot),
+      spot.wwbota_reference_name,
     ]
   ) {
     const text = textOf(value);

@@ -5,7 +5,7 @@ ones you ask for to Discord, a webhook or your phone, usually within a minute.
 
 ## What it does
 
-- **Sources:** POTA, SOTAwatch, WWFF, DX Cluster and the Reverse Beacon Network. APRS-IS packets
+- **Sources:** POTA, SOTAwatch, WWFF, WWBOTA, DX Cluster and the Reverse Beacon Network. APRS-IS packets
   are stored and archived but never matched.
 - **Connections:** filters on source, band, mode, callsign, reference and callsign groups, with
   a live preview of what would match.
@@ -18,8 +18,8 @@ ones you ask for to Discord, a webhook or your phone, usually within a minute.
 ## How it fits together
 
 ```
-POTA / SOTAwatch / WWFF ──► Edge Functions (pg_cron) ──┐
-RBN / DX Cluster / APRS-IS ──► relay (Fly.io) ─────────┴─► Postgres: store, match
+POTA / SOTAwatch / WWFF / WWBOTA ──► Edge Functions (pg_cron) ──┐
+RBN / DX Cluster / APRS-IS ──► relay (Fly.io) ──────────────────┴─► Postgres: store, match
                                                               │
                                      sender (Fly.io) ◄────────┘──► Discord / webhooks / push
 ```

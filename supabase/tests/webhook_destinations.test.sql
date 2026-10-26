@@ -546,7 +546,7 @@ select is((select spot ->> 'webhook_connection' from claimed where destination -
 select is((select array_agg(k order by k) from claimed c, jsonb_object_keys(c.spot) k where c.destination ->> 'type' = 'webhook'),
   array['band', 'base_callsign', 'callsign', 'comment', 'frequency_khz', 'id', 'mode', 'mode_family', 'pota_location',
         'pota_park_name', 'pota_reference', 'sota_summit_ref', 'source', 'spot_time', 'spotter', 'webhook_connection',
-        'webhook_fields', 'wwff_reference', 'wwff_reference_name'],
+        'webhook_fields', 'wwbota_reference_name', 'wwbota_references', 'wwff_reference', 'wwff_reference_name'],
   'a webhook spot keeps the stored keys (the legacy body) plus the two webhook ones');
 select ok((select not (destination ? 'webhook') and not (spot ? 'webhook_fields') and not (spot ? 'webhook_connection')
                   and destination ? 'discord' and spot ? 'discord_title'

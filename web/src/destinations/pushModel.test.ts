@@ -130,7 +130,7 @@ describe("spotLabel", () => {
   const spot = (overrides: Partial<RecentSpot>): RecentSpot => ({
     id: 1, source: "pota", callsign: "KK4PWJ", frequency_khz: 14062, mode: "cw", pota_reference: "US-2763", sota_summit_ref: null,
     wwff_reference: null, spot_time: "2026-10-17T12:00:00Z", band: "20m", mode_family: "cw", comment: null, spotter: "W1AW",
-    pota_location: "US-NC", pota_park_name: "Falls Lake", wwff_reference_name: null, ...overrides,
+    pota_location: "US-NC", pota_park_name: "Falls Lake", wwff_reference_name: null, wwbota_references: null, wwbota_reference_name: null, ...overrides,
   });
 
   it("joins call, source and reference, frequency and mode", () => {

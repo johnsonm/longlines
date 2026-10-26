@@ -100,6 +100,8 @@ describe("profile format", () => {
     ];
     expect(activationsDetail(activations)).toBe("3 parks, 1 summit, 2 WWFF references");
     expect(activationsDetail([])).toBe("0 parks, 0 summits, 0 WWFF references");
+    expect(activationsDetail([...activations, { program: "WWBOTA", references: 2, activations: 2 }]))
+      .toBe("3 parks, 1 summit, 2 WWFF references, 2 WWBOTA bunkers");
     expect(totalActivations(activations)).toBe(11);
     expect(totalActivations([])).toBe(0);
   });
@@ -133,7 +135,7 @@ describe("profile format", () => {
     ]);
     expect(rows).toEqual([expect.objectContaining({
       id: null, spot_time: "2026-10-12T14:32:00Z", callsign: "KK4PWJ/P", frequency_khz: 14062, band: "20m", mode: "cw",
-      pota_reference: "US-0817", sota_summit_ref: null, wwff_reference: null, wwff_reference_name: null, source: "pota", spotter: "W1AW",
+      pota_reference: "US-0817", sota_summit_ref: null, wwff_reference: null, wwff_reference_name: null, wwbota_references: null, wwbota_reference_name: null, source: "pota", spotter: "W1AW",
     })]);
   });
 });

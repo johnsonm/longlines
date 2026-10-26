@@ -57,6 +57,8 @@ const spot: DeliverySpot = {
   sota_summit_ref: null,
   wwff_reference: null,
   wwff_reference_name: null,
+  wwbota_references: null,
+  wwbota_reference_name: null,
 };
 
 /** The test spot with some fields changed, keys in the same order as a spread. */
@@ -150,6 +152,29 @@ Deno.test("embedForSpot shows the WWFF reference and its name for WWFF spots", f
     ["Reserve", "State Game Land PA 013"],
     ["Source", "WWFF"],
   ]);
+});
+
+Deno.test("embedForSpot shows every WWBOTA bunker and the first one's name", function (): void {
+  const e = embedForSpot(spotWith({
+    source: "wwbota",
+    pota_reference: null,
+    pota_park_name: null,
+    pota_location: null,
+    wwbota_references: ["B/EA-0103", "B/EA-0104"],
+    wwbota_reference_name: "Búnker 1",
+  }));
+  assertEquals(e.fields.map((f) => [f.name, f.value]).slice(0, 3), [
+    ["WWBOTA", "B/EA-0103, B/EA-0104"],
+    ["Bunker", "Búnker 1"],
+    ["Source", "WWBOTA"],
+  ]);
+});
+
+Deno.test("embedForSpot reads a spot claimed before the WWBOTA keys existed", function (): void {
+  const legacy: DeliverySpot = Object.assign({}, spot);
+  delete legacy.wwbota_references;
+  delete legacy.wwbota_reference_name;
+  assertEquals(embedForSpot(legacy), embedForSpot(spot));
 });
 
 Deno.test(
@@ -481,8 +506,8 @@ Deno.test("backoffSeconds follows 30s, 1m, 2m, 5m, 15m, then every 30m", functio
 
 Deno.test("sourceLabel names every source and passes an unknown one through", function (): void {
   assertEquals(
-    ["pota", "sotawatch", "rbn", "dxcluster", "wwff", "other"].map(sourceLabel),
-    ["POTA", "SOTAwatch", "RBN", "DX Cluster", "WWFF", "other"],
+    ["pota", "sotawatch", "rbn", "dxcluster", "wwff", "wwbota", "other"].map(sourceLabel),
+    ["POTA", "SOTAwatch", "RBN", "DX Cluster", "WWFF", "WWBOTA", "other"],
   );
 });
 
@@ -947,7 +972,9 @@ Deno.test(
       pota_reference: null,
       wwff_reference: null,
       sota_summit_ref: null,
+      wwbota_references: null,
       wwff_reference_name: null,
+      wwbota_reference_name: null,
     };
     assertEquals(
       Object.keys(webhookSpot(deliverySpotSchema.parse(claimed))),

@@ -21,7 +21,14 @@ import { parseWith } from "./validate.ts";
  * so an RBN backlog never starves them. APRS-IS is not here: at ~100 packets/s
  * it alone would fill the row budget, so its own cron job (archive-aprs) names it.
  */
-export const ARCHIVE_ORDER: readonly Source[] = ["pota", "sotawatch", "dxcluster", "wwff", "rbn"];
+export const ARCHIVE_ORDER: readonly Source[] = [
+  "pota",
+  "sotawatch",
+  "dxcluster",
+  "wwff",
+  "wwbota",
+  "rbn",
+];
 /** Every source a request may name. */
 export const ARCHIVE_SOURCES: readonly Source[] = ARCHIVE_ORDER.concat(["aprs"]);
 /** Only slices that ended this long ago are archived, so late relay batches land first. */
@@ -50,6 +57,9 @@ const SPOT_COLUMNS: ReadonlyArray<readonly [string, ColumnType]> = [
   ["sota_summit_ref", "string"],
   ["wwff_reference", "string"],
   ["wwff_reference_name", "string"],
+  /** The references joined with ",": archive_columns sends one string. */
+  ["wwbota_references", "string"],
+  ["wwbota_reference_name", "string"],
   ["raw_payload", "json"],
 ];
 
@@ -134,6 +144,7 @@ export const ARCHIVE_SCHEMAS: Readonly<
   sotawatch: SPOT_COLUMNS,
   dxcluster: SPOT_COLUMNS,
   wwff: SPOT_COLUMNS,
+  wwbota: SPOT_COLUMNS,
 };
 
 function two(n: number): string {

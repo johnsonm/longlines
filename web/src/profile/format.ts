@@ -125,9 +125,16 @@ export function noLicenseMessage(usPrefix: boolean): string {
     : "No FCC record. This looks like a callsign issued outside the United States.";
 }
 
-const PROGRAM_NOUNS: Record<string, [string, string]> = { POTA: ["park", "parks"], SOTA: ["summit", "summits"] };
+const PROGRAM_NOUNS: Record<string, [string, string]> = {
+  POTA: ["park", "parks"],
+  SOTA: ["summit", "summits"],
+  WWBOTA: ["WWBOTA bunker", "WWBOTA bunkers"],
+};
 
-/** The "Park/summit/WWFF visits" KPI's detail: "3 parks, 2 summits, 1 WWFF reference". Programs without a noun read "N <program> references". */
+/**
+ * The "Park/summit/WWFF visits" KPI's detail: "3 parks, 2 summits, 1 WWFF reference", then "2 WWBOTA bunkers"
+ * only when there are any. Programs without a noun read "N <program> references".
+ */
 export function activationsDetail(activations: HeardProfile["activations"]): string {
   const counts = new Map<string, number>([["POTA", 0], ["SOTA", 0], ["WWFF", 0]]);
   for (const a of activations) counts.set(a.program, a.references);
@@ -192,6 +199,8 @@ export function spotRows(spots: ProfileSpot[]): RecentSpot[] {
     sota_summit_ref: null,
     wwff_reference: null,
     wwff_reference_name: null,
+    wwbota_references: null,
+    wwbota_reference_name: null,
     source: s.source,
     spotter: s.spotter,
     comment: null,

@@ -225,9 +225,9 @@ select throws_ok($$ update discord_destination_settings set line_fields = array[
   '23514', null, 'the table''s checks refuse Comment too');
 select is(app_site_url(), 'https://longlines.io', 'the site URL knob');
 select is((select array_agg(discord_source_color(s) order by o)
-           from unnest(array['pota', 'sotawatch', 'wwff', 'dxcluster', 'rbn', 'aprs']) with ordinality as t(s, o)),
-  array[3066993, 10181046, 1752220, 3447003, 15105570, 9807270],
-  'by source: POTA green, SOTA purple, WWFF teal, DX Cluster blue, RBN orange, anything else grey');
+           from unnest(array['pota', 'sotawatch', 'wwff', 'wwbota', 'dxcluster', 'rbn', 'aprs']) with ordinality as t(s, o)),
+  array[3066993, 10181046, 1752220, 15844367, 3447003, 15105570, 9807270],
+  'by source: POTA green, SOTA purple, WWFF teal, WWBOTA gold, DX Cluster blue, RBN orange, anything else grey');
 select is((select array_agg(discord_color(pg_temp.settings(jsonb_build_object('card_color', c)), (select j from spot)) order by o)
            from unnest(array['source', 'blue', 'green', 'purple', 'orange', 'red', 'grey']) with ordinality as t(c, o)),
   array[3066993, 3447003, 3066993, 10181046, 15105570, 15158332, 9807270], 'the named colors, the same for every spot');
@@ -408,7 +408,7 @@ select is((select array_agg(k order by k) from claimed c, jsonb_object_keys(c.sp
   array['band', 'base_callsign', 'callsign', 'comment', 'discord_color', 'discord_description', 'discord_footer', 'discord_grid',
         'discord_line', 'discord_style', 'discord_suppress_embeds', 'discord_title', 'discord_url', 'frequency_khz', 'id', 'mode',
         'mode_family', 'pota_location', 'pota_park_name', 'pota_reference', 'sota_summit_ref', 'source', 'spot_time', 'spotter',
-        'wwff_reference', 'wwff_reference_name'],
+        'wwbota_reference_name', 'wwbota_references', 'wwff_reference', 'wwff_reference_name'],
   'a Discord spot keeps its documented keys plus the nine discord ones');
 select results_eq(format($$ select spot ->> 'discord_line', (spot ->> 'discord_suppress_embeds')::boolean
                             from claimed where destination ->> 'id' = %L $$, (select id from plain1)),

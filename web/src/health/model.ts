@@ -11,7 +11,7 @@ export const RANGES: { id: HealthRange; label: string }[] = [
 
 /** Table order, which is also the banner's. */
 export const CHECKS: { id: CheckId; name: string; caption?: string; rule: string; title: string; delayedTitle?: string }[] = [
-  { id: "pulled", name: "Pulled sources", caption: "POTA, SOTAwatch, WWFF", rule: "Delayed after 3 min without a success", title: "Pulled sources are behind" },
+  { id: "pulled", name: "Pulled sources", caption: "POTA, SOTAwatch, WWFF, WWBOTA", rule: "Delayed after 3 min without a success", title: "Pulled sources are behind" },
   { id: "relay", name: "Relay feeds", caption: "RBN, DX Cluster, APRS-IS", rule: "Delayed after 3 min without a push", title: "A relay feed is behind" },
   { id: "match_queue", name: "Match queue", caption: "spot_events", rule: "Delayed when the oldest waits over 2 min", title: "Matching is behind" },
   { id: "delivery_queue", name: "Delivery queue", caption: "deliveries_queue", rule: "Delayed when the oldest ready waits over 2 min", title: "Outbound is slower than usual" },
@@ -52,6 +52,7 @@ const SOURCE_NAMES: Record<string, string> = {
   pota: "POTA",
   sotawatch: "SOTAwatch",
   wwff: "WWFF",
+  wwbota: "WWBOTA",
   rbn: "RBN",
   dxcluster: "DX Cluster",
   aprs: "APRS-IS",

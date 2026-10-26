@@ -80,7 +80,7 @@ export interface HealthPayload {
     expired: Series;
     latency_p50: Series;
     latency_p95: Series;
-    spots: { pota: Series; sotawatch: Series; wwff: Series; dxcluster: Series };
+    spots: { pota: Series; sotawatch: Series; wwff: Series; wwbota: Series; dxcluster: Series };
     sender_memory: Series;
     relay_memory: Series;
   };

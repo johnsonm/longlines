@@ -1,4 +1,4 @@
--- Preview seed data: a synthetic week of POTA, SOTAwatch, WWFF and RBN spots so the
+-- Preview seed data: a synthetic week of POTA, SOTAwatch, WWFF, WWBOTA and RBN spots so the
 -- Stats page (and the Sources and recent-spot views) have something to show on
 -- a Supabase preview branch or a fresh local stack, where no ingest runs.
 --
@@ -215,6 +215,34 @@ from seed_days d,
      lateral generate_series(1, 2 + g % 4) as s,
      lateral (select d.day_start + make_interval(secs => ((8 + g % 6) * 3600 + s * 400 + g * 7)::int) as spot_time) as t
 where t.spot_time < now();
+
+-- WWBOTA ----------------------------------------------------------------------
+
+-- About six bunker activations a day, European, around midday UTC, two to four
+-- spots each. One in three is an n-fer of three bunkers; the first bunker's
+-- name goes with the spot, as on the real feed.
+insert into raw_spots (source, source_spot_id, content_hash, spot_time, callsign, spotter, frequency_khz, band, mode, mode_family,
+                       comment, wwbota_references, wwbota_reference_name, raw_payload)
+select 'wwbota', 'seed-wwbota-' || d.d || '-' || g || '-' || s, md5('seed-wwbota-' || d.d || '-' || g || '-' || s), t.spot_time,
+       x.callsign,
+       case when s = 1 then x.callsign
+            else pg_temp.seed_call(pg_temp.skewed(200, 1.5, s + g), array['G', 'ON', 'HB9', 'EA', 'DL']) end,
+       pg_temp.freq(x.band, x.mode, s), x.band, x.mode, pg_temp.family(x.mode),
+       array_to_string(x.refs, ' '), x.refs,
+       (array['Seed Pillbox', 'Seed ROC Post', 'Seed Blockhouse', 'Seed Bunker'])[1 + g % 4], '{"seed": true}'
+from seed_days d,
+     lateral generate_series(1, case when d.dow in (6, 7) then 9 else 6 end) as g,
+     lateral (select (array['G', 'ON', 'HB9', 'EA'])[1 + g % 4] as pfx,
+                     (array['B/G-', 'B/ON-', 'B/HB-', 'B/EA-'])[1 + g % 4] as scheme,
+                     1 + (g * 53 + (d.d + 7) * 17) % 900 as first_ref) as pr,
+     lateral (select pg_temp.seed_call(pg_temp.skewed(40, 1.3, g), array[pr.pfx]) || '/P' as callsign,
+                     (select array_agg(pr.scheme || lpad((pr.first_ref + k)::text, 4, '0') order by k)
+                      from generate_series(0, case when g % 3 = 0 then 2 else 0 end) as k) as refs,
+                     (array['ssb', 'ssb', 'cw', 'ft8'])[1 + g % 4] as mode,
+                     (array['40m', '40m', '20m', '80m'])[1 + (g + d.d + 7) % 4] as band) as x,
+     lateral generate_series(1, 2 + g % 3) as s,
+     lateral (select d.day_start + make_interval(secs => ((10 + g % 4) * 3600 + s * 500 + g * 11)::int) as spot_time) as t
+where t.spot_time < now() - interval '5 minutes';
 
 -- RBN -------------------------------------------------------------------------
 

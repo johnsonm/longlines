@@ -3,7 +3,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(64);
+select plan(67);
 
 -- ---------------------------------------------------------------------------
 -- Sharing columns and the save keys
@@ -135,11 +135,11 @@ select is((select array(select jsonb_object_keys(p) order by 1) from s30),
   'the payload has its keys');
 select is((select p -> 'kpis' from s30),
   '{"spots": 6, "previousSpots": 1, "membersHeard": 2,
-    "activations": {"pota": 2, "sota": 1, "wwff": 1}, "places": {"parks": 2, "summits": 1}}'::jsonb,
+    "activations": {"pota": 2, "sota": 1, "wwff": 1, "wwbota": 0}, "places": {"parks": 2, "summits": 1, "bunkers": 0}}'::jsonb,
   '30 days: rolled-up and live spots, the previous period, activations per program and places');
 select is((select p -> 'kpis' from s7),
   '{"spots": 3, "previousSpots": 3, "membersHeard": 2,
-    "activations": {"pota": 1, "sota": 0, "wwff": 1}, "places": {"parks": 2, "summits": 0}}'::jsonb,
+    "activations": {"pota": 1, "sota": 0, "wwff": 1, "wwbota": 0}, "places": {"parks": 2, "summits": 0, "bunkers": 0}}'::jsonb,
   '7 days: only the last week, and the week before it');
 select is((select (p ->> 'memberCount')::int from s30), 3, 'the hidden member is not counted');
 select ok((select p::text not like '%N4GHI%' from s30), 'the hidden member appears nowhere');
@@ -310,6 +310,21 @@ select ok(not has_function_privilege('authenticated', 'public.public_group_stati
 select ok(not has_function_privilege('authenticated', 'public.cached_group_statistics(uuid, text, interval, boolean)', 'execute')
           and not has_function_privilege('authenticated', 'public.group_stats_redact(jsonb)', 'execute'),
   'clients cannot call the cache or the redaction');
+
+-- WWBOTA (20261026001000): a bunker activation counts as a WWBOTA activation and one bunker (the
+-- first of an n-fer, as spot_stream credits it), and lists under places with its program.
+insert into raw_spots (source, source_spot_id, content_hash, spot_time, callsign, spotter, frequency_khz, band, mode,
+                       mode_family, comment, wwbota_references, wwbota_reference_name, raw_payload)
+values ('wwbota', 's9', 's9', pg_temp.at(-1, '12:00:00'), 'W4ABC', 'W4ABC', 7138, '40m', 'ssb', 'phone',
+        'B/G-0001 B/G-0002', array['B/G-0001', 'B/G-0002'], 'Some Pillbox', '{}');
+create temp table wb as select group_statistics_at((select id from club), '7d', now()) as p;
+select is((select p -> 'kpis' -> 'activations' from wb), '{"pota": 1, "sota": 0, "wwff": 1, "wwbota": 1}'::jsonb,
+  'a bunker activation counts as WWBOTA');
+select is((select p -> 'kpis' -> 'places' from wb), '{"parks": 2, "summits": 0, "bunkers": 1}'::jsonb,
+  'and as one bunker, the first of the n-fer');
+select is((select e - 'by' from wb, jsonb_array_elements(p -> 'places') e where e ->> 'program' = 'WWBOTA'),
+  '{"reference": "B/G-0001", "name": "Some Pillbox", "program": "WWBOTA", "times": 1}'::jsonb,
+  'the bunker lists under places');
 
 select * from finish();
 rollback;

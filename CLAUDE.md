@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Long Lines ingests ham radio spots from POTA, SOTAwatch, WWFF, DX Cluster and the Reverse Beacon
+Long Lines ingests ham radio spots from POTA, SOTAwatch, WWFF, WWBOTA, DX Cluster and the Reverse Beacon
 Network (plus APRS-IS packets) into Supabase. Phase 1 was ingest-to-storage only; the scope
 exclusions in `docs/ARCHITECTURE.md` and the original spec are deliberate. Do not add auth, RLS,
 UI, consumers, notifications, cross-source dedup, or new sources without being asked.
@@ -65,14 +65,14 @@ Local invocation: `curl -X POST http://127.0.0.1:54321/functions/v1/ingest-pota 
 ## Architecture
 
 - `supabase/functions/_shared/ingest.ts` is the orchestrator; `ingest-pota/index.ts`,
-  `ingest-sotawatch/index.ts` and `ingest-wwff/index.ts` are three-line shells around
+  `ingest-sotawatch/index.ts`, `ingest-wwff/index.ts` and `ingest-wwbota/index.ts` are three-line shells around
   `serve_ingest.ts`.
   The other entrypoints are `Deno.serve` shells around `_shared/handlers/*.ts`, which take their
   clients and sender as arguments so tests can pass fakes (`__tests__/fake_supabase.ts`). Behavior changes go in
   `_shared`, never in the entrypoints.
 - Every function directory needs its own `deno.json`: `supabase functions deploy` bundles with it
   as the import map, not the root one. `__tests__/function_config.test.ts` fails CI without it.
-- Source adapters (`pota.ts`, `sotawatch.ts`, `wwff.ts`) implement `SourceAdapter` from `types.ts`:
+- Source adapters (`pota.ts`, `sotawatch.ts`, `wwff.ts`, `wwbota.ts`) implement `SourceAdapter` from `types.ts`:
   `parseFeed` and `normalize` are pure and tested against fixtures; only `fetchSpots`/`fetchEpoch`
   do I/O. `normalize` returns `{kind: "skip"}` for intentional drops and throws for unprocessable
   spots; the orchestrator turns throws into `ingest_failures` rows without aborting the run.
@@ -84,8 +84,8 @@ Local invocation: `curl -X POST http://127.0.0.1:54321/functions/v1/ingest-pota 
   is cross-joined into the result on purpose; an unreferenced CTE would never run.
 - Dedup is the unique constraint `(source, source_spot_id, content_hash)`. The hash field order
   per source is fixed (see `ARCHITECTURE.md`; WWFF's is `spot_time, activator, reference,
-  frequency_khz, mode, remarks`); changing it would make every existing spot look new on the next
-  run.
+  frequency_khz, mode, remarks`, WWBOTA's `time, call, freq, mode, comment`, never `type`); changing
+  it would make every existing spot look new on the next run.
 - Cron jobs read the project URL and service-role key from Vault
   (`scripts/setup-db-settings.sql` creates them once). Migrations never contain secrets.
 
@@ -193,9 +193,9 @@ The conventions are `docs/superpowers/specs/2026-10-22-strict-eslint-conventions
 - A subscription is live only while `enabled` and linked to at least one destination. Saving with
   none is allowed; `match_pending_spots` and `watched_among` both skip it, and `enabled` is kept
   so it starts once a destination is added. Keep that check in both if either changes.
-- DX Cluster and WWFF spots match only subscriptions whose `sources` lists `dxcluster` / `wwff`;
-  an empty sources list ("any source") includes neither (WWFF overlaps POTA heavily and there is no
-  cross-source dedup). The rule lives in `source_matches`. An RBN spot passes only an AND group of
+- DX Cluster, WWFF and WWBOTA spots match only subscriptions whose `sources` lists `dxcluster` /
+  `wwff` / `wwbota`; an empty sources list ("any source") includes none of them (WWFF and WWBOTA
+  overlap POTA heavily and there is no cross-source dedup). The rule lives in `source_matches`. An RBN spot passes only an AND group of
   rules that names stations (a `callsign` or `group` rule with op `is`, `rules_name_stations`).
 - The loop is `_shared/delivery/run.ts` (`runDeliveryBatch` over a `DeliveryRpc`), run only by
   the sender. It talks to the database only through `claim_deliveries`,
@@ -259,6 +259,25 @@ The conventions are `docs/superpowers/specs/2026-10-22-strict-eslint-conventions
 - Nothing in the app sets `destinations.health = 'paused'`; it is an operator tool, and the claim
   drops a paused destination's queued rows as unwanted, like `enabled = false`. To hold a queue
   and resume it, set `throttled_until`.
+
+## WWBOTA rules
+
+The design is `docs/superpowers/specs/2026-10-26-wwbota-design.md`.
+
+- The source id is `wwbota` (never `bota`, which Spothole and others use for Beaches on the Air).
+  `source_spot_id` is the feed's `time` as received: the public spot has no id. `type` (Live, QRT,
+  Test) stays out of the content hash because WWBOTA flips a spot to QRT after the fact; a `Test`
+  spot and a QRT spot without a frequency are `not_normal` skips.
+- One spot names several bunkers: `raw_spots.wwbota_references` (`text[]`, every reference in the
+  feed's order, at most `MAX_REFERENCES`) and `wwbota_reference_name` (the first bunker's). The
+  reference rule searches every bunker; `render_push_field('reference')` joins them with ", ";
+  `spot_stream` and `callsign_group_rows` take the first; the archive's string column holds all
+  of them joined with `,`. There is no `spot_source_url` for WWBOTA. Group statistics count it as
+  `kpis.activations.wwbota` and `kpis.places.bunkers` (named only when nonzero).
+- WWBOTA is opt-in like WWFF and is not a Stats peer: the snapshot has only `daily[].wwbota` and
+  `hourly[].wwbota` (optional keys, for the catalog's rates), from their own CTEs like `dx`. Do not
+  add it to `in_window`, totals, bands, countries or top lists without being asked. It stays off
+  the band map.
 
 ## Discord rules
 
@@ -472,7 +491,8 @@ The delivery side (retries, pause, attempts, rendering, Vault) is in "Delivery r
 ## Archive rules
 
 - Slice length lives only in `archive_slice_minutes(source)` (APRS-IS 5 minutes, RBN 10; POTA,
-  SOTAwatch, DX Cluster and WWFF 60). `ARCHIVE_ORDER` is pota, sotawatch, dxcluster, wwff, rbn.
+  SOTAwatch, DX Cluster, WWFF and WWBOTA 60). `ARCHIVE_ORDER` is pota, sotawatch, dxcluster, wwff,
+  wwbota, rbn.
   A slice's rows, columns and order are chosen in SQL (`archive_columns`, column arrays), never in
   TypeScript; the `archive` function only encodes Parquet, uploads and logs. One file per slice at
   `<source>/year=YYYY/month=MM/day=DD/HHMM.parquet`. A column change goes in `archive_columns` and
@@ -789,7 +809,8 @@ screens and for notification text.
 
 - Time-dependent functions take `now: Date` so tests pin the clock. The POTA and SOTAwatch
   fixtures were captured 2026-10-05 ~13:45Z, the RBN telnet fixture 2026-10-11 14:54-14:56Z, the
-  WWFF fixture (`wwff-spots.json`) 2026-10-15 ~18:27Z; tests
+  WWFF fixture (`wwff-spots.json`) 2026-10-15 ~18:27Z, the WWBOTA fixture (`wwbota-spots.json`)
+  2026-10-26 ~19:03Z; tests
   set `NOW` inside the five-minute window of the spots they expect to keep.
 - Mode canonicalization, the comment hint and `mode_family` live in `_shared/modes.ts`. SQL only
   compares strings against `mode` and `mode_family`; never re-derive the family in SQL or the web.

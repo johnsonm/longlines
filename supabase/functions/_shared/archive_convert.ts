@@ -32,7 +32,12 @@ export const MAX_SLICES_PER_RUN = 100;
  * so they are null in a converted file, as they are in the database for those
  * rows. Every other column must be present in every line.
  */
-const LATER_COLUMNS: ReadonlySet<string> = new Set(["wwff_reference", "wwff_reference_name"]);
+const LATER_COLUMNS: ReadonlySet<string> = new Set([
+  "wwff_reference",
+  "wwff_reference_name",
+  "wwbota_references",
+  "wwbota_reference_name",
+]);
 
 export interface ConvertRequest {
   after: ConvertCursor | null;

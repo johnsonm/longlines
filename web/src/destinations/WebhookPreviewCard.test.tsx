@@ -20,7 +20,7 @@ vi.mock("../lib/api", () => {
 const spot = (id: number, minutesAgo: number): RecentSpot => ({
   id, source: "pota", callsign: `K${id}ABC`, frequency_khz: 14062, mode: "cw", pota_reference: "US-0817", sota_summit_ref: null,
   wwff_reference: null, band: "20m", mode_family: "cw", comment: null, spotter: "W1AW", pota_location: null, pota_park_name: null,
-  wwff_reference_name: null, spot_time: new Date(Date.now() - minutesAgo * 60_000).toISOString(),
+  wwff_reference_name: null, wwbota_references: null, wwbota_reference_name: null, spot_time: new Date(Date.now() - minutesAgo * 60_000).toISOString(),
 });
 
 // Key order that a jsonb round trip would sort differently: time before callsign, connection before delivery_id is not alphabetical.

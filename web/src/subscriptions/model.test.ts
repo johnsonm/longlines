@@ -101,6 +101,7 @@ describe("rows and rules", () => {
     expect(fieldsFor(["sotawatch"])).toContain("reference");
     expect(fieldsFor(["wwff"])).toContain("reference");
     expect(fieldsFor(["dxcluster", "wwff"])).toContain("reference");
+    expect(fieldsFor(["wwbota"])).toContain("reference");
     expect(fieldsFor([])).toContain("reference");
     expect(fieldsFor(["rbn"])).toEqual(["callsign", "group", "band", "mode", "frequency"]);
   });
@@ -146,6 +147,7 @@ describe("sources", () => {
     expect(pickableSource("dxcluster")?.id).toBe("dxcluster");
     expect(pickableSource("aprs")).toBeNull();
     expect(pickableSource("wwff")?.id).toBe("wwff");
+    expect(pickableSource("wwbota")?.id).toBe("wwbota");
     expect(pickableSource(null)).toBeNull();
   });
 
