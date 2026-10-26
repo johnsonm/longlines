@@ -7,15 +7,18 @@ import { isLocalHost } from "../config.ts";
 import { RETRY_MAX_MS, RETRY_MIN_MS } from "../config.ts";
 import {
   clientOptions,
+  DatabaseOpenError,
   OPEN_DEADLINE_MS,
   openSenderDb,
   PROBE_TIMEOUT_MS,
+  RpcAllowlistError,
   rpcStatement,
   SENDER_RPCS,
   senderDb,
   type SqlClient,
   type SqlParam,
   sslOption,
+  TimeoutError,
   withTimeout,
 } from "../db.ts";
 
@@ -33,6 +36,12 @@ function testDatabaseUrl(): string | undefined {
 }
 
 const DATABASE_URL = testDatabaseUrl();
+
+// Rejects with whatever it is given, so a test can reject with a non-Error.
+async function rejectWith(reason: unknown): Promise<never> {
+  await Promise.resolve();
+  throw reason;
+}
 
 /** Does nothing: a promise executor that never settles, or a log that drops every line. */
 function noop(): void {}
@@ -122,13 +131,17 @@ Deno.test(
 Deno.test("rpcStatement refuses functions and parameters outside the allowlist", function (): void {
   assertThrows(
     () => rpcStatement("delay_deliveries", {}),
-    Error,
+    RpcAllowlistError,
     "not in the sender's RPC allowlist",
   );
-  assertThrows(() => rpcStatement("toString", {}), Error, "not in the sender's RPC allowlist");
+  assertThrows(
+    () => rpcStatement("toString", {}),
+    RpcAllowlistError,
+    "not in the sender's RPC allowlist",
+  );
   assertThrows(
     () => rpcStatement("claim_deliveries", { p_limit: 1, limit: 1 }),
-    Error,
+    RpcAllowlistError,
     "has no parameter limit",
   );
 });
@@ -197,6 +210,47 @@ Deno.test(
       error: "delay_deliveries is not in the sender's RPC allowlist",
     });
     assertEquals(fake.executed, []); // never reached the database
+  },
+);
+
+Deno.test(
+  "senderDb answers an argument of the wrong type with an error message, before the database",
+  async function (): Promise<void> {
+    const fake = fakeSql([], undefined);
+    const db = senderDb(fake.sql);
+    const limit = await db.rpc("claim_deliveries", { p_limit: "5", p_vt: 60 });
+    assertEquals(limit.data, null);
+    assertEquals(
+      limit.error!.startsWith("senderDb.rpc: parameter $1::int: (root): Invalid input"),
+      true,
+      limit.error!,
+    );
+    const ids = await db.rpc("mark_deliveries_sent", { p_delivery_ids: [1, "2"], p_msg_ids: [] });
+    assertEquals(ids.error!.startsWith("senderDb.rpc: parameter $1::bigint[]: 1: "), true);
+    const json = await db.rpc("record_push_results", { p_ok: [], p_errors: { a: 1n } });
+    assertEquals(json.error!.startsWith("senderDb.rpc: parameter $2::jsonb: "), true, json.error!);
+    assertEquals(fake.executed, []);
+    // A missing argument is null, which every type takes.
+    assertEquals((await db.rpc("throttle_destination", {})).error, null);
+    assertEquals(fake.executed[0]!.params, [null, null, null]);
+  },
+);
+
+Deno.test(
+  "senderDb rethrows a rejection that is not an Error",
+  async function (): Promise<void> {
+    const sql: SqlClient = {
+      unsafe: () => rejectWith("not an Error"),
+      json: (value) => ({ json: value }),
+      end: () => Promise.resolve(),
+    };
+    let caught: unknown = undefined;
+    try {
+      await senderDb(sql).rpc("delivery_queue_stats", {});
+    } catch (error) {
+      caught = error;
+    }
+    assertEquals(caught, "not an Error");
   },
 );
 
@@ -305,7 +359,7 @@ Deno.test(
   "withTimeout passes a settled value through and rejects after the timeout",
   async function (): Promise<void> {
     assertEquals(await withTimeout(Promise.resolve(1), 1_000, "slow"), 1);
-    await assertRejects(() => withTimeout(new Promise(noop), 10, "slow"), Error, "slow");
+    await assertRejects(() => withTimeout(new Promise(noop), 10, "slow"), TimeoutError, "slow");
     await assertRejects(
       () => withTimeout(Promise.reject(new Error("boom")), 1_000, "slow"),
       Error,
@@ -382,7 +436,7 @@ Deno.test(
           log: (m) => logs.push(m),
           connect,
         }),
-      Error,
+      DatabaseOpenError,
       "database probe failed: password authentication failed",
     );
     assertEquals(OPEN_DEADLINE_MS, 300_000);
@@ -402,9 +456,10 @@ Deno.test(
 );
 
 Deno.test(
-  "openSenderDb counts a probe that never answers as a failure",
+  "openSenderDb counts a probe that never answers as a failure and logs a failed close",
   async function (): Promise<void> {
     assertEquals(PROBE_TIMEOUT_MS, 30_000);
+    const logs: string[] = [];
     let ended = 0;
     const hung: SqlClient = {
       unsafe: () => new Promise(noop),
@@ -420,12 +475,35 @@ Deno.test(
           connect: () => hung,
           probeTimeoutMs: 10,
           deadlineMs: 0,
-          log: noop,
+          log: (m) => logs.push(m),
         }),
-      Error,
+      DatabaseOpenError,
       "database probe failed: no answer within 10 ms",
     );
     assertEquals(ended, 1);
+    assertEquals(logs, ["database close failed: already closed"]);
+  },
+);
+
+Deno.test(
+  "openSenderDb does not retry a probe that rejects with anything but an Error",
+  async function (): Promise<void> {
+    let attempts = 0;
+    function connect(): SqlClient {
+      attempts++;
+      return {
+        unsafe: () => rejectWith("not an Error"),
+        json: (value) => ({ json: value }),
+        end: () => Promise.resolve(),
+      };
+    }
+    let caught: unknown = undefined;
+    try {
+      await openSenderDb({ databaseUrl: POOLER, databaseSsl: false }, { connect, log: noop });
+    } catch (error) {
+      caught = error;
+    }
+    assertEquals([caught, attempts], ["not an Error", 1]);
   },
 );
 
