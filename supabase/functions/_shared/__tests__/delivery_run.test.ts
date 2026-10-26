@@ -12,6 +12,7 @@ import {
 } from "../delivery/run.ts";
 import { DISCORD_MESSAGES_PER_RUN, sendDiscord, type SendResult } from "../delivery/send.ts";
 import type { DeliveryDestination, PendingDelivery } from "../delivery/types.ts";
+import { ValidationError } from "../errors.ts";
 
 const NOW = new Date("2026-10-05T14:00:00Z");
 
@@ -186,6 +187,84 @@ Deno.test(
     );
     assertEquals(sends, 0);
     assertEquals(fake.calls.length, 1);
+  },
+);
+
+Deno.test(
+  "runDeliveryBatch throws ClaimError when the claim answers with something other than rows",
+  async function (): Promise<void> {
+    let sends = 0;
+    function countingSend(): Promise<SendResult> {
+      sends++;
+      return allSent(dest("a", {}), []);
+    }
+    for (const data of ["rows", { msg_id: 1 }, [1, 2]]) {
+      const fake = fakeRpc({ claim_deliveries: { data } });
+      const error = await assertRejects(
+        () => runDeliveryBatch(fake.db, countingSend, NOW, {}),
+        ClaimError,
+        "runDeliveryBatch: claim_deliveries result: ",
+      );
+      assertEquals(error.cause instanceof ValidationError, true);
+      assertEquals(sends, 0);
+      assertEquals(fake.calls.length, 1);
+    }
+  },
+);
+
+Deno.test(
+  "runDeliveryBatch leaves a claimed row of the wrong shape unsent and sends the rest",
+  async function (): Promise<void> {
+    const a = dest("a", {});
+    const b = dest("b", {});
+    const broken = Object.assign({}, row(2, a, {}), { attempts: "0" });
+    const out = await run(
+      [row(1, a, {}), broken, row(3, b, {})],
+      allSent,
+      {},
+      serialOptions(),
+    );
+    assertEquals(out.sent, [{ destination: "a", ids: [1] }, { destination: "b", ids: [3] }]);
+    assertEquals(
+      [out.result.claimed, out.result.sent, out.result.failed, out.result.unattempted],
+      [3, 2, 0, 1],
+    );
+    assertEquals(out.result.errors, [
+      "runDeliveryBatch: claim_deliveries row 1: attempts: Invalid input: expected number, received string",
+    ]);
+    // Never marked: its message reappears after the visibility timeout.
+    assertEquals(out.calls.slice(1), [
+      { fn: "mark_deliveries_sent", args: { p_delivery_ids: [1, 3], p_msg_ids: [10, 30] } },
+    ]);
+  },
+);
+
+Deno.test(
+  "runDeliveryBatch keeps the claim's keys a destination or spot gains in a later migration",
+  async function (): Promise<void> {
+    const a = dest("a", {});
+    const extended = row(1, a, {});
+    const seen: unknown[] = [];
+    function recording(
+      d: DeliveryDestination,
+      batch: readonly PendingDelivery[],
+    ): Promise<SendResult> {
+      seen.push(d, batch[0]!.spot);
+      return allSent(d, batch);
+    }
+    const fake = fakeRpc({
+      claim_deliveries: {
+        data: [
+          Object.assign({}, extended, {
+            destination: Object.assign({}, a, { url_generation: 3 }),
+            spot: Object.assign({}, extended.spot, { new_column: "x" }),
+          }),
+        ],
+      },
+    });
+    await runDeliveryBatch(fake.db, recording, NOW, {});
+    assertEquals((seen[0] as Record<string, unknown>)["url_generation"], 3);
+    assertEquals((seen[1] as Record<string, unknown>)["new_column"], "x");
   },
 );
 
