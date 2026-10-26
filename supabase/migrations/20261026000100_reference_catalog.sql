@@ -29,7 +29,7 @@ create table reference_catalog (
   active     boolean not null,           -- POTA active = 1, SOTA ValidTo not past, WWFF status active
   location   text,                       -- POTA locationDesc: US-NC,US-VA
   region     text,                       -- SOTA association and region, WWFF state or region
-  country    text,                       -- WWFF
+  country    text,                       -- WWFF: cty.dat's entity for its dxcc prefix, else its country
   latitude   numeric,
   longitude  numeric,
   grid       text,                       -- SOTA's derived from its coordinates
@@ -91,9 +91,10 @@ alter table reference_catalog enable row level security;
 alter table reference_catalog_loads enable row level security;
 alter table reference_catalog_stage enable row level security;
 revoke all on reference_catalog, reference_catalog_loads, reference_catalog_stage from anon, authenticated;
+revoke all on sequence reference_catalog_loads_id_seq from anon, authenticated;
 
 -- Per program, the last applied load and the newest load (either null). The relay decides from it
--- whether to download a list: {"pota": {"applied": {version, applied_at, rows} | null,
+-- whether to download a list: {"pota": {"applied": {version, started_at, applied_at, rows} | null,
 -- "newest": {id, version, state, rows, started_at, finished_at} | null}, "sota": ..., "wwff": ...}.
 create function public.reference_load_status()
 returns jsonb
@@ -103,8 +104,8 @@ security definer
 set search_path = public
 as $$
   select jsonb_object_agg(p.program, jsonb_build_object(
-           'applied', (select jsonb_build_object('version', l.version, 'applied_at', l.applied_at,
-                                                 'rows', l.staged_rows)
+           'applied', (select jsonb_build_object('version', l.version, 'started_at', l.started_at,
+                                                 'applied_at', l.applied_at, 'rows', l.staged_rows)
                        from reference_catalog_loads l
                        where l.program = p.program and l.state = 'applied'
                        order by l.id desc
@@ -163,6 +164,13 @@ comment on function public.begin_reference_load(text, text) is
 -- staging load. A reference already staged in this load (a retried batch, or a list that names one
 -- twice) is skipped. Returns the load's rows staged so far, kept on the load row in the same
 -- transaction, so a retry after a lost reply still reports the right total.
+--
+-- A WWFF row's country is cty.dat's entity for its dxcc prefix (cty_lookup, once per distinct
+-- prefix in the batch), and the directory's own country only when that finds none: the directory
+-- leaves the column blank for most references and spells the rest several ways (U.S.A., United
+-- States). Only a plain prefix is looked up (VP8-SG, SV/A and 3Y/P name entities cty.dat would
+-- resolve to their parents), and AN, WWFF's prefix for Antarctica, is Spain's to cty.dat, so it is
+-- looked up as CE9, cty.dat's Antarctica. dxcc itself is not stored.
 create function public.stage_reference_rows(p_load bigint, p_rows jsonb)
 returns integer
 language plpgsql
@@ -184,14 +192,25 @@ begin
     raise exception 'stage_reference_rows: rows must be an array';
   end if;
 
+  with x as (
+    select r.*, upper(trim(r.dxcc)) as prefix
+    from jsonb_to_recordset(p_rows) as r(
+      reference text, name text, active boolean, location text, region text, country text,
+      dxcc text, latitude numeric, longitude numeric, grid text, altitude_m integer, points integer,
+      valid_from date, valid_to date)
+  ),
+  entity as (
+    select d.prefix,
+           (select c.name from cty_lookup(case d.prefix when 'AN' then 'CE9' else d.prefix end) as c) as name
+    from (select distinct prefix from x where prefix ~ '^[A-Z0-9]+$') as d
+  )
   insert into reference_catalog_stage (load_id, program, reference, name, active, location, region, country,
                                        latitude, longitude, grid, altitude_m, points, valid_from, valid_to)
-  select p_load, v_program, upper(trim(x.reference)), x.name, x.active, x.location, x.region, x.country,
+  select p_load, v_program, upper(trim(x.reference)), x.name, x.active, x.location, x.region,
+         coalesce(entity.name, x.country),
          x.latitude, x.longitude, x.grid, x.altitude_m, x.points, x.valid_from, x.valid_to
-  from jsonb_to_recordset(p_rows) as x(
-    reference text, name text, active boolean, location text, region text, country text,
-    latitude numeric, longitude numeric, grid text, altitude_m integer, points integer,
-    valid_from date, valid_to date)
+  from x
+  left join entity on entity.prefix = x.prefix
   on conflict (load_id, reference) do nothing;
   get diagnostics v_inserted = row_count;
 
@@ -301,9 +320,12 @@ comment on function public.abandon_reference_load(bigint, text) is
 -- only from pg_cron, under the cron session's 2-minute statement_timeout, never through the API
 -- (whose 8 s timeout a swap could outlast), which is why the relay's finish does not swap.
 --
--- When a run swaps nothing while some program's newest load was already refused when it started
--- (newer than that program's last applied load), it raises: finish_reference_load committed the
--- refusal, and the failed run shows on /health's job check every hour until a good load lands.
+-- When a run neither swaps nor refuses anything while some program's newest load was already
+-- refused when it started (newer than that program's last applied load), it raises:
+-- finish_reference_load committed the refusal, and the failed run shows on /health's job check
+-- every hour until a good load lands. A run that refused a load itself does not raise, since the
+-- raise would roll that refusal back and leave the load finished (which the relay waits on) for as
+-- long as the other program stays refused; the next run raises for both.
 create function public.apply_reference_loads()
 returns void
 language plpgsql
@@ -317,6 +339,7 @@ declare
   v_floor integer;
   v_rows integer;
   v_swapped integer := 0;
+  v_refused_now boolean := false;
   v_refused text[];
 begin
   -- Programs whose newest load is a refusal newer than their last applied load, before this run.
@@ -364,6 +387,7 @@ begin
     exception when others then
       update reference_catalog_loads set state = 'refused', error = left(sqlerrm, 1000)
        where id = v_load.id;
+      v_refused_now := true;
     end;
 
     update reference_catalog_loads set state = 'abandoned', error = 'superseded by load ' || v_load.id
@@ -373,7 +397,7 @@ begin
     where l.id = s.load_id and l.program = v_program and l.id <= v_load.id;
   end loop;
 
-  if v_swapped = 0 and v_refused is not null then
+  if v_swapped = 0 and not v_refused_now and v_refused is not null then
     raise exception 'apply_reference_loads: the newest % list load was refused; the old list stays',
       array_to_string(v_refused, ', ');
   end if;
@@ -382,7 +406,7 @@ $$;
 
 comment on function public.apply_reference_loads() is
   'Swaps each program''s newest finished reference list load into reference_catalog (pg_cron, hourly). '
-  'Raises when it swaps nothing while a program''s newest load is refused.';
+  'Raises when it swaps and refuses nothing while a program''s newest load is refused.';
 
 revoke all on function public.reference_load_status() from public, anon, authenticated;
 revoke all on function public.begin_reference_load(text, text) from public, anon, authenticated;

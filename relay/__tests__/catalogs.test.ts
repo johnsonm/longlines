@@ -46,7 +46,7 @@ const FILES: Record<ReferenceProgram, string> = {
   sota: fixture("sota-summits.csv"),
   wwff: fixture("wwff-directory.csv"),
 };
-const ROWS: Record<ReferenceProgram, number> = { pota: 22, sota: 16, wwff: 21 };
+const ROWS: Record<ReferenceProgram, number> = { pota: 22, sota: 16, wwff: 26 };
 
 interface ServedRequest {
   method: string;
@@ -229,6 +229,10 @@ function hoursAgo(hours: number): string {
   return new Date(NOW.getTime() - hours * 3_600_000).toISOString();
 }
 
+/**
+ * A program's loads. The applied load began `hoursAgo` and was applied an hour later (the
+ * download and the wait for the hourly swap).
+ */
 function program(
   applied: { version: string; hoursAgo: number } | null,
   newest: { version: string; state: string; hoursAgo: number } | null,
@@ -237,7 +241,8 @@ function program(
   if (applied !== null) {
     status.applied = {
       version: applied.version,
-      applied_at: hoursAgo(applied.hoursAgo),
+      started_at: hoursAgo(applied.hoursAgo),
+      applied_at: hoursAgo(applied.hoursAgo - 1),
       rows: 1,
     };
   }
@@ -259,7 +264,8 @@ Deno.test("shouldLoad waits a week, takes only a newer file and backs off a fail
   const retry = RETRY_AFTER_MS / 3_600_000;
   // Never loaded: load.
   assertEquals(shouldLoad(VERSION, program(null, null), NOW), true);
-  // Applied a week ago, an older file: load; less than a week ago: wait.
+  // Begun a week ago and applied under a week ago, an older file: load, so the seventh daily
+  // check after the load takes it (not the eighth); begun less than a week ago: wait.
   const applied = { version: OLDER, hoursAgo: week };
   const appliedLoad = { version: OLDER, state: "applied", hoursAgo: week };
   assertEquals(shouldLoad(VERSION, program(applied, appliedLoad), NOW), true);
@@ -875,9 +881,10 @@ Deno.test("the relay loads the reference lists through load-references with its 
   );
   try {
     const deadline = Date.now() + 5_000;
-    // The log follows the finish response, so waiting on the request alone races it.
+    // The log follows the finish response, so waiting on the request alone races it. Wait for
+    // that line, not any WWFF line: "wwff: loading ..." comes before the download.
     while (
-      !logs.some((m) => m.startsWith("[catalogs] wwff: ")) &&
+      !logs.includes(`[catalogs] wwff: ${ROWS.wwff} staged, 1 skipped, finished`) &&
       Date.now() < deadline
     ) {
       await new Promise((r) => setTimeout(r, 10));

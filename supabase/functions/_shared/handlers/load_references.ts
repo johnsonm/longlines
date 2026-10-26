@@ -43,6 +43,7 @@ const rowSchema: z.ZodType<ReferenceCatalogRow> = z.strictObject({
   location: nullableText,
   region: nullableText,
   country: nullableText,
+  dxcc: nullableText,
   latitude: nullableNumber,
   longitude: nullableNumber,
   grid: nullableText,

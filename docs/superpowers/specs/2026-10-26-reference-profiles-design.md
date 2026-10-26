@@ -106,14 +106,22 @@ Brad decided on 2026-10-26:
     activator, frequency, mode, band and time, the callsign profile's "On the air now" chip
     (`onAirNow`), and that activator's spots and bands there that UTC day. It comes from the live
     read (the newest spot of the last 14 days); older than that, the band is absent and the KPI
-    cards carry the history.
+    cards carry the history. The "Spotted {n} times today" line appears only when that day is
+    today (UTC); for an earlier day the band shows the date and leaves the line out (canvas
+    "States", the W4C/CM-001 header).
 13. **A catalog row that is not active is shown as retired**, with the date when the program
     gives one (SOTA `ValidTo`, WWFF `validTo`). Its page keeps its history and has no "Get alerts"
     button. A reference outside the catalog (decision 8) has no name, no program site button and no
     "About" card; its alerts button stays, since spots still arrive for it.
 14. **"Get alerts" opens a new connection for the reference**: `/connections/new` with the
-    program's source and a `reference contains` rule for the reference, the way the callsign
-    profile prefills a `callsign is` rule. Signed out it is "Sign in to get alerts".
+    program's source and a rule that matches that reference only, the way the callsign profile
+    prefills a `callsign is` rule. Signed out it is "Sign in to get alerts". The reference field
+    has only `contains` today, a substring test over all of a spot's references, so a
+    `reference contains US-1000` rule also matches US-10000 to US-10009 (1,164 POTA references are
+    a prefix of another). The PR that builds the button therefore adds an exact `reference is` op
+    (a value equal to one of the spot's references, case-insensitive) in
+    `normalize_subscription_rules`, `rule_matches`, `docs/openapi.yaml` and the rule builder, and
+    prefills `reference is`. *(Amended in PR 2 review; Brad to confirm before that PR.)*
 
 ## Schema
 
@@ -128,13 +136,30 @@ Brad decided on 2026-10-26:
   preview shows; no raw upstream row. *(About 350,000 rows; the database is close to the
   `/health` disk threshold, so the spec keeps the row narrow.)*
 - `reference_catalog_stage` (same columns plus `load_id`) and `reference_catalog_loads` (one row
-  per load: program, upstream `Last-Modified`, rows staged, state `staging` / `applied` /
-  `refused`, timestamps), modeled on the license staging tables
-  (`20261012000050_callsign_licenses.sql`).
-- `begin_reference_load(program, version)`, `stage_reference_rows(load_id, rows jsonb)`,
-  `finish_reference_load(load_id, rows)`: called only by `load-references`, service role only.
-- `apply_reference_loads()`: pg_cron hourly (`apply-reference-loads`), swaps each finished stage in
-  per program in one transaction when decision 3's floor holds, else marks it refused.
+  per load: program, upstream `Last-Modified`, rows staged, state, started, finished and applied
+  times, and the error of a refused or abandoned load), modeled on the license staging tables
+  (`20261012000050_callsign_licenses.sql`). States: `staging` (taking batches), `finished` (complete
+  and over the floor, waiting for the swap), `applied`, `refused` (decision 3) and `abandoned`
+  (the relay gave up, or a newer load or a newer finished load superseded it).
+- Called only by `load-references`, service role only:
+  `reference_load_status()` (per program, the last applied load with its version, start, apply
+  time and rows, and the newest load; the relay decides from it whether to download),
+  `begin_reference_load(program, version)` (abandons the program's open staging loads),
+  `stage_reference_rows(load_id, rows jsonb)` (returns the load's running total, so a retried
+  batch counts once), `finish_reference_load(load_id, rows)` and
+  `abandon_reference_load(load_id, error)`.
+- Decision 3 lives in `finish_reference_load`: it answers `refused` when the staged count differs
+  from what the relay sent (a lost batch) or is under `reference_load_floor(program)` (90% of the
+  program's current rows, 10,000 on a first load), and commits the refusal (it does not raise),
+  deleting the staged rows; otherwise `finished`. The relay never downloads a refused version
+  again; a newer file is loaded as usual.
+- `apply_reference_loads()`: pg_cron hourly (`apply-reference-loads`, :55). Per program, in its
+  own subtransaction, it swaps the newest finished load in (set-based: one delete and one insert,
+  which outlast the API's 8 s timeout for SOTA, hence cron), after checking the stage count and the
+  floor again (a failure refuses that load without undoing another program's swap). Older finished
+  loads of the program are superseded and the stage rows deleted. A run that neither swaps nor
+  refuses anything while some program's newest load is refused raises, so the job fails on
+  `/health` until a good load lands.
 - Per program, the mapping from file columns (all in `_shared/reference_catalog.ts`):
 
   | Column | POTA | SOTA | WWFF |
@@ -143,16 +168,26 @@ Brad decided on 2026-10-26:
   | name | `name` | `SummitName` | `name` |
   | active | `active = 1` | `ValidTo` not past | `status = active` |
   | location | `locationDesc` | | |
-  | region | | `AssociationName`, `RegionName` | `state`, `region` |
-  | country | | | `country` |
+  | region | | `AssociationName`, `RegionName` | `state` when a subdivision, else `region` |
+  | country | | | `dxcc` through cty.dat, else `country` |
   | latitude, longitude | `latitude`, `longitude` | `Latitude`, `Longitude` | `latitude`, `longitude` |
-  | grid | `grid` | from `Latitude`, `Longitude` | `iaruLocator` |
+  | grid | `grid` | from `Latitude`, `Longitude` | `iaruLocator` (dashes and spaces around it dropped, an extended locator cut to six) |
   | altitude_m, points | | `AltM`, `Points` | |
   | valid_from, valid_to | | `ValidFrom`, `ValidTo` (DD/MM/YYYY) | `validFrom`, `validTo` (`0000-00-00` is none) |
 
   The SOTA file starts with a title line before its header. SOTA has no locator column; the
   parser derives the Maidenhead locator from the coordinates at the length POTA's file uses, so
   the header's grid chip works for every program.
+
+  WWFF's `state` is a subdivision (`K-PA`, `VK-VIC`) or a prefix (the `dxcc` again, `R` for
+  `RA`, `TA` for `TA2`) or a placeholder (`K-???`); only a subdivision is used, else the free-text
+  `region`. WWFF's `country` is blank for about 80% of the directory and spelled several ways
+  where present (`U.S.A.`, `United States`), so the country is cty.dat's entity for the reference's
+  `dxcc` prefix, resolved in SQL (`cty_lookup` in `stage_reference_rows`, once per distinct prefix;
+  TypeScript never resolves a call), and the directory's `country` only when that finds none. Only
+  a plain prefix is looked up (`VP8-SG`, `SV/A` and `3Y/P` would resolve to their parent entities),
+  and `AN`, WWFF's prefix for Antarctica, which cty.dat gives to Spain, is looked up as `CE9`. The
+  parser passes `dxcc` in the row; it is not stored.
 
 ### Rollup (PR 3)
 
@@ -229,10 +264,12 @@ Brad decided on 2026-10-26:
 ## Relay
 
 `relay/catalogs.ts` (PR 2), started from `relay/relay.ts` beside the license load. Once a day it
-asks each file's `Last-Modified` (a HEAD with User-Agent); when a program's last applied load is
-seven days old and the file is newer, it streams the file, parses rows with
+asks each file's `Last-Modified` (a HEAD with User-Agent); when a program's last applied load
+began seven days ago (its start, not its apply time, which the hourly swap delays past the seventh
+daily check) and the file is newer, it streams the file, parses rows with
 `_shared/reference_catalog.ts`, and posts batches to `load-references`. One program at a time,
-never more than one download open. No test downloads a list; tests serve fixtures cut from the real
+never more than one download open. A load that did not finish (staging or abandoned) is retried
+twelve hours after it started, and a load waiting to be swapped in goes first. No test downloads a list; tests serve fixtures cut from the real
 files from a local server, as the license tests do.
 
 ## Web
@@ -335,7 +372,9 @@ Header card:
   activator in large type linked to its profile, outlined chips for frequency (`14062.0 kHz`),
   mode and band, the time (`12 min ago (18:51 UTC)`, the callsign profile's `lastHeardWhen`), and
   `Spotted {n} times today, on {bands}.` (`Spotted 18 times today, on 20m and 40m.`; `once` for one
-  spot). The phone layout leaves out that last line.
+  spot), only when the newest spot is from today (UTC); for an earlier day the time is the date
+  (`Oct 12 (15:02 UTC)`) and the line is left out (decision 12). The phone layout leaves out that
+  last line.
 
 KPI cards: `Activations` / `Since Long Lines started`; `Activators` / `Different callsigns`;
 `Spots` / `All time`; `First activated` / the date (`Nov 2, 2025`) / `By {call}`.
@@ -419,6 +458,9 @@ menu link each reference to its page. Nothing else about them changes.
   - SOTA: `SOTA summit in {association}, {region}. {altitude} m, {points} points. {n} activations
     on Long Lines, last on {Mon D, YYYY}.`
   - WWFF: `WWFF reference in {country}. {n} activations on Long Lines, last on {Mon D, YYYY}.`
+    Without a country (a prefix cty.dat cannot name and a blank directory column, under a
+    hundred references) the first sentence is `WWFF reference.`, and the header and search line
+    leave the country out.
   - Never activated: the first sentence, then `No activations on Long Lines yet.`
   - Outside the list: `Spotted as a {PROGRAM} {kind}. {n} activations on Long Lines, last on {Mon
     D, YYYY}.`

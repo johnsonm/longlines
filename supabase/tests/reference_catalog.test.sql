@@ -1,10 +1,11 @@
 -- pgTAP: reference list loads (20261026000100). Batches stage, finish refuses an incomplete stage
 -- or one below the floor (decision 3) and commits the refusal, apply swaps a finished stage into
 -- reference_catalog per program, raises when it swaps nothing while a program's newest load is
--- refused, and clients can touch none of it.
+-- refused (but not when it refused a load itself), WWFF countries come from cty.dat, and clients
+-- can touch none of it.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(67);
+select plan(77);
 
 delete from reference_catalog;
 delete from reference_catalog_loads;
@@ -76,8 +77,11 @@ select is((select (state, staged_rows, applied_at is not null)::text from refere
            where id = (select id from loads where name = 'pota2')),
   '(applied,10000,t)', 'the load is applied with its row count');
 select is((select count(*) from reference_catalog_stage), 0::bigint, 'apply deletes the applied stage');
-select is((reference_load_status() -> 'pota' -> 'applied') - 'applied_at',
+select is((reference_load_status() -> 'pota' -> 'applied') - 'applied_at' - 'started_at',
   '{"version": "Mon, 26 Oct 2026 04:00:00 GMT", "rows": 10000}'::jsonb, 'status reports the applied load');
+select is((reference_load_status() #>> '{pota,applied,started_at}')::timestamptz,
+  (select started_at from reference_catalog_loads where id = (select id from loads where name = 'pota2')),
+  'and when it started, which the relay measures the week from');
 select is(reference_load_status() #>> '{pota,newest,state}', 'applied', 'the newest load is the applied one');
 select lives_ok($$select apply_reference_loads()$$,
   'apply is a no-op once the newest load is applied (an older refusal does not count)');
@@ -147,6 +151,52 @@ select throws_ok($$select apply_reference_loads()$$, 'P0001',
   'apply raises while the newest loads are refused');
 select is((select count(*) from reference_catalog where program = 'pota'), 10000::bigint, 'the old list stays');
 
+-- A WWFF row's country is cty.dat's entity for its dxcc prefix ----------------------------------
+
+delete from cty_prefixes;
+delete from cty_entities;
+select load_cty('test',
+  '[{"prefix":"K","name":"United States","continent":"NA","cq_zone":5,"itu_zone":8,"lat":37.6,"lon":-91.87},
+    {"prefix":"EA","name":"Spain","continent":"EU","cq_zone":14,"itu_zone":37,"lat":40.37,"lon":-4.88},
+    {"prefix":"CE9","name":"Antarctica","continent":"SA","cq_zone":13,"itu_zone":74,"lat":-90.0,"lon":0.0},
+    {"prefix":"VP8","name":"Falkland Islands","continent":"SA","cq_zone":13,"itu_zone":16,"lat":-51.63,"lon":-58.72}]',
+  '[{"pattern":"K","exact":false,"entity":"K","continent":"NA","cq_zone":5,"itu_zone":8},
+    {"pattern":"EA","exact":false,"entity":"EA","continent":"EU","cq_zone":14,"itu_zone":37},
+    {"pattern":"AN","exact":false,"entity":"EA","continent":"EU","cq_zone":14,"itu_zone":37},
+    {"pattern":"CE9","exact":false,"entity":"CE9","continent":"SA","cq_zone":13,"itu_zone":74},
+    {"pattern":"VP8","exact":false,"entity":"VP8","continent":"SA","cq_zone":13,"itu_zone":16}]');
+
+insert into loads values ('wwff4', begin_reference_load('wwff', 'w4'));
+select is(stage_reference_rows((select id from loads where name = 'wwff4'),
+  '[{"reference": "kff-6101", "active": true, "dxcc": "K", "country": null},
+    {"reference": "KFF-0001", "active": true, "dxcc": " k ", "country": "U.S.A."},
+    {"reference": "ANFF-0001", "active": true, "dxcc": "AN", "country": null},
+    {"reference": "VP8FF-0001", "active": true, "dxcc": "VP8-SG", "country": "South Georgia Is."},
+    {"reference": "ZZFF-0001", "active": true, "dxcc": "ZZ", "country": "Nowhere"},
+    {"reference": "ZZFF-0002", "active": true, "dxcc": null, "country": null}]'), 6,
+  'WWFF rows with a dxcc prefix stage');
+select is((select array_agg(reference || '=' || coalesce(country, 'null') order by reference)::text
+           from reference_catalog_stage where load_id = (select id from loads where name = 'wwff4')),
+  '{ANFF-0001=Antarctica,"KFF-0001=United States","KFF-6101=United States","VP8FF-0001=South Georgia Is.",ZZFF-0001=Nowhere,ZZFF-0002=null}',
+  'the country is cty.dat''s entity for the prefix (AN as Antarctica), else the directory''s');
+
+-- A run that refuses a load itself commits the refusal, even while another program is refused --
+
+select is(stage_reference_rows((select id from loads where name = 'wwff4'), pg_temp.ref_rows('kff-', 10001, 19994)),
+  10000, 'a second WWFF load stages');
+select is(finish_reference_load((select id from loads where name = 'wwff4'), 10000), 'finished', 'and finishes');
+delete from reference_catalog_stage where load_id = (select id from loads where name = 'wwff4') and reference = 'KFF-10001';
+select lives_ok($$select apply_reference_loads()$$,
+  'apply does not raise for the refused POTA load in a run that refused WWFF''s');
+select is((select (state, error)::text from reference_catalog_loads where id = (select id from loads where name = 'wwff4')),
+  format('(refused,"staging no longer matches load %s (9999 rows staged of 10000)")',
+         (select id from loads where name = 'wwff4')),
+  'so the WWFF refusal stays');
+select is((select count(*) from reference_catalog_stage), 0::bigint, 'and its stage is deleted');
+select throws_ok($$select apply_reference_loads()$$, 'P0001',
+  'apply_reference_loads: the newest pota, wwff list load was refused; the old list stays',
+  'the next run raises for both');
+
 -- A refused program does not block another's swap -----------------------------------------------
 
 insert into loads values ('sota1', begin_reference_load('sota', 's1'));
@@ -170,7 +220,7 @@ select is((select row(name, active, location, region, country, latitude, longitu
 select is((select (active, valid_to)::text from reference_catalog where reference = 'W4C/WM-099'),
   '(f,2019-12-31)', 'a retired summit keeps its date');
 select throws_ok($$select apply_reference_loads()$$, 'P0001',
-  'apply_reference_loads: the newest pota list load was refused; the old list stays',
+  'apply_reference_loads: the newest pota, wwff list load was refused; the old list stays',
   'the next run swaps nothing and raises again');
 
 -- The newest of two finished loads wins -------------------------------------------------------
@@ -199,6 +249,10 @@ select is_empty(
       unnest(array['reference_catalog', 'reference_catalog_loads', 'reference_catalog_stage']) as t
     where has_table_privilege(r, t, 'select, insert, update, delete')$$,
   'clients have no privilege on the tables');
+select is_empty(
+  $$select r from unnest(array['anon', 'authenticated']) as r
+    where has_sequence_privilege(r, 'reference_catalog_loads_id_seq', 'usage, select, update')$$,
+  'clients have no privilege on the loads sequence');
 select is_empty(
   $$select r || ' ' || f from unnest(array['anon', 'authenticated']) as r,
       unnest(array['reference_load_status()', 'begin_reference_load(text, text)',

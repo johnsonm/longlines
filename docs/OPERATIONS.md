@@ -1442,9 +1442,9 @@ select reference_load_status();
 
 ## Is it current?
 
-Each program's last `applied` load should have `applied_at` under about eight days old (the relay
-reloads a list a week after it was applied, once its `Last-Modified` is newer; it checks once a
-day). Relay logs show each step with `[catalogs]` (`fly logs`):
+Each program's last `applied` load should have `started_at` under about eight days old (the relay
+reloads a list a week after its last applied load started, once its `Last-Modified` is newer; it
+checks once a day). Relay logs show each step with `[catalogs]` (`fly logs`):
 
 - `<program>: loading <url> (<Last-Modified>)`, then `<program>: N staged, M skipped, finished`.
   A few skips are normal (WWFF repeats its header row partway down the file).
@@ -1458,8 +1458,8 @@ day). Relay logs show each step with `[catalogs]` (`fly logs`):
   usual.
 
 While a program's newest load is refused, every `apply-reference-loads` run that swaps nothing
-fails with `apply_reference_loads: the newest <program> list load was refused`, so `/health`'s
-Scheduled jobs card shows it until a good load lands. A real shrink of a program's list (more than
+(and refuses nothing itself) fails with `apply_reference_loads: the newest <program> list load was
+refused`, so `/health`'s Scheduled jobs card shows it until a good load lands. A real shrink of a program's list (more than
 10% of it removed at once) is refused the same way: a refusal deletes its staged rows, so nothing
 can be marked through by hand. The floor lives only in `reference_load_floor(program)`; changing
 it is a migration.

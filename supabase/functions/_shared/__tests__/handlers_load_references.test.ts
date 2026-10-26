@@ -58,6 +58,7 @@ const ROW: ReferenceCatalogRow = {
   location: null,
   region: "USA - Carolinas, NC-Central Mountains",
   country: null,
+  dxcc: null,
   latitude: 35.7648,
   longitude: -82.2652,
   grid: "EM85us",
@@ -72,6 +73,7 @@ const STATUS = {
   pota: {
     applied: {
       version: "Mon, 19 Oct 2026 07:15:20 GMT",
+      started_at: "2026-10-19T08:00:00+00:00",
       applied_at: "2026-10-19T08:55:00+00:00",
       rows: 99122,
     },

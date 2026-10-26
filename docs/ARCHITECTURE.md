@@ -1130,7 +1130,8 @@ and points, and the valid dates. No raw upstream row is kept.
   `summitslist.csv`, WWFF `wwff_directory.csv`), too much to parse in one Edge Function request,
   so the relay loads them (`relay/catalogs.ts`), the way it loads the FCC licenses. Once a day it
   HEADs each list with its User-Agent. A program's list is downloaded when its last applied load
-  is at least seven days old and the file's `Last-Modified` is newer (`reference_load_status`);
+  began at least seven days ago (its start, not `applied_at`, which the hourly swap puts after the
+  seventh daily check) and the file's `Last-Modified` is newer (`reference_load_status`);
   POTA's file changes daily, so the week is what keeps it to one download per program a week. One
   program at a time, so at most one download is open. A version whose newest load was refused,
   finished or applied is never downloaded again, and a load that did not finish is retried after
@@ -1140,7 +1141,14 @@ and points, and the valid dates. No raw upstream row is kept.
   position; SOTA's title line before its header is skipped. An empty value or `-` is null,
   coordinates of 0, 0 are none, and SOTA's grid is derived from its coordinates at the length
   POTA's file uses. A row whose reference is not letters and digits joined by `/` or `-` is
-  counted as a skip.
+  counted as a skip. WWFF's region is its `state` only when that names a subdivision (`K-PA`, not
+  `R` or `K-???`), else its `region`; its grid drops dashes and spaces around the locator and cuts
+  an extended one to six characters. Each record's length counts its separators, so a run of empty
+  fields fails the load instead of growing without bound.
+- **WWFF countries.** The directory leaves `country` blank for about 80% of its references, so
+  `stage_reference_rows` takes cty.dat's entity for the row's `dxcc` prefix (`cty_lookup` once per
+  distinct plain prefix in the batch; `AN`, WWFF's Antarctica, is looked up as `CE9`) and the
+  directory's `country` only when that finds none. The parser passes `dxcc`; it is not stored.
 - **Staging.** The relay posts 2,000 rows per request to `load-references` (relay secret,
   `verify_jwt = false`; the function accepts up to 5,000). `begin_reference_load` abandons the
   program's open loads. `stage_reference_rows` skips a reference already staged in the load and
@@ -1158,8 +1166,10 @@ and points, and the valid dates. No raw upstream row is kept.
   count and the floor again, deletes the program's rows and inserts the stage set-based, so a
   reader sees the old list or the new one. SOTA's ~180,000 rows take a few seconds, which fits
   the cron session but not the API's 8 s statement timeout, so the swap is not an RPC. When a run
-  swaps nothing while some program's newest load is refused, it raises, so `/health`'s Scheduled
-  jobs card shows the job failing until a good load lands.
+  neither swaps nor refuses anything while some program's newest load is refused, it raises, so
+  `/health`'s Scheduled jobs card shows the job failing until a good load lands. A run that refused
+  a load itself commits instead: raising would roll that refusal back and leave the load
+  `finished`, which the relay waits on, for as long as the other program stays refused.
 - **Access.** Service-role only: the three tables (RLS on, no policies) and every RPC. Clients
   will read the catalog only through the reference profile (PR 4).
 

@@ -1,7 +1,7 @@
 // The weekly reference list load (decision 2 of
 // docs/superpowers/specs/2026-10-26-reference-profiles-design.md). Once a day the relay HEADs
 // each program's list (POTA parks, SOTA summits, WWFF references); when the program's last
-// applied load is at least a week old and the file's Last-Modified is newer, it streams the file,
+// applied load began at least a week ago and the file's Last-Modified is newer, it streams the file,
 // parses it with _shared/reference_catalog.ts and pushes the rows in batches to the
 // load-references Edge Function, which stages them. pg_cron swaps a finished load into
 // reference_catalog within the hour; SQL refuses a truncated list (decision 3).
@@ -154,7 +154,10 @@ export function shouldLoad(
   if (applied === null) {
     return true;
   }
-  return ageMs(applied.applied_at, now) >= RELOAD_AFTER_MS &&
+  // The week runs from when the applied load began, which was during a daily check, not from
+  // applied_at: that is later by the download and the wait for the hourly swap, so the seventh
+  // check would always find it a little under a week old and every load would wait for the eighth.
+  return ageMs(applied.started_at, now) >= RELOAD_AFTER_MS &&
     isNewer(version, applied.version);
 }
 

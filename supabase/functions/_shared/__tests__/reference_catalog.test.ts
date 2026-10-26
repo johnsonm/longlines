@@ -85,6 +85,24 @@ Deno.test("CsvRecords refuses a file that ends inside quotes or a record that ne
     ValidationError,
     "CSV record longer than",
   );
+  // Separators count, so a record of empty fields cannot grow without bound either.
+  for (const empty of [",", '"",']) {
+    const fields = new CsvRecords("x.csv");
+    assertThrows(
+      () => fields.push(empty.repeat(MAX_CSV_RECORD + 1)),
+      ValidationError,
+      "CSV record longer than",
+      empty,
+    );
+  }
+  // Across chunks too, as the relay feeds a download.
+  const commas = new CsvRecords("x.csv");
+  function pushChunks(): void {
+    for (let i = 0; i < 4; i++) {
+      commas.push(",".repeat(MAX_CSV_RECORD / 2));
+    }
+  }
+  assertThrows(pushChunks, ValidationError, "CSV record longer than");
   // The limit is per record: many short records are fine.
   const many = new CsvRecords("x.csv");
   assertEquals(many.push("ab\n".repeat(MAX_CSV_RECORD)).length, MAX_CSV_RECORD);
@@ -110,6 +128,7 @@ Deno.test("POTA rows map the park list's columns", function (): void {
     location: "US-ME",
     region: null,
     country: null,
+    dxcc: null,
     latitude: 44.31,
     longitude: -68.2034,
     grid: "FN54vh",
@@ -166,6 +185,7 @@ Deno.test("SOTA rows skip the title line and derive the grid", function (): void
     location: null,
     region: "USA - Carolinas, NC-Central Mountains",
     country: null,
+    dxcc: null,
     latitude: 35.7648,
     longitude: -82.2652,
     grid: "EM85us",
@@ -205,7 +225,7 @@ Deno.test("SOTA's active follows the clock: ValidTo is the last valid day", func
 Deno.test("WWFF rows map the directory's columns and skip its repeated header", function (): void {
   const result = parse("wwff", FIXTURES.wwff, 4096);
   // The directory repeats its header partway down; that row is the one skip.
-  assertEquals([result.rows.length, result.skipped], [21, 1]);
+  assertEquals([result.rows.length, result.skipped], [26, 1]);
   const rows = byReference(result.rows);
   assertEquals(rows.get("KFF-6101"), {
     reference: "KFF-6101",
@@ -214,6 +234,7 @@ Deno.test("WWFF rows map the directory's columns and skip its repeated header", 
     location: null,
     region: "K-PA",
     country: null,
+    dxcc: "K",
     latitude: 41.315,
     longitude: -76.3491,
     grid: "FN11th",
@@ -222,9 +243,17 @@ Deno.test("WWFF rows map the directory's columns and skip its repeated header", 
     valid_from: "2022-11-02",
     valid_to: null,
   });
-  // The state when there is one, else the region; the country when the directory names one.
+  // The state when it names a subdivision, else the region: not a prefix (R for RA) or a
+  // placeholder (K-???). The directory's country when it names one; SQL replaces it with cty.dat's
+  // entity for the dxcc prefix (stage_reference_rows).
   assertEquals(rows.get("SMFF-0001")!.region, "Laen BD");
   assertEquals(rows.get("VEFF-0001")!.region, "VE-BC");
+  assertEquals([rows.get("RFF-0570")!.region, rows.get("RFF-0570")!.dxcc], [
+    "R3Y, RDA: BR-16",
+    "RA",
+  ]);
+  assertEquals(rows.get("KFF-7355")!.region, "Arkansas");
+  assertEquals(rows.get("YOFF-0709")!.region, null);
   assertEquals(rows.get("1SFF-0001")!.country, "Spratly Archipelago");
   assertEquals(rows.get("3AFF-0001")!.country, "Monaco");
   // Deleted and national references are not active; deletions carry their date.
@@ -237,6 +266,9 @@ Deno.test("WWFF rows map the directory's columns and skip its repeated header", 
   // Locators: padded, prefixed with -, a region code, 0, 0's square, none.
   assertEquals(rows.get("4XFF-0211")!.grid, "KM71ks");
   assertEquals(rows.get("8RFF-0002")!.grid, "GJ01pn");
+  assertEquals(rows.get("YOFF-0709")!.grid, "KN16xk");
+  assertEquals(rows.get("YOFF-0721")!.grid, "KN34bl");
+  assertEquals(rows.get("YVFF-0106")!.grid, "FJ88ph");
   assertEquals(rows.get("EAFF-0398")!.grid, null);
   assertEquals(rows.get("ANFF-0002")!.grid, null);
   assertEquals(rows.get("DLFF-1365")!.grid, null);
@@ -286,7 +318,26 @@ Deno.test("references, grids and dates are checked before they are kept", functi
 
   assertEquals(normalizeGrid("fn54"), "FN54");
   assertEquals(normalizeGrid("FN54VH"), "FN54vh");
-  for (const bad of [undefined, "", "-", "R1", "FN5", "SZ00aa", "FN54vz", "JJ00AA", "JJ00"]) {
+  // Dashes and spaces around it, and an extended locator cut to six.
+  for (const written of ["-FN54vh", "- FN54vh", "-  FN54VH", "FN54vh-", "FN54vh53", "FN54vh53ab"]) {
+    assertEquals(normalizeGrid(written), "FN54vh", written);
+  }
+  for (
+    const bad of [
+      undefined,
+      "",
+      "-",
+      "R1",
+      "FN5",
+      "SZ00aa",
+      "FN54vz",
+      "JJ00AA",
+      "JJ00",
+      "FN54vhx",
+      "FN54vh5",
+      "-85.1204",
+    ]
+  ) {
     assertEquals(normalizeGrid(bad), null, bad);
   }
   assertEquals(sotaDate("29/02/2024"), "2024-02-29");
@@ -310,6 +361,7 @@ Deno.test("referenceLoadStatusSchema reads reference_load_status' jsonb", functi
     pota: {
       applied: {
         version: "Mon, 19 Oct 2026 07:15:20 GMT",
+        started_at: "2026-10-19T08:00:00Z",
         applied_at: "2026-10-19T08:55:00Z",
         rows: 99000,
       },

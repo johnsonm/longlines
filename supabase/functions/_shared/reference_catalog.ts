@@ -30,8 +30,13 @@ export interface ReferenceCatalogRow {
   location: string | null;
   /** SOTA `{AssociationName}, {RegionName}`; WWFF the state, or the region without one. */
   region: string | null;
-  /** WWFF. */
+  /** WWFF's `country`, which stage_reference_rows replaces with cty.dat's entity for `dxcc`. */
   country: string | null;
+  /**
+   * WWFF's DXCC prefix (K, VK9N). SQL resolves the country from it (cty_lookup in
+   * stage_reference_rows; TypeScript never resolves a call) and does not store it.
+   */
+  dxcc: string | null;
   latitude: number | null;
   longitude: number | null;
   /** Maidenhead locator; SOTA's derived from its coordinates at POTA's six characters. */
@@ -48,7 +53,7 @@ export type CatalogRecord = { kind: "row"; row: ReferenceCatalogRow } | { kind: 
 // ---------------------------------------------------------------------------------------------
 // CSV
 
-/** Longest record CsvRecords keeps; real records are under 1 KB. */
+/** Longest record CsvRecords keeps, separators counted; real records are under 1 KB. */
 export const MAX_CSV_RECORD = 64 * 1024;
 
 const QUOTE = 0x22;
@@ -64,9 +69,10 @@ type CsvState = "start" | "plain" | "quoted" | "quote";
  * Splits CSV text, fed in chunks of any size, into records of fields (RFC 4180: quoted fields,
  * doubled quotes, commas and line breaks inside quotes, CRLF or LF line ends, a leading BOM).
  * Lenient where the files are: a quote inside an unquoted field, or text after a closing quote,
- * is kept as text. Blank lines are dropped. A record longer than MAX_CSV_RECORD, or a file that
- * ends inside quotes, throws, so a malformed file fails the load (the relay abandons it) instead
- * of growing a buffer toward the size of the file.
+ * is kept as text. Blank lines are dropped. A record longer than MAX_CSV_RECORD (each separator
+ * counts, so a run of empty fields is bounded too), or a file that ends inside quotes, throws, so
+ * a malformed file fails the load (the relay abandons it) instead of growing a buffer toward the
+ * size of the file.
  */
 export class CsvRecords {
   #state: CsvState = "start";
@@ -157,7 +163,12 @@ export class CsvRecords {
       return;
     }
     this.#field += text;
-    this.#length += text.length;
+    this.#grow(text.length);
+  }
+
+  /** Counts `n` more characters of the record, throwing past MAX_CSV_RECORD. */
+  #grow(n: number): void {
+    this.#length += n;
     if (this.#length > MAX_CSV_RECORD) {
       throw new ValidationError(`CSV record longer than ${String(MAX_CSV_RECORD)} characters`, {
         cause: undefined,
@@ -167,6 +178,7 @@ export class CsvRecords {
   }
 
   #endField(): void {
+    this.#grow(1); // the separator, so empty fields count toward the record's length
     this.#fields.push(this.#field);
     this.#field = "";
     this.#state = "start";
@@ -191,7 +203,10 @@ const REFERENCE = /^[A-Z0-9]+(?:[/-][A-Z0-9]+)+$/;
 const MAX_REFERENCE = 64;
 const DECIMAL = /^-?\d+(?:\.\d+)?$/;
 const INTEGER = /^-?\d+$/;
-const LOCATOR = /^([A-R]{2})(\d{2})([A-X]{2})?$/i;
+/** A locator of four or six characters, or an extended one whose further pairs are dropped. */
+const LOCATOR = /^([A-R]{2})(\d{2})(?:([A-X]{2})(?:\d{2}(?:[A-X]{2})?)?)?$/i;
+/** A WWFF state that names a subdivision (K-PA, VK-VIC), not a prefix (R, TA) or K-???. */
+const SUBDIVISION = /^[A-Z0-9/]+-[A-Z0-9]+$/i;
 const DMY = /^(\d{2})\/(\d{2})\/(\d{4})$/;
 const YMD = /^(\d{4})-(\d{2})-(\d{2})$/;
 /** The square of 0, 0: what the lists give a reference with no coordinates. */
@@ -248,13 +263,17 @@ function coordinates(latitude: string | undefined, longitude: string | undefined
   return { latitude: lat, longitude: lon };
 }
 
-/** A locator as POTA writes it (FN54vh), or null when it is not one or is 0, 0's square. */
+/**
+ * A locator as POTA writes it (FN54vh), or null when it is not one or is 0, 0's square. An
+ * extended locator (FJ88PH53) keeps its first six characters.
+ */
 export function normalizeGrid(value: string | undefined): string | null {
   let t = text(value);
   if (t === null) {
     return null;
   }
-  t = t.replace(/^-+/, ""); // WWFF writes a few as -GJ01PN
+  // WWFF writes a few as -GJ01PN, - KN16xk or KN34BL-.
+  t = t.replace(/^[-\s]+|[-\s]+$/g, "");
   const m = LOCATOR.exec(t);
   if (m === null) {
     return null;
@@ -372,6 +391,7 @@ function emptyRow(ref: string, active: boolean): ReferenceCatalogRow {
     location: null,
     region: null,
     country: null,
+    dxcc: null,
     latitude: null,
     longitude: null,
     grid: null,
@@ -478,10 +498,12 @@ const WWFF: ProgramFormat = {
     if (ref === null) {
       return { kind: "skip" };
     }
-    // `state` is a subdivision (K-PA, VK-VIC) or, without one, the DXCC prefix again (SM);
-    // `region` is free text (Pennsylvania, Laen O). The state when there is one, else the region.
+    // `state` is a subdivision (K-PA, VK-VIC) or, without one, a prefix: the DXCC prefix again
+    // (SM), or another (R for RA, TA for TA2), or a placeholder (K-???). `region` is free text
+    // (Pennsylvania, Laen O). The state when it names a subdivision, else the region.
+    const dxcc = text(field("dxcc"));
     let region = text(field("state"));
-    if (region !== null && region === text(field("dxcc"))) {
+    if (region !== null && (region === dxcc || !SUBDIVISION.test(region))) {
       region = null;
     }
     if (region === null) {
@@ -491,6 +513,7 @@ const WWFF: ProgramFormat = {
     out.name = text(field("name"));
     out.region = region;
     out.country = text(field("country"));
+    out.dxcc = dxcc;
     const point = coordinates(field("latitude"), field("longitude"));
     out.latitude = point.latitude;
     out.longitude = point.longitude;
@@ -620,6 +643,8 @@ export class ReferenceCatalogParser {
 export interface AppliedReferenceLoad {
   /** The file's Last-Modified header. */
   version: string;
+  /** When its load began: the relay measures the week from it (relay/catalogs.ts shouldLoad). */
+  started_at: string;
   applied_at: string;
   rows: number;
 }
@@ -649,6 +674,7 @@ export type ReferenceLoadStatus = Record<ReferenceProgram, ProgramLoadStatus>;
 const programLoadStatusSchema: z.ZodType<ProgramLoadStatus> = z.looseObject({
   applied: z.looseObject({
     version: z.string(),
+    started_at: z.string(),
     applied_at: z.string(),
     rows: z.number(),
   }).nullable(),
