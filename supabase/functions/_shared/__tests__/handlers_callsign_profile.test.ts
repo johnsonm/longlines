@@ -267,6 +267,15 @@ Deno.test(
     assertEquals(profile.body, { error: LOOKUP_UNAVAILABLE });
     assertEquals(profile.res.headers.get("Cache-Control"), null);
 
+    // A profile is an object or null; anything else is a broken read.
+    const odd = await run(
+      get("?callsign=KK4PWJ", {}),
+      { rpc: { cached_callsign_profile: { data: "KK4PWJ" } } },
+      KEY,
+      undefined,
+    );
+    assertEquals([odd.res.status, odd.body], [500, { error: LOOKUP_UNAVAILABLE }]);
+
     const fake = fakeSupabase({});
     const unset = await handleProfile(get("?callsign=KK4PWJ", {}), {
       db: () => fake.client,

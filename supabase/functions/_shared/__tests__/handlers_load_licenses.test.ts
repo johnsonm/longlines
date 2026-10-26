@@ -20,6 +20,16 @@ function post(body: unknown, secret: string | null, method: string): Request {
   return new Request("http://x/load-licenses", init);
 }
 
+/** A POST whose body stream fails partway, for the read-failure paths. */
+function brokenPost(secret: string): Request {
+  const body = new ReadableStream<Uint8Array>({
+    start(controller): void {
+      controller.error(new Error("connection reset"));
+    },
+  });
+  return new Request("http://x/", { method: "POST", headers: { "x-relay-secret": secret }, body });
+}
+
 function setup(rpc: FakeSupabaseOptions["rpc"]) {
   const fake = fakeSupabase({ rpc });
   const client = fake.client;
@@ -156,6 +166,12 @@ Deno.test("parseLoadRequest rejects malformed requests", function (): void {
       { action: "finish", load: "1", counts: { HD: 1, EN: 1, AM: 1 } },
       { action: "abandon", load: 1 },
       { action: "abandon", load: -1, error: "x" },
+      // Strict: the relay sends exactly these keys, so any other is refused.
+      { action: "status", extra: 1 },
+      { action: "finish", load: 1, counts: { HD: 1, EN: 2, AM: 3, X: 4 } },
+      { action: "rows", load: 1, kind: "AM", rows: [{ usi: 1, operator_class: "General", x: 1 }] },
+      { action: "rows", load: 1, kind: "AM", rows: [{ usi: "1", operator_class: "General" }] },
+      { action: "rows", load: 1, kind: "HD", rows: [{ usi: 1, operator_class: "General" }] },
     ]
   ) {
     const text = JSON.stringify(body);
@@ -166,11 +182,48 @@ Deno.test("parseLoadRequest rejects malformed requests", function (): void {
     assertEquals(typeof parseLoadRequest(body), "string", message);
   }
   assertEquals(
-    parseLoadRequest({ action: "finish", load: 1, counts: { HD: 1, EN: 2, AM: 3, X: 4 } }),
+    parseLoadRequest({ action: "finish", load: 1, counts: { HD: 1, EN: 2, AM: 3 } }),
     {
       action: "finish",
       load: 1,
       counts: { HD: 1, EN: 2, AM: 3 },
     },
   );
+});
+
+Deno.test("parseLoadRequest says what is wrong, as the handler answers it", function (): void {
+  assertEquals(parseLoadRequest([]), "body must be a JSON object");
+  assertEquals(
+    parseLoadRequest({ action: "load" }),
+    "action must be status, begin, rows, finish or abandon",
+  );
+  assertEquals(parseLoadRequest({ action: "begin", version: " " }), "begin needs a version");
+  assertEquals(
+    parseLoadRequest({ action: "rows", load: 1, kind: "LA", rows: [{ usi: 1 }] }),
+    "rows needs a load and an HD, EN or AM kind",
+  );
+  assertEquals(
+    parseLoadRequest({ action: "rows", load: 1, kind: "HD", rows: [] }),
+    "rows needs 1 to 10000 rows",
+  );
+  assertEquals(
+    parseLoadRequest({ action: "finish", load: 1, counts: { HD: 1, EN: 1 } }),
+    "finish needs a load and a count per kind",
+  );
+  assertEquals(
+    parseLoadRequest({ action: "abandon", load: 1 }),
+    "abandon needs a load and an error",
+  );
+  const row = parseLoadRequest({ action: "rows", load: 1, kind: "AM", rows: [{ usi: 1 }] });
+  assertEquals(typeof row === "string" && row.startsWith("every row must be an AM row: "), true);
+});
+
+Deno.test("handleLoadLicenses answers 500 when the body cannot be read", async function (): Promise<
+  void
+> {
+  const s = setup({});
+  const res = await handleLoadLicenses(brokenPost(SECRET), s.deps);
+  assertEquals(res.status, 500);
+  assertEquals(await res.json(), { error: "connection reset" });
+  assertEquals(s.calls.rpc, []);
 });

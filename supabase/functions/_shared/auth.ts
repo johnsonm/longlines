@@ -1,17 +1,18 @@
 import type { SupabaseClient, User } from "@supabase/supabase-js";
+import { z } from "zod";
 
 /** The bearer token from the Authorization header, or null. */
 export function bearerToken(req: Request): string | null {
   let header = req.headers.get("authorization");
-  if (header === null || header === undefined) {
+  if (header === null) {
     header = "";
   }
   const match = /^Bearer\s+(\S+)$/i.exec(header);
-  if (match === null || match === undefined) {
+  if (match === null) {
     return null;
   }
   const token = match[1];
-  if (token === null || token === undefined) {
+  if (token === undefined) {
     return null;
   }
   return token;
@@ -45,23 +46,55 @@ export async function isServiceRole(
   return jwtRole(token) === "service_role";
 }
 
+/** The claims of a JWT payload this module reads. */
+interface JwtClaims {
+  role: string;
+}
+
+// A JWT payload is third-party JSON with any number of other claims.
+const jwtClaimsSchema: z.ZodType<JwtClaims> = z.looseObject({ role: z.string() });
+
+// base64url, padding allowed at the end only.
+const BASE64URL = /^[A-Za-z0-9_-]*=*$/;
+
 /** The role claim of a JWT-shaped token, or null when it is not one. */
 function jwtRole(token: string): string | null {
   const parts = token.split(".");
-  if (parts.length !== 3 || parts[1] === undefined || parts[1] === "") {
+  const encoded = parts[1];
+  if (parts.length !== 3 || encoded === undefined || encoded === "") {
     return null;
   }
-  const b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+  // Checked first so that atob, which throws on anything else, cannot: only base64url characters,
+  // and without its padding not a length of 1 mod 4, which no padding makes decodable.
+  if (!BASE64URL.test(encoded)) {
+    return null;
+  }
+  const unpadded = encoded.replace(/=+$/, "");
+  if (unpadded.length % 4 === 1) {
+    return null;
+  }
+  const b64 = unpadded.replace(/-/g, "+").replace(/_/g, "/");
+  const text = atob(b64.padEnd(Math.ceil(b64.length / 4) * 4, "="));
+  const claims = jwtClaimsSchema.safeParse(parseJsonOrNull(text));
+  if (!claims.success) {
+    return null;
+  }
+  return claims.data.role;
+}
+
+/**
+ * JSON.parse, with null for text that is not JSON. JSON has no non-throwing parse, so this
+ * keeps one catch, for SyntaxError only: a payload that is not JSON is simply not a JWT.
+ */
+function parseJsonOrNull(text: string): unknown {
   try {
-    const payload = JSON.parse(atob(b64.padEnd(Math.ceil(b64.length / 4) * 4, "="))) as {
-      role?: unknown;
-    };
-    if (typeof payload.role === "string") {
-      return payload.role;
+    const parsed: unknown = JSON.parse(text);
+    return parsed;
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      return null;
     }
-    return null;
-  } catch {
-    return null;
+    throw error;
   }
 }
 
@@ -89,11 +122,11 @@ export async function secretsMatch(provided: string, expected: string): Promise<
   let diff = 0;
   for (let i = 0; i < a.length; i++) {
     let left = a[i];
-    if (left === null || left === undefined) {
+    if (left === undefined) {
       left = 0;
     }
     let right = b[i];
-    if (right === null || right === undefined) {
+    if (right === undefined) {
       right = 0;
     }
     diff |= left ^ right;

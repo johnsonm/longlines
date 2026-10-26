@@ -11,6 +11,9 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { DEFAULT_METHODS, json, preflightResponse } from "../cors.ts";
+import { ValidationError } from "../errors.ts";
+import { type JsonObject, jsonObjectSchema } from "../types.ts";
+import { parseWith } from "../validate.ts";
 
 export const BAND_MAP_UNAVAILABLE = "The band map is unavailable right now.";
 /** Browsers and CDNs may keep a payload for 15 seconds; the database cache holds it for 30. */
@@ -31,15 +34,21 @@ export async function handleBandMap(req: Request, deps: BandMapDeps): Promise<Re
   }
 
   const result = await deps.db().rpc("cached_band_map");
-  if (result.error !== null || result.data === null || typeof result.data !== "object") {
-    let why: string;
-    if (result.error !== null) {
-      why = result.error.message;
-    } else {
-      why = `unexpected result ${JSON.stringify(result.data)}`;
-    }
-    console.error(`band-map: ${why}`);
+  if (result.error !== null) {
+    console.error(`band-map: ${result.error.message}`);
     return json({ error: BAND_MAP_UNAVAILABLE }, 500, {});
   }
-  return json(result.data, 200, { "Cache-Control": BAND_MAP_CACHE_CONTROL });
+  // cached_band_map returns the BandMapPayload object, relayed as built (its shape is pinned by
+  // band_map.test.sql); passed through, not copied.
+  let payload: JsonObject;
+  try {
+    payload = parseWith(jsonObjectSchema, result.data, "handleBandMap: cached_band_map result");
+  } catch (error) {
+    if (!(error instanceof ValidationError)) {
+      throw error;
+    }
+    console.error(`band-map: ${error.message}`);
+    return json({ error: BAND_MAP_UNAVAILABLE }, 500, {});
+  }
+  return json(payload, 200, { "Cache-Control": BAND_MAP_CACHE_CONTROL });
 }

@@ -4,13 +4,20 @@
 // keeps at most one row per 30 seconds and only known feed ids.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { z } from "zod";
 import { secretsMatch } from "../auth.ts";
+
+/** One feed's connection in a heartbeat. */
+export interface RelayFeedStatus {
+  id: string;
+  connected: boolean;
+}
 
 export interface RelayStatus {
   started_at: string;
   rss_bytes: number;
   reconnects: number;
-  feeds: Array<{ id: string; connected: boolean }>;
+  feeds: RelayFeedStatus[];
 }
 
 export interface RelayStatusDeps {
@@ -22,40 +29,48 @@ export interface RelayStatusDeps {
 
 const MAX_FEEDS = 10;
 
-function isObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
+const COUNTS_MESSAGE = "rss_bytes and reconnects must be counts";
+const FEEDS_MESSAGE = `feeds must be at most ${String(MAX_FEEDS)} items`;
+const FEED_MESSAGE = "every feed needs an id and connected";
+
+/** A non-negative safe integer; `message` for anything else. */
+function countSchema(message: string): z.ZodType<number> {
+  return z.number({ error: message }).int({ error: message }).min(0, { error: message });
 }
 
-function isCount(v: unknown): v is number {
-  return Number.isSafeInteger(v) && (v as number) >= 0;
-}
+// One feed of our relay's heartbeat (relay/status.ts): strict.
+const relayFeedStatusSchema: z.ZodType<RelayFeedStatus> = z.strictObject({
+  id: z.string({ error: FEED_MESSAGE }),
+  connected: z.boolean({ error: FEED_MESSAGE }),
+}, { error: FEED_MESSAGE });
+
+// Our relay's heartbeat body (statusBody in relay/status.ts): strict. Each part's message is the
+// one the handler answers, and the first issue is the first part in this order that is wrong.
+const relayStatusSchema: z.ZodType<RelayStatus> = z.strictObject({
+  started_at: z.string({ error: "started_at must be a time" })
+    .refine((text) => !Number.isNaN(Date.parse(text)), { error: "started_at must be a time" }),
+  rss_bytes: countSchema(COUNTS_MESSAGE),
+  reconnects: countSchema(COUNTS_MESSAGE),
+  feeds: z.array(relayFeedStatusSchema, { error: FEEDS_MESSAGE })
+    .max(MAX_FEEDS, { error: FEEDS_MESSAGE }),
+}, { error: "body must be a JSON object with only started_at, rss_bytes, reconnects and feeds" });
 
 /** The heartbeat, or a message saying what is wrong with it. */
 export function parseRelayStatus(body: unknown): RelayStatus | string {
-  if (!isObject(body)) {
-    return "body must be a JSON object";
+  const result = relayStatusSchema.safeParse(body);
+  if (result.success) {
+    return result.data;
   }
-  const started_at = body.started_at;
-  const rss_bytes = body.rss_bytes;
-  const reconnects = body.reconnects;
-  const feeds = body.feeds;
-  if (typeof started_at !== "string" || Number.isNaN(Date.parse(started_at))) {
-    return "started_at must be a time";
+  return firstIssue(result.error);
+}
+
+/** The message of a ZodError's first issue: the one the hand-written checks reported. */
+function firstIssue(error: z.ZodError): string {
+  const issue = error.issues[0];
+  if (issue === undefined) {
+    return "body is not a heartbeat";
   }
-  if (!isCount(rss_bytes) || !isCount(reconnects)) {
-    return "rss_bytes and reconnects must be counts";
-  }
-  if (!Array.isArray(feeds) || feeds.length > MAX_FEEDS) {
-    return `feeds must be at most ${String(MAX_FEEDS)} items`;
-  }
-  const parsed: RelayStatus["feeds"] = [];
-  for (const feed of feeds) {
-    if (!isObject(feed) || typeof feed.id !== "string" || typeof feed.connected !== "boolean") {
-      return "every feed needs an id and connected";
-    }
-    parsed.push({ id: feed.id, connected: feed.connected });
-  }
-  return { started_at, rss_bytes, reconnects, feeds: parsed };
+  return issue.message;
 }
 
 export async function handleRelayStatus(req: Request, deps: RelayStatusDeps): Promise<Response> {
@@ -64,7 +79,7 @@ export async function handleRelayStatus(req: Request, deps: RelayStatusDeps): Pr
     return Response.json({ error: "relay secret is not configured" }, { status: 500 });
   }
   let header = req.headers.get("x-relay-secret");
-  if (header === null || header === undefined) {
+  if (header === null) {
     header = "";
   }
   if (!await secretsMatch(header, deps.secret)) {
@@ -77,8 +92,17 @@ export async function handleRelayStatus(req: Request, deps: RelayStatusDeps): Pr
   let body: unknown;
   try {
     body = await req.json();
-  } catch {
-    return Response.json({ error: "request body is not JSON" }, { status: 400 });
+  } catch (error) {
+    // Bad JSON is the relay's fault; anything else (a broken stream) is ours.
+    if (error instanceof SyntaxError) {
+      return Response.json({ error: "request body is not JSON" }, { status: 400 });
+    }
+    let message = String(error);
+    if (error instanceof Error) {
+      message = error.message;
+    }
+    console.error(`relay-status: reading the request body failed: ${message}`);
+    return Response.json({ error: message }, { status: 500 });
   }
   const status = parseRelayStatus(body);
   if (typeof status === "string") {

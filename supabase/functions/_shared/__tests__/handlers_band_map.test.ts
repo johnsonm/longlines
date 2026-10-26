@@ -52,3 +52,13 @@ Deno.test("a null result is a 500 too", async function (): Promise<void> {
   });
   assertEquals(result.res.status, 500);
 });
+
+Deno.test("a result that is not an object is a 500 too", async function (): Promise<void> {
+  for (const data of [[PAYLOAD], "map", 5]) {
+    const result = await run(new Request("http://x/band-map"), {
+      rpc: { cached_band_map: { data } },
+    });
+    assertEquals(result.res.status, 500);
+    assertEquals(await result.res.json(), { error: BAND_MAP_UNAVAILABLE });
+  }
+});

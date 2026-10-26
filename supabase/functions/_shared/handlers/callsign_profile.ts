@@ -20,8 +20,12 @@
 // so the stored value cannot be reversed by hashing every IPv4 address.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { z } from "zod";
 import { DEFAULT_METHODS, json, preflightResponse } from "../cors.ts";
+import { ValidationError } from "../errors.ts";
 import { hmacSha256Hex } from "../hmac.ts";
+import { type JsonObject, jsonObjectSchema } from "../types.ts";
+import { parseWith } from "../validate.ts";
 
 export const MAX_LOOKUPS_PER_MINUTE = 30;
 export const INVALID_CALLSIGN = "Enter a callsign, like KK4PWJ.";
@@ -30,6 +34,15 @@ export const LOOKUP_UNAVAILABLE = "Lookups are unavailable right now.";
 /** Browsers and CDNs may keep a profile for 5 minutes; the database cache holds it for 15. */
 export const PROFILE_CACHE_CONTROL = "public, max-age=300";
 export const DEFAULT_CLIENT_IP_HEADER = "cf-connecting-ip";
+
+// record_profile_lookup returns int: the client's lookups this minute, this one included.
+const lookupCountSchema: z.ZodType<number> = z.number();
+
+/**
+ * A cached profile or group page (cached_callsign_profile, public_group_statistics): the payload
+ * object relayed as built, passed through rather than copied, or null when there is none.
+ */
+export const relayedPayloadSchema: z.ZodType<JsonObject | null> = jsonObjectSchema.nullable();
 
 export interface ProfileDeps {
   /** Service-role client for the rate-limit and profile RPCs. */
@@ -249,17 +262,21 @@ export async function lookupLimit(
   }
   const client = await rateLimitKey(req, deps.clientIpHeader, deps.key, fn);
   const lookups = await db.rpc("record_profile_lookup", { p_client: client });
-  if (lookups.error !== null || typeof lookups.data !== "number") {
-    let why: string;
-    if (lookups.error !== null) {
-      why = lookups.error.message;
-    } else {
-      why = `unexpected result ${JSON.stringify(lookups.data)}`;
-    }
-    console.error(`${fn}: rate limit failed: ${why}`);
+  if (lookups.error !== null) {
+    console.error(`${fn}: rate limit failed: ${lookups.error.message}`);
     return json({ error: unavailable }, 500, headers);
   }
-  if (lookups.data > MAX_LOOKUPS_PER_MINUTE) {
+  let count: number;
+  try {
+    count = parseWith(lookupCountSchema, lookups.data, `${fn}: record_profile_lookup result`);
+  } catch (error) {
+    if (!(error instanceof ValidationError)) {
+      throw error;
+    }
+    console.error(`${fn}: rate limit failed: ${error.message}`);
+    return json({ error: unavailable }, 500, headers);
+  }
+  if (count > MAX_LOOKUPS_PER_MINUTE) {
     const limitedHeaders: Record<string, string> = {};
     for (const entry of Object.entries(headers)) {
       limitedHeaders[entry[0]] = entry[1];
@@ -295,8 +312,23 @@ export async function handleProfile(req: Request, deps: ProfileDeps): Promise<Re
     console.error(`callsign-profile: ${callsign}: ${profile.error.message}`);
     return json({ error: LOOKUP_UNAVAILABLE }, 500, {});
   }
-  if (profile.data === null) {
+  let payload: JsonObject | null;
+  try {
+    payload = parseWith(
+      relayedPayloadSchema,
+      profile.data,
+      "handleProfile: cached_callsign_profile result",
+    );
+  } catch (error) {
+    if (!(error instanceof ValidationError)) {
+      throw error;
+    }
+    console.error(`callsign-profile: ${callsign}: ${error.message}`);
+    return json({ error: LOOKUP_UNAVAILABLE }, 500, {});
+  }
+  // Null: SQL found no base call in it (P/1).
+  if (payload === null) {
     return json({ error: INVALID_CALLSIGN }, 400, {});
   }
-  return json(profile.data, 200, { "Cache-Control": PROFILE_CACHE_CONTROL });
+  return json(payload, 200, { "Cache-Control": PROFILE_CACHE_CONTROL });
 }

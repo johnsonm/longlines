@@ -7,6 +7,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { isServiceRole } from "../auth.ts";
 import { parseCty } from "../cty.ts";
 import { loadCty } from "../db.ts";
+import { ValidationError } from "../errors.ts";
 import { performanceClock, timed } from "../timing.ts";
 
 // cty.dat lists about 340 DXCC entities. Fewer means a truncated or wrong file;
@@ -29,13 +30,16 @@ async function importCty(req: Request, deps: ImportCtyDeps): Promise<Response> {
   if (!await isServiceRole(req, deps.serviceRoleKey)) {
     return Response.json({ error: "Forbidden" }, { status: 403 });
   }
+  // The boundary: a failed download (FunctionCallError), a file that does not parse or is too short
+  // (ValidationError), a failed load_cty, or anything else answers 500 with its message.
   try {
     const data = parseCty(await deps.fetchCty());
     if (data.entities.length < MIN_ENTITIES) {
-      throw new Error(
+      throw new ValidationError(
         `cty.dat has ${String(data.entities.length)} entities, expected at least ${
           String(MIN_ENTITIES)
         }`,
+        { cause: undefined, where: "importCty: cty.dat" },
       );
     }
     await loadCty(deps.db(), data);

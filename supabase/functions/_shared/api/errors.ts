@@ -22,7 +22,7 @@ const BAD_INPUT_CLASSES = ["22", "23"];
 
 export function errorStatus(error: DbError): number {
   let code = "";
-  if (error.code !== undefined && error.code !== null) {
+  if (error.code !== undefined) {
     code = error.code;
   }
   const status = CODES[code];

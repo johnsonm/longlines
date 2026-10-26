@@ -112,6 +112,27 @@ Deno.test(
   },
 );
 
+Deno.test(
+  "pushIngestHandler POST answers 500 when the body cannot be read",
+  async function (): Promise<void> {
+    const pushed = pushHandler({});
+    const broken = new ReadableStream<Uint8Array>({
+      start(controller): void {
+        controller.error(new Error("connection reset"));
+      },
+    });
+    const req = new Request("http://x/", {
+      method: "POST",
+      headers: { "x-relay-secret": SECRET },
+      body: broken,
+    });
+    const res = await pushed.handler(req);
+    assertEquals(res.status, 500);
+    assertEquals((await res.json()).source, "rbn");
+    assertEquals(pushed.bodies, []);
+  },
+);
+
 Deno.test("pushIngestHandler refuses other methods", async function (): Promise<void> {
   const handler = pushHandler({}).handler;
   assertEquals((await handler(relayRequest("DELETE", SECRET, undefined))).status, 405);

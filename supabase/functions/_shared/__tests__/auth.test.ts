@@ -65,3 +65,25 @@ Deno.test(
     assertEquals(await isServiceRole(withBearer(undefined), undefined), false);
   },
 );
+
+Deno.test(
+  "isServiceRole reads the role only from a base64url JSON object payload",
+  async function (): Promise<void> {
+    const payload = btoa(JSON.stringify({ role: "service_role" }));
+    // Padding is tolerated at the end, as atob tolerated it.
+    assertEquals(payload.endsWith("="), true);
+    assertEquals(await isServiceRole(withBearer(`h.${payload}.s`), undefined), true);
+    for (
+      const middle of [
+        "a",
+        "ab=c",
+        btoa("not json"),
+        btoa(JSON.stringify("service_role")),
+        btoa(JSON.stringify(null)),
+        btoa(JSON.stringify({ role: 5 })),
+      ]
+    ) {
+      assertEquals(await isServiceRole(withBearer(`h.${middle}.s`), undefined), false, middle);
+    }
+  },
+);

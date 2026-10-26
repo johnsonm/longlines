@@ -21,6 +21,11 @@ const DEST: DeliveryDestination = {
   consecutive_failures: 0,
 };
 
+/** A destination as sendTestTo's select returns it: every column, throttled_until included. */
+function loaded(destination: DeliveryDestination): unknown {
+  return Object.assign({}, destination, { throttled_until: null });
+}
+
 const WEBHOOK_TEST = {
   webhook: { batch_seconds: 0, headers: [{ name: "Authorization", value: "Bearer abc" }] },
   spot: {
@@ -72,7 +77,7 @@ async function run(
   result: SendResult,
 ) {
   const ran = fakeSupabase(Object.assign(
-    { getUser: USER, from: { destinations: { data: DEST } } },
+    { getUser: USER, from: { destinations: { data: loaded(DEST) } } },
     options,
     {
       rpc: Object.assign({
@@ -126,7 +131,45 @@ Deno.test("handleSendTest requires a destination id", async function (): Promise
     error: "Pick a destination.",
   });
   assertEquals((await run(post({ destination_id: 5 }, "jwt"), {}, SENT_ONE)).res.status, 400);
+  for (const body of [null, [], { spot_id: 1 }]) {
+    assertEquals((await run(post(body, "jwt"), {}, SENT_ONE)).body, {
+      error: "Pick a destination.",
+    });
+  }
+  // Strict: the web app sends only destination_id and spot_id.
+  const extra = await run(
+    post({ destination_id: "00000000-0000-4000-8000-0000000000d1", force: true }, "jwt"),
+    {},
+    SENT_ONE,
+  );
+  assertEquals([extra.res.status, extra.body], [400, { error: "Pick a destination." }]);
+  assertEquals(extra.calls.rpc, []);
 });
+
+Deno.test(
+  "handleSendTest answers 500 for database results of the wrong shape",
+  async function (): Promise<void> {
+    const id = "00000000-0000-4000-8000-0000000000d1";
+    const unavailable = { error: "Couldn't load that destination." };
+    const limit = await run(post({ destination_id: id }, "jwt"), {
+      rpc: { record_send_test: { data: "yes" } },
+    }, SENT_ONE);
+    assertEquals([limit.res.status, limit.body], [500, unavailable]);
+    assertEquals(limit.sent, []);
+
+    const row = await run(post({ destination_id: id }, "jwt"), {
+      from: { destinations: { data: Object.assign({}, DEST, { health: "sick" }) } },
+    }, SENT_ONE);
+    assertEquals([row.res.status, row.body], [500, unavailable]);
+    assertEquals(row.sent, []);
+
+    const test = await run(post({ destination_id: id }, "jwt"), {
+      rpc: { webhook_test_delivery: { data: { webhook: { batch_seconds: 0 }, spot: {} } } },
+    }, SENT_ONE);
+    assertEquals([test.res.status, test.body], [500, unavailable]);
+    assertEquals(test.sent, []);
+  },
+);
 
 Deno.test(
   "handleSendTest only loads destinations the caller owns",
@@ -247,8 +290,25 @@ const TEST_SPOT = {
   push_url: "/call/N0CALL",
   push_source_url: "https://pota.app/#/park/US-0000",
 };
+// push_destination_settings as to_jsonb gives it, less destination_id.
+const PUSH_SETTINGS = {
+  title_fields: ["callsign", "frequency", "mode"],
+  body_fields: ["source", "reference", "place_name", "state"],
+  show_field_names: false,
+  body_separator: "dot",
+  tap_target: "profile",
+  action_buttons: true,
+  urgency: "normal",
+  ttl_seconds: 1800,
+  replace_same_station: true,
+  sound: true,
+  quiet_enabled: false,
+  quiet_from: "22:00:00",
+  quiet_until: "07:00:00",
+  quiet_mode: "silent",
+};
 const PUSH_TEST = {
-  push: { urgency: "normal", ttl_seconds: 1800 },
+  push: PUSH_SETTINGS,
   quiet_now: false,
   devices: DEVICES,
   spot: TEST_SPOT,
@@ -260,7 +320,7 @@ Deno.test(
     const ran = await run(
       post({ destination_id: "00000000-0000-4000-8000-0000000000f1" }, "jwt"),
       {
-        from: { destinations: { data: PUSH } },
+        from: { destinations: { data: loaded(PUSH) } },
         rpc: { push_test_delivery: { data: PUSH_TEST } },
       },
       SENT_ONE,
@@ -286,7 +346,7 @@ Deno.test("handleSendTest renders the spot the preview shows", async function ()
   const ran = await run(
     post({ destination_id: "00000000-0000-4000-8000-0000000000f1", spot_id: 42 }, "jwt"),
     {
-      from: { destinations: { data: PUSH } },
+      from: { destinations: { data: loaded(PUSH) } },
       rpc: { push_test_delivery: { data: PUSH_TEST } },
     },
     SENT_ONE,
@@ -326,7 +386,7 @@ Deno.test(
     const failed = await run(
       post({ destination_id: "00000000-0000-4000-8000-0000000000f1" }, "jwt"),
       {
-        from: { destinations: { data: PUSH } },
+        from: { destinations: { data: loaded(PUSH) } },
         rpc: { push_test_delivery: { error: { message: "x" } } },
       },
       SENT_ONE,
@@ -336,7 +396,7 @@ Deno.test(
     const missing = await run(
       post({ destination_id: "00000000-0000-4000-8000-0000000000f1", spot_id: 7 }, "jwt"),
       {
-        from: { destinations: { data: PUSH } },
+        from: { destinations: { data: loaded(PUSH) } },
         rpc: { push_test_delivery: { data: null } },
       },
       SENT_ONE,
@@ -347,7 +407,7 @@ Deno.test(
     const noSettings = await run(
       post({ destination_id: "00000000-0000-4000-8000-0000000000f1" }, "jwt"),
       {
-        from: { destinations: { data: PUSH } },
+        from: { destinations: { data: loaded(PUSH) } },
         rpc: { push_test_delivery: { data: null } },
       },
       SENT_ONE,
@@ -363,7 +423,7 @@ Deno.test(
     const ran = await run(
       post({ destination_id: "00000000-0000-4000-8000-0000000000f1" }, "jwt"),
       {
-        from: { destinations: { data: PUSH } },
+        from: { destinations: { data: loaded(PUSH) } },
         rpc: { push_test_delivery: { data: Object.assign({}, PUSH_TEST, { devices: [] }) } },
       },
       {
@@ -463,7 +523,7 @@ Deno.test(
     const ran = await run(
       post({ destination_id: "00000000-0000-4000-8000-0000000000e1" }, "jwt"),
       {
-        from: { destinations: { data: DISCORD } },
+        from: { destinations: { data: loaded(DISCORD) } },
         rpc: { discord_test_delivery: { data: DISCORD_TEST } },
       },
       SENT_ONE,
@@ -489,7 +549,7 @@ Deno.test(
     const ran = await run(
       post({ destination_id: "00000000-0000-4000-8000-0000000000e1", spot_id: 42 }, "jwt"),
       {
-        from: { destinations: { data: DISCORD } },
+        from: { destinations: { data: loaded(DISCORD) } },
         rpc: { discord_test_delivery: { data: DISCORD_TEST } },
       },
       SENT_ONE,
@@ -513,7 +573,7 @@ Deno.test(
     const failed = await run(
       post({ destination_id: "00000000-0000-4000-8000-0000000000e1" }, "jwt"),
       {
-        from: { destinations: { data: DISCORD } },
+        from: { destinations: { data: loaded(DISCORD) } },
         rpc: { discord_test_delivery: { error: { message: "x" } } },
       },
       SENT_ONE,
@@ -524,7 +584,7 @@ Deno.test(
     const missing = await run(
       post({ destination_id: "00000000-0000-4000-8000-0000000000e1", spot_id: 7 }, "jwt"),
       {
-        from: { destinations: { data: DISCORD } },
+        from: { destinations: { data: loaded(DISCORD) } },
         rpc: { discord_test_delivery: { data: null } },
       },
       SENT_ONE,
@@ -535,7 +595,7 @@ Deno.test(
     const noSettings = await run(
       post({ destination_id: "00000000-0000-4000-8000-0000000000e1" }, "jwt"),
       {
-        from: { destinations: { data: DISCORD } },
+        from: { destinations: { data: loaded(DISCORD) } },
         rpc: { discord_test_delivery: { data: null } },
       },
       SENT_ONE,

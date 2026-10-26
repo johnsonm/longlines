@@ -71,6 +71,20 @@ function serverTiming(res: Response): string {
 const KEY = "service-key";
 const NOW = new Date("2026-10-11T20:05:00Z");
 
+/** A service-role POST whose body stream fails partway. */
+function brokenReq(): Request {
+  const body = new ReadableStream<Uint8Array>({
+    start(controller): void {
+      controller.error(new Error("connection reset"));
+    },
+  });
+  return new Request("http://x/", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${KEY}` },
+    body,
+  });
+}
+
 function req(token: string | undefined, body: string | undefined): Request {
   const init: RequestInit = { method: "POST", headers: {} };
   if (token) {
@@ -250,6 +264,22 @@ Deno.test(
     }, NOW);
     assertEquals(res.status, 500);
     assertEquals((await res.json()).error.includes("LONGLINES_ARCHIVE_S3_BUCKET"), true);
+    assertEquals(fake.calls.rpc, []);
+  },
+);
+
+Deno.test(
+  "handleArchive answers 500 when the body cannot be read",
+  async function (): Promise<void> {
+    const fake = fakeSupabase({});
+    const client = fake.client;
+    const res = await handleArchive(brokenReq(), {
+      serviceRoleKey: KEY,
+      db: () => client,
+      store: fakeStore(undefined).store,
+    }, NOW);
+    assertEquals(res.status, 500);
+    assertEquals(await res.json(), { error: "connection reset" });
     assertEquals(fake.calls.rpc, []);
   },
 );

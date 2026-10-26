@@ -5,6 +5,20 @@ import type { ArchiveObjectStore } from "../types.ts";
 
 const KEY = "service-key";
 
+/** A service-role POST whose body stream fails partway. */
+function brokenReq(): Request {
+  const body = new ReadableStream<Uint8Array>({
+    start(controller): void {
+      controller.error(new Error("connection reset"));
+    },
+  });
+  return new Request("http://x/", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${KEY}` },
+    body,
+  });
+}
+
 function req(token: string | undefined, body: string | undefined): Request {
   const init: RequestInit = { method: "POST", headers: {} };
   if (token) {
@@ -174,5 +188,21 @@ Deno.test(
       args = first.args;
     }
     assertEquals(args, { p_after_start: null, p_after_source: null, p_limit: 10 });
+  },
+);
+
+Deno.test(
+  "handleConvertArchive answers 500 when the body cannot be read",
+  async function (): Promise<void> {
+    const fake = fakeSupabase({});
+    const client = fake.client;
+    const res = await handleConvertArchive(brokenReq(), {
+      serviceRoleKey: KEY,
+      db: () => client,
+      store: emptyStore().store,
+    });
+    assertEquals(res.status, 500);
+    assertEquals(await res.json(), { error: "connection reset" });
+    assertEquals(fake.calls.rpc, []);
   },
 );

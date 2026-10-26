@@ -37,6 +37,16 @@ function post(body: unknown, secret: string, method: string): Request {
   return new Request("http://x/relay-status", init);
 }
 
+/** A POST whose body stream fails partway, for the read-failure paths. */
+function brokenPost(secret: string): Request {
+  const body = new ReadableStream<Uint8Array>({
+    start(controller): void {
+      controller.error(new Error("connection reset"));
+    },
+  });
+  return new Request("http://x/", { method: "POST", headers: { "x-relay-secret": secret }, body });
+}
+
 async function run(
   req: Request,
   options: FakeSupabaseOptions,
@@ -107,12 +117,45 @@ Deno.test("parseRelayStatus refuses malformed heartbeats", function (): void {
   for (const body of bad) {
     assertEquals(typeof parseRelayStatus(body), "string", JSON.stringify(body));
   }
-  const extra = bodyWith("extra", 1);
-  extra["feeds"] = [{ id: "rbn", connected: true, x: 1 }];
-  assertEquals(parseRelayStatus(extra), {
+  // Strict: the relay sends exactly these keys, so any other is refused.
+  assertEquals(typeof parseRelayStatus(bodyWith("extra", 1)), "string");
+  assertEquals(
+    typeof parseRelayStatus(bodyWith("feeds", [{ id: "rbn", connected: true, x: 1 }])),
+    "string",
+  );
+  assertEquals(parseRelayStatus(bodyWith("feeds", [{ id: "rbn", connected: true }])), {
     started_at: BODY.started_at,
     rss_bytes: BODY.rss_bytes,
     reconnects: BODY.reconnects,
     feeds: [{ id: "rbn", connected: true }],
   });
+});
+
+Deno.test("parseRelayStatus says what is wrong, as the handler answers it", function (): void {
+  const shape = "body must be a JSON object with only started_at, rss_bytes, reconnects and feeds";
+  assertEquals(parseRelayStatus(null), shape);
+  assertEquals(parseRelayStatus(bodyWith("extra", 1)), shape);
+  assertEquals(parseRelayStatus(bodyWith("started_at", "yesterday")), "started_at must be a time");
+  assertEquals(
+    parseRelayStatus(bodyWith("rss_bytes", -1)),
+    "rss_bytes and reconnects must be counts",
+  );
+  assertEquals(
+    parseRelayStatus(bodyWith("reconnects", 1.5)),
+    "rss_bytes and reconnects must be counts",
+  );
+  assertEquals(parseRelayStatus(bodyWith("feeds", "rbn")), "feeds must be at most 10 items");
+  assertEquals(
+    parseRelayStatus(bodyWith("feeds", [{ id: "rbn" }])),
+    "every feed needs an id and connected",
+  );
+});
+
+Deno.test("a body that cannot be read is a 500", async function (): Promise<void> {
+  const res = await handleRelayStatus(brokenPost(SECRET), {
+    secret: SECRET,
+    db: () => fakeSupabase({}).client,
+  });
+  assertEquals(res.status, 500);
+  assertEquals(await res.json(), { error: "connection reset" });
 });
