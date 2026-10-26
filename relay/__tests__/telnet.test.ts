@@ -1,4 +1,4 @@
-import { assertEquals } from "@std/assert";
+import { assertEquals, assertRejects } from "@std/assert";
 import {
   abortableSleep,
   DEFAULT_BACKOFF,
@@ -10,6 +10,12 @@ import {
   TcpLineDecoder,
   TelnetDecoder,
 } from "../telnet.ts";
+
+// Rejects with whatever it is given, so a test can reject with a non-Error.
+async function rejectWith(reason: unknown): Promise<never> {
+  await Promise.resolve();
+  throw reason;
+}
 
 function enc(s: string): Uint8Array {
   return new TextEncoder().encode(s);
@@ -290,6 +296,38 @@ Deno.test(
       sleep: () => Promise.reject(new Error("must not sleep after abort")),
     });
     assertEquals(logs, []);
+  },
+);
+
+Deno.test(
+  "runTelnet logs a failed session and reconnects, but throws what is not an Error",
+  async function (): Promise<void> {
+    const controller = new AbortController();
+    const logs: string[] = [];
+    let attempts = 0;
+    function connect(): Promise<Deno.Conn> {
+      attempts++;
+      if (attempts === 1) {
+        return Promise.reject(new Error("refused"));
+      }
+      return rejectWith("refused");
+    }
+    await assertRejects(() =>
+      runTelnet({
+        host: "127.0.0.1",
+        port: 1,
+        loginCall: "N0CALL",
+        loginPrompt: /x/,
+        onLine: noop,
+        status: { connected: false, lastDataAt: null, connects: 0 },
+        signal: controller.signal,
+        log: (m) => logs.push(m),
+        connect,
+        sleep: () => Promise.resolve(),
+      })
+    );
+    assertEquals(attempts, 2);
+    assertEquals(logs[0], "session error: refused");
   },
 );
 
