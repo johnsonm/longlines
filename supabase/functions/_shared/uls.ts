@@ -14,7 +14,10 @@
 // Only these fields leave the parser. EN also carries street address, city,
 // ZIP, PO box, phone, email and FRN; none of them is read.
 //
-// No imports: the relay image runs this module without an import map.
+// The only import is errors.ts, which imports nothing, so the relay (which loads
+// this module) needs no package for it.
+
+import { ValidationError } from "./errors.ts";
 
 export const ULS_KINDS = ["HD", "EN", "AM"] as const;
 export type UlsKind = typeof ULS_KINDS[number];
@@ -217,9 +220,12 @@ export class UlsRecords {
   #partial = "";
   #record: string | null = null;
   readonly #prefix: string;
+  /** "UlsRecords: HD.dat", the `where` of a ValidationError. */
+  readonly #where: string;
 
   constructor(kind: UlsKind) {
     this.#prefix = `${kind}|`;
+    this.#where = `UlsRecords: ${kind}.dat`;
   }
 
   /** Records completed by this chunk. */
@@ -232,7 +238,10 @@ export class UlsRecords {
       this.#partial = last;
     }
     if (this.#partial.length > MAX_ULS_RECORD) {
-      throw new Error(`ULS line longer than ${String(MAX_ULS_RECORD)} characters`);
+      throw new ValidationError(`ULS line longer than ${String(MAX_ULS_RECORD)} characters`, {
+        cause: undefined,
+        where: this.#where,
+      });
     }
     return this.#take(lines);
   }
@@ -261,7 +270,10 @@ export class UlsRecords {
         this.#record += ` ${line}`;
       }
       if (this.#record !== null && this.#record.length > MAX_ULS_RECORD) {
-        throw new Error(`ULS record longer than ${String(MAX_ULS_RECORD)} characters`);
+        throw new ValidationError(`ULS record longer than ${String(MAX_ULS_RECORD)} characters`, {
+          cause: undefined,
+          where: this.#where,
+        });
       }
     }
     return out;
