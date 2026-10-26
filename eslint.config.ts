@@ -5,19 +5,6 @@ import tseslint from "typescript-eslint";
 // rules and skip the Part 2 ones. The PR that converts an area removes its globs, and nothing else
 // edits this list. Deleted when empty.
 const zodPending = [
-  // archive
-  "supabase/functions/_shared/archive.ts",
-  "supabase/functions/_shared/archive_convert.ts",
-  "supabase/functions/_shared/archive_store.ts",
-  "supabase/functions/_shared/s3.ts",
-  "supabase/functions/_shared/cty.ts",
-  "supabase/functions/_shared/uls.ts",
-  "supabase/functions/_shared/__tests__/archive.test.ts",
-  "supabase/functions/_shared/__tests__/archive_convert.test.ts",
-  "supabase/functions/_shared/__tests__/archive_store.test.ts",
-  "supabase/functions/_shared/__tests__/cty.test.ts",
-  "supabase/functions/_shared/__tests__/s3.test.ts",
-  "supabase/functions/_shared/__tests__/uls.test.ts",
   // handlers
   "supabase/functions/_shared/handlers/*.ts",
   "supabase/functions/_shared/api/*.ts",
