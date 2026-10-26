@@ -5,6 +5,7 @@
 
 import { parseAprsLine } from "../supabase/functions/_shared/aprs.ts";
 import { parseDxLine } from "../supabase/functions/_shared/dxcluster.ts";
+import { ConfigError } from "../supabase/functions/_shared/errors.ts";
 import { parseRbnLine } from "../supabase/functions/_shared/rbn.ts";
 import { portNumber } from "./config.ts";
 
@@ -105,7 +106,10 @@ export const APRS_SOFTWARE = "LongLines 0.1";
 export function aprsLoginCall(value: string): string {
   const call = value.trim().toUpperCase();
   if (call.length > 9 || !/^[A-Z0-9]{1,9}(-[A-Z0-9]{1,2})?$/.test(call)) {
-    throw new Error("APRS_LOGIN_CALL must be a call or call-SSID of at most nine characters");
+    throw new ConfigError(
+      "APRS_LOGIN_CALL must be a call or call-SSID of at most nine characters",
+      { cause: undefined },
+    );
   }
   return call;
 }
