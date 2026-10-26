@@ -31,13 +31,6 @@ function consoleLog(message: string): void {
   console.log(message);
 }
 
-function errorMessage(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return String(error);
-}
-
 export class Forwarder {
   readonly #opts: Required<ForwarderOptions>;
   #buffer: RelayLine[] = [];
@@ -133,9 +126,9 @@ export class Forwarder {
     const timer = setTimeout(abortStop, timeoutMs);
     const stopped = new Promise<false>(waitForStop);
     try {
-      while (true) {
+      for (;;) {
         let pending = this.#inFlight;
-        if (pending === null || pending === undefined) {
+        if (pending === null) {
           pending = null;
           if (this.#buffer.length > 0 && !this.#stop.signal.aborted) {
             pending = this.#start();
@@ -190,17 +183,21 @@ export class Forwarder {
       this.#retryAt = 0;
       return true;
     } catch (error) {
+      // The forward loop boundary: a failed push keeps its lines and retries with backoff.
+      // Anything that is not an Error is thrown.
+      if (!(error instanceof Error)) {
+        throw error;
+      }
       if (this.#retryMs === 0) {
         this.#retryMs = this.#opts.retryMinMs;
       } else {
         this.#retryMs = Math.min(this.#retryMs * 2, this.#opts.retryMaxMs);
       }
       this.#retryAt = this.#opts.now() + this.#retryMs;
-      const message = errorMessage(error);
       this.#opts.log(
         `push failed (${String(batch.length)} lines, retry in ${
           String(this.#retryMs / 1000)
-        } s): ${message}`,
+        } s): ${error.message}`,
       );
       return false;
     }
