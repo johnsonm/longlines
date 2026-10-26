@@ -6,6 +6,7 @@ import {
   hostOf,
   isDeniedHostname,
   isPrivateIp,
+  UnsafeUrlError,
 } from "../delivery/urlsafety.ts";
 
 Deno.test(
@@ -105,7 +106,12 @@ Deno.test("assertSafeDestinationUrl refuses the forms SQL refuses", function ():
       "https://[::ffff:7f00:1]/",
     ]
   ) {
-    assertThrows(() => assertSafeDestinationUrl("webhook", url), Error, "not allowed", url);
+    assertThrows(
+      () => assertSafeDestinationUrl("webhook", url),
+      UnsafeUrlError,
+      "not allowed",
+      url,
+    );
   }
   assertEquals(
     assertSafeDestinationUrl("webhook", "https://8.8.8.8/x").href,
@@ -125,7 +131,7 @@ Deno.test("assertSafeDestinationUrl applies the same rules as the database", fun
   assertThrows(() => assertSafeDestinationUrl("webhook", "https://10.0.0.1/x"));
   assertThrows(() => assertSafeDestinationUrl("webhook", "https://[::1]/x"));
   assertThrows(() => assertSafeDestinationUrl("webhook", "ftp://example.com/x"));
-  assertThrows(() => assertSafeDestinationUrl("webhook", "not a url"));
+  assertThrows(() => assertSafeDestinationUrl("webhook", "not a url"), UnsafeUrlError, "https");
 });
 
 Deno.test("isPrivateIp pins Fly's 6PN and the cloud metadata address", function (): void {
@@ -155,7 +161,12 @@ Deno.test(
         "https://api.internal:8443/spots",
       ]
     ) {
-      assertThrows(() => assertSafeDestinationUrl("webhook", url), Error, "not allowed", url);
+      assertThrows(
+        () => assertSafeDestinationUrl("webhook", url),
+        UnsafeUrlError,
+        "not allowed",
+        url,
+      );
     }
     // Only the suffix is denied; the words may appear elsewhere in a name.
     for (
@@ -215,7 +226,11 @@ Deno.test(
       assertSafeResolvedHost("evil.example.com", resolver(["::ffff:192.168.1.1"]))
     );
     await assertRejects(() => assertSafeResolvedHost("evil.example.com", resolver(["fd00::1"])));
-    await assertRejects(() => assertSafeResolvedHost("nowhere.example.com", resolver([])));
+    await assertRejects(
+      () => assertSafeResolvedHost("nowhere.example.com", resolver([])),
+      UnsafeUrlError,
+      "nowhere.example.com did not resolve",
+    );
   },
 );
 
@@ -224,7 +239,7 @@ Deno.test(
   async function (): Promise<void> {
     await assertRejects(
       () => assertSafeResolvedHost("shack.example.com", () => Promise.resolve(null)),
-      Error,
+      UnsafeUrlError,
       "DNS",
     );
   },
@@ -274,7 +289,12 @@ Deno.test("assertSafePushEndpoint refuses anything else", function (): void {
       "not a url",
     ]
   ) {
-    assertThrows(() => assertSafePushEndpoint(url), Error, "Use a browser push service.", url);
+    assertThrows(
+      () => assertSafePushEndpoint(url),
+      UnsafeUrlError,
+      "Use a browser push service.",
+      url,
+    );
   }
 });
 
