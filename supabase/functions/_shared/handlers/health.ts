@@ -11,6 +11,9 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { DEFAULT_METHODS, json, preflightResponse } from "../cors.ts";
+import { ValidationError } from "../errors.ts";
+import { type JsonObject, jsonObjectSchema } from "../types.ts";
+import { parseWith } from "../validate.ts";
 
 export const HEALTH_UNAVAILABLE = "Health is unavailable right now.";
 export const HEALTH_RANGES = ["1h", "24h", "7d"] as const;
@@ -36,20 +39,26 @@ export async function handleHealth(req: Request, deps: HealthDeps): Promise<Resp
   if (rangeParam !== null) {
     range = rangeParam;
   }
-  if (!(HEALTH_RANGES as readonly string[]).includes(range)) {
+  if (!HEALTH_RANGES.some((known) => known === range)) {
     return json({ error: "Unknown range." }, 400, {});
   }
 
   const result = await deps.db().rpc("cached_health", { p_range: range });
-  if (result.error !== null || result.data === null || typeof result.data !== "object") {
-    let why: string;
-    if (result.error !== null) {
-      why = result.error.message;
-    } else {
-      why = `unexpected result ${JSON.stringify(result.data)}`;
-    }
-    console.error(`health: ${why}`);
+  if (result.error !== null) {
+    console.error(`health: ${result.error.message}`);
     return json({ error: HEALTH_UNAVAILABLE }, 500, {});
   }
-  return json(result.data, 200, { "Cache-Control": HEALTH_CACHE_CONTROL });
+  // cached_health returns the HealthPayload object, relayed as built (its shape is pinned by
+  // health_snapshot.test.sql); passed through, not copied.
+  let payload: JsonObject;
+  try {
+    payload = parseWith(jsonObjectSchema, result.data, "handleHealth: cached_health result");
+  } catch (error) {
+    if (!(error instanceof ValidationError)) {
+      throw error;
+    }
+    console.error(`health: ${error.message}`);
+    return json({ error: HEALTH_UNAVAILABLE }, 500, {});
+  }
+  return json(payload, 200, { "Cache-Control": HEALTH_CACHE_CONTROL });
 }

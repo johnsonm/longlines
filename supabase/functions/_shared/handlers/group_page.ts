@@ -18,7 +18,10 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { DEFAULT_METHODS, json, preflightResponse } from "../cors.ts";
-import { lookupLimit } from "./callsign_profile.ts";
+import { ValidationError } from "../errors.ts";
+import type { JsonObject } from "../types.ts";
+import { parseWith } from "../validate.ts";
+import { lookupLimit, relayedPayloadSchema } from "./callsign_profile.ts";
 
 export const PAGE_PRIVATE = "private";
 export const GROUP_PAGE_UNAVAILABLE = "This page is unavailable right now.";
@@ -72,8 +75,24 @@ export async function handleGroupPage(req: Request, deps: GroupPageDeps): Promis
     console.error(`group-page: ${page.error.message}`);
     return json({ error: GROUP_PAGE_UNAVAILABLE }, 500, NO_STORE);
   }
-  if (page.data === null) {
+  let payload: JsonObject | null;
+  try {
+    payload = parseWith(
+      relayedPayloadSchema,
+      page.data,
+      "handleGroupPage: public_group_statistics result",
+    );
+  } catch (error) {
+    if (!(error instanceof ValidationError)) {
+      throw error;
+    }
+    // The message names the reader and the input, never the code.
+    console.error(`group-page: ${error.message}`);
+    return json({ error: GROUP_PAGE_UNAVAILABLE }, 500, NO_STORE);
+  }
+  // Null: unknown, or not public.
+  if (payload === null) {
     return json({ error: PAGE_PRIVATE }, 404, NO_STORE);
   }
-  return json(page.data, 200, NO_STORE);
+  return json(payload, 200, NO_STORE);
 }

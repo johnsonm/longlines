@@ -80,6 +80,17 @@ Deno.test(
 );
 
 Deno.test(
+  "group-page answers 500 for a page that is not an object",
+  async function (): Promise<void> {
+    const result = await run(get(`?slug=${CODE}`, {}), {
+      rpc: { public_group_statistics: { data: [PAGE] } },
+    }, KEY);
+    assertEquals([result.res.status, result.body], [500, { error: GROUP_PAGE_UNAVAILABLE }]);
+    assertEquals(result.res.headers.get("Cache-Control"), "no-store");
+  },
+);
+
+Deno.test(
   "group-page refuses a malformed code or period without touching the database",
   async function (): Promise<void> {
     for (

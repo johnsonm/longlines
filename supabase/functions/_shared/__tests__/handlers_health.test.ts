@@ -65,3 +65,13 @@ Deno.test(
     }
   },
 );
+
+Deno.test("a result that is not an object is a 500", async function (): Promise<void> {
+  for (const data of [null, [PAYLOAD], "ok"]) {
+    const result = await run(new Request("http://x/health"), {
+      rpc: { cached_health: { data } },
+    });
+    assertEquals(result.res.status, 500);
+    assertEquals(await result.res.json(), { error: HEALTH_UNAVAILABLE });
+  }
+});
