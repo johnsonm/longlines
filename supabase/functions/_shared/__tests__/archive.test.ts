@@ -1,5 +1,6 @@
 import { assertEquals, assertExists, assertThrows } from "@std/assert";
 import { parquetMetadata, parquetReadObjects } from "hyparquet";
+import { ValidationError } from "../errors.ts";
 import {
   ARCHIVE_ORDER,
   ARCHIVE_SCHEMAS,
@@ -226,10 +227,27 @@ Deno.test("encodeParquet keeps raw_payload as JSON text", async function (): Pro
 Deno.test("encodeParquet refuses a missing or short column", function (): void {
   const short = columnsFor("aprs", 2, "2026-10-11T14:10:00Z");
   short["igate"] = ["x"];
-  assertThrows(() => encodeParquet("aprs", short, 2), Error, "column igate: expected 2 values");
+  assertThrows(
+    () => encodeParquet("aprs", short, 2),
+    ValidationError,
+    "column igate: expected 2 values",
+  );
   const missing = columnsFor("aprs", 2, "2026-10-11T14:10:00Z");
   delete missing["line"];
-  assertThrows(() => encodeParquet("aprs", missing, 2), Error, "column line");
+  assertThrows(() => encodeParquet("aprs", missing, 2), ValidationError, "column line");
+});
+
+Deno.test("encodeParquet refuses a timestamp that is not integer milliseconds", function (): void {
+  const text = columnsFor("aprs", 1, "2026-10-11T14:10:00Z");
+  text["received_at"] = ["1760191800000"];
+  assertThrows(
+    () => encodeParquet("aprs", text, 1),
+    ValidationError,
+    "encodeParquet: column received_at: 0: Invalid input: expected number, received string",
+  );
+  const fraction = columnsFor("aprs", 1, "2026-10-11T14:10:00Z");
+  fraction["received_at"] = [1.5];
+  assertThrows(() => encodeParquet("aprs", fraction, 1), ValidationError, "0: not an integer");
 });
 
 Deno.test(
@@ -241,11 +259,21 @@ Deno.test(
     assertEquals(ARCHIVE_ORDER.includes("aprs"), false);
     assertEquals(archiveSources({ sources: ["aprs"] }), ["aprs"]);
     assertEquals(archiveSources({ sources: ["rbn", "pota"] }), ["rbn", "pota"]);
-    assertThrows(() => archiveSources({ sources: [] }), Error, "non-empty");
-    assertThrows(() => archiveSources({ sources: "aprs" }), Error, "non-empty");
-    assertThrows(() => archiveSources({ sources: ["aprs", "pskreporter"] }), Error, "pskreporter");
-    assertThrows(() => archiveSources([]), Error, "JSON object");
-    assertThrows(() => archiveSources("aprs"), Error, "JSON object");
+    assertThrows(() => archiveSources({ sources: [] }), ValidationError, "non-empty");
+    assertThrows(() => archiveSources({ sources: "aprs" }), ValidationError, "non-empty");
+    assertThrows(
+      () => archiveSources({ sources: ["aprs", "pskreporter"] }),
+      ValidationError,
+      'unknown archive source: "pskreporter"',
+    );
+    // The body is ours, so a key it does not know is refused.
+    assertThrows(
+      () => archiveSources({ sources: ["aprs"], source: "rbn" }),
+      ValidationError,
+      'Unrecognized key: "source"',
+    );
+    assertThrows(() => archiveSources([]), ValidationError, "expected object");
+    assertThrows(() => archiveSources("aprs"), ValidationError, "expected object");
   },
 );
 

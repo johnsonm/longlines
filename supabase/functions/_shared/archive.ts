@@ -11,7 +11,10 @@
 // dependency (its reader, hyparquet). No WASM, so it bundles into an Edge Function.
 import { parquetWriteBuffer } from "hyparquet-writer";
 import type { ColumnSource, SchemaElement } from "hyparquet-writer";
+import { z } from "zod";
+import { ValidationError } from "./errors.ts";
 import type { ArchiveColumns, ArchiveDb, ArchiveSlice, ArchiveStore, Source } from "./types.ts";
+import { parseWith } from "./validate.ts";
 
 /**
  * The sources a run takes when the request names none: the small sources first,
@@ -59,37 +62,38 @@ export interface ArchiveSummary {
   duration_ms: number;
 }
 
+/** The archive function's request body: the cron jobs send `{}` and `{"sources": ["aprs"]}`. */
+export interface ArchiveRequest {
+  sources?: Source[];
+}
+
+const SOURCES_ERROR = '"sources" must be a non-empty array';
+
+/** The message for a source name not in ARCHIVE_SOURCES. */
+function unknownSource(issue: z.core.$ZodRawIssue): string {
+  return `unknown archive source: ${JSON.stringify(issue.input)}`;
+}
+
+// Our own request body (strict): the cron jobs' bodies, or an operator's.
+const archiveRequestSchema: z.ZodType<ArchiveRequest> = z.strictObject({
+  sources: z.array(z.enum(ARCHIVE_SOURCES, { error: unknownSource }), { error: SOURCES_ERROR })
+    .min(1, { error: SOURCES_ERROR })
+    .optional(),
+});
+
 /**
  * The sources a request body asks for: `{"sources": [...]}`, or ARCHIVE_ORDER
- * when the body is empty or names none. Throws on anything else.
+ * when the body is empty or names none. Throws ValidationError on anything else.
  */
 export function archiveSources(body: unknown): readonly Source[] {
   if (body === null || body === undefined) {
     return ARCHIVE_ORDER;
   }
-  if (typeof body !== "object" || Array.isArray(body)) {
-    throw new Error("expected a JSON object");
-  }
-  const sources = (body as Record<string, unknown>)["sources"];
-  if (sources === undefined) {
+  const request = parseWith(archiveRequestSchema, body, "archiveSources: request body");
+  if (request.sources === undefined) {
     return ARCHIVE_ORDER;
   }
-  if (!Array.isArray(sources) || sources.length === 0) {
-    throw new Error('"sources" must be a non-empty array');
-  }
-  for (const s of sources) {
-    if (!ARCHIVE_SOURCES.includes(s as Source)) {
-      throw new Error(`unknown archive source: ${JSON.stringify(s)}`);
-    }
-  }
-  return sources as Source[];
-}
-
-function errorMessage(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return String(error);
+  return request.sources;
 }
 
 type ColumnType = "timestamp" | "string" | "json" | "double" | "int32";
@@ -169,12 +173,21 @@ function schemaElement(name: string, type: ColumnType): SchemaElement {
   return element;
 }
 
+/**
+ * A timestamp column from archive_columns (or the NDJSON conversion): epoch
+ * milliseconds, `(extract(epoch ...) * 1000)::bigint`, so integers or null.
+ * BigInt refuses a fractional number, so the refinement only names the failure.
+ */
+const timestampColumnSchema: z.ZodType<Array<number | null>> = z.array(
+  z.number().refine(Number.isInteger, { error: "not an integer" }).nullable(),
+);
+
 /** A timestamp column value (epoch milliseconds) as the bigint the writer takes for INT64. */
-function timestampValue(v: unknown): bigint | null {
+function timestampValue(v: number | null): bigint | null {
   if (v === null) {
     return null;
   }
-  return BigInt(v as number);
+  return BigInt(v);
 }
 
 /** One slice's columns as a Parquet file, in a single row group. Throws on a missing or short column. */
@@ -188,12 +201,16 @@ export function encodeParquet(
   for (const column of schema) {
     const name = column[0];
     const data = columns[name];
-    if (!Array.isArray(data) || data.length !== rowCount) {
-      throw new Error(`column ${name}: expected ${String(rowCount)} values`);
+    if (data === undefined || data.length !== rowCount) {
+      throw new ValidationError(`column ${name}: expected ${String(rowCount)} values`, {
+        cause: undefined,
+        where: "encodeParquet: columns",
+      });
     }
     // The writer takes INT64 values as bigint.
     if (column[1] === "timestamp") {
-      columnData.push({ name, data: data.map(timestampValue) });
+      const millis = parseWith(timestampColumnSchema, data, `encodeParquet: column ${name}`);
+      columnData.push({ name, data: millis.map(timestampValue) });
     } else {
       columnData.push({ name, data });
     }
@@ -233,7 +250,11 @@ export async function runArchive(
     try {
       slices = await db.pendingSlices(source, before, MAX_SLICES_PER_SOURCE);
     } catch (error) {
-      summary.errors.push(`${source}: ${errorMessage(error)}`);
+      // Per source: a failed listing skips the source; the others still run.
+      if (!(error instanceof Error)) {
+        throw error;
+      }
+      summary.errors.push(`${source}: ${error.message}`);
       continue;
     }
     for (const slice of slices) {
@@ -255,7 +276,7 @@ export async function runArchive(
           summary.empty += 1;
         } else {
           let columns: ArchiveColumns = {};
-          if (sliceData.columns !== null && sliceData.columns !== undefined) {
+          if (sliceData.columns !== null) {
             columns = sliceData.columns;
           }
           const bytes = encodeParquet(source, columns, rowCount);
@@ -274,8 +295,14 @@ export async function runArchive(
         }
         summary.slices += 1;
       } catch (error) {
-        // Later slices of this source wait for the next run, which retries this one first.
-        summary.errors.push(`${source} ${slice.slice_start}: ${errorMessage(error)}`);
+        // Per slice (archive rules): nothing was logged, so the slice stays pending. Any
+        // Error counts: our classes from the database, fetch's TypeError and timeout
+        // DOMException from the bucket, the encoder's own. Later slices of this source
+        // wait for the next run, which retries this one first.
+        if (!(error instanceof Error)) {
+          throw error;
+        }
+        summary.errors.push(`${source} ${slice.slice_start}: ${error.message}`);
         continue sources;
       }
     }
