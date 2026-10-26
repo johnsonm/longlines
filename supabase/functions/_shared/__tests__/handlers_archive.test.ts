@@ -245,7 +245,14 @@ Deno.test(
       store: bucket.store,
     }, NOW);
     assertEquals(res.status, 200);
-    assertEquals(pendingSources(fake.calls), ["pota", "sotawatch", "dxcluster", "wwff", "rbn"]);
+    assertEquals(pendingSources(fake.calls), [
+      "pota",
+      "sotawatch",
+      "dxcluster",
+      "wwff",
+      "wwbota",
+      "rbn",
+    ]);
   },
 );
 

@@ -6,7 +6,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(128);
+select plan(132);
 select pgmq.purge_queue('spot_events');
 select pgmq.purge_queue('deliveries_queue');
 delete from deliveries;
@@ -192,6 +192,13 @@ select is(render_push_field('reference', '{"source": "sotawatch", "sota_summit_r
 select is(render_push_field('reference', '{"source": "wwff", "wwff_reference": "KFF-6101"}'), 'KFF-6101', 'reference: the WWFF reference');
 select is(render_push_field('place_name', '{"source": "wwff", "wwff_reference_name": "State Game Land PA 013"}'), 'State Game Land PA 013',
   'place name: the WWFF reference name');
+select is(render_push_field('reference', '{"source": "wwbota", "wwbota_references": ["B/EA-0103", "B/EA-0104"]}'),
+  'B/EA-0103, B/EA-0104', 'reference: every WWBOTA bunker, in order');
+select is(render_push_field('reference', '{"source": "wwbota", "wwbota_references": null}'), null,
+  'reference: none for a WWBOTA spot without bunkers');
+select is(render_push_field('place_name', '{"source": "wwbota", "wwbota_reference_name": "ROC Post St. Asaph"}'),
+  'ROC Post St. Asaph', 'place name: the first bunker''s name');
+select is(push_source_label('wwbota'), 'WWBOTA', 'the WWBOTA label');
 select is(render_push_field('state', '{"pota_location": "US-NC"}'), 'NC', 'state: the part after the dash');
 select is(render_push_field('grid', (select j from spot)), null, 'an unknown field renders null');
 
@@ -305,7 +312,7 @@ select results_eq(format($$ select spot ->> 'push_title', spot ->> 'push_url'
 select is((select array_agg(k order by k) from claimed c, jsonb_object_keys(c.spot) k where c.destination ->> 'id' = (select id::text from pota)),
   array['band', 'base_callsign', 'callsign', 'comment', 'frequency_khz', 'id', 'mode', 'mode_family', 'pota_location',
         'pota_park_name', 'pota_reference', 'push_body', 'push_source_url', 'push_title', 'push_url', 'sota_summit_ref', 'source',
-        'spot_time', 'spotter', 'wwff_reference', 'wwff_reference_name'],
+        'spot_time', 'spotter', 'wwbota_reference_name', 'wwbota_references', 'wwff_reference', 'wwff_reference_name'],
   'the spot keeps its documented keys plus the four push ones');
 select is((select array_agg(k order by k) from claimed c, jsonb_object_keys(to_jsonb(c)) k where c.destination ->> 'id' = (select id::text from pota)),
   array['attempts', 'created_at', 'delivery_id', 'destination', 'msg_id', 'spot', 'subscription_id'],

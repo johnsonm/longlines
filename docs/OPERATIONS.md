@@ -50,10 +50,11 @@ Times are UTC.
 | `ingest-pota` | every minute | the `ingest-pota` function, through `cron_call_function` (pg_net) |
 | `ingest-sotawatch` | every 30 seconds | `ingest-sotawatch` |
 | `ingest-wwff` | every minute | `ingest-wwff` |
+| `ingest-wwbota` | every minute | `ingest-wwbota` |
 | `match-pending-spots` | every minute | `match_pending_spots()`, the safety net behind the call every ingest makes |
 | `health-sample` | every minute | `record_health_sample()`, the Health page's history |
 | `archive-aprs` | every 5 minutes | the `archive` function for APRS-IS only (`{"sources": ["aprs"]}`) |
-| `archive-spots` | every 10 minutes | `archive` for POTA, SOTAwatch, DX Cluster, WWFF and RBN |
+| `archive-spots` | every 10 minutes | `archive` for POTA, SOTAwatch, DX Cluster, WWFF, WWBOTA and RBN |
 | `rollup-stats-days` | :01 hourly | `refresh_stats_rollups()`: the Stats day rollups (RBN, APRS-IS, countries) and the RBN top stations |
 | `refresh-stats-snapshot` | :05 hourly | `refresh_stats_snapshot()`: one snapshot from the rollups as they stand |
 | `prune-callsign-lookups` | :15 hourly | `prune_callsign_lookups()` |
@@ -134,7 +135,7 @@ select cron.alter_job(job_id := jobid, active := false) from cron.job where jobn
 select cron.alter_job(job_id := jobid, active := true) from cron.job where jobname = 'ingest-pota';
 ```
 
-The pulled sources' jobs are `ingest-pota`, `ingest-sotawatch` and `ingest-wwff`.
+The pulled sources' jobs are `ingest-pota`, `ingest-sotawatch`, `ingest-wwff` and `ingest-wwbota`.
 `cron.unschedule('ingest-pota')` removes the job entirely; re-running the cron migration
 recreates it.
 
@@ -831,6 +832,48 @@ is missing, check the subscription's sources first, then
 `ingest_failures where source = 'wwff'`. Callsign profiles pick WWFF up for today at once and for
 days rolled up after the deploy; earlier days are never rolled up again.
 
+# WWBOTA
+
+Worldwide Bunkers on the Air spots, polled from `https://api.wwbota.net/spots/` (the last hour)
+by the `ingest-wwbota` function every minute. Spots land in `raw_spots` like WWFF's, with every
+bunker the spot names in `wwbota_references` and the first bunker's name in
+`wwbota_reference_name`. There is no relay side.
+
+First deploy, in this order: merge (the Supabase GitHub integration applies
+`20261026000100_wwbota_source`; the cron job then calls `ingest-wwbota`, which answers 404 until
+the next step), then deploy the new function and redeploy every function, since `_shared` changed
+(`Source`, `NormalizedSpot`, the archive columns, the delivery spot shape):
+
+```sh
+supabase functions deploy ingest-wwbota
+supabase functions deploy archive    # wwbota in the run order, two new Parquet columns
+supabase functions deploy api send-test convert-archive   # the delivery spot shape
+```
+
+Is it running?
+
+```sql
+select * from ingest_health where source = 'wwbota';
+select spot_time, callsign, wwbota_references, wwbota_reference_name, frequency_khz, mode, comment
+from raw_spots where source = 'wwbota' order by spot_time desc limit 20;
+select * from archive_status where source = 'wwbota';
+```
+
+`last_success_at` advances every minute. The feed is small (about 30 spots a day across Europe,
+most of them edited to `QRT` afterwards), so hours with no spot are normal. WWBOTA flips an
+activator's spots to QRT after the fact; `type` is not in the content hash, so that edit does not
+store the spot again, while an edited comment or frequency does. A QRT spot with no frequency is
+skipped (`not_normal`), as is a `Test` spot. To pause it, turn the cron job off as for the other
+pulled sources (`jobname = 'ingest-wwbota'`); `npm run invoke:wwbota` runs it once against the
+local stack.
+
+A connection receives WWBOTA spots only when its sources list WWBOTA; "any source" does not
+include it, as with DX Cluster and WWFF, because bunker activations are often POTA or WWFF
+activations too. A "Park, summit, or location contains" rule matches any bunker of an n-fer. If a
+spot is missing, check the connection's sources first, then
+`ingest_failures where source = 'wwbota'` (a spot that names no bunker is recorded there).
+Profiles credit an n-fer to its first bunker only.
+
 # Spot archive
 
 How it works is in `docs/ARCHITECTURE.md` ("The spot archive"). The files live in a private
@@ -1261,7 +1304,7 @@ totals stay as they are.
    ```
 
    From 2026-10-14 the slices are Parquet in Hive-style day folders, so `year`, `month` and `day`
-   filter the files; files written before WWFF shipped lack its columns, hence `union_by_name`.
+   filter the files; files written before WWFF or WWBOTA shipped lack their columns, hence `union_by_name`.
    For example, 2026-10-15:
 
    ```sql
@@ -1273,7 +1316,8 @@ totals stay as they are.
      union all
      select source, callsign, mode, band, count(*)
      from read_parquet(['s3://<bucket>/pota/*/*/*/*.parquet', 's3://<bucket>/sotawatch/*/*/*/*.parquet',
-                        's3://<bucket>/dxcluster/*/*/*/*.parquet', 's3://<bucket>/wwff/*/*/*/*.parquet'],
+                        's3://<bucket>/dxcluster/*/*/*/*.parquet', 's3://<bucket>/wwff/*/*/*/*.parquet',
+                        's3://<bucket>/wwbota/*/*/*/*.parquet'],
                        hive_partitioning = true, union_by_name = true)
      where year = 2026 and month = 10 and day = 15
      group by all

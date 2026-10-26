@@ -77,6 +77,8 @@ describe("SOURCES catalog fields", () => {
     expect(field("pota", "reference")).toBe("Park reference.");
     expect(field("sotawatch", "reference")).toBe("Summit reference.");
     expect(field("wwff", "place_name")).toBe("Reference name.");
+    expect(field("wwbota", "reference")).toBe("Bunker references, comma separated.");
+    expect(field("wwbota", "url")).toBe("No value on WWBOTA spots, so the key is left out.");
     expect(field("pota", "state")).toMatch(/^The park's state or province/);
     expect(field("rbn", "reference")).toBe("No value on RBN spots, so the key is left out.");
     expect(findLiveSource("pota")!.example).toMatchObject({ reference: "US-2763", state: "NC" });
@@ -93,6 +95,7 @@ describe("SOURCES catalog fields", () => {
   it("finds live sources only", () => {
     expect(findLiveSource("rbn")?.title).toBe("Reverse Beacon Network");
     expect(findLiveSource("wwff")?.statsKey).toBe("wwff");
+    expect(findLiveSource("wwbota")?.statsKey).toBe("wwbota");
     expect(findLiveSource("nope")).toBeUndefined();
     expect(findLiveSource(undefined)).toBeUndefined();
   });

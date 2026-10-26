@@ -12,6 +12,7 @@ import {
   isTestComment,
   isTooOld,
   MAX_CALLSIGN_LENGTH,
+  MAX_REFERENCES,
   MAX_SPOT_ID_LENGTH,
   optionalTextSchema,
   parseKhz,
@@ -222,6 +223,8 @@ Deno.test("assertStorableSpot bounds the time, id, calls and references", functi
     sota_summit_ref: null,
     wwff_reference: null,
     wwff_reference_name: null,
+    wwbota_references: null,
+    wwbota_reference_name: null,
     raw_payload: {},
   };
   assertStorableSpot(spot, now);
@@ -234,9 +237,16 @@ Deno.test("assertStorableSpot bounds the time, id, calls and references", functi
     [{ pota_reference: long }, "pota_reference is"],
     [{ sota_summit_ref: long }, "sota_summit_ref is"],
     [{ wwff_reference: long }, "wwff_reference is"],
+    [{ wwbota_references: ["B/G-0001", long] }, "wwbota_references is"],
+    [
+      { wwbota_references: Array.from({ length: MAX_REFERENCES + 1 }, () => "B/G-0001") },
+      "wwbota_references has 51",
+    ],
   ];
   for (const testCase of cases) {
     const changed = Object.assign({}, spot, testCase[0]);
     assertThrows(() => assertStorableSpot(changed, now), Error, testCase[1]);
   }
+  const bunkers = Array.from({ length: MAX_REFERENCES }, () => "B/G-0001");
+  assertStorableSpot(Object.assign({}, spot, { wwbota_references: bunkers }), now);
 });

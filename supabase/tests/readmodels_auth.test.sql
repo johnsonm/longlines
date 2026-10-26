@@ -56,7 +56,7 @@ select hasnt_column('public', 'recent_spots', 'raw_payload', 'recent_spots has n
 select throws_ok('select * from recent_spots', '42501', null, 'recent_spots view is not readable by clients directly');
 select throws_ok('delete from recent_spots', '42501', null, 'recent_spots is read-only for clients');
 select throws_ok('select raw_payload from raw_spots', '42501', null, 'raw_spots is not readable by clients');
-select is((select count(*) from list_ingest_health()), 6::bigint, 'list_ingest_health is callable by signed-in users (one row per source)');
+select is((select count(*) from list_ingest_health()), 7::bigint, 'list_ingest_health is callable by signed-in users (one row per source)');
 select is((select seconds_since_last_success from list_ingest_health() where source = 'pota'), 120,
   'list_ingest_health reports the age of the last success');
 select is(pg_get_function_result('public.list_ingest_health()'::regprocedure),

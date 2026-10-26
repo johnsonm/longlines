@@ -3,7 +3,7 @@
 //
 // Pushed sources (RBN, DX Cluster, APRS-IS) are invoked by the relay, which holds
 // only the relay secret, with POST batches of lines. Pulled sources (POTA,
-// SOTAwatch, WWFF) are served by serve_ingest.ts, which checks for the service
+// SOTAwatch, WWFF, WWBOTA) are served by serve_ingest.ts, which checks for the service
 // role; keep that check out of this module, which the verify_jwt = false push
 // functions import.
 

@@ -8,7 +8,7 @@
 import { fail, localStatus } from "./local-stack.ts";
 
 // Delivery is the sender's job now (`npm run sender`), not an invoke.
-const FUNCTIONS = ["ingest-pota", "ingest-sotawatch", "ingest-wwff"];
+const FUNCTIONS = ["ingest-pota", "ingest-sotawatch", "ingest-wwff", "ingest-wwbota"];
 
 const name = process.argv[2] ?? "";
 if (!FUNCTIONS.includes(name)) {

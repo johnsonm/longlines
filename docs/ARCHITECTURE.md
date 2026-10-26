@@ -6,23 +6,28 @@ flowchart LR
     POTA[api.pota.app]
     SOTA[api-db2.sota.org.uk]
     WWFF[spots.wwff.co]
+    WWBOTA[api.wwbota.net]
   end
 
   subgraph supabase
     CRON[pg_cron] -- "pg_net http_post\nevery 60s / 30s" --> FP[ingest-pota]
     CRON --> FS[ingest-sotawatch]
     CRON --> FW[ingest-wwff]
+    CRON --> FB[ingest-wwbota]
     FP -- "rpc ingest_spots" --> RPC[(ingest_spots)]
     FS -- "rpc ingest_spots" --> RPC
     FW -- "rpc ingest_spots" --> RPC
+    FB -- "rpc ingest_spots" --> RPC
     RPC --> RS[(raw_spots)]
     RPC --> Q[[pgmq spot_events]]
     FP --> ST[(ingest_state)]
     FS --> ST
     FW --> ST
+    FB --> ST
     FP -. unprocessable spots .-> IF[(ingest_failures)]
     FS -. unprocessable spots .-> IF
     FW -. unprocessable spots .-> IF
+    FB -. unprocessable spots .-> IF
     ST --> H[ingest_health view]
     RS --> H
     V[(vault.secrets)] --> CRON
@@ -31,12 +36,13 @@ flowchart LR
   FP -- GET --> POTA
   FS -- GET epoch, GET spots --> SOTA
   FW -- GET --> WWFF
+  FB -- GET --> WWBOTA
 ```
 
 ## Flow
 
 The pulled sources' Edge Functions share one orchestrator (`supabase/functions/_shared/ingest.ts`)
-and differ only in their source adapter (`pota.ts`, `sotawatch.ts`, `wwff.ts`). A run:
+and differ only in their source adapter (`pota.ts`, `sotawatch.ts`, `wwff.ts`, `wwbota.ts`). A run:
 
 1. SOTAwatch only: fetch the epoch token and compare with `ingest_state.last_epoch`. Unchanged
    means nothing new; record the run and return.
@@ -74,6 +80,7 @@ fixed order:
 - RBN: `spot_time, spotter, callsign, frequency, mode, snr, speed, type`
 - DX Cluster: `spot_time, spotter, callsign, frequency, comment`
 - WWFF: `spot_time, activator, reference, frequency_khz, mode, remarks`
+- WWBOTA: `time, call, freq, mode, comment` (not `type`, which flips from Live to QRT after the fact)
 
 The unique constraint `(source, source_spot_id, content_hash)` plus `INSERT ... ON CONFLICT DO
 NOTHING RETURNING` does the rest: re-fetching an unchanged spot inserts nothing, and an edited
@@ -102,8 +109,8 @@ Supabase Vault (`vault.decrypted_secrets`), encrypted at rest, created once by
 ## Scheduling
 
 pg_cron on Supabase accepts `"30 seconds"` as a schedule, so SOTAwatch is a single sub-minute
-job. POTA runs on the standard `* * * * *`, and so does WWFF (`ingest-wwff`), whose feed is served
-with `max-age=60`.
+job. POTA runs on the standard `* * * * *`, and so do WWFF (`ingest-wwff`), whose feed is served
+with `max-age=60`, and WWBOTA (`ingest-wwbota`), whose feed holds the last hour.
 
 ## Access
 
@@ -203,8 +210,8 @@ not block the cascade.
 
 ## What clients can read
 
-- `recent_spots`: the last 24 hours of `raw_spots` without `raw_payload` (WWFF's
-  `wwff_reference` and `wwff_reference_name` included), read one source at a
+- `recent_spots`: the last 24 hours of `raw_spots` without `raw_payload` (the WWFF and
+  WWBOTA reference columns included), read one source at a
   time through the `list_recent_spots(p_source, max_rows)` RPC (the table itself stays
   unreadable). For `rbn` the RPC reads `rbn_spots` instead, the whole feed in the same shape.
 - `ingest_health`: read through the `list_ingest_health()` RPC so the Sources page can show it.
@@ -781,6 +788,36 @@ firehose table.
 - **Elsewhere.** WWFF is a peer of POTA and SOTA on Stats and profiles (`program` `'WWFF'` in
   `spot_stream`), is archived hourly from `raw_spots`, and stays off the band map.
 
+# WWBOTA
+
+Worldwide Bunkers on the Air is an award program for portable operation from bunkers, each
+identified by a reference such as `B/G-2114` (`B/<scheme>-<four digits>`; spec
+`docs/superpowers/specs/2026-10-26-wwbota-design.md`). It is a pulled source like WWFF: pg_cron
+calls `ingest-wwbota` once a minute, which fetches `https://api.wwbota.net/spots/` (the spots of
+the last hour) and runs it through `runIngest` into `raw_spots`. There is no relay change and no
+firehose table.
+
+- **Adapter.** `_shared/wwbota.ts`. The public spot has no id, so `source_spot_id` is `time` as
+  received (unique to the microsecond, and the event id of WWBOTA's own SSE stream). `freq` is
+  MHz. Skips: `too_old` after five minutes, `test_comment`, and `not_normal` for a `Test` spot or
+  a QRT spot without a frequency; other QRT spots are kept. One spot can name several bunkers (an
+  "n-fer"): every reference goes into `raw_spots.wwbota_references` (`text[]`, uppercased, in the
+  feed's order) and the first bunker's name into `wwbota_reference_name`. Positions stay in
+  `raw_payload`.
+- **Opt-in matching.** `source_matches` lets a WWBOTA spot match only subscriptions whose
+  `sources` lists `wwbota`: an empty list means `source not in ('dxcluster', 'wwff', 'wwbota')`.
+  Bunker activations are often POTA or WWFF activations too (`B/G-2114 POTA GB-0051`).
+- **Reference rule.** "Park, summit, or location contains" searches every bunker of the spot
+  (`array_to_string(wwbota_references, ',')`), so a rule naming the third bunker of an n-fer matches.
+- **Rendering.** `render_push_field('reference')` is the bunkers joined with ", " and
+  `place_name` the first bunker's name, for push, Discord and webhooks alike. There is no source
+  URL: WWBOTA has no public page per bunker. The Discord card color is gold.
+- **Elsewhere.** `spot_stream` has a `'WWBOTA'` program arm that credits an n-fer's first bunker,
+  so profiles and group statistics pick it up. It is archived hourly from `raw_spots`, with the
+  references as one comma-joined string. Stats gains only `daily[].wwbota` and `hourly[].wwbota`
+  (for the catalog's rates), from their own CTEs like DX Cluster's `dx`; WWBOTA is not a Stats
+  peer and stays off the band map.
+
 # The spot archive
 
 ```mermaid
@@ -807,7 +844,7 @@ checks its rows against `archive_log.row_count`, writes the Parquet the live arc
 object.
 
 - **Slices.** APRS-IS is archived in 5-minute slices, RBN in 10-minute slices, POTA, SOTAwatch,
-  DX Cluster and WWFF hourly. The length lives only in `archive_slice_minutes(source)`; slices are aligned with `date_bin` and half-open
+  DX Cluster, WWFF and WWBOTA hourly. The length lives only in `archive_slice_minutes(source)`; slices are aligned with `date_bin` and half-open
   (`[start, end)`). Objects are one Parquet file per slice, in Hive-style day folders under the
   source: `<source>/year=YYYY/month=MM/day=DD/HHMM.parquet` (UTC slice start), so readers get
   `year`, `month` and `day` as columns and skip folders a filter rules out.
@@ -818,7 +855,7 @@ object.
   file; column types in `ARCHIVE_SCHEMAS`) and uploads, which measured at about 0.25 s for a full
   60,000-row run against the 2 s CPU limit.
 - **Runs.** pg_cron calls `archive` every 10 minutes with the service-role key (Vault), like the
-  ingest jobs. A run takes POTA, then SOTAwatch, then DX Cluster, then WWFF, then RBN
+  ingest jobs. A run takes POTA, then SOTAwatch, then DX Cluster, then WWFF, then WWBOTA, then RBN
   (`ARCHIVE_ORDER`), oldest first, and starts no new slice once it has archived 60,000 rows, so a backlog clears about six times faster
   than real time without risking the CPU limit. APRS-IS is not in that list: at ~100 packets a
   second it alone fills the budget. A second job, `archive-aprs`, calls `archive` every five
@@ -836,9 +873,11 @@ object.
   `row_count = 0` and no object, so a gap in `archive_log` always means "not archived".
 - **Columns.** Timestamps are `TIMESTAMP(MILLIS)` adjusted to UTC, `frequency_khz` is `DOUBLE`,
   `snr` and `speed` are `INT32`, `raw_payload` is JSON text, the rest are strings. RBN: `spot_time, received_at, spotter, callsign, frequency_khz, band, mode,
-  mode_family, snr, speed, speed_unit, spot_type, line`. POTA, SOTAwatch, DX Cluster and WWFF: every
-  `raw_spots` column except `id`, including the upstream `raw_payload`; files written before WWFF
-  shipped lack `wwff_reference` and `wwff_reference_name`, which readers treat as null. Watched
+  mode_family, snr, speed, speed_unit, spot_type, line`. POTA, SOTAwatch, DX Cluster, WWFF and
+  WWBOTA: every `raw_spots` column except `id`, including the upstream `raw_payload`, with
+  `wwbota_references` as one string joined with `,`; files written before WWFF shipped lack
+  `wwff_reference` and `wwff_reference_name`, and files written before WWBOTA lack its two columns,
+  which readers treat as null. Watched
   RBN rows in `raw_spots` are not archived from there. APRS-IS: `received_at, source_call, destination, path,
   q_construct, igate, packet_type, line`.
 - **Retention.** `maintain_rbn_spots()` (03:35 UTC, off the archive's 10-minute grid) retires RBN
@@ -912,8 +951,8 @@ rollups keep per-station counts and breakdowns forever, never per-spotter rows (
 - **`spot_stream`.** One row shape for every source: `source`, `spot_time`, `callsign`,
   `base_callsign`, `spotter`, `spotter_base`, `frequency_khz`, `band`, `mode`, `mode_bucket`,
   `snr`, `program`, `reference`, `reference_name`, `reference_location`. `program` is `POTA`,
-  `SOTA` or `WWFF`, and `reference` and `reference_name` fall back to `wwff_reference` and
-  `wwff_reference_name` after the POTA and SOTA columns. It is `raw_spots` without its RBN rows
+  `SOTA`, `WWFF` or `WWBOTA`, and `reference` and `reference_name` fall back to the WWFF columns and
+  then the first WWBOTA bunker after the POTA and SOTA columns. It is `raw_spots` without its RBN rows
   (copies) plus `rbn_spots`. A source that writes `raw_spots` appears with no change;
   a new firehose table needs one `union all` arm. The base columns are computed per row for
   `rbn_spots`, so a query over many RBN rows groups by `callsign` first. Service-role only.
@@ -1277,7 +1316,7 @@ A subscription is built as one source, a filter and zero or more destinations
 preview beside them. A source page's Create subscription button goes straight to the editor.
 
 - **Same columns.** The filter's rule rows (Callsign, Callsign group, Band, Mode, and Park,
-  summit, or location on POTA, SOTAwatch and WWFF) each edit one existing column, so a field appears at
+  summit, or location on POTA, SOTAwatch, WWFF and WWBOTA) each edit one existing column, so a field appears at
   most once and rules always combine with "all": `spot_matches` ANDs the columns and ORs the
   values inside one. Nothing about matching changed.
 - **One source** is a web rule: new subscriptions save `sources` with one entry. Older

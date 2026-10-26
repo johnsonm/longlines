@@ -154,6 +154,8 @@ export const sotawatch: SourceAdapter = {
         sota_summit_ref: summitRef,
         wwff_reference: null,
         wwff_reference_name: null,
+        wwbota_references: null,
+        wwbota_reference_name: null,
         raw_payload: raw,
       },
     };

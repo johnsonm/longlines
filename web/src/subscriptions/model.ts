@@ -62,9 +62,9 @@ export function opLabel(field: RuleField, op: RuleOp): string {
   }
 }
 
-/** Park, summit and WWFF references exist only on POTA, SOTAwatch and WWFF spots. */
+/** Park, summit, WWFF and bunker references exist only on POTA, SOTAwatch, WWFF and WWBOTA spots. */
 export function fieldsFor(sources: string[]): RuleField[] {
-  const refs = sources.length === 0 || sources.some((s) => s === "pota" || s === "sotawatch" || s === "wwff");
+  const refs = sources.length === 0 || sources.some((s) => s === "pota" || s === "sotawatch" || s === "wwff" || s === "wwbota");
   return FIELDS.map((f) => f.id).filter((f) => f !== "reference" || refs);
 }
 

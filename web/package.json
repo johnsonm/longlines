@@ -29,6 +29,7 @@
     "invoke:pota": "node scripts/invoke-function.ts ingest-pota",
     "invoke:sotawatch": "node scripts/invoke-function.ts ingest-sotawatch",
     "invoke:wwff": "node scripts/invoke-function.ts ingest-wwff",
+    "invoke:wwbota": "node scripts/invoke-function.ts ingest-wwbota",
     "test:all": "node scripts/check-all.ts",
     "test:all:fresh": "node scripts/check-all.ts --fresh",
     "test:deno": "node scripts/check-all.ts deno",

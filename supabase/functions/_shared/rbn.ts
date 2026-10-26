@@ -221,6 +221,8 @@ async function normalizeRbnSpot(raw: JsonObject, now: Date): Promise<NormalizeRe
       sota_summit_ref: null,
       wwff_reference: null,
       wwff_reference_name: null,
+      wwbota_references: null,
+      wwbota_reference_name: null,
       raw_payload: raw,
     },
   };

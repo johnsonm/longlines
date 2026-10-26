@@ -1,0 +1,383 @@
+[
+  {
+    "spotter": "MW0PJE",
+    "freq": 3.537,
+    "comment": "B/GW-0064",
+    "time": "2026-10-26T18:53:24.664185Z",
+    "mode": "FT8",
+    "call": "MW0PJE/P",
+    "type": "QRT",
+    "references": [
+      {
+        "scheme": "UKBOTA",
+        "dxcc": 294,
+        "reference": "B/GW-0064",
+        "name": "ROC Post St. Asaph",
+        "type": "ROC Bunker",
+        "lat": 53.264443,
+        "long": -3.470586,
+        "extra": {
+          "roc_code": "NWA",
+          "historic_county": "Flintshire",
+          "nearest_postcode": "LL17 0HY"
+        },
+        "locator": "IO83GG"
+      }
+    ]
+  },
+  {
+    "spotter": "G0KAO",
+    "freq": 6.6375,
+    "comment": "B/G-2386",
+    "time": "2026-10-26T18:52:16.952139Z",
+    "mode": "FT8",
+    "call": "G0KAO",
+    "type": "QRT",
+    "references": [
+      {
+        "scheme": "UKBOTA",
+        "dxcc": 223,
+        "reference": "B/G-2386",
+        "name": "Horbury Gas Decontamination Centre",
+        "type": "WW2 Gas Decontamination Unit",
+        "lat": 53.6612,
+        "long": -1.5593,
+        "extra": {
+          "historic_county": "West Riding",
+          "nearest_postcode": "WF4 6HH"
+        },
+        "locator": "IO93FP"
+      }
+    ]
+  },
+  {
+    "spotter": "HB9HCR",
+    "freq": 7.135,
+    "comment": "B/HB-2475,2476,2477,2478,2479 QRT",
+    "time": "2026-10-26T17:26:31.135815Z",
+    "mode": "SSB",
+    "call": "HB9HCR",
+    "type": "QRT",
+    "references": [
+      {
+        "scheme": "HBBOTA",
+        "dxcc": 287,
+        "reference": "B/HB-2475",
+        "name": "A4991 Mooswald",
+        "type": "WW2",
+        "lat": 47.357429,
+        "long": 8.451893,
+        "extra": {},
+        "locator": "JN47FI"
+      },
+      {
+        "scheme": "HBBOTA",
+        "dxcc": 287,
+        "reference": "B/HB-2476",
+        "name": "A4992 Ober, Bickel",
+        "type": "WW2",
+        "lat": 47.356701,
+        "long": 8.452938,
+        "extra": {},
+        "locator": "JN47FI"
+      },
+      {
+        "scheme": "HBBOTA",
+        "dxcc": 287,
+        "reference": "B/HB-2477",
+        "name": "A4993 Mooswald",
+        "type": "WW2",
+        "lat": 47.356878,
+        "long": 8.453206,
+        "extra": {},
+        "locator": "JN47FI"
+      },
+      {
+        "scheme": "HBBOTA",
+        "dxcc": 287,
+        "reference": "B/HB-2478",
+        "name": "A4994 Mooswald",
+        "type": "WW2",
+        "lat": 47.35892,
+        "long": 8.451127,
+        "extra": {},
+        "locator": "JN47FI"
+      },
+      {
+        "scheme": "HBBOTA",
+        "dxcc": 287,
+        "reference": "B/HB-2479",
+        "name": "A4995 Ass, Bickel",
+        "type": "WW2",
+        "lat": 47.359144,
+        "long": 8.451263,
+        "extra": {},
+        "locator": "JN47FI"
+      }
+    ]
+  },
+  {
+    "spotter": "EA4IYL",
+    "freq": 7.138,
+    "comment": "B/EA-0105,0104,0103",
+    "time": "2026-10-26T17:23:08.479344Z",
+    "mode": "SSB",
+    "call": "EA4IYL",
+    "type": "QRT",
+    "references": [
+      {
+        "scheme": "EABOTA",
+        "dxcc": 281,
+        "reference": "B/EA-0103",
+        "name": "Búnker 1 del Cerro de los Ángeles",
+        "type": null,
+        "lat": 40.307502,
+        "long": -3.68291,
+        "extra": {
+          "province": "Madrid",
+          "province_code": "M"
+        },
+        "locator": "IN80DH"
+      },
+      {
+        "scheme": "EABOTA",
+        "dxcc": 281,
+        "reference": "B/EA-0104",
+        "name": "Búnker 2 del Cerro de los Ángeles",
+        "type": null,
+        "lat": 40.306941,
+        "long": -3.68446,
+        "extra": {
+          "province": "Madrid",
+          "province_code": "M"
+        },
+        "locator": "IN80DH"
+      },
+      {
+        "scheme": "EABOTA",
+        "dxcc": 281,
+        "reference": "B/EA-0105",
+        "name": "Búnker 3 del Cerro de los Ángeles",
+        "type": null,
+        "lat": 40.309472,
+        "long": -3.686067,
+        "extra": {
+          "province": "Madrid",
+          "province_code": "M"
+        },
+        "locator": "IN80DH"
+      }
+    ]
+  },
+  {
+    "spotter": "HB9INY",
+    "freq": 14.2,
+    "comment": "b/HB-4744,4806,1357,3349,0001",
+    "time": "2026-10-26T16:52:48.629418Z",
+    "mode": "SSB",
+    "call": "HB9INY",
+    "type": "QRT",
+    "references": [
+      {
+        "scheme": "HBBOTA",
+        "dxcc": 287,
+        "reference": "B/HB-0001",
+        "name": "A7106 Infanteriewerk/Regimentskommandoposten KP Etzel-Ost",
+        "type": "WW2",
+        "lat": 47.176593,
+        "long": 8.770326,
+        "extra": {
+          "url": "https://bexi.ch/GeschichtederAnlage.html"
+        },
+        "locator": "JN47JE"
+      },
+      {
+        "scheme": "HBBOTA",
+        "dxcc": 287,
+        "reference": "B/HB-1357",
+        "name": "A7109 Infanteriebunker Ragenau",
+        "type": "WW2",
+        "lat": 47.17802,
+        "long": 8.76042,
+        "extra": {
+          "url": "https://de.wikipedia.org/wiki/Sperrstelle_Etzel",
+          "date_added": "2026-10-24"
+        },
+        "locator": "JN47JE"
+      },
+      {
+        "scheme": "HBBOTA",
+        "dxcc": 287,
+        "reference": "B/HB-3349",
+        "name": "A7108 Unterstand/Telefonzentrale Etzel-Rindermatten",
+        "type": "WW2",
+        "lat": 47.169237,
+        "long": 8.762939,
+        "extra": {
+          "url": "https://de.wikipedia.org/wiki/Sperrstelle_Etzel"
+        },
+        "locator": "JN47JE"
+      },
+      {
+        "scheme": "HBBOTA",
+        "dxcc": 287,
+        "reference": "B/HB-4744",
+        "name": "F14210 Egg Sz Unterstand, abri",
+        "type": "Cold War",
+        "lat": 47.17426,
+        "long": 8.77176,
+        "extra": {
+          "date_added": "2026-10-25"
+        },
+        "locator": "JN47JE"
+      },
+      {
+        "scheme": "HBBOTA",
+        "dxcc": 287,
+        "reference": "B/HB-4806",
+        "name": "F14211 ASU 6S Etzelpass Ost",
+        "type": "Cold War",
+        "lat": 47.17321,
+        "long": 8.7732,
+        "extra": {
+          "url": "https://de.wikipedia.org/wiki/Sperrstelle_Etzel",
+          "date_added": "2026-10-25"
+        },
+        "locator": "JN47JE"
+      }
+    ]
+  },
+  {
+    "spotter": "PA7RA",
+    "freq": 145.4,
+    "comment": "B/ON-0194 B/ON-0275 B/ON-0276 B/ON-0283 B/ON-0897",
+    "time": "2026-10-26T13:15:57.473923Z",
+    "mode": "FM",
+    "call": "OT4V/P",
+    "type": "QRT",
+    "references": [
+      {
+        "scheme": "ONBOTA",
+        "dxcc": 209,
+        "reference": "B/ON-0194",
+        "name": "Haacht 4",
+        "type": "WW II",
+        "lat": 50.985136,
+        "long": 4.644592,
+        "extra": {},
+        "locator": "JO20HX"
+      },
+      {
+        "scheme": "ONBOTA",
+        "dxcc": 209,
+        "reference": "B/ON-0275",
+        "name": "KW-Linie - Bunker H3",
+        "type": "WW II",
+        "lat": 50.987483,
+        "long": 4.6399,
+        "extra": {},
+        "locator": "JO20HX"
+      },
+      {
+        "scheme": "ONBOTA",
+        "dxcc": 209,
+        "reference": "B/ON-0276",
+        "name": "KW-Linie - Bunker H3 bis",
+        "type": "WW II",
+        "lat": 50.986285,
+        "long": 4.642606,
+        "extra": {},
+        "locator": "JO20HX"
+      },
+      {
+        "scheme": "ONBOTA",
+        "dxcc": 209,
+        "reference": "B/ON-0283",
+        "name": "KW-Linie - Bunker P39",
+        "type": "WW II",
+        "lat": 50.984608,
+        "long": 4.635418,
+        "extra": {},
+        "locator": "JO20HX"
+      },
+      {
+        "scheme": "ONBOTA",
+        "dxcc": 209,
+        "reference": "B/ON-0897",
+        "name": "Bunker KW Line H5 Haacht",
+        "type": "WW II",
+        "lat": 50.9802222,
+        "long": 4.6498444,
+        "extra": {},
+        "locator": "JO20HX"
+      }
+    ]
+  },
+  {
+    "spotter": "MW0PJE",
+    "freq": 7.16,
+    "comment": "B/gw-0065 b/gw-0156",
+    "time": "2026-10-26T12:49:06.725398Z",
+    "mode": "SSB",
+    "call": "MW0PJE/P",
+    "type": "QRT",
+    "references": [
+      {
+        "scheme": "UKBOTA",
+        "dxcc": 294,
+        "reference": "B/GW-0065",
+        "name": "ROC Post Prestatyn Master Post",
+        "type": "ROC Bunker",
+        "lat": 53.32562,
+        "long": -3.3841,
+        "extra": {
+          "roc_code": "NWA",
+          "historic_county": "Flintshire",
+          "roc_master_post": true,
+          "nearest_postcode": "LL18 6EQ"
+        },
+        "locator": "IO83HH"
+      },
+      {
+        "scheme": "UKBOTA",
+        "dxcc": 294,
+        "reference": "B/GW-0156",
+        "name": "ROTOR Radar - Prestatyn (SYP)",
+        "type": "ROTOR Radar site",
+        "lat": 53.325976,
+        "long": -3.384263,
+        "extra": {
+          "historic_county": "Flintshire",
+          "nearest_postcode": "LL18 6EQ"
+        },
+        "locator": "IO83HH"
+      }
+    ]
+  },
+  {
+    "spotter": "G8XDD/P",
+    "freq": 7.074,
+    "comment": "B/G-0791 WAB SU84 QRT",
+    "time": "2026-10-26T10:57:52.676393Z",
+    "mode": "FT8",
+    "call": "G8XDD/P",
+    "type": "QRT",
+    "references": [
+      {
+        "scheme": "UKBOTA",
+        "dxcc": 223,
+        "reference": "B/G-0791",
+        "name": "ROC Post Farnham",
+        "type": "ROC Bunker",
+        "lat": 51.237829,
+        "long": -0.802148,
+        "extra": {
+          "roc_code": "HOR",
+          "historic_county": "Surrey",
+          "nearest_postcode": "GU9 0EQ"
+        },
+        "locator": "IO91OF"
+      }
+    ]
+  }
+]

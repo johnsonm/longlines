@@ -115,13 +115,13 @@ not the name.
 | Frequency | `frequency_khz`, `frequency_mhz`, `frequency_hz` | `frequencyKhz`, `frequencyMhz`, `frequencyHz` | see below | number | never |
 | Mode | `mode` | `mode` | lower case: `cw`, `ssb`, `ft8` | string | the spot has no mode |
 | Band | `band` | `band` | `20m`, `2m`, `70cm` | string | outside every band |
-| Source | `source` | `source` | `pota`, `sotawatch`, `wwff`, `dxcluster` or `rbn` | string | never |
-| Reference | `reference` | `reference` | POTA park (`US-2763`), SOTA summit (`W4C/CM-001`) or WWFF reference (`KFF-5268`) | string | DX Cluster, RBN |
-| Place name | `place_name` | `placeName` | POTA park name or WWFF reference name | string | SOTA, DX Cluster, RBN, or no name |
+| Source | `source` | `source` | `pota`, `sotawatch`, `wwff`, `wwbota`, `dxcluster` or `rbn` | string | never |
+| Reference | `reference` | `reference` | POTA park (`US-2763`), SOTA summit (`W4C/CM-001`), WWFF reference (`KFF-5268`) or WWBOTA bunkers, comma separated (`B/EA-0103, B/EA-0104`) | string | DX Cluster, RBN |
+| Place name | `place_name` | `placeName` | POTA park name, WWFF reference name or the first WWBOTA bunker's name | string | SOTA, DX Cluster, RBN, or no name |
 | State | `state` | `state` | the POTA location after the dash (`US-NC` is `NC`), several joined by `/` (`NC/VA`) | string | not POTA, or no location |
 | Spotter | `spotter` | `spotter` | the spotter's call as sent | string | none given |
 | Country | `country` | `country` | the cty.dat entity name of the callsign (`United States`) | string | no match |
-| Spot URL | `url` | `url` | the pota.app park, the SOTA summit page or the WWFF directory entry | string | DX Cluster, RBN |
+| Spot URL | `url` | `url` | the pota.app park, the SOTA summit page or the WWFF directory entry | string | WWBOTA, DX Cluster, RBN |
 | Comment | `comment` | `comment` | the comment as the spotter typed it | string | empty |
 
 The default fields are Spot ID, Time, Callsign, Frequency, Mode, Band, Source, Reference, Place
@@ -269,7 +269,8 @@ Before October 2026 every request was a list of up to 50 spots with the stored c
         "comment": "RBN 22 dB 19 WPM via OK1HRA-#", "pota_reference": "DE-0858",
         "pota_park_name": "Via Sancti Martini National Historic Trail",
         "pota_location": "DE-BW,DE-BY,DE-RP,DE-SL", "sota_summit_ref": null,
-        "wwff_reference": null, "wwff_reference_name": null
+        "wwff_reference": null, "wwff_reference_name": null,
+        "wwbota_references": null, "wwbota_reference_name": null
       }
     }
   ]
@@ -283,8 +284,8 @@ seconds, "Keep trying for 24 hours", and no pause. To migrate a receiver:
   `body.deliveries`; the Express example above takes both.
 - `connection_id` (a uuid) is now `connection`, the connection's name.
 - The spot's keys are the catalog's: `time` for `spot_time`, `reference` for `pota_reference`,
-  `sota_summit_ref` and `wwff_reference`, `place_name` for `pota_park_name` and
-  `wwff_reference_name`, `state` for the part of `pota_location` after the dash. `base_callsign`,
+  `sota_summit_ref`, `wwff_reference` and `wwbota_references`, `place_name` for `pota_park_name`,
+  `wwff_reference_name` and `wwbota_reference_name`, `state` for the part of `pota_location` after the dash. `base_callsign`,
   `mode_family` and the raw `pota_location` are no longer sent.
 - Times are whole seconds ending `Z` (or Unix seconds), not `+00:00` with fractions.
 - A test request carries `X-LongLines-Test: true` and `"connection": "Test"`, where it used to

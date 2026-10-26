@@ -151,7 +151,7 @@ Deno.test("objectPath names APRS-IS slices by their five-minute start", function
 Deno.test("ARCHIVE_SCHEMAS matches the columns archive_columns returns", function (): void {
   const sql = Deno.readTextFileSync(
     new URL(
-      "../../../migrations/20261015001000_wwff_source.sql",
+      "../../../migrations/20261026000100_wwbota_source.sql",
       import.meta.url,
     ),
   );
@@ -163,12 +163,15 @@ Deno.test("ARCHIVE_SCHEMAS matches the columns archive_columns returns", functio
   assertEquals(columnNames("sotawatch"), columnNames("pota"));
   assertEquals(columnNames("dxcluster"), columnNames("pota"));
   assertEquals(columnNames("wwff"), columnNames("pota"));
+  assertEquals(columnNames("wwbota"), columnNames("pota"));
 });
 
 Deno.test(
   "encodeParquet round-trips every source's columns in row order",
   async function (): Promise<void> {
-    for (const source of ["rbn", "aprs", "pota", "sotawatch", "dxcluster", "wwff"] as const) {
+    for (
+      const source of ["rbn", "aprs", "pota", "sotawatch", "dxcluster", "wwff", "wwbota"] as const
+    ) {
       const columns = columnsFor(source, 3, "2026-10-11T14:10:00Z");
       const rows = await readParquet(encodeParquet(source, columns, 3));
       assertEquals(rows.length, 3, source);
@@ -299,6 +302,7 @@ Deno.test(
       ["sotawatch", cutoff],
       ["dxcluster", cutoff],
       ["wwff", cutoff],
+      ["wwbota", cutoff],
       ["rbn", cutoff],
     ]);
   },

@@ -186,6 +186,8 @@ export function isTooOld(spotTime: Date, now: Date, maxAgeMs: number): boolean {
 // time, two calls and a frequency.
 export const MAX_CALLSIGN_LENGTH = 64;
 export const MAX_SPOT_ID_LENGTH = 256;
+/** The most WWBOTA bunkers one spot may name (a five-bunker n-fer is common). */
+export const MAX_REFERENCES = 50;
 const MAX_FUTURE_MS = 24 * 60 * 60 * 1000;
 const MIN_TIME_MS = Date.UTC(2000, 0, 1);
 
@@ -233,6 +235,19 @@ export function assertStorableSpot(spot: NormalizedSpot, now: Date): void {
     const value = pair[1];
     if (value !== null) {
       assertMaxLength(value, MAX_CALLSIGN_LENGTH, pair[0]);
+    }
+  }
+  if (spot.wwbota_references !== null) {
+    if (spot.wwbota_references.length > MAX_REFERENCES) {
+      throw new ValidationError(
+        `wwbota_references has ${String(spot.wwbota_references.length)} references; the limit is ${
+          String(MAX_REFERENCES)
+        }`,
+        { cause: undefined, where: "assertStorableSpot: wwbota_references" },
+      );
+    }
+    for (const reference of spot.wwbota_references) {
+      assertMaxLength(reference, MAX_CALLSIGN_LENGTH, "wwbota_references");
     }
   }
 }

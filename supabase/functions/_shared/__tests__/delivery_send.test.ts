@@ -98,6 +98,8 @@ function delivery(id: number, destination: DeliveryDestination): PendingDelivery
       sota_summit_ref: null,
       wwff_reference: null,
       wwff_reference_name: null,
+      wwbota_references: null,
+      wwbota_reference_name: null,
     },
   };
 }

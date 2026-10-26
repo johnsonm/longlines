@@ -3,7 +3,7 @@ import type { AprsPacketType } from "./aprs.ts";
 import type { ModeFamily } from "./modes.ts";
 import type { LicenseLoad, UlsCounts, UlsKind, UlsRow } from "./uls.ts";
 
-export type Source = "pota" | "sotawatch" | "rbn" | "dxcluster" | "aprs" | "wwff";
+export type Source = "pota" | "sotawatch" | "rbn" | "dxcluster" | "aprs" | "wwff" | "wwbota";
 
 /** A source name as the database stores it (raw_spots_source_check plus aprs). */
 export const sourceSchema: z.ZodType<Source> = z.enum([
@@ -13,6 +13,7 @@ export const sourceSchema: z.ZodType<Source> = z.enum([
   "dxcluster",
   "aprs",
   "wwff",
+  "wwbota",
 ]);
 
 /** A JSON object as received from an upstream feed. Fields are validated at use. */
@@ -54,6 +55,10 @@ export interface NormalizedSpot {
   sota_summit_ref: string | null;
   wwff_reference: string | null;
   wwff_reference_name: string | null;
+  /** Every WWBOTA bunker the spot names, in the feed's order; wwbota spots only. */
+  wwbota_references: string[] | null;
+  /** The first bunker's name. */
+  wwbota_reference_name: string | null;
   raw_payload: JsonObject;
 }
 

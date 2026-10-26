@@ -73,7 +73,7 @@ export function FilterStep({ sub, setSub, rows, setRows, groups, groupsFailed, p
       case "mode":
         return "SOTAwatch reports every digital mode as DATA. Choose Any digital to include those spots.";
       case "reference":
-        return "Matches POTA references and locations, SOTA summit codes and WWFF references.";
+        return "Matches POTA references and locations, SOTA summit codes, WWFF references and WWBOTA bunkers.";
       case "frequency":
         return rowInvalid(row) ? "Enter a frequency in kHz, such as 14074." : "";
     }

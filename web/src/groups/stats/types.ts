@@ -23,7 +23,7 @@ export interface GroupMember {
 export interface GroupPlace {
   reference: string;
   name: string | null; // SOTA summits have none
-  program: "POTA" | "SOTA" | "WWFF";
+  program: "POTA" | "SOTA" | "WWFF" | "WWBOTA";
   times: number; // activations: one member at the reference on one UTC day
   by?: string[]; // absent on a public page without callsigns
 }

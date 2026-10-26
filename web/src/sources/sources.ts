@@ -1,6 +1,6 @@
 export type Volume = "standard" | "high";
-export type StatsKey = "pota" | "sota" | "wwff" | "rbn" | "dx" | "aprs";
-export type MarkColor = "primary" | "secondary" | "warning" | "success" | "default";
+export type StatsKey = "pota" | "sota" | "wwff" | "wwbota" | "rbn" | "dx" | "aprs";
+export type MarkColor = "primary" | "secondary" | "warning" | "success" | "error" | "default";
 
 /**
  * One field of the delivered spot as a webhook receives it with the default
@@ -227,6 +227,30 @@ export const SOURCES: SourceInfo[] = [
     example: {
       id: 58161488, time: "2026-10-14T14:33:20Z", callsign: "KK4PWJ", frequency_khz: 14244, mode: "ssb", band: "20m",
       source: "wwff", reference: "KFF-5268", place_name: "T.M. Goodwin", spotter: "K3XYZ",
+    },
+  },
+  {
+    id: "wwbota", name: "WWBOTA", full: "Worldwide Bunkers on the Air", status: "live", interval: "every 60s", pollSeconds: 60, desc: "Bunker activation spots from api.wwbota.net", alerts: true,
+    volume: "standard", title: "WWBOTA", tagline: "Activators at Cold War and WW2 bunkers around the world.",
+    mark: "WB", markColor: "error", statsKey: "wwbota", site: "wwbota.net",
+    runBy: { operator: "Worldwide Bunkers on the Air", feed: "Spot list, polled every 60 seconds", modes: "CW, SSB, FM, digital" },
+    about: [
+      "Worldwide Bunkers on the Air is an award program for portable operation from bunkers, from WW2 pillboxes to Cold War observation posts. Activators and hunters post spots to the WWBOTA spotting page as they operate, and one spot can name several bunkers.",
+      "Long Lines stores every WWBOTA spot, keeps all of its bunker references and the first bunker's name, and shows them on profiles. Only connections that pick WWBOTA get them.",
+    ],
+    showsUp: [
+      "Callsign profile: last heard, references, activity",
+      "Connection filters: Bands, Modes, Callsigns, Callsign groups, Park, summit, or location contains",
+    ],
+    schema: deliveredSchema("wwbota", {
+      reference: { description: "Bunker references, comma separated." },
+      place_name: { description: "Name of the first bunker." },
+      state: noValue("WWBOTA"),
+      url: noValue("WWBOTA"),
+    }),
+    example: {
+      id: 58161533, time: "2026-10-14T14:35:02Z", callsign: "KK4PWJ/P", frequency_khz: 7138, mode: "ssb", band: "40m",
+      source: "wwbota", reference: "B/EA-0103, B/EA-0104, B/EA-0105", place_name: "Búnker 1 del Cerro de los Ángeles", spotter: "EA4IYL",
     },
   },
 ];

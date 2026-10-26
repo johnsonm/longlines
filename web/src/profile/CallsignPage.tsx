@@ -80,8 +80,8 @@ function Invalid({ callsign, message }: { callsign: string; message: string }) {
 }
 
 // Each source keeps one color across the page, matching Stats where they overlap.
-const SOURCE_COLORS: Record<string, "primary" | "secondary" | "warning" | "info" | "success"> = {
-  pota: "primary", sotawatch: "secondary", rbn: "warning", dxcluster: "info", wwff: "success",
+const SOURCE_COLORS: Record<string, "primary" | "secondary" | "warning" | "info" | "success" | "error"> = {
+  pota: "primary", sotawatch: "secondary", rbn: "warning", dxcluster: "info", wwff: "success", wwbota: "error",
 };
 
 function Header({ profile, signedIn }: { profile: CallsignProfile; signedIn: boolean }) {
@@ -355,7 +355,7 @@ function Heard({ profile, heard, prefs }: { profile: CallsignProfile; heard: Hea
       </Grid>
 
       {heard.references.length > 0 && (
-        <ChartCard title="Where they've been spotted" subheader="Parks, summits and WWFF references, most recent first. A visit is one reference on one UTC day.">
+        <ChartCard title="Where they've been spotted" subheader="Parks, summits, WWFF references and bunkers, most recent first. A visit is one reference on one UTC day.">
           <Grid container spacing={3}>
             {hasMap && (
               <Grid size={{ xs: 12, md: 6 }}>

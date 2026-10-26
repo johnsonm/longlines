@@ -67,7 +67,7 @@ describe("HealthPage", () => {
     const rows = within(screen.getByText("Current status").closest(".MuiCard-root") as HTMLElement).getAllByRole("row");
     expect(rows.map((r) => r.textContent)).toEqual([
       "CheckStatusNowRule",
-      "Pulled sourcesPOTA, SOTAwatch, WWFFHealthyLast success 22 s agoDelayed after 3 min without a success",
+      "Pulled sourcesPOTA, SOTAwatch, WWFF, WWBOTAHealthyLast success 22 s agoDelayed after 3 min without a success",
       "Relay feedsRBN, DX Cluster, APRS-ISHealthyLast push 41 s ago · 0 reconnects in 24 hDelayed after 3 min without a push",
       "Match queuespot_eventsHealthy9 waiting · oldest 3 sDelayed when the oldest waits over 2 min",
       "Delivery queuedeliveries_queueHealthy12 waiting · oldest ready 4 sDelayed when the oldest ready waits over 2 min",

@@ -14,7 +14,7 @@ vi.mock("../lib/api", () => ({
 const spot = (id: number, source: string, minutesAgo: number, overrides: Partial<RecentSpot> = {}): RecentSpot => ({
   id, source, callsign: `K${id}ABC`, frequency_khz: 14062, mode: "cw", pota_reference: source === "pota" ? "US-0817" : null,
   sota_summit_ref: source === "sotawatch" ? "W4C/CM-001" : null, wwff_reference: null, band: "20m", mode_family: "cw", comment: null,
-  spotter: "W1AW", pota_location: null, pota_park_name: null, wwff_reference_name: null,
+  spotter: "W1AW", pota_location: null, pota_park_name: null, wwff_reference_name: null, wwbota_references: null, wwbota_reference_name: null,
   spot_time: new Date(Date.parse("2026-10-17T12:00:00Z") - minutesAgo * 60_000).toISOString(), ...overrides,
 });
 
@@ -77,8 +77,8 @@ describe("PushPreviewCard", () => {
 
   it("offers the newest recent spots across sources and previews the chosen one", async () => {
     const { user } = render({ settings: { show_field_names: true, body_separator: "comma", title_fields: ["callsign"] } });
-    await waitFor(() => expect(loadRecentSpots).toHaveBeenCalledTimes(4));
-    expect(vi.mocked(loadRecentSpots).mock.calls.map((c) => c[0])).toEqual(["pota", "sotawatch", "dxcluster", "wwff"]);
+    await waitFor(() => expect(loadRecentSpots).toHaveBeenCalledTimes(5));
+    expect(vi.mocked(loadRecentSpots).mock.calls.map((c) => c[0])).toEqual(["pota", "sotawatch", "dxcluster", "wwff", "wwbota"]);
     await user.click(screen.getByRole("combobox", { name: "Preview with this spot" }));
     await waitFor(() => expect(screen.getAllByRole("option")).toHaveLength(5));
     expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual([

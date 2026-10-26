@@ -4,7 +4,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(186);
+select plan(190);
 
 -- Start from empty tables so every count below is exact. Both are empty on a
 -- fresh CI database; locally the cron jobs may have filled them. deliveries
@@ -92,7 +92,10 @@ values
   ('rbn', 'r1', 'r1', pg_temp.at_utc(2, 20), 'RB1N', 'W3LPL', 14035, '20m', 'cw', '12 dB 22 WPM CQ', null, null, null, null, '{}'),
   -- DX Cluster: counted only in daily/hourly dx, never in totals or busiestSlot.
   ('dxcluster', 'dx1', 'dx1', pg_temp.at_utc(2, 20), 'DX1ABC', 'K1DX', 14025, '20m', 'cw', '', null, null, null, null, '{}'),
-  ('dxcluster', 'dx2', 'dx2', pg_temp.at_utc(7, 1),  'DX1ABC', 'K1DX', 14025, '20m', 'cw', '', null, null, null, null, '{}');
+  ('dxcluster', 'dx2', 'dx2', pg_temp.at_utc(7, 1),  'DX1ABC', 'K1DX', 14025, '20m', 'cw', '', null, null, null, null, '{}'),
+  -- WWBOTA: like DX Cluster, counted only in daily/hourly wwbota.
+  ('wwbota', 'wb1', 'wb1', pg_temp.at_utc(2, 20), 'WB1ABC', 'WB1ABC', 7138, '40m', 'ssb', '', null, null, null, null, '{}'),
+  ('wwbota', 'wb2', 'wb2', pg_temp.at_utc(7, 1),  'WB1ABC', 'WB1ABC', 7138, '40m', 'ssb', '', null, null, null, null, '{}');
 -- RBN firehose (rbn_spots). Seven in-window spots from three skimmers of three stations; W3LPL hears
 -- K1ABC twice on 20m at different frequencies, DK8NE hears it only as K1ABC/P. One spot has no band.
 -- Today and eight days ago are out.
@@ -194,9 +197,9 @@ select is((pg_temp.snap() #>> '{busiestSlot,hour}')::int, 14, 'busiestSlot.hour 
 
 -- daily: seven entries, oldest first, zero-filled.
 select is(jsonb_array_length(pg_temp.snap() -> 'daily'), 7, 'daily has exactly 7 entries');
-select is(pg_temp.snap() -> 'daily' -> 0, jsonb_build_object('day', pg_temp.day_str(0), 'pota', 0, 'sota', 0, 'wwff', 0, 'rbn', 0, 'aprs', 0, 'dx', 0), 'daily starts at the oldest day and a day without spots is zero-filled');
-select is(pg_temp.snap() -> 'daily' -> 1, jsonb_build_object('day', pg_temp.day_str(1), 'pota', 3, 'sota', 0, 'wwff', 0, 'rbn', 0, 'aprs', 0, 'dx', 0), 'daily POTA count for day 1');
-select is(pg_temp.snap() -> 'daily' -> 6, jsonb_build_object('day', pg_temp.day_str(6), 'pota', 0, 'sota', 4, 'wwff', 0, 'rbn', 1, 'aprs', 2, 'dx', 0), 'daily ends yesterday with the SOTA, RBN and APRS counts');
+select is(pg_temp.snap() -> 'daily' -> 0, jsonb_build_object('day', pg_temp.day_str(0), 'pota', 0, 'sota', 0, 'wwff', 0, 'rbn', 0, 'aprs', 0, 'dx', 0, 'wwbota', 0), 'daily starts at the oldest day and a day without spots is zero-filled');
+select is(pg_temp.snap() -> 'daily' -> 1, jsonb_build_object('day', pg_temp.day_str(1), 'pota', 3, 'sota', 0, 'wwff', 0, 'rbn', 0, 'aprs', 0, 'dx', 0, 'wwbota', 0), 'daily POTA count for day 1');
+select is(pg_temp.snap() -> 'daily' -> 6, jsonb_build_object('day', pg_temp.day_str(6), 'pota', 0, 'sota', 4, 'wwff', 0, 'rbn', 1, 'aprs', 2, 'dx', 0, 'wwbota', 0), 'daily ends yesterday with the SOTA, RBN and APRS counts');
 
 -- potaByState: 51 keys; the NC/VA park counts once in each; CA-ON is ignored; "US-NC, US-GA" is trimmed.
 select is((select count(*) from jsonb_object_keys(pg_temp.snap() -> 'potaByState')), 51::bigint, 'potaByState has 50 states plus DC');
@@ -262,10 +265,10 @@ select is(pg_temp.snap() #>> '{topReferences,7,reference}', 'W4C/CM-001', 'the e
 -- not counted twice), RBN from rbn_spots through the rollup.
 select is(jsonb_array_length(pg_temp.snap() -> 'hourly'), 168, 'hourly has exactly 168 entries');
 select is(pg_temp.snap() -> 'hourly' -> 0,
-          jsonb_build_object('hour', to_char(pg_temp.at_utc(0, 0) at time zone 'utc', 'YYYY-MM-DD"T"HH24":00:00Z"'), 'pota', 0, 'sota', 0, 'wwff', 0, 'rbn', 0, 'aprs', 0, 'dx', 0),
+          jsonb_build_object('hour', to_char(pg_temp.at_utc(0, 0) at time zone 'utc', 'YYYY-MM-DD"T"HH24":00:00Z"'), 'pota', 0, 'sota', 0, 'wwff', 0, 'rbn', 0, 'aprs', 0, 'dx', 0, 'wwbota', 0),
           'hourly starts at window_start and an empty hour is zero-filled');
 select is(pg_temp.snap() -> 'hourly' -> 68,
-          jsonb_build_object('hour', to_char(pg_temp.at_utc(2, 20) at time zone 'utc', 'YYYY-MM-DD"T"HH24":00:00Z"'), 'pota', 1, 'sota', 0, 'wwff', 0, 'rbn', 4, 'aprs', 2, 'dx', 1),
+          jsonb_build_object('hour', to_char(pg_temp.at_utc(2, 20) at time zone 'utc', 'YYYY-MM-DD"T"HH24":00:00Z"'), 'pota', 1, 'sota', 0, 'wwff', 0, 'rbn', 4, 'aprs', 2, 'dx', 1, 'wwbota', 1),
           'day 2 at 20 UTC: one POTA spot, four RBN spots and two APRS packets');
 select is((pg_temp.snap() #>> '{hourly,167,rbn}')::int, 1, 'hourly ends at 23 UTC yesterday');
 select is((select sum((e ->> 'pota')::int + (e ->> 'sota')::int) from jsonb_array_elements(pg_temp.snap() -> 'hourly') e), 16::bigint,
@@ -315,6 +318,13 @@ select is((select sum((e ->> 'dx')::int) from jsonb_array_elements(pg_temp.snap(
 select is((select sum((e ->> 'dx')::int) from jsonb_array_elements(pg_temp.snap() -> 'hourly') e), 1::bigint,
           'hourly dx adds up to the in-window DX Cluster spots');
 select ok((select bool_and(e ? 'dx') from jsonb_array_elements(pg_temp.snap() -> 'hourly') e), 'every hourly entry has dx');
+-- wwbota: WWBOTA spots per day and hour, for the catalog's rates, and nowhere else.
+select is((pg_temp.snap() #>> '{daily,2,wwbota}')::int, 1, 'daily wwbota counts in-window WWBOTA spots');
+select is((select sum((e ->> 'wwbota')::int) from jsonb_array_elements(pg_temp.snap() -> 'daily') e), 1::bigint,
+          'daily wwbota leaves out WWBOTA spots outside the window');
+select is((select sum((e ->> 'wwbota')::int) from jsonb_array_elements(pg_temp.snap() -> 'hourly') e), 1::bigint,
+          'hourly wwbota adds up to the in-window WWBOTA spots');
+select ok((select bool_and(e ? 'wwbota') from jsonb_array_elements(pg_temp.snap() -> 'hourly') e), 'every hourly entry has wwbota');
 select is((pg_temp.snap() #>> '{aprs,packets}')::int, 4, 'aprs.packets counts in-window packets only');
 select is((pg_temp.snap() #>> '{aprs,stations}')::int, 3, 'aprs.stations counts base calls: K4ABC-9 and K4ABC-7 are one');
 select is((pg_temp.snap() #>> '{aprs,igates}')::int, 2, 'aprs.igates counts igates as sent, never a missing one');
@@ -456,10 +466,10 @@ select is(jsonb_array_length(pg_temp.snap() -> 'hourly'), 168, 'the moved hourly
 select is(pg_temp.snap() #>> '{hourly,0,hour}', to_char(pg_temp.at_utc(0, 2) at time zone 'utc', 'YYYY-MM-DD"T"HH24":00:00Z"'),
           'hourly starts 168 hours before the last complete hour');
 select is(pg_temp.snap() -> 'hourly' -> 166,
-          jsonb_build_object('hour', to_char(pg_temp.at_utc(7, 0) at time zone 'utc', 'YYYY-MM-DD"T"HH24":00:00Z"'), 'pota', 1, 'sota', 0, 'wwff', 0, 'rbn', 0, 'aprs', 0, 'dx', 0),
+          jsonb_build_object('hour', to_char(pg_temp.at_utc(7, 0) at time zone 'utc', 'YYYY-MM-DD"T"HH24":00:00Z"'), 'pota', 1, 'sota', 0, 'wwff', 0, 'rbn', 0, 'aprs', 0, 'dx', 0, 'wwbota', 0),
           'hourly includes 00:00 UTC today');
 select is(pg_temp.snap() -> 'hourly' -> 167,
-          jsonb_build_object('hour', to_char(pg_temp.at_utc(7, 1) at time zone 'utc', 'YYYY-MM-DD"T"HH24":00:00Z"'), 'pota', 1, 'sota', 0, 'wwff', 0, 'rbn', 1, 'aprs', 1, 'dx', 1),
+          jsonb_build_object('hour', to_char(pg_temp.at_utc(7, 1) at time zone 'utc', 'YYYY-MM-DD"T"HH24":00:00Z"'), 'pota', 1, 'sota', 0, 'wwff', 0, 'rbn', 1, 'aprs', 1, 'dx', 1, 'wwbota', 1),
           'hourly ends at 01:00 UTC today, with its RBN spot and APRS packet');
 select is((pg_temp.snap() #>> '{totals,spots}')::int, 17, 'totals still end at window_end');
 select is((select window_end from stats_snapshots order by generated_at desc, id desc limit 1), pg_temp.at_utc(7, 0),

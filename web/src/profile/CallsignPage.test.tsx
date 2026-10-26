@@ -248,7 +248,7 @@ describe("CallsignPage profile", () => {
     profileIs({ ...FULL, heard: { ...HEARD, references } });
     renderAt("/call/KK4PWJ");
     expect(screen.getByText("Park/summit/WWFF visits")).toBeInTheDocument();
-    expect(screen.getByText("Parks, summits and WWFF references, most recent first. A visit is one reference on one UTC day.")).toBeInTheDocument();
+    expect(screen.getByText("Parks, summits, WWFF references and bunkers, most recent first. A visit is one reference on one UTC day.")).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "Visits" })).toBeInTheDocument();
     expect(screen.getByText("US-1009")).toBeInTheDocument();
     expect(screen.queryByText("US-1010")).not.toBeInTheDocument();
