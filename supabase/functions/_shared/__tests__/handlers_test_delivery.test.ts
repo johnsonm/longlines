@@ -631,6 +631,30 @@ Deno.test(
 );
 
 Deno.test(
+  "handleSendTest skips a webhook header whose Vault value no longer decrypts, as the claim does",
+  async function (): Promise<void> {
+    // webhook_header_values reads decrypted_secret, which is null when the secret cannot be read.
+    const headers = [
+      { name: "X-Gone", value: null },
+      { name: "Authorization", value: "Bearer abc" },
+    ];
+    const ran = await run(
+      post({ destination_id: "00000000-0000-4000-8000-0000000000d1" }, "jwt"),
+      {
+        rpc: {
+          webhook_test_delivery: {
+            data: { webhook: { batch_seconds: 0, headers }, spot: WEBHOOK_TEST.spot },
+          },
+        },
+      },
+      { ok: true, sent: 1, attempted: 1, status: 204 },
+    );
+    assertEquals(ran.res.status, 200);
+    assertEquals(ran.sent[0]!.destination.webhook, WEBHOOK_TEST.webhook);
+  },
+);
+
+Deno.test(
   "handleSendTest answers a failed webhook test with the receiver's status",
   async function (): Promise<void> {
     const failed = await run(

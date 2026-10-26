@@ -11,29 +11,22 @@
 import postgres, { type JSONValue, type ParameterOrJSON } from "postgres";
 import { z } from "zod";
 import type { DeliveryRpc } from "../supabase/functions/_shared/delivery/run.ts";
+import { type ErrorContext, TimeoutError } from "../supabase/functions/_shared/errors.ts";
 import { parseWith } from "../supabase/functions/_shared/validate.ts";
 import { RETRY_MAX_MS, RETRY_MIN_MS } from "./config.ts";
 
 /** A call to a function or with a parameter outside SENDER_RPCS. */
 export class RpcAllowlistError extends Error {
-  constructor(message: string) {
-    super(message);
+  constructor(message: string, context: ErrorContext) {
+    super(message, { cause: context.cause });
     this.name = "RpcAllowlistError";
-  }
-}
-
-/** withTimeout's promise did not settle in time. */
-export class TimeoutError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "TimeoutError";
   }
 }
 
 /** The start-up probe still failed at OPEN_DEADLINE_MS. */
 export class DatabaseOpenError extends Error {
-  constructor(message: string) {
-    super(message);
+  constructor(message: string, context: ErrorContext) {
+    super(message, { cause: context.cause });
     this.name = "DatabaseOpenError";
   }
 }
@@ -90,11 +83,11 @@ export function rpcStatement(fn: string, args: Record<string, unknown>): RpcStat
     spec = SENDER_RPCS[fn];
   }
   if (spec === undefined) {
-    throw new RpcAllowlistError(`${fn} is not in the sender's RPC allowlist`);
+    throw new RpcAllowlistError(`${fn} is not in the sender's RPC allowlist`, { cause: undefined });
   }
   for (const name of Object.keys(args)) {
     if (!Object.hasOwn(spec, name)) {
-      throw new RpcAllowlistError(`${fn} has no parameter ${name}`);
+      throw new RpcAllowlistError(`${fn} has no parameter ${name}`, { cause: undefined });
     }
   }
   const params: RpcParam[] = [];
@@ -417,7 +410,7 @@ export function withTimeout<T>(promise: PromiseLike<T>, ms: number, message: str
   let timer: ReturnType<typeof setTimeout> | undefined;
   function expire(_resolve: unknown, reject: (reason: Error) => void): void {
     function fire(): void {
-      reject(new TimeoutError(message));
+      reject(new TimeoutError(message, { cause: undefined }));
     }
     timer = setTimeout(fire, ms);
   }
@@ -474,6 +467,8 @@ export async function openSenderDb(
   for (;;) {
     const db = senderDb(connect(config));
     let error: string;
+    // The timeout, when that is what failed; a probe error is only its message.
+    let cause: unknown = undefined;
     try {
       const probe = await withTimeout(
         db.rpc("delivery_queue_stats", {}),
@@ -490,6 +485,7 @@ export async function openSenderDb(
         throw caught;
       }
       error = caught.message;
+      cause = caught;
     }
     // end() waits at most its own timeout; a close that fails changes nothing here, since the
     // next attempt opens a new pool, so it is only logged.
@@ -499,7 +495,7 @@ export async function openSenderDb(
       log(`database close failed: ${reasonText(closeResult.reason)}`);
     }
     if (now() + retryMs > deadline) {
-      throw new DatabaseOpenError(`database probe failed: ${error}`);
+      throw new DatabaseOpenError(`database probe failed: ${error}`, { cause });
     }
     log(`database probe failed: ${error}; retrying in ${String(retryMs)} ms`);
     await sleep(retryMs);

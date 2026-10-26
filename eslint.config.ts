@@ -1,7 +1,7 @@
 // Plain, explicit, Go-style TypeScript for the Deno code (Edge Functions, relay, sender, scripts).
 import tseslint from "typescript-eslint";
 
-// Bans every file keeps, pending or not: Part 1's, plus Part 2's explicit parameters.
+// Part 1's bans, plus Part 2's explicit parameters.
 const styleSyntax = [
   { selector: "ObjectPattern", message: "No destructuring. Access fields directly." },
   { selector: "ArrayPattern", message: "No destructuring. Index explicitly." },
@@ -82,9 +82,25 @@ export default tseslint.config(
       }],
       "@typescript-eslint/switch-exhaustiveness-check": "error",
       "no-empty": "error",
-      // The rule checks only the built-in Error classes unless it is given the names of ours.
+      // The rule checks only the built-in Error classes unless it is given the names of ours:
+      // errors.ts's and the module-local ones.
       "preserve-caught-error": ["error", {
-        errorClassNames: ["ValidationError", "FunctionCallError", "ConfigError"],
+        errorClassNames: [
+          "ValidationError",
+          "FunctionCallError",
+          "ConfigError",
+          "TimeoutError",
+          "ClaimError",
+          "DatabaseOpenError",
+          "LicenseImportError",
+          "PinnedConnectError",
+          "PinnedHttpError",
+          "RpcAllowlistError",
+          "SliceConvertError",
+          "UnsafeUrlError",
+          "WatchdogError",
+          "ZipError",
+        ],
       }],
       "no-restricted-syntax": ["error", ...styleSyntax, ...zodSyntax],
     },

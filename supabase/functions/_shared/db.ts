@@ -7,7 +7,13 @@ import { type PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import type { CtyData } from "./cty.ts";
 import { ConfigError, FunctionCallError } from "./errors.ts";
-import type { LicenseLoad, UlsCounts, UlsKind, UlsRow } from "./uls.ts";
+import {
+  type LicenseLoad,
+  licenseLoadSchema,
+  type UlsCounts,
+  type UlsKind,
+  type UlsRow,
+} from "./uls.ts";
 import { sourceSchema } from "./types.ts";
 import type {
   AprsDb,
@@ -62,14 +68,7 @@ const callsignsSchema: z.ZodType<Array<string | null> | null> = z
   .nullable();
 
 // fcc_license_load_status: returns the newest load as jsonb, or null before the first.
-const licenseLoadSchema: z.ZodType<LicenseLoad | null> = z
-  .looseObject({
-    id: z.number(),
-    version: z.string(),
-    status: z.enum(["loading", "ready", "applied", "failed"]),
-    started_at: z.string(),
-  })
-  .nullable();
+const loadStatusSchema: z.ZodType<LicenseLoad | null> = licenseLoadSchema.nullable();
 
 // fcc_license_load_begin returns bigint, fcc_license_load_rows integer.
 const loadNumberSchema: z.ZodType<number> = z.number();
@@ -88,8 +87,9 @@ interface SliceColumnsRow {
   columns?: ArchiveColumns | null;
 }
 
-// A column's values are whatever its SQL type encodes as in JSON; ARCHIVE_SCHEMAS
-// (archive.ts) types each column when the slice is encoded.
+// A column's values are whatever its SQL type encodes as in JSON. encodeParquet (archive.ts)
+// checks only the timestamp columns (integers, made bigint); the others go to the writer as
+// archive_columns built them.
 const archiveColumnsSchema: z.ZodType<ArchiveColumns> = z.record(z.string(), z.array(z.json()));
 const sliceColumnsRowsSchema: z.ZodType<SliceColumnsRow[] | null> = z
   .array(
@@ -278,7 +278,7 @@ export function createLicenseDb(client: SupabaseClient): LicenseDb {
   return {
     async loadStatus(): Promise<LicenseLoad | null> {
       const data = await call("fcc_license_load_status", undefined);
-      return parseWith(licenseLoadSchema, data, "loadStatus: fcc_license_load_status result");
+      return parseWith(loadStatusSchema, data, "loadStatus: fcc_license_load_status result");
     },
     async beginLoad(version: string): Promise<number> {
       const data = await call("fcc_license_load_begin", { p_version: version });

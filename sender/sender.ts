@@ -16,7 +16,7 @@ import {
   type ProgressStep,
   runDeliveryBatch,
 } from "../supabase/functions/_shared/delivery/run.ts";
-import { ValidationError } from "../supabase/functions/_shared/errors.ts";
+import { type ErrorContext, ValidationError } from "../supabase/functions/_shared/errors.ts";
 import { parseWith } from "../supabase/functions/_shared/validate.ts";
 import { RETRY_MAX_MS, RETRY_MIN_MS, type SenderConfig } from "./config.ts";
 import type { SenderDb } from "./db.ts";
@@ -30,8 +30,8 @@ export const WATCHDOG_TICK_MS = 1_000;
 
 /** The watchdog found no progress for staleMs; `done` rejects with it. */
 export class WatchdogError extends Error {
-  constructor(message: string) {
-    super(message);
+  constructor(message: string, context: ErrorContext) {
+    super(message, { cause: context.cause });
     this.name = "WatchdogError";
   }
 }
@@ -342,6 +342,7 @@ export function startSender(
       if (since >= config.staleMs) {
         const error = new WatchdogError(
           `watchdog: no progress for ${String(Math.round(since / 1000))} s`,
+          { cause: undefined },
         );
         log(error.message);
         fail(error);

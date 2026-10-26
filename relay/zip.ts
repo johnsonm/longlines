@@ -9,7 +9,9 @@
 
 import {
   ConfigError,
+  type ErrorContext,
   FunctionCallError,
+  TimeoutError,
   ValidationError,
 } from "../supabase/functions/_shared/errors.ts";
 import { userAgent } from "../supabase/functions/_shared/http.ts";
@@ -17,11 +19,11 @@ import { isLocalHost } from "./config.ts";
 
 /**
  * The zip cannot be read: its bytes are not a zip this module reads, an entry's data does not
- * match its central directory record, or a range request sent no headers in time.
+ * match its central directory record.
  */
 class ZipError extends Error {
-  constructor(message: string) {
-    super(message);
+  constructor(message: string, context: ErrorContext) {
+    super(message, { cause: context.cause });
     this.name = "ZipError";
   }
 }
@@ -70,11 +72,11 @@ export function crc32(bytes: Uint8Array, previous: number): number {
   for (let i = 0; i < bytes.length; i++) {
     const b = bytes[i];
     if (b === undefined) {
-      throw new ZipError("crc32: byte index out of range");
+      throw new ZipError("crc32: byte index out of range", { cause: undefined });
     }
     const t = CRC_TABLE[(c ^ b) & 0xff];
     if (t === undefined) {
-      throw new ZipError("crc32: table index out of range");
+      throw new ZipError("crc32: table index out of range", { cause: undefined });
     }
     c = t ^ (c >>> 8);
   }
@@ -100,13 +102,13 @@ export async function readZipDirectory(src: RangeSource): Promise<ZipEntry[]> {
     }
   }
   if (eocd < 0) {
-    throw new ZipError("not a zip file: no end of central directory");
+    throw new ZipError("not a zip file: no end of central directory", { cause: undefined });
   }
   const count = view.getUint16(eocd + 10, true);
   const dirSize = view.getUint32(eocd + 12, true);
   const dirOffset = view.getUint32(eocd + 16, true);
   if (count === 0xffff || dirOffset === 0xffffffff) {
-    throw new ZipError("zip64 is not supported");
+    throw new ZipError("zip64 is not supported", { cause: undefined });
   }
 
   let dir: Uint8Array;
@@ -120,7 +122,7 @@ export async function readZipDirectory(src: RangeSource): Promise<ZipEntry[]> {
   let p = 0;
   for (let n = 0; n < count; n++) {
     if (p + 46 > dir.length || d.getUint32(p, true) !== CENTRAL) {
-      throw new ZipError("corrupt zip central directory");
+      throw new ZipError("corrupt zip central directory", { cause: undefined });
     }
     const flags = d.getUint16(p + 8, true);
     const nameLength = d.getUint16(p + 28, true);
@@ -133,10 +135,10 @@ export async function readZipDirectory(src: RangeSource): Promise<ZipEntry[]> {
       crc32: d.getUint32(p + 16, true),
     };
     if ((flags & 1) !== 0) {
-      throw new ZipError(`${entry.name} is encrypted`);
+      throw new ZipError(`${entry.name} is encrypted`, { cause: undefined });
     }
     if ([entry.compressedSize, entry.size, entry.headerOffset].includes(0xffffffff)) {
-      throw new ZipError("zip64 is not supported");
+      throw new ZipError("zip64 is not supported", { cause: undefined });
     }
     entries.push(entry);
     p += 46 + nameLength + d.getUint16(p + 30, true) + d.getUint16(p + 32, true);
@@ -173,12 +175,13 @@ export async function openZipEntry(
   if (entry.method !== 0 && entry.method !== 8) {
     throw new ZipError(
       `${entry.name}: compression method ${String(entry.method)} is not supported`,
+      { cause: undefined },
     );
   }
   const header = await src.bytes(entry.headerOffset, entry.headerOffset + 30);
   const h = new DataView(header.buffer, header.byteOffset, header.byteLength);
   if (header.length < 30 || h.getUint32(0, true) !== LOCAL) {
-    throw new ZipError(`${entry.name}: corrupt local header`);
+    throw new ZipError(`${entry.name}: corrupt local header`, { cause: undefined });
   }
   const start = entry.headerOffset + 30 + h.getUint16(26, true) + h.getUint16(28, true);
   const raw = await src.stream(start, start + entry.compressedSize);
@@ -196,7 +199,11 @@ export async function openZipEntry(
       transform(chunk, controller): void {
         seen += chunk.length;
         if (seen > entry.size) {
-          controller.error(new ZipError(`${entry.name}: more than ${String(entry.size)} bytes`));
+          controller.error(
+            new ZipError(`${entry.name}: more than ${String(entry.size)} bytes`, {
+              cause: undefined,
+            }),
+          );
         } else {
           crc = crc32(chunk, crc);
           controller.enqueue(chunk);
@@ -205,10 +212,12 @@ export async function openZipEntry(
       flush(controller): void {
         if (seen !== entry.size) {
           controller.error(
-            new ZipError(`${entry.name}: ${String(seen)} of ${String(entry.size)} bytes`),
+            new ZipError(`${entry.name}: ${String(seen)} of ${String(entry.size)} bytes`, {
+              cause: undefined,
+            }),
           );
         } else if (crc !== entry.crc32) {
-          controller.error(new ZipError(`${entry.name}: CRC-32 mismatch`));
+          controller.error(new ZipError(`${entry.name}: CRC-32 mismatch`, { cause: undefined }));
         }
       },
     }),
@@ -382,10 +391,11 @@ export async function openHttpZip(
       const headerTimeout = new AbortController();
       function abortHeaders(): void {
         headerTimeout.abort(
-          new ZipError(
+          new TimeoutError(
             `GET ${url} bytes ${String(start)}-${String(end - 1)}: no response within ${
               String(streamHeaderTimeoutMs)
             } ms`,
+            { cause: undefined },
           ),
         );
       }
