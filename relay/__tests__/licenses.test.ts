@@ -508,6 +508,31 @@ Deno.test(
   },
 );
 
+// Rejects with whatever it is given, so a test can reject with a non-Error.
+async function rejectWith(reason: unknown): Promise<never> {
+  await Promise.resolve();
+  throw reason;
+}
+
+Deno.test(
+  "runLicenseImports throws a failed check that is not an Error",
+  async function (): Promise<void> {
+    const logs: string[] = [];
+    await assertRejects(() =>
+      runLicenseImports({
+        zipUrl: "http://127.0.0.1:9/l_amat",
+        client: fakeClient({}).client,
+        signal: new AbortController().signal,
+        log: (m) => logs.push(m),
+        firstCheckMs: 0,
+        checkMs: 60_000,
+        fetchFn: () => rejectWith("connection refused"),
+      })
+    );
+    assertEquals(logs, []);
+  },
+);
+
 Deno.test(
   "the relay loads licenses through load-licenses with its secret",
   async function (): Promise<void> {

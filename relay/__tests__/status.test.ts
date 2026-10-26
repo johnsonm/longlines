@@ -1,4 +1,4 @@
-import { assertEquals } from "@std/assert";
+import { assertEquals, assertRejects } from "@std/assert";
 import { runStatusLoop, STATUS_MS, statusBody } from "../status.ts";
 import type { SessionStatus } from "../telnet.ts";
 
@@ -97,3 +97,25 @@ Deno.test(
     assertEquals(rss > 0, true);
   },
 );
+
+// Rejects with whatever it is given, so a test can reject with a non-Error.
+async function rejectWith(reason: unknown): Promise<never> {
+  await Promise.resolve();
+  throw reason;
+}
+
+Deno.test("runStatusLoop throws a failure that is not an Error", async function (): Promise<void> {
+  const logs: string[] = [];
+  await assertRejects(() =>
+    runStatusLoop({
+      feeds: [],
+      startedAt: T0,
+      post: () => rejectWith("socket hang up"),
+      sleep: () => Promise.resolve(),
+      signal: new AbortController().signal,
+      log: (m) => logs.push(m),
+      rss: () => 5,
+    })
+  );
+  assertEquals(logs, []);
+});
