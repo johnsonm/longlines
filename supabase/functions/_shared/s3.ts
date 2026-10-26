@@ -5,6 +5,7 @@
 // dependency; the tests pin AWS's published examples.
 // https://docs.aws.amazon.com/AmazonS3/latest/API/sig-v4-header-based-auth.html
 
+import { FunctionCallError, ValidationError } from "./errors.ts";
 import { userAgent } from "./http.ts";
 
 export interface S3Config {
@@ -29,27 +30,48 @@ export interface SigV4Request {
   secretAccessKey: string;
 }
 
+/** A PUT's body and its type. */
+interface SignedBody {
+  bytes: Uint8Array;
+  contentType: string;
+}
+
 const REQUEST_TIMEOUT_MS = 20_000;
 const encoder = new TextEncoder();
+
+/**
+ * The bytes as a Uint8Array over a plain ArrayBuffer, which WebCrypto and fetch
+ * take: a view of the same memory, or a copy when the buffer is shared.
+ */
+function plainBytes(bytes: Uint8Array): Uint8Array<ArrayBuffer> {
+  const buffer = bytes.buffer;
+  if (buffer instanceof ArrayBuffer) {
+    return new Uint8Array(buffer, bytes.byteOffset, bytes.byteLength);
+  }
+  return new Uint8Array(bytes);
+}
 
 function hex(bytes: ArrayBuffer): string {
   return Array.from(new Uint8Array(bytes), (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 export async function sha256Hex(data: Uint8Array | string): Promise<string> {
-  let bytes: Uint8Array;
+  let bytes: Uint8Array<ArrayBuffer>;
   if (typeof data === "string") {
     bytes = encoder.encode(data);
   } else {
-    bytes = data;
+    bytes = plainBytes(data);
   }
-  return hex(await crypto.subtle.digest("SHA-256", bytes as Uint8Array<ArrayBuffer>));
+  return hex(await crypto.subtle.digest("SHA-256", bytes));
 }
 
-async function hmac(key: Uint8Array | ArrayBuffer, data: string): Promise<ArrayBuffer> {
+async function hmac(
+  key: Uint8Array<ArrayBuffer> | ArrayBuffer,
+  data: string,
+): Promise<ArrayBuffer> {
   const k = await crypto.subtle.importKey(
     "raw",
-    key as Uint8Array<ArrayBuffer>,
+    key,
     { name: "HMAC", hash: "SHA-256" },
     false,
     ["sign"],
@@ -74,7 +96,10 @@ export function encodeSegment(segment: string): string {
 export async function sigV4Authorization(req: SigV4Request): Promise<string> {
   const date = req.headers["x-amz-date"];
   if (date === undefined || req.headers["host"] === undefined) {
-    throw new Error("sigV4Authorization needs host and x-amz-date headers");
+    throw new ValidationError("sigV4Authorization needs host and x-amz-date headers", {
+      cause: undefined,
+      where: "sigV4Authorization: headers",
+    });
   }
   const names = Object.keys(req.headers).sort();
   const signedHeaders = names.join(";");
@@ -82,7 +107,10 @@ export async function sigV4Authorization(req: SigV4Request): Promise<string> {
   for (const n of names) {
     const value = req.headers[n];
     if (value === undefined) {
-      throw new Error(`sigV4Authorization: no value for header ${n}`);
+      throw new ValidationError(`sigV4Authorization: no value for header ${n}`, {
+        cause: undefined,
+        where: "sigV4Authorization: headers",
+      });
     }
     lines.push(`${n}:${value.trim()}`);
   }
@@ -120,7 +148,7 @@ async function sendSigned(
   method: "PUT" | "GET" | "HEAD" | "DELETE",
   key: string,
   now: Date,
-  body: { bytes: Uint8Array; contentType: string } | undefined,
+  body: SignedBody | undefined,
 ): Promise<Response> {
   const url = objectUrl(config, key);
   let payload: Uint8Array | string = "";
@@ -154,14 +182,19 @@ async function sendSigned(
   headers["User-Agent"] = userAgent();
   const init: RequestInit = { method, headers };
   if (body !== undefined) {
-    init.body = body.bytes as Uint8Array<ArrayBuffer>;
+    init.body = plainBytes(body.bytes);
   }
   init.signal = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
   return await fetch(url, init);
 }
 
-/** Throws for a non-2xx answer, naming S3's error code when the body has one. */
-function httpError(response: Response, text: string): Error {
+/** The error for a non-2xx answer: the request, its status and S3's error code when the body has one. */
+function httpError(
+  method: string,
+  key: string,
+  response: Response,
+  text: string,
+): FunctionCallError {
   // S3 errors are XML with a <Code>; it says more than the status alone.
   const m = /<Code>([^<]*)<\/Code>/.exec(text);
   let suffix = "";
@@ -171,7 +204,10 @@ function httpError(response: Response, text: string): Error {
       suffix = ` ${code}`;
     }
   }
-  return new Error(`HTTP ${String(response.status)}${suffix}`);
+  return new FunctionCallError(`S3 ${method} ${key}: HTTP ${String(response.status)}${suffix}`, {
+    cause: undefined,
+    status: response.status,
+  });
 }
 
 /** PUTs one object, replacing any at that key. Throws on non-2xx or timeout. */
@@ -185,7 +221,7 @@ export async function putObject(
   const response = await sendSigned(config, "PUT", key, now, { bytes: body, contentType });
   const text = await response.text();
   if (!response.ok) {
-    throw httpError(response, text);
+    throw httpError("PUT", key, response, text);
   }
 }
 
@@ -206,7 +242,7 @@ export async function getObject(
     return null;
   }
   if (!response.ok) {
-    throw httpError(response, await response.text());
+    throw httpError("GET", key, response, await response.text());
   }
   return new Uint8Array(await response.arrayBuffer());
 }
@@ -225,11 +261,19 @@ export async function headObject(
     return null;
   }
   if (!response.ok) {
-    throw httpError(response, "");
+    throw httpError("HEAD", key, response, "");
   }
-  const length = Number(response.headers.get("content-length"));
+  // Read as text first: Number(null) would be 0, a size an empty object has.
+  const lengthText = response.headers.get("content-length");
+  let length = NaN;
+  if (lengthText !== null) {
+    length = Number(lengthText);
+  }
   if (!Number.isSafeInteger(length) || length < 0) {
-    throw new Error("HEAD answered without a Content-Length");
+    throw new ValidationError(`S3 HEAD ${key} answered without a Content-Length`, {
+      cause: undefined,
+      where: "headObject: Content-Length",
+    });
   }
   return length;
 }
@@ -243,6 +287,6 @@ export async function deleteObject(
   const response = await sendSigned(config, "DELETE", key, now, undefined);
   const text = await response.text();
   if (!response.ok && response.status !== 404) {
-    throw httpError(response, text);
+    throw httpError("DELETE", key, response, text);
   }
 }

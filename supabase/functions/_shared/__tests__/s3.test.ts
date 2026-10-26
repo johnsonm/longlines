@@ -1,4 +1,5 @@
 import { assertEquals, assertExists, assertRejects, assertThrows } from "@std/assert";
+import { FunctionCallError, ValidationError } from "../errors.ts";
 import {
   amzDate,
   deleteObject,
@@ -87,11 +88,15 @@ Deno.test(
       accessKeyId: AWS_KEY.accessKeyId,
       secretAccessKey: AWS_KEY.secretAccessKey,
     };
-    await assertRejects(() =>
-      sigV4Authorization(Object.assign({}, base, { headers: { host: "h" } }))
+    await assertRejects(
+      () => sigV4Authorization(Object.assign({}, base, { headers: { host: "h" } })),
+      ValidationError,
+      "needs host and x-amz-date",
     );
-    await assertRejects(() =>
-      sigV4Authorization(Object.assign({}, base, { headers: { "x-amz-date": "d" } }))
+    await assertRejects(
+      () => sigV4Authorization(Object.assign({}, base, { headers: { "x-amz-date": "d" } })),
+      ValidationError,
+      "needs host and x-amz-date",
     );
   },
 );
@@ -177,13 +182,18 @@ Deno.test(
       );
 
       reply = new Response("<Error><Code>AccessDenied</Code></Error>", { status: 403 });
+      const denied = await assertRejects(
+        () => putObject(cfg, "k", bytes, "x", new Date()),
+        FunctionCallError,
+        "S3 PUT k: HTTP 403 AccessDenied",
+      );
+      assertEquals(denied.status, 403);
+      reply = new Response("bad gateway", { status: 502 });
       await assertRejects(
         () => putObject(cfg, "k", bytes, "x", new Date()),
-        Error,
-        "HTTP 403 AccessDenied",
+        FunctionCallError,
+        "S3 PUT k: HTTP 502",
       );
-      reply = new Response("bad gateway", { status: 502 });
-      await assertRejects(() => putObject(cfg, "k", bytes, "x", new Date()), Error, "HTTP 502");
     } finally {
       await server.shutdown();
     }
@@ -247,9 +257,30 @@ Deno.test(
       await deleteObject(cfg, key, new Date());
 
       reply = () => new Response("<Error><Code>AccessDenied</Code></Error>", { status: 403 });
-      await assertRejects(() => getObject(cfg, key, new Date()), Error, "HTTP 403 AccessDenied");
-      await assertRejects(() => headObject(cfg, key, new Date()), Error, "HTTP 403");
-      await assertRejects(() => deleteObject(cfg, key, new Date()), Error, "HTTP 403 AccessDenied");
+      await assertRejects(
+        () => getObject(cfg, key, new Date()),
+        FunctionCallError,
+        `S3 GET ${key}: HTTP 403 AccessDenied`,
+      );
+      await assertRejects(
+        () => headObject(cfg, key, new Date()),
+        FunctionCallError,
+        `S3 HEAD ${key}: HTTP 403`,
+      );
+      await assertRejects(
+        () => deleteObject(cfg, key, new Date()),
+        FunctionCallError,
+        `S3 DELETE ${key}: HTTP 403 AccessDenied`,
+      );
+
+      // A streamed body goes chunked, so the HEAD answer has no Content-Length; that is
+      // no size at all, not 0.
+      reply = () => new Response(ReadableStream.from([new Uint8Array([1])]));
+      await assertRejects(
+        () => headObject(cfg, key, new Date()),
+        ValidationError,
+        `S3 HEAD ${key} answered without a Content-Length`,
+      );
     } finally {
       await server.shutdown();
     }

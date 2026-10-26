@@ -3,6 +3,7 @@
 // application key restricted to the archive bucket and `writeFiles`; locally,
 // the stack's own Storage S3 endpoint and its `archive` bucket.
 
+import { ConfigError } from "./errors.ts";
 import { deleteObject, getObject, headObject, putObject, type S3Config } from "./s3.ts";
 import type { ArchiveObjectStore, ArchiveStore } from "./types.ts";
 
@@ -19,45 +20,53 @@ const LOCAL_HOSTS = new Set(["127.0.0.1", "localhost", "kong", "host.docker.inte
 
 type ArchiveS3Field = keyof typeof ARCHIVE_S3_ENV;
 
+/** ARCHIVE_S3_ENV's fields in its key order, which the "missing" message follows. */
+const ARCHIVE_S3_FIELDS: readonly ArchiveS3Field[] = [
+  "endpoint",
+  "region",
+  "bucket",
+  "accessKeyId",
+  "secretAccessKey",
+];
+
 /** A setting archiveS3Config stored; a missing one has already thrown. */
 function required(values: Partial<Record<ArchiveS3Field, string>>, field: ArchiveS3Field): string {
   const value = values[field];
   if (value === undefined) {
-    throw new Error(`archiveS3Config: no value for ${field}`);
+    throw new ConfigError(`archiveS3Config: no value for ${field}`, { cause: undefined });
   }
   return value;
 }
 
 /** The store's settings from the environment. Throws naming every missing or bad variable. */
 export function archiveS3Config(get: (name: string) => string | undefined): S3Config {
-  const values: Partial<Record<keyof typeof ARCHIVE_S3_ENV, string>> = {};
+  const values: Partial<Record<ArchiveS3Field, string>> = {};
   const missing: string[] = [];
-  for (const entry of Object.entries(ARCHIVE_S3_ENV)) {
-    const field = entry[0];
-    const name = entry[1];
+  for (const field of ARCHIVE_S3_FIELDS) {
+    const name = ARCHIVE_S3_ENV[field];
     const raw = get(name);
     let value = "";
     if (raw !== undefined) {
       value = raw.trim();
     }
     if (value !== "") {
-      values[field as keyof typeof ARCHIVE_S3_ENV] = value;
+      values[field] = value;
     } else {
       missing.push(name);
     }
   }
   if (missing.length > 0) {
-    throw new Error(`archive store not configured: missing ${missing.join(", ")}`);
+    throw new ConfigError(`archive store not configured: missing ${missing.join(", ")}`, {
+      cause: undefined,
+    });
   }
   const endpointText = required(values, "endpoint");
-  let endpoint: URL;
-  try {
-    endpoint = new URL(endpointText);
-  } catch {
-    throw new Error(`${ARCHIVE_S3_ENV.endpoint} is not a URL`);
+  if (!URL.canParse(endpointText)) {
+    throw new ConfigError(`${ARCHIVE_S3_ENV.endpoint} is not a URL`, { cause: undefined });
   }
+  const endpoint = new URL(endpointText);
   if (endpoint.protocol !== "https:" && !LOCAL_HOSTS.has(endpoint.hostname)) {
-    throw new Error(`${ARCHIVE_S3_ENV.endpoint} must be https`);
+    throw new ConfigError(`${ARCHIVE_S3_ENV.endpoint} must be https`, { cause: undefined });
   }
   return {
     endpoint,
@@ -72,36 +81,18 @@ export function createArchiveStore(config: S3Config): ArchiveStore {
   return createArchiveObjectStore(config);
 }
 
-/** Prefixes a store failure with what it was doing and to which path. */
-async function naming<T>(what: string, path: string, run: () => Promise<T>): Promise<T> {
-  try {
-    return await run();
-  } catch (error) {
-    let message: string;
-    if (error instanceof Error) {
-      message = error.message;
-    } else {
-      message = String(error);
-    }
-    throw new Error(`archive ${what} failed for ${path}: ${message}`);
-  }
-}
-
 /**
  * The bucket with read, size and delete as well as upload, for the one-off
  * NDJSON conversion (archive_convert.ts). Its key needs readFiles and
- * deleteFiles on top of writeFiles (docs/OPERATIONS.md).
+ * deleteFiles on top of writeFiles (docs/OPERATIONS.md). A failed answer is s3.ts's
+ * FunctionCallError, whose message names the method and the path.
  */
 export function createArchiveObjectStore(config: S3Config): ArchiveObjectStore {
   return {
-    read: (path) => naming("read", path, () => getObject(config, path, new Date())),
-    size: (path) => naming("size check", path, () => headObject(config, path, new Date())),
-    remove: (path) => naming("delete", path, () => deleteObject(config, path, new Date())),
+    read: (path) => getObject(config, path, new Date()),
+    size: (path) => headObject(config, path, new Date()),
+    remove: (path) => deleteObject(config, path, new Date()),
     upload: (path, bytes) =>
-      naming(
-        "upload",
-        path,
-        () => putObject(config, path, bytes, "application/vnd.apache.parquet", new Date()),
-      ),
+      putObject(config, path, bytes, "application/vnd.apache.parquet", new Date()),
   };
 }
