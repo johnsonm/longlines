@@ -199,7 +199,12 @@ export class CsvRecords {
 // ---------------------------------------------------------------------------------------------
 // Values
 
-const REFERENCE = /^[A-Z0-9]+(?:[/-][A-Z0-9]+)+$/;
+// Each program's reference shape, upper-cased. Every reference in the 2026-10-26 files fits;
+// what doesn't is debris: POTA's K-TEST, WWFF's Select-0001 copies of real references (an
+// unfilled form). The digit counts leave a little room for the lists to grow.
+const POTA_REFERENCE = /^[A-Z0-9]+-\d{4,6}$/;
+const SOTA_REFERENCE = /^[A-Z0-9]+\/[A-Z0-9]{2,3}-\d{3,4}$/;
+const WWFF_REFERENCE = /^[A-Z0-9]+FF-\d{4,5}$/;
 const MAX_REFERENCE = 64;
 const DECIMAL = /^-?\d+(?:\.\d+)?$/;
 const INTEGER = /^-?\d+$/;
@@ -222,6 +227,55 @@ function text(value: string | undefined): string | null {
     return null;
   }
   return trimmed;
+}
+
+const NAMED_ENTITIES: Readonly<Record<string, string>> = {
+  amp: "&",
+  apos: "'",
+  gt: ">",
+  lt: "<",
+  nbsp: " ",
+  quot: '"',
+};
+
+/**
+ * HTML character references decoded (WWFF stores some names escaped: Ragak&#257;pa,
+ * Gutschwald&nbsp;Hoerhonen). An unknown name or a code point that is not a character stays as
+ * written.
+ */
+export function decodeEntities(value: string | undefined): string | undefined {
+  if (value === undefined || !value.includes("&")) {
+    return value;
+  }
+  return value.replace(CHARACTER_REFERENCE, decodeEntity);
+}
+
+const CHARACTER_REFERENCE = /&(?:#(\d{1,7})|#[xX]([0-9a-fA-F]{1,6})|([a-zA-Z]+));/g;
+
+/** One match of CHARACTER_REFERENCE: a decimal, a hex or a named reference. */
+function decodeEntity(
+  whole: string,
+  dec: string | undefined,
+  hex: string | undefined,
+  name: string | undefined,
+): string {
+  if (name !== undefined) {
+    const named = NAMED_ENTITIES[name.toLowerCase()];
+    if (named === undefined) {
+      return whole;
+    }
+    return named;
+  }
+  let code = Number.NaN;
+  if (dec !== undefined) {
+    code = Number(dec);
+  } else if (hex !== undefined) {
+    code = Number.parseInt(hex, 16);
+  }
+  if (!(code > 0 && code <= 0x10ffff && (code < 0xd800 || code > 0xdfff))) {
+    return whole;
+  }
+  return String.fromCodePoint(code);
 }
 
 function integer(value: string | undefined): number | null {
@@ -355,14 +409,17 @@ function utcDay(now: Date): string {
   return now.toISOString().slice(0, 10);
 }
 
-/** The reference upper-cased, or null when it is not one (a blank, a repeated header row). */
-function reference(value: string | undefined): string | null {
+/**
+ * The reference upper-cased, or null when it is not the program's shape (a blank, a repeated
+ * header row, a test row).
+ */
+function reference(value: string | undefined, shape: RegExp): string | null {
   const t = text(value);
   if (t === null) {
     return null;
   }
   const upper = t.toUpperCase();
-  if (upper.length > MAX_REFERENCE || !REFERENCE.test(upper)) {
+  if (upper.length > MAX_REFERENCE || !shape.test(upper)) {
     return null;
   }
   return upper;
@@ -408,7 +465,7 @@ const POTA: ProgramFormat = {
   file: "all_parks_ext.csv",
   columns: ["reference", "name", "active", "locationDesc", "latitude", "longitude", "grid"],
   map(field): CatalogRecord {
-    const ref = reference(field("reference"));
+    const ref = reference(field("reference"), POTA_REFERENCE);
     if (ref === null) {
       return { kind: "skip" };
     }
@@ -445,7 +502,7 @@ const SOTA: ProgramFormat = {
     "ValidTo",
   ],
   map(field, now): CatalogRecord {
-    const ref = reference(field("SummitCode"));
+    const ref = reference(field("SummitCode"), SOTA_REFERENCE);
     if (ref === null) {
       return { kind: "skip" };
     }
@@ -494,7 +551,7 @@ const WWFF: ProgramFormat = {
     "region",
   ],
   map(field): CatalogRecord {
-    const ref = reference(field("reference"));
+    const ref = reference(field("reference"), WWFF_REFERENCE);
     if (ref === null) {
       return { kind: "skip" };
     }
@@ -507,17 +564,22 @@ const WWFF: ProgramFormat = {
       region = null;
     }
     if (region === null) {
-      region = text(field("region"));
+      region = text(decodeEntities(field("region")));
     }
     const out = emptyRow(ref, text(field("status")) === "active");
-    out.name = text(field("name"));
+    out.name = text(decodeEntities(field("name")));
     out.region = region;
     out.country = text(field("country"));
     out.dxcc = dxcc;
     const point = coordinates(field("latitude"), field("longitude"));
     out.latitude = point.latitude;
     out.longitude = point.longitude;
+    // About one reference in twelve has coordinates and no usable locator (-, R1, JJ00AA): derive
+    // it, as for SOTA.
     out.grid = normalizeGrid(field("iaruLocator"));
+    if (out.grid === null && point.latitude !== null && point.longitude !== null) {
+      out.grid = maidenhead(point.latitude, point.longitude);
+    }
     out.valid_from = wwffDate(field("validFrom"));
     out.valid_to = wwffDate(field("validTo"));
     return { kind: "row", row: out };

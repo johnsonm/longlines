@@ -171,7 +171,7 @@ Brad decided on 2026-10-26:
   | region | | `AssociationName`, `RegionName` | `state` when a subdivision, else `region` |
   | country | | | `dxcc` through cty.dat, else `country` |
   | latitude, longitude | `latitude`, `longitude` | `Latitude`, `Longitude` | `latitude`, `longitude` |
-  | grid | `grid` | from `Latitude`, `Longitude` | `iaruLocator` (dashes and spaces around it dropped, an extended locator cut to six) |
+  | grid | `grid` | from `Latitude`, `Longitude` | `iaruLocator` (dashes and spaces around it dropped, an extended locator cut to six), else from `latitude`, `longitude` |
   | altitude_m, points | | `AltM`, `Points` | |
   | valid_from, valid_to | | `ValidFrom`, `ValidTo` (DD/MM/YYYY) | `validFrom`, `validTo` (`0000-00-00` is none) |
 
@@ -188,6 +188,12 @@ Brad decided on 2026-10-26:
   a plain prefix is looked up (`VP8-SG`, `SV/A` and `3Y/P` would resolve to their parent entities),
   and `AN`, WWFF's prefix for Antarctica, which cty.dat gives to Spain, is looked up as `CE9`. The
   parser passes `dxcc` in the row; it is not stored.
+
+  A record whose reference is not its program's shape is skipped (POTA `<prefix>-dddd`, SOTA
+  `<association>/<region>-ddd`, WWFF `<prefix>FF-dddd`, each with a little room to grow): in the
+  2026-10-26 files that drops only POTA's `K-TEST` and WWFF's `Select-0001` and `Select-0002`,
+  copies of real references left by an unfilled form. WWFF stores some names and regions as HTML
+  character references (`Ragak&#257;pa`, `&nbsp;`); the parser decodes them.
 
 ### Rollup (PR 3)
 

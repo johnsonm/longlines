@@ -46,7 +46,7 @@ const FILES: Record<ReferenceProgram, string> = {
   sota: fixture("sota-summits.csv"),
   wwff: fixture("wwff-directory.csv"),
 };
-const ROWS: Record<ReferenceProgram, number> = { pota: 22, sota: 16, wwff: 26 };
+const ROWS: Record<ReferenceProgram, number> = { pota: 21, sota: 16, wwff: 26 };
 
 interface ServedRequest {
   method: string;
@@ -426,12 +426,12 @@ Deno.test("importCatalog stages a list in batches, retries a failed batch and fi
       load: 41,
       version: VERSION,
       state: "finished",
-      staged: 22,
-      skipped: 0,
+      staged: 21,
+      skipped: 1,
     });
     assertEquals(fake.begun, [{ program: "pota", version: VERSION }]);
-    assertEquals(fake.batches.map((b) => b.rows.length), [10, 10, 2]);
-    assertEquals(fake.finished, [{ load: 41, rows: 22 }]);
+    assertEquals(fake.batches.map((b) => b.rows.length), [10, 10, 1]);
+    assertEquals(fake.finished, [{ load: 41, rows: 21 }]);
     const first = fake.batches[0]!.rows[0]!;
     assertEquals([first.reference, first.name, first.grid], [
       "US-0001",
@@ -486,7 +486,7 @@ Deno.test("importCatalog returns a refusal as the load's state", async function 
     assertEquals([result.state, result.staged, result.skipped], [
       "refused",
       ROWS.wwff,
-      1,
+      2,
     ]);
     assertEquals(fake.abandoned, []);
   } finally {
@@ -717,7 +717,7 @@ Deno.test("checkCatalogs loads each due list in turn, one download at a time", a
     );
     assertEquals(logs, [
       `pota: loading ${served.urls.pota} (${VERSION})`,
-      `pota: ${ROWS.pota} staged, 0 skipped, finished`,
+      `pota: ${ROWS.pota} staged, 1 skipped, finished`,
       "sota: load failed: HEAD " + served.urls.sota + ": HTTP 500",
     ]);
   } finally {
@@ -884,7 +884,7 @@ Deno.test("the relay loads the reference lists through load-references with its 
     // The log follows the finish response, so waiting on the request alone races it. Wait for
     // that line, not any WWFF line: "wwff: loading ..." comes before the download.
     while (
-      !logs.includes(`[catalogs] wwff: ${ROWS.wwff} staged, 1 skipped, finished`) &&
+      !logs.includes(`[catalogs] wwff: ${ROWS.wwff} staged, 2 skipped, finished`) &&
       Date.now() < deadline
     ) {
       await new Promise((r) => setTimeout(r, 10));
@@ -904,7 +904,7 @@ Deno.test("the relay loads the reference lists through load-references with its 
     );
     assertEquals(
       logs.includes(
-        `[catalogs] wwff: ${ROWS.wwff} staged, 1 skipped, finished`,
+        `[catalogs] wwff: ${ROWS.wwff} staged, 2 skipped, finished`,
       ),
       true,
     );

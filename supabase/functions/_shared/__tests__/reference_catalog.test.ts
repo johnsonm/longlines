@@ -3,6 +3,7 @@ import { ValidationError } from "../errors.ts";
 import {
   catalogFile,
   CsvRecords,
+  decodeEntities,
   maidenhead,
   mapCatalogRecord,
   MAX_CSV_RECORD,
@@ -119,7 +120,9 @@ Deno.test("each fixture parses the same in any chunking", function (): void {
 
 Deno.test("POTA rows map the park list's columns", function (): void {
   const result = parse("pota", FIXTURES.pota, 4096);
-  assertEquals([result.rows.length, result.skipped], [22, 0]);
+  // K-TEST, a test row, is the one skip.
+  assertEquals([result.rows.length, result.skipped], [21, 1]);
+  assertEquals(byReference(result.rows).has("K-TEST"), false);
   const rows = byReference(result.rows);
   assertEquals(rows.get("US-0001"), {
     reference: "US-0001",
@@ -224,8 +227,9 @@ Deno.test("SOTA's active follows the clock: ValidTo is the last valid day", func
 
 Deno.test("WWFF rows map the directory's columns and skip its repeated header", function (): void {
   const result = parse("wwff", FIXTURES.wwff, 4096);
-  // The directory repeats its header partway down; that row is the one skip.
-  assertEquals([result.rows.length, result.skipped], [26, 1]);
+  // The directory repeats its header partway down, and Select-0001 is debris from an unfilled
+  // form (a copy of ZLFF-0234): those are the two skips.
+  assertEquals([result.rows.length, result.skipped], [26, 2]);
   const rows = byReference(result.rows);
   assertEquals(rows.get("KFF-6101"), {
     reference: "KFF-6101",
@@ -269,17 +273,20 @@ Deno.test("WWFF rows map the directory's columns and skip its repeated header", 
   assertEquals(rows.get("YOFF-0709")!.grid, "KN16xk");
   assertEquals(rows.get("YOFF-0721")!.grid, "KN34bl");
   assertEquals(rows.get("YVFF-0106")!.grid, "FJ88ph");
-  assertEquals(rows.get("EAFF-0398")!.grid, null);
+  // A region code or none, with coordinates: derived from them. Without coordinates: none.
+  assertEquals(rows.get("EAFF-0398")!.grid, "IM89fq");
+  assertEquals(rows.get("DLFF-1365")!.grid, maidenhead(50.286, 11.993));
   assertEquals(rows.get("ANFF-0002")!.grid, null);
-  assertEquals(rows.get("DLFF-1365")!.grid, null);
+  // Names stored as HTML character references are decoded.
+  assertEquals(rows.get("YLFF-0305")!.name, "Ziemeļvidzemes biosfēras rezervāts");
   assertEquals(rows.get("DLFF-1365")!.name, 'LSG "Regnitzgrund"');
   assertEquals(
     rows.get("4JFF-0016")!.name,
     "Yanar Dagh State Historical, Cultural and Natural Reserve",
   );
-  // A record with a line break inside a quoted field, and a lower-case reference.
+  // A record with a line break inside a quoted field.
   assertEquals(rows.get("ESFF-0265")!.name, "Tahkuna");
-  assertEquals(rows.get("SELECT-0001")!.name, "Special Takahe Area");
+  assertEquals(rows.has("SELECT-0001"), false);
 });
 
 Deno.test("a file without its header is refused", function (): void {
@@ -304,7 +311,9 @@ Deno.test("references, grids and dates are checked before they are kept", functi
   function map(record: string[]) {
     return mapCatalogRecord("pota", header, record, NOW);
   }
-  for (const bad of ["", "-", "US", "US-", "US 0001", "US-0001;", `US-${"1".repeat(62)}`]) {
+  for (
+    const bad of ["", "-", "US", "US-", "US 0001", "US-0001;", "K-TEST", `US-${"1".repeat(62)}`]
+  ) {
     assertEquals(map([bad, "1"]), { kind: "skip" }, bad);
   }
   const lower = map([" us-0001 ", "1", "91", "0", "FN54vh"]);
@@ -385,4 +394,39 @@ Deno.test("referenceLoadStatusSchema reads reference_load_status' jsonb", functi
     referenceLoadStatusSchema.safeParse({ pota: status.pota, sota: status.sota }).success,
     false,
   );
+});
+
+Deno.test("each program keeps only references of its own shape", function (): void {
+  function kept(program: ReferenceProgram, column: string, value: string): boolean {
+    return mapCatalogRecord(program, new Map([[column, 0]]), [value], NOW).kind === "row";
+  }
+  assertEquals(
+    ["US-0001", "US-12940", "VE-0001", "K-TEST", "W4C/CM-001"].map((r) =>
+      kept("pota", "reference", r)
+    ),
+    [true, true, true, false, false],
+  );
+  assertEquals(
+    ["W4C/CM-001", "G/LD-001", "VK3/VE-0001", "US-0001", "W4C/CM-1"].map((r) =>
+      kept("sota", "SummitCode", r)
+    ),
+    [true, true, true, false, false],
+  );
+  assertEquals(
+    ["KFF-6101", "4XFF-0211", "Select-0001", "US-0001", "KFF-61"].map((r) =>
+      kept("wwff", "reference", r)
+    ),
+    [true, true, false, false, false],
+  );
+});
+
+Deno.test("HTML character references are decoded and anything else is left alone", function (): void {
+  assertEquals(decodeEntities("Ragak&#257;pa"), "Ragakāpa");
+  assertEquals(decodeEntities("A&nbsp;B &amp; C &#x101;"), "A B & C ā");
+  assertEquals(
+    decodeEntities("Fish &chips; &#0; &#xD800; &#99999999;"),
+    "Fish &chips; &#0; &#xD800; &#99999999;",
+  );
+  assertEquals(decodeEntities("no entities"), "no entities");
+  assertEquals(decodeEntities(undefined), undefined);
 });
