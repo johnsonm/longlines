@@ -46,16 +46,16 @@ export function healthHandler(
     }
     const s = status();
     let last = s.startedAt;
-    if (s.lastProgressAt !== null && s.lastProgressAt !== undefined) {
+    if (s.lastProgressAt !== null) {
       last = s.lastProgressAt;
     }
     const healthy = now().getTime() - last.getTime() < staleMs;
     let lastClaimAt: string | null = null;
-    if (s.lastClaimAt !== null && s.lastClaimAt !== undefined) {
+    if (s.lastClaimAt !== null) {
       lastClaimAt = s.lastClaimAt.toISOString();
     }
     let lastProgressAt: string | null = null;
-    if (s.lastProgressAt !== null && s.lastProgressAt !== undefined) {
+    if (s.lastProgressAt !== null) {
       lastProgressAt = s.lastProgressAt.toISOString();
     }
     let code = 503;
