@@ -169,6 +169,12 @@ begin
   perform * from public.backfill_callsign_rollups();
   assert exists (select 1 from callsign_rollup_days where day = '2026-10-05'),
     'backfill_callsign_rollups should roll up the smoke spots'' first day';
+  assert exists (select 1 from reference_days
+                 where program = 'sota' and reference = 'SP/SS-004' and day = '2026-10-05'
+                   and base = 'SQ1GPR' and source = 'sotawatch' and spots = 1),
+    'the roll-up should write the smoke SOTA spot''s activation to reference_days';
+  assert (select relrowsecurity from pg_class where oid = 'public.reference_days'::regclass),
+    'reference_days should have row level security on';
 
   -- Group statistics: the sharing columns, the service-role-only cache, and a code nobody has.
   assert exists (select 1 from information_schema.columns

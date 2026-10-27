@@ -73,8 +73,9 @@ Brad decided on 2026-10-26:
    it already makes over the day. Older days are filled from `raw_spots`, which is exact because
    `raw_spots` is never pruned and RBN spots carry no reference. The table is never compacted and
    has no running totals, so a fill can always rebuild it.
-6. **Days not rolled up yet are read live, by reference.** A partial expression index on
-   `raw_spots` by reference and time serves the read. The live window is the callsign profile's
+6. **Days not rolled up yet are read live, by reference.** The read goes through `spot_stream`,
+   as every profile read does, and a partial expression index on `raw_spots` by `spot_stream`'s
+   reference expression and time serves it. The live window is the callsign profile's
    (the unmarked days of the last 14, never before the first marker), so a day is never counted
    twice.
 7. **Hidden calls count nowhere** on a reference page: not in a list, not in a total. This is
@@ -200,19 +201,34 @@ Brad decided on 2026-10-26:
 - `reference_days` (RLS on, no policies, no client grants): `program text`, `reference text`,
   `day date`, `base text`, `source text`, `spots int`, `modes text[]`, `bands text[]` (sorted, as
   `callsign_days`). Primary key `(program, reference, day, base, source)`; index `(base, day)`.
-  Heard role only: the activator, never the spotter.
+  Heard role only: the activator, never the spotter. `program` is lower case, as
+  `reference_catalog` and the route; `reference` is upper case, as the catalog stores it. Only the
+  POTA, SOTAwatch and WWFF sources write rows: WWBOTA spots name an array of bunkers and wait for
+  their own source work (decision 1). Every activator is stored, hidden calls included; leaving them
+  out is the read's job (decision 7).
 - `rollup_callsign_day` adds one insert from its existing `b` stage, `on conflict do nothing`,
-  in the marker's transaction. The function's other output is unchanged.
+  in the marker's transaction. The function's other output is unchanged. The roll-up and the fill
+  write the same rows for the same day (pgTAP compares them).
 - `callsign_rollup_days.references_filled_at timestamptz`, set by the roll-up for new days.
   `fill_reference_days(day)` builds a day from `raw_spots` (`source in ('pota', 'sotawatch',
   'wwff')`) and `backfill_reference_days(p_max_days)` walks unfilled days, oldest first.
   `backfill_callsign_rollups` calls it only in a run that rolled nothing up and filled no
-  `callsign_days`, with the same bound, and keeps its return shape `(rollup_day, spots, error)`.
-  A failed fill is recorded through `record_callsign_rollup_failure` with the prefix
-  `reference_days fill: `.
+  `callsign_days` (filled, not attempted, so a `callsign_days` day refused every hour cannot hold
+  it back), with the same bound, and keeps its return shape `(rollup_day, spots, error)`. Like
+  `backfill_callsign_days` it takes days that never failed first, and stops at twice the bound in
+  attempts. A failed fill is recorded through `record_callsign_rollup_failure` with the prefix
+  `reference_days fill: `; a successful one deletes only a failures row with that prefix, and
+  `fill_callsign_days` is redefined to do the same with `callsign_days fill: `, so neither fill's
+  success clears the other's failure. The day's one failures row holds whichever fill failed last.
+  `callsign_rollup_status` gains `references_filled_at`, and `fill_failed` covers either fill.
 - Index `raw_spots_reference_time_idx on raw_spots (coalesce(pota_reference, sota_summit_ref,
-  wwff_reference), spot_time) where coalesce(...) is not null`. Building it on the hosted
-  `raw_spots` is a deploy step to time first (see PR order).
+  wwff_reference, wwbota_references[1], iota_reference), spot_time) where coalesce(...) is not
+  null`: exactly
+  `spot_stream`'s `reference` expression, so PR 4's live read, `spot_stream where reference = ...
+  and spot_time >= ...`, reaches the `raw_spots` arm and uses it (the RBN arm's null reference
+  drops out; pgTAP checks the plan). The view's expression and the index change together. Built by
+  a plain `create index if not exists` in the migration (hosted `raw_spots` was about 562,000 rows
+  / 342 MB on 2026-10-26).
 - Size: one row per activator, reference, day and source. POTA, SOTA and WWFF together are a few
   thousand rows a day, about 1 MB.
 
@@ -315,10 +331,10 @@ files from a local server, as the license tests do.
 2. **Catalog** (`reference-catalog`): migration, `_shared/reference_catalog.ts` with fixtures,
    `load-references`, `relay/catalogs.ts`. Deploy: `supabase db push`, deploy `load-references`;
    the relay ships on merge, and the first loads land within a day.
-3. **Rollup** (`reference-days`): migration, pgTAP. Before `db push`, time the index build against
-   a copy of hosted `raw_spots` (or build it `concurrently` by hand first and let the migration's
-   `if not exists` find it). The fill then works through history two days an hour; days already
-   rolled up have no reference rows until it reaches them.
+3. **Rollup** (`reference-days`): migration, pgTAP. Deploy: `db push`. Hosted `raw_spots` is about
+   562,000 rows / 342 MB (`supabase inspect db table-stats`, 2026-10-26), so the migration's plain
+   `create index if not exists` builds in seconds inside the push. The fill then works through
+   history two days an hour; days already rolled up have no reference rows until it reaches them.
 4. **Profile and page** (`reference-profile`): migration, function, web page from the canvas,
    reference links across the app, `database.types.ts`, CLAUDE.md "Reference profile rules".
    Deploy: `db push`, deploy `reference-profile`; Vercel ships the web.
@@ -334,8 +350,10 @@ files from a local server, as the license tests do.
   names with commas, WWFF's `0000-00-00`, retired summits). pgTAP: a complete stage swaps in; one
   below the floor is refused and the old rows stay; staging is service-role only.
 - **Rollup.** pgTAP: the roll-up and `fill_reference_days` write the same rows for the same day;
-  RBN and DX Cluster spots write none; the fill is bounded and keeps `backfill_callsign_rollups`'
-  return shape; `scripts/smoke-test.sql` still passes.
+  RBN, DX Cluster and WWBOTA spots write none; program lower case, reference upper case; the fill
+  is bounded, oldest first, runs only when nothing was rolled up and no `callsign_days` were
+  filled, and keeps `backfill_callsign_rollups`' return shape; a failed fill is recorded with its
+  prefix; `scripts/smoke-test.sql` still passes and checks a SOTA activation.
 - **Profile.** pgTAP pins the shape; a hidden call is in no list and no total; a live day and a
   rolled-up day are not counted twice; a reference with spots and no catalog row, and one with
   neither. `advisor.test.sql` lists the new functions.

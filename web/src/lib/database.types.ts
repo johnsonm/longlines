@@ -289,14 +289,14 @@ isOneToOne: false
                   ]
                 },"callsign_rollup_days": {
                   Row: {
-                    "day": string,"days_filled_at": string | null,"rolled_at": string,"spots": number | null,"without_rbn": boolean
+                    "day": string,"days_filled_at": string | null,"references_filled_at": string | null,"rolled_at": string,"spots": number | null,"without_rbn": boolean
                   }
                   ComputedFields: never
                   Insert: {
-                    "day": string,"days_filled_at"?: string | null,"rolled_at": string,"spots"?: number | null,"without_rbn"?: boolean
+                    "day": string,"days_filled_at"?: string | null,"references_filled_at"?: string | null,"rolled_at": string,"spots"?: number | null,"without_rbn"?: boolean
                   }
                   Update: {
-                    "day"?: string,"days_filled_at"?: string | null,"rolled_at"?: string,"spots"?: number | null,"without_rbn"?: boolean
+                    "day"?: string,"days_filled_at"?: string | null,"references_filled_at"?: string | null,"rolled_at"?: string,"spots"?: number | null,"without_rbn"?: boolean
                   }
                   Relationships: [
                     
@@ -941,6 +941,20 @@ isOneToOne: false
       referencedColumns: ["id"]
     }
                   ]
+                },"reference_days": {
+                  Row: {
+                    "bands": (string)[],"base": string,"day": string,"modes": (string)[],"program": string,"reference": string,"source": string,"spots": number
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "bands": (string)[],"base": string,"day": string,"modes": (string)[],"program": string,"reference": string,"source": string,"spots": number
+                  }
+                  Update: {
+                    "bands"?: (string)[],"base"?: string,"day"?: string,"modes"?: (string)[],"program"?: string,"reference"?: string,"source"?: string,"spots"?: number
+                  }
+                  Relationships: [
+                    
+                  ]
                 },"send_test_limits": {
                   Row: {
                     "destination_id": string,"tests": number,"user_id": string,"window_start": string
@@ -1116,7 +1130,7 @@ isOneToOne: true
                   ]
                 },"callsign_rollup_status": {
                   Row: {
-                    "attempts": number | null,"day": string | null,"days_filled_at": string | null,"last_error": string | null,"last_failed_at": string | null,"rolled_at": string | null,"spots": number | null,"status": string | null
+                    "attempts": number | null,"day": string | null,"days_filled_at": string | null,"last_error": string | null,"last_failed_at": string | null,"references_filled_at": string | null,"rolled_at": string | null,"spots": number | null,"status": string | null
                   }
                   ComputedFields: never
                   Relationships: [
@@ -1227,6 +1241,11 @@ isOneToOne: true
 "backfill_callsign_rollups":
 { Args: { "p_max_days"?: number }; Returns: {
               "error": string,"rollup_day": string,"spots": number
+            }[]
+                           },
+"backfill_reference_days":
+{ Args: { "p_max_days"?: number }; Returns: {
+              "error": string,"fill_day": string,"spots": number
             }[]
                            },
 "band_map_snapshot":
@@ -1433,6 +1452,9 @@ isOneToOne: true
 { Args: { "p_day": string }; Returns: {
               "exact": boolean,"spots": number
             }[]
+                           },
+"fill_reference_days":
+{ Args: { "p_day": string }; Returns: number
                            },
 "finish_reference_load":
 { Args: { "p_load": number,"p_rows": number }; Returns: string

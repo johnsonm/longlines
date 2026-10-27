@@ -959,6 +959,7 @@ flowchart LR
   D -- "one pass per day" --> V
   D --> T[(callsign_activity, callsign_reach, callsign_references, callsign_seen, callsign_variants)]
   D --> Y[(callsign_days)]
+  D --> RD[(reference_days)]
   D -- marker --> K[(callsign_rollup_days)]
   C -- "a day failed" --> F[(callsign_rollup_failures)]
   K -- "rolled up: may retire" --> M[maintain_rbn_spots 03:35 UTC]
@@ -998,18 +999,33 @@ rollups keep per-station counts and breakdowns forever, never per-spotter rows (
   never touches it. Primary key `(base, day, source)` and no other index; both target queries
   ("every day X was active", "X per day this year by source") are prefix scans of it. About 150 B
   a row, one per (base, source) a day, so no partitioning.
+- **`reference_days`.** The activations of reference profiles (spec
+  `docs/superpowers/specs/2026-10-26-reference-profiles-design.md`): one row per program, reference,
+  UTC day, activator base call and source, with `spots` and sorted `modes` and `bands` exactly as
+  `callsign_days` has them. `program` is lower case (`pota`, `sota`, `wwff`, as `reference_catalog`
+  and `/ref/<program>`), `reference` upper case, as the catalog stores it. Only the POTA, SOTAwatch
+  and WWFF sources write it: WWBOTA spots name an array of bunkers and wait for their own source work,
+  and RBN and DX Cluster spots carry no reference. Heard role only, every activator stored (hidden
+  calls too; the reader leaves them out). Day grain forever, no running totals, never compacted.
+  Primary key `(program, reference, day, base, source)` and an index on `(base, day)`; a few
+  thousand rows a day. `raw_spots_reference_time_idx`, on `raw_spots` by `spot_stream`'s
+  `reference` expression (`coalesce(pota_reference, sota_summit_ref, wwff_reference,
+  wwbota_references[1], iota_reference)`) and `spot_time` where it is not null, serves the live read of the days
+  not rolled up yet, which goes through `spot_stream` like every profile read; the view's
+  expression and the index change together.
 - **Exactly once.** `rollup_callsign_day(day)` inserts the day's `callsign_rollup_days` marker
   first and does nothing when it is already there: references, seen and variants are running
   totals and would double. `callsign_days` is filled by one more data-modifying CTE of the same
   statement, from the same grouped pass (every grouped row is a heard row, so summing it by base
   and source counts each spot once), so it inherits exactly once; its insert keeps a row already
-  there (a day rebuilt from the archive before it was marked). The marker also records what the
+  there (a day rebuilt from the archive before it was marked). `reference_days` is one more CTE
+  over the same rows, `on conflict do nothing` likewise. The marker also records what the
   day counted (`spots`), whether the archive holds RBN rows of the day the roll-up did not count
   (`without_rbn`: RBN spots counted < RBN rows archived, the whole day after `(day, true)` or a
   late line or two of a retired day; the archive's total is read before the pass, so a slice
   logged during it cannot set the flag) and when its `callsign_days` rows were written
-  (`days_filled_at`). Right after the marker, in the same transaction, the day's
-  `callsign_rollup_failures` row is deleted.
+  (`days_filled_at`) and its `reference_days` rows (`references_filled_at`). Right after the
+  marker, in the same transaction, the day's `callsign_rollup_failures` row is deleted.
 - **Limits.** A day is rolled up from two hours after it ends (`last_rollup_day()`), covering the
   relay's ~50 min buffer; a spot that arrives after that is not counted anywhere. An upstream edit
   of a spot (same `source_spot_id`, new `content_hash`) is a new `raw_spots` row and counts again,
@@ -1028,9 +1044,11 @@ rollups keep per-station counts and breakdowns forever, never per-spotter rows (
   13 s locally.
 - **Hourly.** The `rollup-callsign-days` cron job runs `backfill_callsign_rollups(2)` at 25 past
   every hour: at most two days without a marker, oldest first, each in its own subtransaction;
-  only when it rolled none up, `backfill_callsign_days` for at most two days (below), so a run
-  never makes more than two day passes (a statement-timeout cancel is not caught and would undo
-  the whole run); then it folds day rows older than 35 days into month rows
+  only when it rolled none up, `backfill_callsign_days` for at most two days (below), and only when
+  that filled none either, `backfill_reference_days` for at most two, so a run never makes more than
+  two day passes over the firehose (a statement-timeout cancel is not caught and would undo the
+  whole run; a `reference_days` pass reads one day's POTA, SOTA and WWFF `raw_spots`, about 20 ms a
+  seeded day locally); then it folds day rows older than 35 days into month rows
   (`compact_callsign_rollups`). A failed day does not count toward the two
   and is retried next hour. Yesterday is rolled up at 02:25 UTC, ahead of RBN retention at 03:35.
   The job is separate from `maintain_rbn_spots()` on purpose: a slow or cancelled rollup never
@@ -1056,6 +1074,14 @@ rollups keep per-station counts and breakdowns forever, never per-spotter rows (
   records a failure as `callsign_days fill: ...`; `compact_callsign_rollups` keeps a day's
   `callsign_activity` and `callsign_reach` rows until `days_filled_at` is set, so the approximate
   source cannot vanish first. New days are filled by the roll-up itself and never take this path.
+  `reference_days` has its own fill: `fill_reference_days(day)` (locking the marker row too) builds a
+  marked day with `references_filled_at` null from `raw_spots` (`source in ('pota', 'sotawatch',
+  'wwff')`), which is exact for every day, writes the roll-up's rows (pgTAP compares the two), sets
+  `references_filled_at` and deletes the day's failures row only when it is its own, as
+  `fill_callsign_days` does with `callsign_days fill: ` rows since the same migration, so neither
+  fill's success clears the other's failure (the one row holds whichever failed last).
+  `backfill_reference_days(n)` takes days that never failed first, oldest first, at most `n` filled
+  and `2n` attempts, and records a failure as `reference_days fill: ...`.
 - **Status.** A day that fails in the hourly job lands in `callsign_rollup_failures` (`attempts`,
   first and last failure, `last_error`) through `record_callsign_rollup_failure`, written in the
   exception handler after the day's subtransaction rolled back. `rollup_callsign_day` deletes the
@@ -1066,7 +1092,8 @@ rollups keep per-station counts and breakdowns forever, never per-spotter rows (
   lived in the default partition is recorded too), so the gap is visible within hours instead of
   a warning in the logs; deleting late rows of a day retired earlier records nothing. `callsign_rollup_status` is one row per UTC day from
   `first_rollup_day()` to `last_rollup_day()`, with `status` decided in this order: `fill_failed`
-  (marker, `days_filled_at` null, a failures row), `done_without_rbn`, `done`, `rbn_retired` (no
+  (marker, `days_filled_at` or `references_filled_at` null, a failures row; `last_error`'s prefix
+  says which fill), `done_without_rbn`, `done`, `rbn_retired` (no
   marker and `rbn_day_retired`, the test `rollup_callsign_day` and the fill use), `failed`,
   `pending`; yesterday enters the view at 02:00 UTC and is `pending` until the 02:25 run.
   `rbn_retired` wins over `failed` because such a day also gains a failures row every
