@@ -241,7 +241,7 @@ function PlacesCard({ places }: { places: Stats["places"] }) {
       : []),
   ];
   return (
-    <ChartCard title="Most activated places" subheader="Parks, summits and bunkers the club activated in the period">
+    <ChartCard title="Most activated places" subheader="Parks, summits, bunkers and islands the club activated in the period">
       <DataGrid
         {...GRID}
         rows={places.map((p) => ({ ...p, id: `${p.program}/${p.reference}` }))}

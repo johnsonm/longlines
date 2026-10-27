@@ -59,6 +59,7 @@ const spot: DeliverySpot = {
   wwff_reference_name: null,
   wwbota_references: null,
   wwbota_reference_name: null,
+  iota_reference: null,
 };
 
 /** The test spot with some fields changed, keys in the same order as a spread. */
@@ -170,10 +171,28 @@ Deno.test("embedForSpot shows every WWBOTA bunker and the first one's name", fun
   ]);
 });
 
+Deno.test("embedForSpot shows a DX Cluster spot's IOTA reference and island", function (): void {
+  const e = embedForSpot(spotWith({
+    source: "dxcluster",
+    pota_reference: null,
+    pota_park_name: null,
+    pota_location: null,
+    iota_reference: "AN-010",
+    iota_reference_name: "South Shetland Islands",
+  }));
+  assertEquals(e.fields.map((f) => [f.name, f.value]).slice(0, 3), [
+    ["IOTA", "AN-010"],
+    ["Island", "South Shetland Islands"],
+    ["Source", "DX Cluster"],
+  ]);
+});
+
 Deno.test("embedForSpot reads a spot claimed before the WWBOTA keys existed", function (): void {
   const legacy: DeliverySpot = Object.assign({}, spot);
   delete legacy.wwbota_references;
   delete legacy.wwbota_reference_name;
+  delete legacy.iota_reference;
+  delete legacy.iota_reference_name;
   assertEquals(embedForSpot(legacy), embedForSpot(spot));
 });
 
@@ -968,11 +987,13 @@ Deno.test(
       base_callsign: "W1AW",
       frequency_khz: 14062,
       pota_location: null,
+      iota_reference: null,
       pota_park_name: null,
       pota_reference: null,
       wwff_reference: null,
       sota_summit_ref: null,
       wwbota_references: null,
+      iota_reference_name: null,
       wwff_reference_name: null,
       wwbota_reference_name: null,
     };

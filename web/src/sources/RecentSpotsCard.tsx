@@ -4,7 +4,7 @@ import { errorText } from "../app/hooks";
 import { loadRecentSpots, type IngestHealth, type RecentSpot } from "../lib/api";
 import { relativeAge, type TimePrefs } from "../lib/time";
 import { ChartCard } from "../stats/parts";
-import type { SourceInfo } from "./sources";
+import { healthId, type SourceInfo } from "./sources";
 import { SpotsTable } from "./SpotsTable";
 import { useVisibleInterval } from "./useVisibleInterval";
 
@@ -40,7 +40,7 @@ export function RecentSpotsCard({ source, prefs, health }: { source: SourceInfo;
 
   useVisibleInterval(() => void refresh(), 30_000);
 
-  const age = health?.find((h) => h.source === source.id)?.seconds_since_last_success;
+  const age = health?.find((h) => h.source === healthId(source))?.seconds_since_last_success;
   return (
     <ChartCard title="Recent spots" subheader="Everything ingested, before any connection filters.">
       <Stack spacing={1}>

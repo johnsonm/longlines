@@ -6,6 +6,7 @@
 import { type PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import type { CtyData } from "./cty.ts";
+import type { IotaGroup } from "./iota.ts";
 import { ConfigError, FunctionCallError } from "./errors.ts";
 import {
   type LicenseLoad,
@@ -262,6 +263,19 @@ export async function loadCty(client: SupabaseClient, data: CtyData): Promise<vo
   if (result.error !== null) {
     throw callFailed("load_cty", result.error, result.status);
   }
+}
+
+/** load_iota_groups returns the number of groups it stored. */
+const iotaLoadResultSchema: z.ZodType<number> = z.number().int().nonnegative();
+
+/** Replaces iota_groups with these groups in one transaction; returns how many it stored. */
+export async function loadIotaGroups(client: SupabaseClient, groups: IotaGroup[]): Promise<number> {
+  const result = await client.rpc("load_iota_groups", { p_groups: groups });
+  if (result.error !== null) {
+    throw callFailed("load_iota_groups", result.error, result.status);
+  }
+  const data: unknown = result.data;
+  return parseWith(iotaLoadResultSchema, data, "loadIotaGroups: load_iota_groups result");
 }
 
 /** LicenseDb over the fcc_license_load_* RPCs. */

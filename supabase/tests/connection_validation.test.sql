@@ -58,7 +58,7 @@ select ok(spot_matches(
       'rules', normalize_subscription_rules('[[{"field":"band","op":"is","values":["20M"]}]]', null, false),
       'quiet_minutes', 0, 'created_at', now(), 'updated_at', now(), 'group_ids', '{}'::uuid[])),
     (0, 'pota', 'x', 'x', now(), now(), 'W1AW', null, 14062, '20m', 'cw', '', null, null, null, null,
-     '{}'::jsonb, 'cw', 'W1AW', null, null, null, null)::raw_spots),
+     '{}'::jsonb, 'cw', 'W1AW', null, null, null, null, null, null)::raw_spots),
   'a band typed as 20M matches a 20m spot');
 select lives_ok(format('select normalize_subscription_rules(%L, null, false)', jsonb_build_array(jsonb_build_array(
     jsonb_build_object('field', 'callsign', 'op', 'is',

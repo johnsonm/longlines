@@ -11,7 +11,8 @@ import type { SubscriptionWithLinks } from "../lib/api";
 import { PageTitle } from "../layout/PageTitle";
 import { ChartCard } from "../stats/parts";
 import { useStats } from "../stats/useStats";
-import { findLiveSource, type SourceInfo } from "./sources";
+import { findLiveSource, healthId, type SourceInfo } from "./sources";
+import { toInput, usesIslandRule } from "../subscriptions/model";
 import { STATUS_COLOR, STATUS_LABEL, sourceStatus } from "./status";
 import { formatHour, formatPerDay, formatRate, RATE_UNIT_SHORT, sourceRates, type Rates } from "./rates";
 import { RateChart } from "./RateChart";
@@ -76,7 +77,10 @@ export function SourceDetailPage({ prefs, subs }: { prefs: TimePrefs; subs: Subs
 
   const rates = source.statsKey && stats ? sourceRates(stats.payload.hourly, source.statsKey) : null;
   const status = sourceStatus(source, health);
-  const using = subs.filter((s) => s.sources.includes(source.id));
+  // A carried source's connections are the carrier's that use its rule: DX Cluster connections with an island rule, for IOTA.
+  const using = source.via === null
+    ? subs.filter((s) => s.sources.includes(source.id))
+    : subs.filter((s) => s.sources.includes(healthId(source)) && usesIslandRule(toInput(s).rules));
   const alert = volumeAlert(source, rates);
   const rate = (n: number | undefined) => (n === undefined ? "–" : `${formatRate(n)} ${RATE_UNIT_SHORT}`);
   const figures: [string, string][] = [
@@ -111,7 +115,7 @@ export function SourceDetailPage({ prefs, subs }: { prefs: TimePrefs; subs: Subs
             </Button>
           )}
           {source.alerts && (
-            <Button variant="contained" startIcon={<AddIcon />} component={RouterLink} to={`/connections/new?source=${source.id}`}>
+            <Button variant="contained" startIcon={<AddIcon />} component={RouterLink} to={`/connections/new?source=${healthId(source)}`}>
               Create connection
             </Button>
           )}

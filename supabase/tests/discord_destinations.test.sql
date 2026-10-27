@@ -406,8 +406,8 @@ select is((select destination #>> '{discord,style}' from claimed where destinati
   'plain', 'each its own');
 select is((select array_agg(k order by k) from claimed c, jsonb_object_keys(c.spot) k where c.destination ->> 'id' = (select id::text from card1)),
   array['band', 'base_callsign', 'callsign', 'comment', 'discord_color', 'discord_description', 'discord_footer', 'discord_grid',
-        'discord_line', 'discord_style', 'discord_suppress_embeds', 'discord_title', 'discord_url', 'frequency_khz', 'id', 'mode',
-        'mode_family', 'pota_location', 'pota_park_name', 'pota_reference', 'sota_summit_ref', 'source', 'spot_time', 'spotter',
+        'discord_line', 'discord_style', 'discord_suppress_embeds', 'discord_title', 'discord_url', 'frequency_khz', 'id',
+        'iota_reference', 'iota_reference_name', 'mode', 'mode_family', 'pota_location', 'pota_park_name', 'pota_reference', 'sota_summit_ref', 'source', 'spot_time', 'spotter',
         'wwbota_reference_name', 'wwbota_references', 'wwff_reference', 'wwff_reference_name'],
   'a Discord spot keeps its documented keys plus the nine discord ones');
 select results_eq(format($$ select spot ->> 'discord_line', (spot ->> 'discord_suppress_embeds')::boolean

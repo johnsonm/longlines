@@ -160,6 +160,7 @@ export const wwff: SourceAdapter = {
         wwff_reference_name: trimmedText(spot.reference_name),
         wwbota_references: null,
         wwbota_reference_name: null,
+        iota_reference: null,
         raw_payload: raw,
       },
     };

@@ -181,6 +181,7 @@ function row(id: number, destination: DeliveryDestination): PendingDelivery {
       wwff_reference_name: null,
       wwbota_references: null,
       wwbota_reference_name: null,
+      iota_reference: null,
     },
   };
 }

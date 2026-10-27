@@ -64,6 +64,7 @@ Times are UTC.
 | `maintain-rbn-spots` | 03:35 daily | `maintain_rbn_spots()` |
 | `maintain-aprs-packets` | 03:45 daily | `maintain_aprs_packets()` |
 | `import-cty` | 04:20 Mondays | the `import-cty` function |
+| `import-iota` | 04:25 on the 1st | the `import-iota` function (the IOTA island list) |
 
 There is no `deliver` job. Outbound delivery is the sender process polling the queue ("Delivery"
 below), not a cron job; `20261015001200_sender_cutover` unscheduled it and
@@ -877,6 +878,33 @@ activations too. A "Park, summit, or location contains" rule matches any bunker 
 spot is missing, check the connection's sources first, then
 `ingest_failures where source = 'wwbota'` (a spot that names no bunker is recorded there).
 Profiles credit an n-fer to its first bunker only.
+
+# IOTA
+
+IOTA references are read out of DX Cluster comments (`raw_spots.iota_reference`), and the island
+names come from iota-world.org's `groups.json`, which `import-iota` loads into `iota_groups` on the
+1st of each month. There is no feed to watch; DX Cluster's health is IOTA's.
+
+First deploy, after the merge applies `20261027001000_iota`: deploy the new function, redeploy the
+ones whose shared code changed, and load the list once (spots stored before then keep no name):
+
+```sh
+supabase functions deploy import-iota
+supabase functions deploy ingest-dxcluster archive api send-test convert-archive
+curl -X POST "$SUPABASE_URL/functions/v1/import-iota" -H "Authorization: Bearer <service-role JWT>"
+```
+
+Is it working?
+
+```sql
+select * from iota_load;                       -- loaded_at, groups (about 1,200)
+select spot_time, callsign, iota_reference, iota_reference_name, comment
+from raw_spots where source = 'dxcluster' and iota_reference is not null order by spot_time desc limit 20;
+```
+
+A failed import answers 500 with its reason (`/health` shows the job failing) and leaves the list
+as it was. A connection gets island spots only when it lists DX Cluster; the IOTA island rule
+(`island`) narrows it to references or continents.
 
 # Spot archive
 

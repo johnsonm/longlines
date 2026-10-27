@@ -16,13 +16,14 @@
 //   DX de W3LPL:     14025.0  JA1ABC       up 2                           1234Z FN20
 //
 // A line has no mode field; resolveDxMode reads it from the comment or the band
-// plan. Skimmer spots ("-#" spotters, RBN-style "NN dB NN WPM" comments) are not
+// plan, and iotaReference an IOTA reference (EU-005) when the comment gives one. Skimmer spots ("-#" spotters, RBN-style "NN dB NN WPM" comments) are not
 // spots here: RBN already covers them.
 
 import { bandForFrequency } from "./bands.ts";
 import { ValidationError } from "./errors.ts";
 import { contentHash } from "./hash.ts";
 import { runIngest } from "./ingest.ts";
+import { iotaReference } from "./iota.ts";
 import { modeFamily, resolveDxMode } from "./modes.ts";
 import { cleanCallsign, isTooOld, parseKhz, parseUtc } from "./normalize.ts";
 import { relayAdapter, relayLineSchema, spotTimeFromHhmm } from "./relay_lines.ts";
@@ -152,6 +153,7 @@ async function normalizeDxSpot(raw: JsonObject, now: Date): Promise<NormalizeRes
       wwff_reference_name: null,
       wwbota_references: null,
       wwbota_reference_name: null,
+      iota_reference: iotaReference(parsed.comment),
       raw_payload: raw,
     },
   };

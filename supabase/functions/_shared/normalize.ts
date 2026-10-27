@@ -230,6 +230,7 @@ export function assertStorableSpot(spot: NormalizedSpot, now: Date): void {
     ["pota_reference", spot.pota_reference],
     ["sota_summit_ref", spot.sota_summit_ref],
     ["wwff_reference", spot.wwff_reference],
+    ["iota_reference", spot.iota_reference],
   ];
   for (const pair of bounded) {
     const value = pair[1];

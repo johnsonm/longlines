@@ -23,7 +23,7 @@ export interface GroupMember {
 export interface GroupPlace {
   reference: string;
   name: string | null; // SOTA summits have none
-  program: "POTA" | "SOTA" | "WWFF" | "WWBOTA";
+  program: "POTA" | "SOTA" | "WWFF" | "WWBOTA" | "IOTA";
   times: number; // activations: one member at the reference on one UTC day
   by?: string[]; // absent on a public page without callsigns
 }
@@ -36,9 +36,10 @@ export interface GroupStatistics {
     spots: number;
     previousSpots: number;
     membersHeard: number;
-    // wwbota and bunkers from 20261026001000; a payload cached before it lacks them, so read them with ?? 0.
-    activations: { pota: number; sota: number; wwff: number; wwbota?: number };
-    places: { parks: number; summits: number; bunkers?: number }; // parks are POTA and WWFF references
+    // wwbota and bunkers from 20261026001000, iota and islands from 20261027001000; a payload cached
+    // before them lacks them, so read them with ?? 0.
+    activations: { pota: number; sota: number; wwff: number; wwbota?: number; iota?: number };
+    places: { parks: number; summits: number; bunkers?: number; islands?: number }; // parks are POTA and WWFF references
   };
   daily: { day: string; spots: number }[]; // the period's days, oldest first, zero filled
   calendar: { day: string; spots: number; members: number }[]; // the past 365 days with spots, oldest first

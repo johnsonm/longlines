@@ -2,7 +2,7 @@ import type { Destination, SubscriptionInput, SubscriptionWithLinks } from "../l
 import type { CallsignGroup } from "../groups/types";
 import { LIVE_SOURCES, modeLabel, SOURCES, type SourceInfo } from "../sources/sources";
 
-export type RuleField = "callsign" | "group" | "band" | "mode" | "reference" | "frequency";
+export type RuleField = "callsign" | "group" | "band" | "mode" | "reference" | "frequency" | "island";
 export type RuleOp = "is" | "is_not" | "contains" | "not_contains" | "gt" | "lt";
 export type Join = "and" | "or";
 
@@ -43,7 +43,34 @@ export const FIELDS: readonly FieldInfo[] = [
   { id: "mode", label: "Mode", ops: ["is", "is_not"] },
   { id: "reference", label: "Park, summit, or location", ops: ["contains", "not_contains"] },
   { id: "frequency", label: "Frequency (kHz)", ops: ["is", "is_not", "gt", "lt"] },
+  { id: "island", label: "IOTA island", ops: ["is", "is_not"] },
 ];
+
+/** The IOTA continents, as an island rule's values name them. */
+export const CONTINENTS: readonly { code: string; name: string }[] = [
+  { code: "AF", name: "Africa" },
+  { code: "AN", name: "Antarctica" },
+  { code: "AS", name: "Asia" },
+  { code: "EU", name: "Europe" },
+  { code: "NA", name: "North America" },
+  { code: "OC", name: "Oceania" },
+  { code: "SA", name: "South America" },
+];
+
+/** The island picker's choice that stands for every continent. */
+export const ANY_ISLAND = "Any island";
+
+/** A value normalize_subscription_rules takes for an island rule: a reference (EU-005) or a continent (EU). */
+const ISLAND_VALUE = /^(AF|AN|AS|EU|NA|OC|SA)(-\d{3})?$/;
+
+/**
+ * The island picker's values: trimmed and upper-cased, each once. Any island replaces them with the seven
+ * continents, which cover every reference.
+ */
+export function islandValues(values: string[]): string[] {
+  if (values.includes(ANY_ISLAND)) return CONTINENTS.map((c) => c.code);
+  return [...new Set(values.map((v) => v.trim().toUpperCase()).filter(Boolean))];
+}
 
 export function fieldInfo(id: RuleField): FieldInfo {
   return FIELDS.find((f) => f.id === id) ?? FIELDS[0]!;
@@ -62,10 +89,15 @@ export function opLabel(field: RuleField, op: RuleOp): string {
   }
 }
 
-/** Park, summit, WWFF and bunker references exist only on POTA, SOTAwatch, WWFF and WWBOTA spots. */
+/**
+ * References exist only on POTA, SOTAwatch, WWFF and WWBOTA spots and on DX Cluster spots that name an
+ * IOTA island; the island rule only on DX Cluster, which "any source" leaves out.
+ */
 export function fieldsFor(sources: string[]): RuleField[] {
-  const refs = sources.length === 0 || sources.some((s) => s === "pota" || s === "sotawatch" || s === "wwff" || s === "wwbota");
-  return FIELDS.map((f) => f.id).filter((f) => f !== "reference" || refs);
+  const refs = sources.length === 0
+    || sources.some((s) => s === "pota" || s === "sotawatch" || s === "wwff" || s === "wwbota" || s === "dxcluster");
+  const islands = sources.includes("dxcluster");
+  return FIELDS.map((f) => f.id).filter((f) => (f !== "reference" || refs) && (f !== "island" || islands));
 }
 
 /** normalize_subscription_rules refuses more. */
@@ -98,12 +130,20 @@ function storedValues(row: RuleRow): (string | number)[] | null {
     const khz = parseKhz(row.values[0] ?? "");
     return khz === null ? null : [khz];
   }
+  if (row.field === "island") {
+    const islands = islandValues(row.values);
+    return islands.length ? islands : null;
+  }
   const values = row.values.map((v) => v.trim()).filter(Boolean);
   return values.length ? values : null;
 }
 
-/** A frequency row with text that isn't a number: shown as an error, and the page won't save. */
+/**
+ * A frequency row with text that isn't a number, or an island row with a value that is neither a
+ * reference nor a continent: shown as an error, and the page won't save.
+ */
 export function rowInvalid(row: RuleRow): boolean {
+  if (row.field === "island") return islandValues(row.values).some((v) => !ISLAND_VALUE.test(v));
   return row.field === "frequency" && (row.values[0] ?? "").trim() !== "" && storedValues(row) === null;
 }
 
@@ -133,6 +173,11 @@ export function rulesOf(rows: RuleRow[]): Rules {
   });
   groups.push(current);
   return groups.filter((g) => g.length > 0);
+}
+
+/** Does any rule test the IOTA island? The IOTA catalog page lists such DX Cluster connections as its own. */
+export function usesIslandRule(rules: Rules): boolean {
+  return rules.some((g) => g.some((r) => r.field === "island"));
 }
 
 /** Does every group name stations, with a callsign or group rule that is "is"? False for no rules. */

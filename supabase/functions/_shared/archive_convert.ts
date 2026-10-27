@@ -37,6 +37,8 @@ const LATER_COLUMNS: ReadonlySet<string> = new Set([
   "wwff_reference_name",
   "wwbota_references",
   "wwbota_reference_name",
+  "iota_reference",
+  "iota_reference_name",
 ]);
 
 export interface ConvertRequest {

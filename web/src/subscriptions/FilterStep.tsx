@@ -10,9 +10,16 @@ import type { CallsignGroup } from "../groups/types";
 import { splitCallsigns } from "../groups/parse";
 import { BANDS, MODES, modeLabel, type SourceInfo } from "../sources/sources";
 import {
-  fieldInfo, fieldsFor, MAX_RULES, needsCallsign, newRow, opLabel, QUIET_OPTIONS, rowInvalid, rulesOf, withField,
+  ANY_ISLAND, CONTINENTS, fieldInfo, fieldsFor, islandValues, MAX_RULES, needsCallsign, newRow, opLabel, QUIET_OPTIONS, rowInvalid,
+  rulesOf, withField,
   type Join, type RuleField, type RuleOp, type RuleRow,
 } from "./model";
+
+/** "Europe (EU)" for a continent; a reference, and Any island, as they are. */
+function islandLabel(value: string): string {
+  const continent = CONTINENTS.find((c) => c.code === value);
+  return continent ? `${continent.name} (${value})` : value;
+}
 
 /** Upper-cased calls, with pasted lists split on spaces, commas and semicolons as the group editor does. */
 function callValues(values: string[]): string[] {
@@ -73,9 +80,13 @@ export function FilterStep({ sub, setSub, rows, setRows, groups, groupsFailed, p
       case "mode":
         return "SOTAwatch reports every digital mode as DATA. Choose Any digital to include those spots.";
       case "reference":
-        return "Matches POTA references and locations, SOTA summit codes, WWFF references and WWBOTA bunkers.";
+        return "Matches POTA references and locations, SOTA summit codes, WWFF references, WWBOTA bunkers and IOTA islands.";
       case "frequency":
         return rowInvalid(row) ? "Enter a frequency in kHz, such as 14074." : "";
+      case "island":
+        return rowInvalid(row)
+          ? "Type a reference such as EU-005, or pick a continent."
+          : "Matches the IOTA reference in a DX Cluster spot's comment, such as EU-005, or every island on a continent.";
     }
   };
 
@@ -121,6 +132,16 @@ export function FilterStep({ sub, setSub, rows, setRows, groups, groupsFailed, p
           <TextField
             label={label} value={row.values[0] ?? ""} onChange={(e) => set([e.target.value])}
             placeholder="US-NC, W4C/, US-0817" fullWidth
+          />
+        );
+      case "island":
+        return (
+          <Autocomplete
+            // autoSelect commits a reference left in the field on blur, as for callsigns.
+            multiple freeSolo autoSelect options={[ANY_ISLAND, ...CONTINENTS.map((c) => c.code)]} value={row.values}
+            getOptionLabel={islandLabel}
+            onChange={(_e, v) => set(islandValues(v))}
+            renderInput={(p) => <TextField {...p} label={label} placeholder="EU-005" error={rowInvalid(row)} />}
           />
         );
       case "frequency":

@@ -209,7 +209,7 @@ Deno.test("the import walker sees side-effect, re-export and dynamic imports", f
 });
 
 Deno.test("the isServiceRole check finds the functions that use it", function (): void {
-  for (const fn of ["archive", "import-cty"]) {
+  for (const fn of ["archive", "import-cty", "import-iota"]) {
     assertEquals(modulesUsingIsServiceRole(fn).length > 0, true, `${fn} uses isServiceRole`);
   }
 });

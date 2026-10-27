@@ -190,6 +190,7 @@ export const wwbota: SourceAdapter = {
         wwff_reference_name: null,
         wwbota_references: references,
         wwbota_reference_name: trimmedText(first.name),
+        iota_reference: null,
         raw_payload: raw,
       },
     };

@@ -129,11 +129,12 @@ const PROGRAM_NOUNS: Record<string, [string, string]> = {
   POTA: ["park", "parks"],
   SOTA: ["summit", "summits"],
   WWBOTA: ["WWBOTA bunker", "WWBOTA bunkers"],
+  IOTA: ["IOTA island", "IOTA islands"],
 };
 
 /**
- * The "Park/summit/WWFF visits" KPI's detail: "3 parks, 2 summits, 1 WWFF reference", then "2 WWBOTA bunkers"
- * only when there are any. Programs without a noun read "N <program> references".
+ * The "Park/summit/WWFF visits" KPI's detail: "3 parks, 2 summits, 1 WWFF reference", then "2 WWBOTA bunkers" and
+ * "1 IOTA island" only when there are any. Programs without a noun read "N <program> references".
  */
 export function activationsDetail(activations: HeardProfile["activations"]): string {
   const counts = new Map<string, number>([["POTA", 0], ["SOTA", 0], ["WWFF", 0]]);
@@ -201,6 +202,8 @@ export function spotRows(spots: ProfileSpot[]): RecentSpot[] {
     wwff_reference_name: null,
     wwbota_references: null,
     wwbota_reference_name: null,
+    iota_reference: null,
+    iota_reference_name: null,
     source: s.source,
     spotter: s.spotter,
     comment: null,

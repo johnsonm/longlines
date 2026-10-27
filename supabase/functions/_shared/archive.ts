@@ -60,6 +60,8 @@ const SPOT_COLUMNS: ReadonlyArray<readonly [string, ColumnType]> = [
   /** The references joined with ",": archive_columns sends one string. */
   ["wwbota_references", "string"],
   ["wwbota_reference_name", "string"],
+  ["iota_reference", "string"],
+  ["iota_reference_name", "string"],
   ["raw_payload", "json"],
 ];
 

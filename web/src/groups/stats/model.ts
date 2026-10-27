@@ -29,26 +29,30 @@ export function comparisonLine(spots: number, previous: number, period: GroupPer
   return `Same as ${span}`;
 }
 
-/** "26 POTA, 5 SOTA", plus ", 2 WWFF" and ", 1 WWBOTA" when there are any. */
+/** "26 POTA, 5 SOTA", plus ", 2 WWFF", ", 1 WWBOTA" and ", 1 IOTA" when there are any. */
 export function activationsLine(a: GroupStatistics["kpis"]["activations"]): string {
-  const wwbota = a.wwbota ?? 0;
-  return `${a.pota} POTA, ${a.sota} SOTA${a.wwff > 0 ? `, ${a.wwff} WWFF` : ""}${wwbota > 0 ? `, ${wwbota} WWBOTA` : ""}`;
+  const extra = ([["WWFF", a.wwff], ["WWBOTA", a.wwbota ?? 0], ["IOTA", a.iota ?? 0]] as const)
+    .filter(([, n]) => n > 0)
+    .map(([program, n]) => `, ${n} ${program}`)
+    .join("");
+  return `${a.pota} POTA, ${a.sota} SOTA${extra}`;
 }
 
 export function totalActivations(a: GroupStatistics["kpis"]["activations"]): number {
-  return a.pota + a.sota + a.wwff + (a.wwbota ?? 0);
+  return a.pota + a.sota + a.wwff + (a.wwbota ?? 0) + (a.iota ?? 0);
 }
 
-/** "19 parks, 3 summits", plus ", 2 bunkers" when there are any. */
+/** "19 parks, 3 summits", plus ", 2 bunkers" and ", 1 island" when there are any. */
 export function placesLine(p: GroupStatistics["kpis"]["places"]): string {
   const bunkers = p.bunkers ?? 0;
+  const islands = p.islands ?? 0;
   return `${plural(p.parks, "park", "parks")}, ${plural(p.summits, "summit", "summits")}${
     bunkers > 0 ? `, ${plural(bunkers, "bunker", "bunkers")}` : ""
-  }`;
+  }${islands > 0 ? `, ${plural(islands, "island", "islands")}` : ""}`;
 }
 
 export function totalPlaces(p: GroupStatistics["kpis"]["places"]): number {
-  return p.parks + p.summits + (p.bunkers ?? 0);
+  return p.parks + p.summits + (p.bunkers ?? 0) + (p.islands ?? 0);
 }
 
 /** The members table's last heard: "2 min ago", "3 hours ago", "9 days ago". */

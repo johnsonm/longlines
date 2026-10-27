@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { Destination, SubscriptionWithLinks } from "../lib/api";
 import {
-  blankSub, fieldInfo, fieldsFor, hasPositiveRule, linkedDestinations, namesStations, needsCallsign, newRow, opLabel, parseKhz, pickableSource,
-  picksStations, quietLabel, rowInvalid, rowsOf, ruleSummaries, rulesOf, singleSource, toInput, withField, type Rule,
+  ANY_ISLAND, blankSub, CONTINENTS, fieldInfo, fieldsFor, hasPositiveRule, islandValues, linkedDestinations, namesStations, needsCallsign,
+  newRow, opLabel, parseKhz, pickableSource, picksStations, quietLabel, rowInvalid, rowsOf, ruleSummaries, rulesOf, singleSource, toInput,
+  usesIslandRule, withField, type Rule, type RuleRow,
 } from "./model";
 
 const GROUPS = [{ id: "g1", name: "Friends" }, { id: "g2", name: "RARS members" }, { id: "g3", name: "Unused" }];
@@ -105,6 +106,32 @@ describe("rows and rules", () => {
     expect(fieldsFor([])).toContain("reference");
     expect(fieldsFor(["rbn"])).toEqual(["callsign", "group", "band", "mode", "frequency"]);
   });
+
+  it("offers the island rule only on DX Cluster, whose spots carry IOTA references", () => {
+    expect(fieldsFor(["dxcluster"])).toEqual(["callsign", "group", "band", "mode", "reference", "frequency", "island"]);
+    expect(fieldsFor([])).not.toContain("island");
+    expect(fieldsFor(["pota", "wwff"])).not.toContain("island");
+    expect(opLabel("island", "is_not")).toBe("is not");
+  });
+
+  it("reads island values as references or continents, with Any island as all seven", () => {
+    expect(islandValues([" eu-005 ", "na", "EU-005"])).toEqual(["EU-005", "NA"]);
+    expect(islandValues(["EU-005", "EU", ANY_ISLAND])).toEqual(["AF", "AN", "AS", "EU", "NA", "OC", "SA"]);
+    expect(CONTINENTS.map((c) => c.code)).toEqual(["AF", "AN", "AS", "EU", "NA", "OC", "SA"]);
+    const row = (values: string[]): RuleRow => ({ key: 1, join: "and", field: "island", op: "is", values });
+    expect(rowInvalid(row(["EU-005", "oc"]))).toBe(false);
+    expect(rowInvalid(row([]))).toBe(false);
+    expect(rowInvalid(row(["EU5"]))).toBe(true);
+    expect(rowInvalid(row(["Europe"]))).toBe(true);
+    expect(rulesOf([row(["eu-005", "oc"])])).toEqual([[{ field: "island", op: "is", values: ["EU-005", "OC"] }]]);
+    expect(rulesOf([row([" "])])).toEqual([]);
+  });
+
+  it("tells whether a connection tests the island", () => {
+    expect(usesIslandRule([[{ field: "band", op: "is", values: ["20m"] }], [{ field: "island", op: "is_not", values: ["EU"] }]])).toBe(true);
+    expect(usesIslandRule([[{ field: "band", op: "is", values: ["20m"] }]])).toBe(false);
+    expect(usesIslandRule([])).toBe(false);
+  });
 });
 
 describe("rule summaries", () => {
@@ -148,6 +175,8 @@ describe("sources", () => {
     expect(pickableSource("aprs")).toBeNull();
     expect(pickableSource("wwff")?.id).toBe("wwff");
     expect(pickableSource("wwbota")?.id).toBe("wwbota");
+    // IOTA rides on DX Cluster: a connection picks DX Cluster and an island rule.
+    expect(pickableSource("iota")).toBeNull();
     expect(pickableSource(null)).toBeNull();
   });
 

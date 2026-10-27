@@ -355,7 +355,7 @@ function Heard({ profile, heard, prefs }: { profile: CallsignProfile; heard: Hea
       </Grid>
 
       {heard.references.length > 0 && (
-        <ChartCard title="Where they've been spotted" subheader="Parks, summits, WWFF references and bunkers, most recent first. A visit is one reference on one UTC day.">
+        <ChartCard title="Where they've been spotted" subheader="Parks, summits, WWFF references, bunkers and islands, most recent first. A visit is one reference on one UTC day.">
           <Grid container spacing={3}>
             {hasMap && (
               <Grid size={{ xs: 12, md: 6 }}>

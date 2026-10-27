@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { IngestHealth } from "../lib/api";
-import { findLiveSource, type SourceInfo } from "./sources";
+import { findLiveSource, healthId, type SourceInfo } from "./sources";
 import { sourceStatus, STATUS_LABEL } from "./status";
 
 const health = (source: string, age: number | null) => ({ source, seconds_since_last_success: age }) as IngestHealth;
@@ -25,6 +25,14 @@ describe("sourceStatus", () => {
   });
   it("is planned for a planned source whatever the health", () => {
     expect(sourceStatus(planned, [])).toBe("planned");
+  });
+  it("takes a carried source's health from its carrier", () => {
+    const iota = findLiveSource("iota")!;
+    expect(healthId(iota)).toBe("dxcluster");
+    expect(healthId(pota)).toBe("pota");
+    expect(sourceStatus(iota, [health("dxcluster", 40)])).toBe("connected");
+    expect(sourceStatus(iota, [health("dxcluster", 400)])).toBe("delayed");
+    expect(sourceStatus(iota, [health("iota", 1)])).toBe("delayed");
   });
   it("labels each status", () => {
     expect(STATUS_LABEL).toEqual({ connected: "Connected", delayed: "Delayed", planned: "Not yet available" });

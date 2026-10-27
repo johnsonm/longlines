@@ -225,6 +225,7 @@ Deno.test("assertStorableSpot bounds the time, id, calls and references", functi
     wwff_reference_name: null,
     wwbota_references: null,
     wwbota_reference_name: null,
+    iota_reference: null,
     raw_payload: {},
   };
   assertStorableSpot(spot, now);
@@ -237,6 +238,7 @@ Deno.test("assertStorableSpot bounds the time, id, calls and references", functi
     [{ pota_reference: long }, "pota_reference is"],
     [{ sota_summit_ref: long }, "sota_summit_ref is"],
     [{ wwff_reference: long }, "wwff_reference is"],
+    [{ iota_reference: long }, "iota_reference is"],
     [{ wwbota_references: ["B/G-0001", long] }, "wwbota_references is"],
     [
       { wwbota_references: Array.from({ length: MAX_REFERENCES + 1 }, () => "B/G-0001") },

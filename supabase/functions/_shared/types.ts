@@ -59,6 +59,8 @@ export interface NormalizedSpot {
   wwbota_references: string[] | null;
   /** The first bunker's name. */
   wwbota_reference_name: string | null;
+  /** The IOTA reference a DX Cluster comment gives (EU-005); ingest_spots names it. */
+  iota_reference: string | null;
   raw_payload: JsonObject;
 }
 

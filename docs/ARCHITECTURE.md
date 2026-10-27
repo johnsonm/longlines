@@ -819,6 +819,28 @@ firehose table.
   (for the catalog's rates), from their own CTEs like DX Cluster's `dx`; WWBOTA is not a Stats
   peer and stays off the band map.
 
+# IOTA
+
+Islands on the Air is an award program for island groups, each identified by a reference such as
+`EU-005` (spec `docs/superpowers/specs/2026-10-27-iota-design.md`). It has no spot feed, so it is a
+tag on DX Cluster spots, not a source: a spot is stored once, as `dxcluster`.
+
+- **Extraction.** `_shared/iota.ts` `iotaReference` takes the first `(AF|AN|AS|EU|NA|OC|SA)-\d{3}`
+  in the comment between non-word characters, case-insensitive, as Spothole does; the DX Cluster
+  adapter puts it in `raw_spots.iota_reference`. Only the dash form counts. The content hash is
+  unchanged (the comment was already hashed).
+- **Names.** `import-iota` (pg_cron, 04:25 UTC on the 1st, service role) loads iota-world.org's
+  `groups.json` (about 1,200 groups) into `iota_groups` through `load_iota_groups`, refusing fewer
+  than 1,000. `ingest_spots` copies the group's name into `iota_reference_name` as it stores a spot.
+- **Matching.** The `island` rule field (`is` / `is_not`) takes references or continents (`EU`
+  matches every `EU-` reference); a spot without an island passes `is_not`. The reference rule
+  searches `iota_reference` too. DX Cluster stays opt-in, so a connection lists `dxcluster`.
+- **Elsewhere.** Delivery renders `reference` / `place_name` from the IOTA columns after the other
+  programs'; `spot_stream` has an `'IOTA'` arm, so profiles and group statistics (`iota`,
+  `islands`) count it; the Stats snapshot has `daily[].iota` / `hourly[].iota` for the catalog's
+  rates; `list_recent_spots('iota')` returns DX Cluster spots that name an island. The catalog's
+  IOTA entry has `via: "dxcluster"`: never a connection source, its health is DX Cluster's.
+
 # The spot archive
 
 ```mermaid
@@ -952,8 +974,8 @@ rollups keep per-station counts and breakdowns forever, never per-spotter rows (
 - **`spot_stream`.** One row shape for every source: `source`, `spot_time`, `callsign`,
   `base_callsign`, `spotter`, `spotter_base`, `frequency_khz`, `band`, `mode`, `mode_bucket`,
   `snr`, `program`, `reference`, `reference_name`, `reference_location`. `program` is `POTA`,
-  `SOTA`, `WWFF` or `WWBOTA`, and `reference` and `reference_name` fall back to the WWFF columns and
-  then the first WWBOTA bunker after the POTA and SOTA columns. It is `raw_spots` without its RBN rows
+  `SOTA`, `WWFF`, `WWBOTA` or `IOTA`, and `reference` and `reference_name` fall back to the WWFF
+  columns, then the first WWBOTA bunker, then the IOTA reference, after the POTA and SOTA columns. It is `raw_spots` without its RBN rows
   (copies) plus `rbn_spots`. A source that writes `raw_spots` appears with no change;
   a new firehose table needs one `union all` arm. The base columns are computed per row for
   `rbn_spots`, so a query over many RBN rows groups by `callsign` first. Service-role only.

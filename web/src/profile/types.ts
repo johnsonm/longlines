@@ -55,7 +55,7 @@ export type HeardProfile = {
   bands: { band: string; spots: number }[]; // the Stats bands, 160m … 2m, zero-filled
   modes: { label: ModeLabel; spots: number; percent: number }[]; // the five labels in order; integer percents sum to 100 (all 0 with no spots)
   // Activations: one per reference per UTC day.
-  activations: { program: string; references: number; activations: number }[]; // per program ("POTA", "SOTA", "WWFF", "WWBOTA"), by name
+  activations: { program: string; references: number; activations: number }[]; // per program ("POTA", "SOTA", "WWFF", "WWBOTA", "IOTA"), by name
   references: {
     reference: string;
     name: string | null;

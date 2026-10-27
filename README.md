@@ -5,7 +5,8 @@ ones you ask for to Discord, a webhook or your phone, usually within a minute.
 
 ## What it does
 
-- **Sources:** POTA, SOTAwatch, WWFF, WWBOTA, DX Cluster and the Reverse Beacon Network. APRS-IS packets
+- **Sources:** POTA, SOTAwatch, WWFF, WWBOTA, DX Cluster and the Reverse Beacon Network, with IOTA
+  island references read out of DX Cluster comments. APRS-IS packets
   are stored and archived but never matched.
 - **Connections:** filters on source, band, mode, callsign, reference and callsign groups, with
   a live preview of what would match.
