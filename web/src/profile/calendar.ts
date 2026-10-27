@@ -50,7 +50,7 @@ const toDay = (time: number) => new Date(time).toISOString().slice(0, 10);
  * month. A month starting in the grid's last column has no room and is left
  * unlabelled; so is a partial first month too narrow for its label.
  */
-export function heatGrid(period: CalendarPeriod, days: Calendar["days"]): HeatGrid {
+export function heatGrid(period: Pick<CalendarPeriod, "from" | "days">, days: Calendar["days"]): HeatGrid {
   const byDay = new Map(days.map((d) => [d.day, d]));
   const start = toTime(period.from);
   const offset = new Date(start).getUTCDay();
@@ -106,8 +106,8 @@ export function gridLabel(period: CalendarPeriod): string {
   return `Heat map of spots heard per day ${span}. A table view has the same numbers.`;
 }
 
-/** The period's days with spots, newest first: the table view. */
-export function periodDays(period: CalendarPeriod, days: Calendar["days"]): Calendar["days"] {
+/** The period's days with spots (or activations), newest first: the table view. */
+export function periodDays<T extends { day: string }>(period: Pick<CalendarPeriod, "from" | "days">, days: T[]): T[] {
   const last = toDay(toTime(period.from) + (period.days - 1) * DAY_MS);
   return days.filter((d) => d.day >= period.from && d.day <= last).reverse();
 }

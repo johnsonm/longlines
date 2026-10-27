@@ -55,8 +55,10 @@ vi.mock("./subscriptions/SubscriptionsPage", () => ({
   SubscriptionsPage: ({ subs }: { subs: unknown[] }) => <p>subscriptions page {subs.length}</p>,
 }));
 vi.mock("./subscriptions/SubscriptionEditorPage", () => ({
-  SubscriptionEditorPage: ({ id, source, callsign, group }: { id?: string; source?: string | null; callsign?: string | null; group?: string | null }) => (
-    <p>subscription editor {id ?? "new"} {source ?? "none"} {callsign ?? "any"}{group ? ` group ${group}` : ""}</p>
+  SubscriptionEditorPage: (
+    { id, source, callsign, group, reference }: { id?: string; source?: string | null; callsign?: string | null; group?: string | null; reference?: string | null },
+  ) => (
+    <p>subscription editor {id ?? "new"} {source ?? "none"} {callsign ?? "any"}{group ? ` group ${group}` : ""}{reference ? ` reference ${reference}` : ""}</p>
   ),
 }));
 vi.mock("./groups/GroupsPage", () => ({ GroupsPage: () => <p>groups page</p> }));
@@ -66,6 +68,15 @@ vi.mock("./stats/StatsPage", () => ({ StatsPage: () => <p>stats page</p> }));
 vi.mock("./health/HealthPage", () => ({ HealthPage: () => <p>health page</p> }));
 vi.mock("./account/AccountPage", () => ({ AccountPage: () => <p>account page</p> }));
 vi.mock("./profile/LookupPage", () => ({ LookupPage: () => <p>lookup page</p> }));
+vi.mock("./references/ReferencePage", async () => {
+  const { useParams } = await import("react-router");
+  return {
+    ReferencePage: ({ signedIn }: { signedIn: boolean }) => {
+      const params = useParams();
+      return <p>reference page {params.program} {params["*"]} {signedIn ? "signed in" : "signed out"}</p>;
+    },
+  };
+});
 vi.mock("./profile/CallsignPage", () => ({
   CallsignPage: ({ prefs, signedIn }: { prefs: { timezone: string }; signedIn?: boolean }) => (
     <p>callsign page {prefs.timezone} {signedIn ? "signed in" : "signed out"}</p>
@@ -203,6 +214,17 @@ describe("App routing", () => {
     expect(await screen.findByText("callsign page UTC signed out")).toBeInTheDocument();
   });
 
+  it("serves a reference page signed out, and signed in with its alerts", async () => {
+    session(null);
+    const { unmount } = renderAt("/ref/sota/W4C/CM-001");
+    expect(await screen.findByText("reference page sota W4C/CM-001 signed out")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sign in" })).toBeInTheDocument();
+    unmount();
+    session(SESSION);
+    renderAt("/ref/pota/US-2763");
+    expect(await screen.findByText("reference page pota US-2763 signed in")).toBeInTheDocument();
+  });
+
   it("serves a public group page signed out, and inside the app when signed in", async () => {
     session(null);
     const { unmount } = renderAt("/g/7f3kq6xm2a");
@@ -269,6 +291,7 @@ describe("App routing", () => {
     ["/connections/new?source=pota", "subscription editor new pota any"],
     ["/connections/new?source=rbn&callsign=KK4PWJ", "subscription editor new rbn KK4PWJ"],
     ["/connections/new?source=pota&group=g1", "subscription editor new pota any group g1"],
+    ["/connections/new?source=sotawatch&reference=W4C%2FCM-001", "subscription editor new sotawatch any reference W4C/CM-001"],
     ["/connections/s1", "subscription editor s1 none any"],
     // Old bookmarks redirect, keeping the id and query string.
     ["/subscriptions", "subscriptions page 0"],

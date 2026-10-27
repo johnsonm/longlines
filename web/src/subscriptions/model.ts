@@ -1,4 +1,5 @@
 import type { Destination, SubscriptionInput, SubscriptionWithLinks } from "../lib/api";
+import { splitCallsigns } from "../groups/parse";
 import type { CallsignGroup } from "../groups/types";
 import { LIVE_SOURCES, modeLabel, SOURCES, type SourceInfo } from "../sources/sources";
 
@@ -41,7 +42,8 @@ export const FIELDS: readonly FieldInfo[] = [
   { id: "group", label: "Callsign group", ops: ["is", "is_not"] },
   { id: "band", label: "Band", ops: ["is", "is_not"] },
   { id: "mode", label: "Mode", ops: ["is", "is_not"] },
-  { id: "reference", label: "Park, summit, or location", ops: ["contains", "not_contains"] },
+  // `is` first, so a new reference row matches one reference exactly; `contains` keeps partial text such as US-NC.
+  { id: "reference", label: "Park, summit, or location", ops: ["is", "is_not", "contains", "not_contains"] },
   { id: "frequency", label: "Frequency (kHz)", ops: ["is", "is_not", "gt", "lt"] },
   { id: "island", label: "IOTA island", ops: ["is", "is_not"] },
 ];
@@ -124,6 +126,19 @@ export function parseKhz(text: string): number | null {
   return n > 0 ? n : null;
 }
 
+/**
+ * Exact references as normalize_subscription_rules stores them, upper-cased. A reference never holds
+ * a comma or a space, so a typed or pasted list ("us-1000, us-1001") becomes one chip each.
+ */
+export function referenceValues(values: string[]): string[] {
+  return [...new Set(values.flatMap((v) => splitCallsigns(v.toUpperCase())))];
+}
+
+/** An exact reference's shape, as normalize_subscription_rules and reference_profile take it. */
+const REFERENCE_VALUE = /^[A-Z0-9/-]{1,64}$/;
+
+const exactReference = (row: RuleRow) => row.field === "reference" && (row.op === "is" || row.op === "is_not");
+
 /** A row's values ready to store, or null when it has none yet (or no valid frequency). */
 function storedValues(row: RuleRow): (string | number)[] | null {
   if (row.field === "frequency") {
@@ -134,16 +149,22 @@ function storedValues(row: RuleRow): (string | number)[] | null {
     const islands = islandValues(row.values);
     return islands.length ? islands : null;
   }
+  if (exactReference(row)) {
+    const references = referenceValues(row.values);
+    return references.length ? references : null;
+  }
   const values = row.values.map((v) => v.trim()).filter(Boolean);
   return values.length ? values : null;
 }
 
 /**
- * A frequency row with text that isn't a number, or an island row with a value that is neither a
- * reference nor a continent: shown as an error, and the page won't save.
+ * A frequency row with text that isn't a number, an island row with a value that is neither a
+ * reference nor a continent, or an exact reference row with a value outside the reference shape:
+ * shown as an error, and the page won't save.
  */
 export function rowInvalid(row: RuleRow): boolean {
   if (row.field === "island") return islandValues(row.values).some((v) => !ISLAND_VALUE.test(v));
+  if (exactReference(row)) return referenceValues(row.values).some((v) => !REFERENCE_VALUE.test(v));
   return row.field === "frequency" && (row.values[0] ?? "").trim() !== "" && storedValues(row) === null;
 }
 
@@ -250,11 +271,15 @@ export function needsCallsign(sources: string[], rules: Rules): boolean {
   return sources.length === 1 && sources[0] === "rbn" && !namesStations(rules);
 }
 
-/** A new subscription on one source, filtered to a callsign (a profile's Get alerts) or else a group id (a group's). */
-export const blankSub = (source: string, callsign?: string | null, group?: string | null): SubscriptionInput => ({
-  name: callsign ? `${callsign} on the air` : "", enabled: true, sources: [source],
+/**
+ * A new subscription on one source, filtered to a callsign (a profile's Get alerts), else a group id (a group's),
+ * else one reference exactly (a reference page's).
+ */
+export const blankSub = (source: string, callsign?: string | null, group?: string | null, reference?: string | null): SubscriptionInput => ({
+  name: callsign ? `${callsign} on the air` : reference && !group ? `Activators at ${reference}` : "", enabled: true, sources: [source],
   rules: callsign ? [[{ field: "callsign", op: "is", values: [callsign] }]]
-    : group ? [[{ field: "group", op: "is", values: [group] }]] : [],
+    : group ? [[{ field: "group", op: "is", values: [group] }]]
+    : reference ? [[{ field: "reference", op: "is", values: [reference] }]] : [],
   quiet_minutes: 10, destinations: [],
 });
 

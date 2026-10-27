@@ -10,8 +10,8 @@ import type { CallsignGroup } from "../groups/types";
 import { splitCallsigns } from "../groups/parse";
 import { BANDS, MODES, modeLabel, type SourceInfo } from "../sources/sources";
 import {
-  ANY_ISLAND, CONTINENTS, fieldInfo, fieldsFor, islandValues, MAX_RULES, needsCallsign, newRow, opLabel, QUIET_OPTIONS, rowInvalid,
-  rulesOf, withField,
+  ANY_ISLAND, CONTINENTS, fieldInfo, fieldsFor, islandValues, MAX_RULES, needsCallsign, newRow, opLabel, QUIET_OPTIONS, referenceValues,
+  rowInvalid, rulesOf, withField,
   type Join, type RuleField, type RuleOp, type RuleRow,
 } from "./model";
 
@@ -80,7 +80,9 @@ export function FilterStep({ sub, setSub, rows, setRows, groups, groupsFailed, p
       case "mode":
         return "SOTAwatch reports every digital mode as DATA. Choose Any digital to include those spots.";
       case "reference":
-        return "Matches POTA references and locations, SOTA summit codes, WWFF references, WWBOTA bunkers and IOTA islands.";
+        return row.op === "is" || row.op === "is_not"
+          ? "Matches a POTA, SOTA, WWFF, WWBOTA or IOTA reference exactly, such as US-2763 or W4C/CM-001."
+          : "Matches POTA references and locations, SOTA summit codes, WWFF references, WWBOTA bunkers and IOTA islands.";
       case "frequency":
         return rowInvalid(row) ? "Enter a frequency in kHz, such as 14074." : "";
       case "island":
@@ -127,13 +129,19 @@ export function FilterStep({ sub, setSub, rows, setRows, groups, groupsFailed, p
             renderInput={(p) => <TextField {...p} label={label} />}
           />
         );
-      case "reference":
+      case "reference": {
+        // Typed as chips for now; a catalog picker comes with the reference lookup. An exact reference is
+        // upper-cased as SQL stores it, and a typed or pasted list is split into one chip per reference.
+        const exact = row.op === "is" || row.op === "is_not";
         return (
-          <TextField
-            label={label} value={row.values[0] ?? ""} onChange={(e) => set([e.target.value])}
-            placeholder="US-NC, W4C/, US-0817" fullWidth
+          <Autocomplete
+            // autoSelect commits a reference left in the field on blur, as for callsigns.
+            multiple freeSolo autoSelect options={[] as string[]} value={row.values}
+            onChange={(_e, v) => set(exact ? referenceValues(v) : [...new Set(v.map((x) => x.trim()).filter(Boolean))])}
+            renderInput={(p) => <TextField {...p} label={label} placeholder={exact ? "US-2763, W4C/CM-001" : "US-NC, W4C/, US-0817"} error={rowInvalid(row)} />}
           />
         );
+      }
       case "island":
         return (
           <Autocomplete

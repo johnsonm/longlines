@@ -5,6 +5,7 @@ import { supabase, SUPABASE_ANON_KEY, SUPABASE_URL } from "../supabase";
 import type { Database, Json } from "./database.types";
 import type { LatestStats, StatsPayload } from "../stats/types";
 import type { CallsignProfile } from "../profile/types";
+import type { ReferenceProfile } from "../references/types";
 import type { BandMapPayload } from "../bandmap/types";
 import type { HealthPayload, HealthRange } from "../health/types";
 import type { CallsignGroup, GroupInput, NormalizedCallsigns } from "../groups/types";
@@ -884,6 +885,27 @@ export async function loadLatestStats(): Promise<LatestStats | null> {
 export async function loadCallsignProfile(callsign: string): Promise<CallsignProfile> {
   const query = new URLSearchParams({ callsign });
   return fetchFunction<CallsignProfile>(`callsign-profile?${query.toString()}`, { headers: { apikey: SUPABASE_ANON_KEY } });
+}
+
+// ---- Reference profiles -----------------------------------------------------
+
+/** The reference-profile function's 404 body: neither in the program's list nor in any spot, or malformed. */
+export const REFERENCE_NOT_FOUND = "Reference not found.";
+
+/**
+ * A park, summit or WWFF reference's public page from the reference-profile
+ * Edge Function, which works signed out, so no session is sent. Null when
+ * there is no such page; only the function's own 404 means that, so a gateway
+ * 404 (the function not deployed) is an outage. The rate limit rejects with "429".
+ */
+export async function loadReferenceProfile(program: string, reference: string): Promise<ReferenceProfile | null> {
+  const query = new URLSearchParams({ program, reference });
+  try {
+    return await fetchFunction<ReferenceProfile>(`reference-profile?${query.toString()}`, { headers: { apikey: SUPABASE_ANON_KEY } });
+  } catch (err) {
+    if (err instanceof ApiError && err.code === "404" && err.message === REFERENCE_NOT_FOUND) return null;
+    throw err;
+  }
 }
 
 // ---- Band map ---------------------------------------------------------------

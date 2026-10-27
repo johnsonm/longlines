@@ -238,7 +238,8 @@ describe("StatsPage", () => {
     expect(screen.getByText("Programs with the most WWFF spots")).toBeInTheDocument();
     expect(screen.getByText("Share of POTA, SOTA and WWFF spots")).toBeInTheDocument();
     expect(screen.getByText("By number of parks, summits and WWFF references activated")).toBeInTheDocument();
-    expect(screen.getByText("KFF-5268")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "KFF-5268" })).toHaveAttribute("href", "/ref/wwff/KFF-5268");
+    expect(screen.getByRole("link", { name: "US-0817" })).toHaveAttribute("href", "/ref/pota/US-0817");
   });
 
   it("renders a snapshot written before WWFF existed", () => {

@@ -218,3 +218,36 @@ Deno.test(
     }
   },
 );
+
+// The Rule schema's table says which ops each field takes; normalize_subscription_rules is the
+// validator, so this only keeps the table and the enums agreeing with each other.
+Deno.test("the Rule table names only declared fields and ops", function (): void {
+  const schemas = resolve((spec.components as Node).schemas);
+  const schema = resolve(schemas.Rule);
+  const properties = schema.properties as Node;
+  const fields = (properties.field as Node).enum as string[];
+  const ops = (properties.op as Node).enum as string[];
+  const table = new Map<string, string[]>();
+  for (const line of String(schema.description).split("\n")) {
+    const row = /^\| `(\w+)` \| ([^|]+) \|/.exec(line);
+    // The header row names the columns.
+    if (row === null || row[1] === "field") {
+      continue;
+    }
+    const field = row[1]!;
+    const rowOps = Array.from(row[2]!.matchAll(/`(\w+)`/g), (m) => m[1]!);
+    let known = table.get(field);
+    if (known === undefined) {
+      known = [];
+    }
+    table.set(field, known.concat(rowOps));
+  }
+  assertEquals(Array.from(table.keys()).sort(), fields.slice().sort());
+  for (const entry of table) {
+    for (const op of entry[1]) {
+      assert(ops.includes(op), `${entry[0]} ${op} is not in the op enum`);
+    }
+  }
+  // Exact references next to the substring test (decision 14 of the reference profiles spec).
+  assertEquals(table.get("reference"), ["is", "is_not", "contains", "not_contains"]);
+});

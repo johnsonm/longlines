@@ -150,6 +150,37 @@ describe("BandMapPage", () => {
     expect(screen.queryByRole("menu")).toBeNull();
   });
 
+  it("links a crowd row's park or summit to its reference page", async () => {
+    const park = spot({ callsign: "N4MTS/P", base_callsign: "N4MTS", frequency_khz: 14062, reference: "US-2763" });
+    const summit = spot({ frequency_khz: 14062.5, source: "sotawatch", reference: "W4C/CM-001" });
+    vi.mocked(useBandMap).mockReturnValue({
+      payload: { bands: [{ band: "20m", spots: [park, summit] }], generated_at: PAYLOAD.generated_at }, loading: false, error: null,
+    });
+    const { user } = renderPage(<BandMapPage />, { route: "/band-map" });
+    await user.click(within(strip("20m")).getByRole("button", { name: /^N4MTS\/P / }));
+    const menu = await screen.findByRole("menu");
+    expect(within(menu).getByRole("menuitem", { name: "W4C/CM-001" })).toHaveAttribute("href", "/ref/sota/W4C/CM-001");
+    await user.click(within(menu).getByRole("menuitem", { name: "US-2763" }));
+    expect(screen.getByTestId("location")).toHaveTextContent("/ref/pota/US-2763");
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("reaches a crowd row's reference with the arrow keys", async () => {
+    const park = spot({ callsign: "N4MTS/P", base_callsign: "N4MTS", frequency_khz: 14062, reference: "US-2763" });
+    const summit = spot({ frequency_khz: 14062.5, source: "sotawatch", reference: "W4C/CM-001" });
+    vi.mocked(useBandMap).mockReturnValue({
+      payload: { bands: [{ band: "20m", spots: [park, summit] }], generated_at: PAYLOAD.generated_at }, loading: false, error: null,
+    });
+    const { user } = renderPage(<BandMapPage />, { route: "/band-map" });
+    await user.click(within(strip("20m")).getByRole("button", { name: /^N4MTS\/P / }));
+    const menu = await screen.findByRole("menu");
+    const target = within(menu).getByRole("menuitem", { name: "US-2763" });
+    for (let i = 0; i < 4 && document.activeElement !== target; i++) await user.keyboard("{ArrowDown}");
+    expect(target).toHaveFocus();
+    await user.keyboard("{Enter}");
+    expect(screen.getByTestId("location")).toHaveTextContent("/ref/pota/US-2763");
+  });
+
   it("uses a phone's wider crowd net, fewer ticks and bigger dots on mobile", async () => {
     setMobile(true);
     const { user } = renderPage(<BandMapPage />, { route: "/band-map" });

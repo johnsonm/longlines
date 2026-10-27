@@ -74,16 +74,22 @@ interface Opts {
   source?: string | null;
   callsign?: string | null;
   group?: string | null;
+  reference?: string | null;
   subs?: SubscriptionWithLinks[];
   dests?: Destination[];
   loading?: boolean;
   mobile?: boolean;
 }
 
-function render({ id, source = null, callsign = null, group: startGroup = null, subs = [sub()], dests = DESTS, loading = false, mobile = false }: Opts) {
+function render(
+  { id, source = null, callsign = null, group: startGroup = null, reference = null, subs = [sub()], dests = DESTS, loading = false, mobile = false }: Opts,
+) {
   const reload = vi.fn(() => Promise.resolve());
   const r = renderPage(
-    <SubscriptionEditorPage id={id} source={source} callsign={callsign} group={startGroup} subs={subs} dests={dests} loading={loading} reload={reload} prefs={PREFS} mobile={mobile} />,
+    <SubscriptionEditorPage
+      id={id} source={source} callsign={callsign} group={startGroup} reference={reference} subs={subs} dests={dests} loading={loading}
+      reload={reload} prefs={PREFS} mobile={mobile}
+    />,
     { route: "/connections/x" },
   );
   return { ...r, reload };
@@ -142,6 +148,20 @@ describe("new subscription", () => {
     await user.click(save());
     expect(saveSubscription).toHaveBeenCalledWith(expect.objectContaining({
       name: "KK4PWJ on the air", sources: ["rbn"], rules: [[{ field: "callsign", op: "is", values: ["KK4PWJ"] }]],
+    }));
+  });
+
+  it("starts filtered to exactly the reference a reference page's Get alerts passed", async () => {
+    const { user } = render({ source: "sotawatch", reference: " w4c/cm-001 " });
+    expect(screen.getByLabelText(/^Name/)).toHaveValue("Activators at W4C/CM-001");
+    expect(screen.getByRole("combobox", { name: "Condition" })).toHaveTextContent("is");
+    expect(screen.getByRole("button", { name: "W4C/CM-001" })).toBeInTheDocument();
+    await waitFor(() => expect(previewSubscription).toHaveBeenCalledWith({
+      sources: ["sotawatch"], rules: [[{ field: "reference", op: "is", values: ["W4C/CM-001"] }]],
+    }));
+    await user.click(save());
+    expect(saveSubscription).toHaveBeenCalledWith(expect.objectContaining({
+      name: "Activators at W4C/CM-001", sources: ["sotawatch"], rules: [[{ field: "reference", op: "is", values: ["W4C/CM-001"] }]],
     }));
   });
 
@@ -271,7 +291,13 @@ describe("edit subscription", () => {
     await user.click(screen.getAllByRole("combobox", { name: "Field" })[2]!);
     expect(screen.getAllByRole("option")).toHaveLength(6);
     await user.click(await screen.findByRole("option", { name: "Park, summit, or location" }));
-    await user.type(screen.getByPlaceholderText("US-NC, W4C/, US-0817"), "US-NC");
+    // A new reference rule matches one reference exactly; Contains keeps partial text.
+    expect(screen.getAllByRole("combobox", { name: "Condition" })[2]).toHaveTextContent("is");
+    expect(screen.getByText("Matches a POTA, SOTA, WWFF, WWBOTA or IOTA reference exactly, such as US-2763 or W4C/CM-001.")).toBeInTheDocument();
+    await user.click(screen.getAllByRole("combobox", { name: "Condition" })[2]!);
+    expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual(["is", "is not", "contains", "does not contain"]);
+    await user.click(await screen.findByRole("option", { name: "contains" }));
+    await user.type(screen.getByPlaceholderText("US-NC, W4C/, US-0817"), " US-NC {Enter}");
     expect(screen.getByText("Matches POTA references and locations, SOTA summit codes, WWFF references, WWBOTA bunkers and IOTA islands.")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Delete Callsign rule" }));
@@ -284,6 +310,29 @@ describe("edit subscription", () => {
       id: "s1", rules: [[rule("mode", "is", "digital"), rule("reference", "contains", "US-NC")]], quiet_minutes: 60, enabled: false,
     }));
     await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Saved changes"));
+  });
+
+  it("types exact references as chips, upper-cased", async () => {
+    const { user } = render({ id: "s1", subs: [sub({ rules: [[rule("reference", "is", "US-2763")]] })] });
+    expect(screen.getByRole("button", { name: "US-2763" })).toBeInTheDocument();
+    await user.type(screen.getByLabelText("Values"), "w4c/cm-001{Enter}us-2763{Enter}");
+    await user.click(save());
+    expect(saveSubscription).toHaveBeenLastCalledWith(expect.objectContaining({ rules: [[rule("reference", "is", "US-2763", "W4C/CM-001")]] }));
+  });
+
+  it("splits a typed or pasted list of exact references into one chip each", async () => {
+    const { user } = render({ id: "s1", subs: [sub({ rules: [[rule("reference", "is", "US-2763")]] })] });
+    await user.type(screen.getByLabelText("Values"), "us-1000, us-1001{Enter}");
+    expect(screen.getByRole("button", { name: "US-1000" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "US-1001" })).toBeInTheDocument();
+    await user.click(save());
+    expect(saveSubscription).toHaveBeenLastCalledWith(expect.objectContaining({ rules: [[rule("reference", "is", "US-2763", "US-1000", "US-1001")]] }));
+  });
+
+  it("refuses an exact reference outside the reference shape", async () => {
+    const { user } = render({ id: "s1", subs: [sub({ rules: [[rule("reference", "is_not", "US-2763")]] })] });
+    await user.type(screen.getByLabelText("Values"), "US_1000{Enter}");
+    expect(save()).toBeDisabled();
   });
 
   it("on DX Cluster, picks IOTA islands by continent, by reference or all at once", async () => {

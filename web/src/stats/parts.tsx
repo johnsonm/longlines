@@ -16,12 +16,13 @@ export const GRID = {
   autoHeight: true,
 } as const;
 
-export function Kpi({ label, value, detail }: { label: string; value: string; detail: string }) {
+/** A figure card; `small` sets a long value (a date) a size down, as phones draw it. */
+export function Kpi({ label, value, detail, small = false }: { label: string; value: string; detail: ReactNode; small?: boolean }) {
   return (
     <Card variant="outlined" sx={{ height: "100%" }}>
       <CardContent>
         <Typography variant="overline" color="text.secondary">{label}</Typography>
-        <Typography variant="h4" component="div">{value}</Typography>
+        <Typography variant={small ? "h5" : "h4"} component="div">{value}</Typography>
         <Typography variant="body2" color="text.secondary">{detail}</Typography>
       </CardContent>
     </Card>
