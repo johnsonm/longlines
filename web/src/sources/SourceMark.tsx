@@ -2,6 +2,7 @@ import { Avatar, Chip } from "@mui/material";
 import type { SourceInfo } from "./sources";
 import aprsLogo from "../assets/sources/aprs.png";
 import dxclusterLogo from "../assets/sources/dxcluster.png";
+import iotaLogo from "../assets/sources/iota.png";
 import potaLogo from "../assets/sources/pota.png";
 import rbnLogo from "../assets/sources/rbn.png";
 import sotawatchLogo from "../assets/sources/sotawatch.png";
@@ -14,6 +15,7 @@ const LOGOS: Record<string, string> = {
   sotawatch: sotawatchLogo,
   wwff: wwffLogo,
   wwbota: wwbotaLogo,
+  iota: iotaLogo,
   dxcluster: dxclusterLogo,
   aprs: aprsLogo,
   rbn: rbnLogo,

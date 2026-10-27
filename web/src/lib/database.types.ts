@@ -651,6 +651,34 @@ isOneToOne: false
                   Relationships: [
                     
                   ]
+                },"iota_groups": {
+                  Row: {
+                    "name": string,"refno": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "name": string,"refno": string
+                  }
+                  Update: {
+                    "name"?: string,"refno"?: string
+                  }
+                  Relationships: [
+                    
+                  ]
+                },"iota_load": {
+                  Row: {
+                    "groups": number,"id": boolean,"loaded_at": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "groups": number,"id"?: boolean,"loaded_at": string
+                  }
+                  Update: {
+                    "groups"?: number,"id"?: boolean,"loaded_at"?: string
+                  }
+                  Relationships: [
+                    
+                  ]
                 },"license_loads": {
                   Row: {
                     "applied_at": string | null,"authority": string,"counts": Json | null,"error": string | null,"id": number,"licenses": number | null,"ready_at": string | null,"started_at": string,"status": string,"version": string
@@ -755,14 +783,14 @@ isOneToOne: true
                   ]
                 },"raw_spots": {
                   Row: {
-                    "band": string | null,"base_callsign": string | null,"callsign": string,"comment": string,"content_hash": string,"frequency_khz": number,"id": number,"ingested_at": string,"mode": string | null,"mode_family": string | null,"pota_location": string | null,"pota_park_name": string | null,"pota_reference": string | null,"raw_payload": NonNullable<Json>,"sota_summit_ref": string | null,"source": string,"source_spot_id": string,"spot_time": string,"spotter": string | null,"wwbota_reference_name": string | null,"wwbota_references": (string)[] | null,"wwff_reference": string | null,"wwff_reference_name": string | null,"delivery_spot_json": Json | null
+                    "band": string | null,"base_callsign": string | null,"callsign": string,"comment": string,"content_hash": string,"frequency_khz": number,"id": number,"ingested_at": string,"iota_reference": string | null,"iota_reference_name": string | null,"mode": string | null,"mode_family": string | null,"pota_location": string | null,"pota_park_name": string | null,"pota_reference": string | null,"raw_payload": NonNullable<Json>,"sota_summit_ref": string | null,"source": string,"source_spot_id": string,"spot_time": string,"spotter": string | null,"wwbota_reference_name": string | null,"wwbota_references": (string)[] | null,"wwff_reference": string | null,"wwff_reference_name": string | null,"delivery_spot_json": Json | null
                   }
                   ComputedFields: "delivery_spot_json"
                   Insert: {
-                    "band"?: string | null,"base_callsign"?: never,"callsign": string,"comment"?: string,"content_hash": string,"frequency_khz": number,"id"?: number,"ingested_at"?: string,"mode"?: string | null,"mode_family"?: string | null,"pota_location"?: string | null,"pota_park_name"?: string | null,"pota_reference"?: string | null,"raw_payload": NonNullable<Json>,"sota_summit_ref"?: string | null,"source": string,"source_spot_id": string,"spot_time": string,"spotter"?: string | null,"wwbota_reference_name"?: string | null,"wwbota_references"?: (string)[] | null,"wwff_reference"?: string | null,"wwff_reference_name"?: string | null
+                    "band"?: string | null,"base_callsign"?: never,"callsign": string,"comment"?: string,"content_hash": string,"frequency_khz": number,"id"?: number,"ingested_at"?: string,"iota_reference"?: string | null,"iota_reference_name"?: string | null,"mode"?: string | null,"mode_family"?: string | null,"pota_location"?: string | null,"pota_park_name"?: string | null,"pota_reference"?: string | null,"raw_payload": NonNullable<Json>,"sota_summit_ref"?: string | null,"source": string,"source_spot_id": string,"spot_time": string,"spotter"?: string | null,"wwbota_reference_name"?: string | null,"wwbota_references"?: (string)[] | null,"wwff_reference"?: string | null,"wwff_reference_name"?: string | null
                   }
                   Update: {
-                    "band"?: string | null,"base_callsign"?: never,"callsign"?: string,"comment"?: string,"content_hash"?: string,"frequency_khz"?: number,"id"?: number,"ingested_at"?: string,"mode"?: string | null,"mode_family"?: string | null,"pota_location"?: string | null,"pota_park_name"?: string | null,"pota_reference"?: string | null,"raw_payload"?: NonNullable<Json>,"sota_summit_ref"?: string | null,"source"?: string,"source_spot_id"?: string,"spot_time"?: string,"spotter"?: string | null,"wwbota_reference_name"?: string | null,"wwbota_references"?: (string)[] | null,"wwff_reference"?: string | null,"wwff_reference_name"?: string | null
+                    "band"?: string | null,"base_callsign"?: never,"callsign"?: string,"comment"?: string,"content_hash"?: string,"frequency_khz"?: number,"id"?: number,"ingested_at"?: string,"iota_reference"?: string | null,"iota_reference_name"?: string | null,"mode"?: string | null,"mode_family"?: string | null,"pota_location"?: string | null,"pota_park_name"?: string | null,"pota_reference"?: string | null,"raw_payload"?: NonNullable<Json>,"sota_summit_ref"?: string | null,"source"?: string,"source_spot_id"?: string,"spot_time"?: string,"spotter"?: string | null,"wwbota_reference_name"?: string | null,"wwbota_references"?: (string)[] | null,"wwff_reference"?: string | null,"wwff_reference_name"?: string | null
                   }
                   Relationships: [
                     
@@ -1110,14 +1138,14 @@ isOneToOne: true
                   ]
                 },"recent_spots": {
                   Row: {
-                    "band": string | null,"callsign": string | null,"comment": string | null,"frequency_khz": number | null,"id": number | null,"mode": string | null,"mode_family": string | null,"pota_location": string | null,"pota_park_name": string | null,"pota_reference": string | null,"sota_summit_ref": string | null,"source": string | null,"spot_time": string | null,"spotter": string | null,"wwbota_reference_name": string | null,"wwbota_references": (string)[] | null,"wwff_reference": string | null,"wwff_reference_name": string | null
+                    "band": string | null,"callsign": string | null,"comment": string | null,"frequency_khz": number | null,"id": number | null,"iota_reference": string | null,"iota_reference_name": string | null,"mode": string | null,"mode_family": string | null,"pota_location": string | null,"pota_park_name": string | null,"pota_reference": string | null,"sota_summit_ref": string | null,"source": string | null,"spot_time": string | null,"spotter": string | null,"wwbota_reference_name": string | null,"wwbota_references": (string)[] | null,"wwff_reference": string | null,"wwff_reference_name": string | null
                   }
                   ComputedFields: never
                   Insert: {
-                           "band"?: string | null,"callsign"?: string | null,"comment"?: string | null,"frequency_khz"?: number | null,"id"?: number | null,"mode"?: string | null,"mode_family"?: string | null,"pota_location"?: string | null,"pota_park_name"?: string | null,"pota_reference"?: string | null,"sota_summit_ref"?: string | null,"source"?: string | null,"spot_time"?: string | null,"spotter"?: string | null,"wwbota_reference_name"?: string | null,"wwbota_references"?: (string)[] | null,"wwff_reference"?: string | null,"wwff_reference_name"?: string | null
+                           "band"?: string | null,"callsign"?: string | null,"comment"?: string | null,"frequency_khz"?: number | null,"id"?: number | null,"iota_reference"?: string | null,"iota_reference_name"?: string | null,"mode"?: string | null,"mode_family"?: string | null,"pota_location"?: string | null,"pota_park_name"?: string | null,"pota_reference"?: string | null,"sota_summit_ref"?: string | null,"source"?: string | null,"spot_time"?: string | null,"spotter"?: string | null,"wwbota_reference_name"?: string | null,"wwbota_references"?: (string)[] | null,"wwff_reference"?: string | null,"wwff_reference_name"?: string | null
                          }
                         Update: {
-                           "band"?: string | null,"callsign"?: string | null,"comment"?: string | null,"frequency_khz"?: number | null,"id"?: number | null,"mode"?: string | null,"mode_family"?: string | null,"pota_location"?: string | null,"pota_park_name"?: string | null,"pota_reference"?: string | null,"sota_summit_ref"?: string | null,"source"?: string | null,"spot_time"?: string | null,"spotter"?: string | null,"wwbota_reference_name"?: string | null,"wwbota_references"?: (string)[] | null,"wwff_reference"?: string | null,"wwff_reference_name"?: string | null
+                           "band"?: string | null,"callsign"?: string | null,"comment"?: string | null,"frequency_khz"?: number | null,"id"?: number | null,"iota_reference"?: string | null,"iota_reference_name"?: string | null,"mode"?: string | null,"mode_family"?: string | null,"pota_location"?: string | null,"pota_park_name"?: string | null,"pota_reference"?: string | null,"sota_summit_ref"?: string | null,"source"?: string | null,"spot_time"?: string | null,"spotter"?: string | null,"wwbota_reference_name"?: string | null,"wwbota_references"?: (string)[] | null,"wwff_reference"?: string | null,"wwff_reference_name"?: string | null
                          }
                         Relationships: [
                     
@@ -1513,6 +1541,8 @@ isOneToOne: true
 "comment": string | null,
 "frequency_khz": number | null,
 "id": number | null,
+"iota_reference": string | null,
+"iota_reference_name": string | null,
 "mode": string | null,
 "mode_family": string | null,
 "pota_location": string | null,
@@ -1538,6 +1568,9 @@ isOneToOne: true
                            },
 "load_cty":
 { Args: { "p_entities": Json,"p_prefixes": Json,"p_version": string }; Returns: undefined
+                           },
+"load_iota_groups":
+{ Args: { "p_groups": Json }; Returns: number
                            },
 "log_archive":
 { Args: { "p_bytes": number,"p_object_path": string,"p_row_count": number,"p_slice_end": string,"p_slice_start": string,"p_source": string }; Returns: undefined

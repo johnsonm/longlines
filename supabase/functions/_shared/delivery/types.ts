@@ -26,6 +26,10 @@ export interface DeliverySpot {
   wwbota_references?: string[] | null;
   /** The first bunker's name; absent like wwbota_references. */
   wwbota_reference_name?: string | null;
+  /** The IOTA reference of a DX Cluster spot; absent on rows claimed before migration 20261027001000. */
+  iota_reference?: string | null;
+  /** The IOTA group's name; absent like iota_reference. */
+  iota_reference_name?: string | null;
   /**
    * Push only, from SQL (push_spot_fields): the title and body built from the
    * destination's picked fields, its tap URL and the spot's source page. Never
@@ -272,11 +276,13 @@ export const deliverySpotSchema: z.ZodType<DeliverySpot> = z.looseObject({
   base_callsign: nullableTextSchema,
   frequency_khz: z.number(),
   pota_location: nullableTextSchema,
+  iota_reference: nullableTextSchema.optional(),
   pota_park_name: nullableTextSchema,
   pota_reference: nullableTextSchema,
   wwff_reference: nullableTextSchema,
   sota_summit_ref: nullableTextSchema,
   wwbota_references: z.array(z.string()).nullable().optional(),
+  iota_reference_name: nullableTextSchema.optional(),
   wwff_reference_name: nullableTextSchema,
   wwbota_reference_name: nullableTextSchema.optional(),
   push_title: z.string().optional(),

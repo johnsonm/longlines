@@ -101,6 +101,22 @@ describe("SourceDetailPage", () => {
     expect(screen.getByTestId("location")).toHaveAttribute("data-search", "?source=pota");
   });
 
+  it("on IOTA, lists DX Cluster connections with an island rule and creates a DX Cluster one", async () => {
+    const user = userEvent.setup();
+    const island = [[{ field: "island", op: "is", values: ["EU"] }]];
+    open("/sources/iota", [
+      { id: "s1", name: "Islands", sources: ["dxcluster"], rules: island },
+      { id: "s2", name: "All DX", sources: ["dxcluster"], rules: [] },
+      { id: "s3", name: "Parks", sources: ["pota"], rules: island },
+    ] as unknown as SubscriptionWithLinks[]);
+    expect(screen.getByRole("link", { name: "Islands" })).toHaveAttribute("href", "/connections/s1");
+    expect(screen.queryByRole("link", { name: "All DX" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Parks" })).not.toBeInTheDocument();
+    expect(loadRecentSpots).toHaveBeenCalledWith("iota");
+    await user.click(screen.getByRole("link", { name: "Create connection" }));
+    expect(screen.getByTestId("location")).toHaveAttribute("data-search", "?source=dxcluster");
+  });
+
   it("says when no subscription uses the source, and offers none on APRS-IS", () => {
     const { unmount } = open("/sources/sotawatch");
     expect(screen.getByText("None yet.")).toBeInTheDocument();

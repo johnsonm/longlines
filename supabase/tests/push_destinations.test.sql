@@ -310,8 +310,8 @@ select results_eq(format($$ select spot ->> 'push_title', spot ->> 'push_url'
   $$ values ('KK4PWJ/P · 20m'::text, 'https://pota.app/#/park/US-2763'::text) $$,
   'each destination renders its own fields and tap target');
 select is((select array_agg(k order by k) from claimed c, jsonb_object_keys(c.spot) k where c.destination ->> 'id' = (select id::text from pota)),
-  array['band', 'base_callsign', 'callsign', 'comment', 'frequency_khz', 'id', 'mode', 'mode_family', 'pota_location',
-        'pota_park_name', 'pota_reference', 'push_body', 'push_source_url', 'push_title', 'push_url', 'sota_summit_ref', 'source',
+  array['band', 'base_callsign', 'callsign', 'comment', 'frequency_khz', 'id', 'iota_reference', 'iota_reference_name',
+        'mode', 'mode_family', 'pota_location', 'pota_park_name', 'pota_reference', 'push_body', 'push_source_url', 'push_title', 'push_url', 'sota_summit_ref', 'source',
         'spot_time', 'spotter', 'wwbota_reference_name', 'wwbota_references', 'wwff_reference', 'wwff_reference_name'],
   'the spot keeps its documented keys plus the four push ones');
 select is((select array_agg(k order by k) from claimed c, jsonb_object_keys(to_jsonb(c)) k where c.destination ->> 'id' = (select id::text from pota)),

@@ -272,7 +272,7 @@ describe("edit subscription", () => {
     expect(screen.getAllByRole("option")).toHaveLength(6);
     await user.click(await screen.findByRole("option", { name: "Park, summit, or location" }));
     await user.type(screen.getByPlaceholderText("US-NC, W4C/, US-0817"), "US-NC");
-    expect(screen.getByText("Matches POTA references and locations, SOTA summit codes, WWFF references and WWBOTA bunkers.")).toBeInTheDocument();
+    expect(screen.getByText("Matches POTA references and locations, SOTA summit codes, WWFF references, WWBOTA bunkers and IOTA islands.")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Delete Callsign rule" }));
     await user.click(screen.getByRole("combobox", { name: "Repeat spots for the same station" }));
@@ -284,6 +284,32 @@ describe("edit subscription", () => {
       id: "s1", rules: [[rule("mode", "is", "digital"), rule("reference", "contains", "US-NC")]], quiet_minutes: 60, enabled: false,
     }));
     await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Saved changes"));
+  });
+
+  it("on DX Cluster, picks IOTA islands by continent, by reference or all at once", async () => {
+    const { user } = render({ id: "s1", subs: [sub({ sources: ["dxcluster"], rules: [[rule("island", "is", "EU")]] })] });
+    expect(screen.getByText("Matches the IOTA reference in a DX Cluster spot's comment, such as EU-005, or every island on a continent.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Europe (EU)" })).toBeInTheDocument();
+    await user.type(screen.getByLabelText("Values"), "na-112{Enter}");
+    await user.click(save());
+    expect(saveSubscription).toHaveBeenLastCalledWith(expect.objectContaining({ rules: [[rule("island", "is", "EU", "NA-112")]] }));
+  });
+
+  it("fills every continent from Any island", async () => {
+    const { user } = render({ id: "s1", subs: [sub({ sources: ["dxcluster"], rules: [[rule("island", "is", "EU")]] })] });
+    await user.click(screen.getByLabelText("Values"));
+    await user.click(await screen.findByRole("option", { name: "Any island" }));
+    await user.click(save());
+    expect(saveSubscription).toHaveBeenLastCalledWith(expect.objectContaining({
+      rules: [[rule("island", "is", "AF", "AN", "AS", "EU", "NA", "OC", "SA")]],
+    }));
+  });
+
+  it("refuses an island value that is neither a reference nor a continent", async () => {
+    const { user } = render({ id: "s1", subs: [sub({ sources: ["dxcluster"], rules: [[rule("island", "is", "EU")]] })] });
+    await user.type(screen.getByLabelText("Values"), "Hawaii{Enter}");
+    expect(screen.getByText("Type a reference such as EU-005, or pick a continent.")).toBeInTheDocument();
+    expect(save()).toBeDisabled();
   });
 
   it("joins rules with And or Or and picks each rule's condition", async () => {

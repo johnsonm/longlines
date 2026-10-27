@@ -3,7 +3,7 @@ import type { RecentSpot } from "../lib/api";
 import { spotReference } from "./spots";
 
 const spot = (refs: Partial<RecentSpot>) =>
-  ({ pota_reference: null, sota_summit_ref: null, wwff_reference: null, wwbota_references: null, ...refs }) as RecentSpot;
+  ({ pota_reference: null, sota_summit_ref: null, wwff_reference: null, wwbota_references: null, iota_reference: null, ...refs }) as RecentSpot;
 
 describe("spotReference", () => {
   it("shows the park, summit or WWFF reference, whichever the spot has", () => {
@@ -15,6 +15,10 @@ describe("spotReference", () => {
   it("shows a WWBOTA spot's first bunker", () => {
     expect(spotReference(spot({ wwbota_references: ["B/EA-0103", "B/EA-0104"] }))).toBe("B/EA-0103");
     expect(spotReference(spot({ wwbota_references: [] }))).toBe("");
+  });
+
+  it("shows a DX Cluster spot's IOTA reference", () => {
+    expect(spotReference(spot({ iota_reference: "EU-005" }))).toBe("EU-005");
   });
 
   it("is blank for a spot with no reference", () => {

@@ -114,6 +114,8 @@ export function embedForSpot(spot: DeliverySpot): DiscordEmbed {
   add("Reserve", spot.wwff_reference_name);
   add("WWBOTA", bunkers(spot));
   add("Bunker", spot.wwbota_reference_name);
+  add("IOTA", spot.iota_reference);
+  add("Island", spot.iota_reference_name);
   add("Source", sourceLabel(spot.source));
   add("Spotter", spot.spotter);
   add("Time (UTC)", utcClock(spot.spot_time));
@@ -512,6 +514,8 @@ function legacyPushBody(spot: DeliverySpot): string {
       spot.wwff_reference_name,
       bunkers(spot),
       spot.wwbota_reference_name,
+      spot.iota_reference,
+      spot.iota_reference_name,
     ]
   ) {
     const text = textOf(value);

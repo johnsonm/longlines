@@ -1,4 +1,4 @@
--- Preview seed data: a synthetic week of POTA, SOTAwatch, WWFF, WWBOTA and RBN spots so the
+-- Preview seed data: a synthetic week of POTA, SOTAwatch, WWFF, WWBOTA, IOTA and RBN spots so the
 -- Stats page (and the Sources and recent-spot views) have something to show on
 -- a Supabase preview branch or a fresh local stack, where no ingest runs.
 --
@@ -245,6 +245,32 @@ from seed_days d,
                      (array['40m', '40m', '20m', '80m'])[1 + (g + d.d + 7) % 4] as band) as x,
      lateral generate_series(1, 2 + g % 3) as s,
      lateral (select d.day_start + make_interval(secs => ((10 + g % 4) * 3600 + s * 500 + g * 11)::int) as spot_time) as t
+where t.spot_time < now() - interval '5 minutes';
+
+-- IOTA ------------------------------------------------------------------------
+
+-- A few real IOTA groups (the list is public reference data, normally loaded by
+-- import-iota), and about ten DX Cluster spots a day that name one of them in
+-- the comment, as the adapter reads them. The calls are made up.
+insert into iota_groups (refno, name) values
+  ('EU-005', 'Great Britain'), ('EU-115', 'Ireland'), ('EU-021', 'Hebrides'), ('NA-112', 'Long Island'),
+  ('NA-067', 'Outer Banks'), ('OC-001', 'Australia'), ('AS-007', 'Honshu Island'), ('AF-004', 'Canary Islands')
+on conflict (refno) do nothing;
+
+insert into raw_spots (source, source_spot_id, content_hash, spot_time, callsign, spotter, frequency_khz, band, mode, mode_family,
+                       comment, iota_reference, iota_reference_name, raw_payload)
+select 'dxcluster', 'seed-iota-' || d.d || '-' || g, md5('seed-iota-' || d.d || '-' || g), t.spot_time,
+       x.callsign, pg_temp.seed_call(pg_temp.skewed(300, 1.5, g), array['K', 'W', 'G', 'DL', 'JA']),
+       pg_temp.freq(x.band, x.mode, g), x.band, x.mode, pg_temp.family(x.mode),
+       case when g % 2 = 0 then 'IOTA ' || x.ref else x.ref || ' up 2' end, x.ref,
+       (select ig.name from iota_groups ig where ig.refno = x.ref), '{"seed": true}'
+from seed_days d,
+     lateral generate_series(1, 10) as g,
+     lateral (select (array['EU-005', 'EU-115', 'EU-021', 'NA-112', 'NA-067', 'OC-001', 'AS-007', 'AF-004'])[1 + (g + d.d + 7) % 8] as ref,
+                     pg_temp.seed_call(pg_temp.skewed(60, 1.3, g), array['M', 'EI', 'GM', 'W2', 'K4', 'VK', 'JA', 'EA8']) || '/P' as callsign,
+                     (array['ssb', 'cw', 'ssb', 'ft8'])[1 + g % 4] as mode,
+                     (array['20m', '40m', '17m', '15m'])[1 + (g + d.d + 7) % 4] as band) as x,
+     lateral (select d.day_start + make_interval(secs => ((8 + g) * 3600 + g * 97)::int) as spot_time) as t
 where t.spot_time < now() - interval '5 minutes';
 
 -- Reference lists ---------------------------------------------------------------

@@ -75,7 +75,7 @@ select ok(not spot_matches(
   (select r from raw_spots r where r.source_spot_id = 'r1')), 'spot_matches: rbn spot vs subscription without callsigns');
 select ok(spot_matches(
   (select s from subscriptions s where s.id = (select any_source from subs)),
-  (0, 'pota', 'x', 'x', now(), now(), 'N4DXX', null, 14062, '20m', 'cw', '', null, null, null, null, '{}'::jsonb, 'cw', 'N4DXX', null, null, null, null)::raw_spots),
+  (0, 'pota', 'x', 'x', now(), now(), 'N4DXX', null, 14062, '20m', 'cw', '', null, null, null, null, '{}'::jsonb, 'cw', 'N4DXX', null, null, null, null, null, null)::raw_spots),
   'spot_matches: other sources still match without callsigns');
 
 select throws_ok(

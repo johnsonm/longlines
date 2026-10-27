@@ -21,6 +21,8 @@
     "wwff_reference_name": [null, null],
     "wwbota_references": [null, null],
     "wwbota_reference_name": [null, null],
+    "iota_reference": [null, null],
+    "iota_reference_name": [null, null],
     "raw_payload": [
       "{\"freq\": 14062.50, \"nested\": {\"a\": [1, 2.0, null], \"b\": \"x\\\"y\"}, \"spotId\": 12345, \"unicode\": \"Ö\", \"activator\": \"W1AW\", \"frequency\": \"14062\"}",
       "{}"

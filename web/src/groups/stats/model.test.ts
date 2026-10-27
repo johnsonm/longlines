@@ -37,6 +37,10 @@ describe("group statistics model", () => {
     expect(placesLine({ parks: 0, summits: 0, bunkers: 0 })).toBe("0 parks, 0 summits");
     expect(totalPlaces({ parks: 19, summits: 3 })).toBe(22);
     expect(totalPlaces({ parks: 19, summits: 3, bunkers: 2 })).toBe(24);
+    expect(activationsLine({ pota: 1, sota: 0, wwff: 0, wwbota: 0, iota: 2 })).toBe("1 POTA, 0 SOTA, 2 IOTA");
+    expect(totalActivations({ pota: 1, sota: 0, wwff: 0, wwbota: 1, iota: 2 })).toBe(4);
+    expect(placesLine({ parks: 1, summits: 0, bunkers: 0, islands: 2 })).toBe("1 park, 0 summits, 2 islands");
+    expect(totalPlaces({ parks: 1, summits: 0, bunkers: 1, islands: 2 })).toBe(4);
   });
 
   it("words last heard", () => {

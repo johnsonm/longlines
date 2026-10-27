@@ -480,13 +480,16 @@ verify_jwt = false
 [functions.relay-status]
 verify_jwt = false
 
-# archive and import-cty are called by pg_cron with the legacy service-role JWT.
+# archive, import-cty and import-iota are called by pg_cron with the legacy service-role JWT.
 # Their handlers accept it by its role claim (isServiceRole in _shared/auth.ts)
 # without checking the signature, so the gateway's check must stay on.
 [functions.archive]
 verify_jwt = true
 
 [functions.import-cty]
+verify_jwt = true
+
+[functions.import-iota]
 verify_jwt = true
 
 # The one-off NDJSON-to-Parquet conversion (issue #174), invoked by hand with the

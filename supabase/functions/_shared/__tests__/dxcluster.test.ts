@@ -128,7 +128,33 @@ Deno.test(
     assertEquals(s.comment, "SSB [POTA] GR-0131 cq cq");
     assertEquals(s.pota_reference, null);
     assertEquals(s.sota_summit_ref, null);
+    assertEquals(s.iota_reference, null);
     assertEquals(s.raw_payload, item(raw, RECEIVED));
+  },
+);
+
+Deno.test(
+  "dxclusterAdapter.normalize reads an IOTA reference out of the comment",
+  async function (): Promise<void> {
+    const s = await normalized(
+      "DX de K1ABC:     14025.0  HF0POL       CQ from Arctowski (AN-010)-UP 1318Z",
+    );
+    assertEquals([s.comment, s.iota_reference], ["CQ from Arctowski (AN-010)-UP", "AN-010"]);
+    const lower = await normalized(
+      "DX de K1ABC:     14260.0  GB0XX        iota eu-005 up 5             1318Z",
+    );
+    assertEquals(lower.iota_reference, "EU-005");
+    // The reference comes from the comment, which the hash already covers: no stored spot looks new.
+    assertEquals(
+      s.content_hash,
+      await contentHash([
+        s.spot_time,
+        "K1ABC",
+        "HF0POL",
+        "14025.0",
+        "CQ from Arctowski (AN-010)-UP",
+      ]),
+    );
   },
 );
 

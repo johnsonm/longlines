@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { formatHour, formatPerDay, formatRate, RATE_UNIT, RATE_UNIT_SHORT, sourceRates, type Hour } from "./rates";
 
 const START = Date.UTC(2026, 9, 7); // Oct 7 00:00 UTC
-function week(value: (i: number) => number, key: "pota" | "wwff" | "wwbota" | "rbn" | "dx" = "pota"): Hour[] {
+function week(value: (i: number) => number, key: "pota" | "wwff" | "wwbota" | "iota" | "rbn" | "dx" = "pota"): Hour[] {
   return Array.from({ length: 168 }, (_, i) => ({
     hour: new Date(START + i * 3_600_000).toISOString().replace(".000", ""),
     pota: 0, sota: 0, wwff: 0, rbn: 0, aprs: 0, dx: 0, [key]: value(i),
@@ -46,6 +46,9 @@ describe("sourceRates", () => {
     // Snapshots before 20261026001000 have no wwbota key.
     expect(sourceRates(week(() => 1), "wwbota")).toBeNull();
     expect(sourceRates(week(() => 2, "wwbota"), "wwbota")?.average).toBe(2);
+    // Snapshots before 20261027001000 have no iota key.
+    expect(sourceRates(week(() => 1), "iota")).toBeNull();
+    expect(sourceRates(week(() => 3, "iota"), "iota")?.average).toBe(3);
   });
 
   it("returns null for an empty series", () => {

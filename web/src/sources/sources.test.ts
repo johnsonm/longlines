@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { findLiveSource, MODES, modeLabel, SOURCES } from "./sources";
+import { findLiveSource, LIVE_SOURCES, MODES, modeLabel, SOURCES } from "./sources";
 
 describe("modeLabel", () => {
   it("labels the digital family as Any digital", () => {
@@ -66,7 +66,8 @@ describe("SOURCES catalog fields", () => {
       for (const k of missing) {
         expect(s.schema!.find((f) => f.name === k)!.description, `${s.id} ${k}`).toMatch(/^No value on /);
       }
-      expect(s.example!.source).toBe(s.id);
+      // A carried source's spots are its carrier's: IOTA spots arrive as DX Cluster spots.
+      expect(s.example!.source).toBe(s.via ?? s.id);
       expect(s.example!.time, s.id).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/);
       expect(Object.values(s.example!).includes(null), s.id).toBe(false);
     }
@@ -96,7 +97,17 @@ describe("SOURCES catalog fields", () => {
     expect(findLiveSource("rbn")?.title).toBe("Reverse Beacon Network");
     expect(findLiveSource("wwff")?.statsKey).toBe("wwff");
     expect(findLiveSource("wwbota")?.statsKey).toBe("wwbota");
+    expect(findLiveSource("iota")?.statsKey).toBe("iota");
     expect(findLiveSource("nope")).toBeUndefined();
     expect(findLiveSource(undefined)).toBeUndefined();
+  });
+
+  it("carries IOTA on DX Cluster and never offers it as a connection source", () => {
+    expect(SOURCES.filter((s) => s.via !== null).map((s) => [s.id, s.via])).toEqual([["iota", "dxcluster"]]);
+    expect(LIVE_SOURCES.map((s) => s.id)).not.toContain("iota");
+    expect(LIVE_SOURCES.map((s) => s.id)).toContain("dxcluster");
+    const iota = findLiveSource("iota")!;
+    expect(iota.schema!.find((f) => f.name === "reference")!.description).toBe("IOTA reference.");
+    expect(iota.schema!.find((f) => f.name === "place_name")!.description).toBe("Island group name.");
   });
 });

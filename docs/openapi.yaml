@@ -972,11 +972,12 @@ components:
         | `group` | `is`, `is_not` | Callsign group ids. A spot's base call is checked against the members. |
         | `band` | `is`, `is_not` | Bands, for example `20m`, lowercased for you. |
         | `mode` | `is`, `is_not` | Modes or mode families, for example `cw`, `ft8`, `digital`. |
-        | `reference` | `contains`, `not_contains` | Text to look for in a POTA reference or location, a SOTA summit code, a WWFF reference or any of a WWBOTA spot's bunkers, such as `US-NC`, `KFF-` or `B/G-`. Ignores case. |
+        | `reference` | `contains`, `not_contains` | Text to look for in a POTA reference or location, a SOTA summit code, a WWFF reference, any of a WWBOTA spot's bunkers or a DX Cluster spot's IOTA reference, such as `US-NC`, `KFF-`, `B/G-` or `EU-005`. Ignores case. |
         | `frequency` | `is`, `is_not`, `gt`, `lt` | One number, in kHz. `gt` is greater than and `lt` less than. |
+        | `island` | `is`, `is_not` | IOTA references (`EU-005`) or continents (`EU`, every island on it), uppercased for you. Only DX Cluster spots name an island, read from the comment; a spot without one passes `is_not`. |
       required: [field, op, values]
       properties:
-        field: { type: string, enum: [callsign, group, band, mode, reference, frequency] }
+        field: { type: string, enum: [callsign, group, band, mode, reference, frequency, island] }
         op: { type: string, enum: [is, is_not, contains, not_contains, gt, lt] }
         values:
           type: array
@@ -1031,7 +1032,7 @@ components:
                 source: { $ref: "#/components/schemas/Source" }
                 reference:
                   type: [string, "null"]
-                  description: The POTA, SOTA or WWFF reference, or a WWBOTA spot's bunkers joined with ", ", whichever the spot has.
+                  description: The POTA, SOTA or WWFF reference, a WWBOTA spot's bunkers joined with ", ", or a DX Cluster spot's IOTA reference, whichever the spot has.
                 spot_time: { type: string, format: date-time }
       example:
         id: 9c1d…

@@ -183,7 +183,7 @@ The conventions are `docs/superpowers/specs/2026-10-22-strict-eslint-conventions
   when it created deliveries, and the cleanup (`20261015001400`) deleted the function, its handler
   and its RPCs `delay_deliveries` and `mark_deliveries_dropped`. Never add a `net.http_post` or a
   delivery Edge Function back.
-- `archive` and `import-cty` authorize with `isServiceRole` (`_shared/auth.ts`):
+- `archive`, `import-cty` and `import-iota` authorize with `isServiceRole` (`_shared/auth.ts`):
   the runtime's `SUPABASE_SERVICE_ROLE_KEY` (now the `sb_secret_` key) or a JWT with
   `role: service_role`, which is what pg_cron sends from Vault. The JWT is trusted only because the
   gateway verified it, so both functions keep `verify_jwt = true` in `config.toml`.
@@ -278,6 +278,23 @@ The design is `docs/superpowers/specs/2026-10-26-wwbota-design.md`.
   `hourly[].wwbota` (optional keys, for the catalog's rates), from their own CTEs like `dx`. Do not
   add it to `in_window`, totals, bands, countries or top lists without being asked. It stays off
   the band map.
+
+## IOTA rules
+
+The design is `docs/superpowers/specs/2026-10-27-iota-design.md`.
+
+- IOTA is a tag on DX Cluster spots, never a source: no `iota` source id, ingest row or connection
+  source. The DX Cluster adapter fills `iota_reference` with `iotaReference` (`_shared/iota.ts`,
+  the first dash-form reference in the comment, as Spothole reads it); never change the hash for it.
+- Names come only from `iota_groups`, loaded whole by `load_iota_groups` from `import-iota`
+  (monthly); `ingest_spots` copies the name onto the spot. It may later move into the reference
+  catalog; until then never add a second island list.
+- The `island` rule (`is` / `is_not`, references or continents) is validated by
+  `normalize_subscription_rules` and matched by `rule_matches`; the web offers it only when the
+  sources list DX Cluster. The catalog's IOTA entry has `via: "dxcluster"`: kept out of
+  `LIVE_SOURCES`, health from DX Cluster (`healthId`), "Create connection" opens a DX Cluster one.
+- Profiles and group statistics count program `'IOTA'` (`kpis.activations.iota`,
+  `kpis.places.islands`); Stats only `daily[].iota` / `hourly[].iota`, for the catalog's rates.
 
 ## Discord rules
 

@@ -36,6 +36,7 @@ function spotFor(raw: JsonObject): NormalizedSpot {
     wwff_reference_name: null,
     wwbota_references: null,
     wwbota_reference_name: null,
+    iota_reference: null,
     raw_payload: raw,
   };
 }

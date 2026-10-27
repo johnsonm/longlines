@@ -1,5 +1,5 @@
 export type Volume = "standard" | "high";
-export type StatsKey = "pota" | "sota" | "wwff" | "wwbota" | "rbn" | "dx" | "aprs";
+export type StatsKey = "pota" | "sota" | "wwff" | "wwbota" | "iota" | "rbn" | "dx" | "aprs";
 export type MarkColor = "primary" | "secondary" | "warning" | "success" | "error" | "default";
 
 /**
@@ -40,6 +40,12 @@ export interface SourceInfo {
   statsKey: StatsKey | null;
   /** The Visit button links to https://<site>. */
   site: string | null;
+  /**
+   * The source whose spots carry this one (IOTA rides on DX Cluster), else null. Such an entry is
+   * never offered as a connection source; its health is the carrier's, and its connections are the
+   * carrier's.
+   */
+  via: string | null;
   runBy: RunBy | null;
   about: string[];
   showsUp: string[];
@@ -90,7 +96,7 @@ export const SOURCES: SourceInfo[] = [
   {
     id: "pota", name: "POTA", full: "Parks on the Air", status: "live", interval: "every 60s", pollSeconds: 60, desc: "Activator spots from api.pota.app", alerts: true,
     volume: "standard", title: "Parks on the Air", tagline: "Activators in parks, self-spotted and spotted by hunters.",
-    mark: "PO", markColor: "primary", statsKey: "pota", site: "pota.app",
+    mark: "PO", markColor: "primary", statsKey: "pota", site: "pota.app", via: null,
     runBy: { operator: "Parks on the Air", feed: "Spot list, polled every 60 seconds", modes: "CW, SSB, digital" },
     about: [
       "Parks on the Air is a program where operators activate parks and other operators hunt them. Activators and hunters post spots to the POTA spotting page as they operate.",
@@ -115,7 +121,7 @@ export const SOURCES: SourceInfo[] = [
   {
     id: "sotawatch", name: "SOTAwatch", full: "Summits on the Air", status: "live", interval: "every 30s", pollSeconds: 30, desc: "Summit activation spots from SOTAwatch", alerts: true,
     volume: "standard", title: "SOTA", tagline: "Activators on mountain summits around the world.",
-    mark: "SO", markColor: "secondary", statsKey: "sota", site: "sotawatch.sota.org.uk",
+    mark: "SO", markColor: "secondary", statsKey: "sota", site: "sotawatch.sota.org.uk", via: null,
     runBy: { operator: "Summits on the Air", feed: "Spot list, polled every 30 seconds", modes: "CW, SSB, FM, digital" },
     about: [
       "Summits on the Air is an award program for portable operation from mountain summits. Activators and chasers post spots to SOTAwatch as they operate.",
@@ -140,7 +146,7 @@ export const SOURCES: SourceInfo[] = [
   {
     id: "rbn", name: "RBN", full: "Reverse Beacon Network", status: "live", interval: "streaming", pollSeconds: 60, desc: "CW and digital skimmer spots", alerts: true,
     volume: "high", title: "Reverse Beacon Network", tagline: "CW and RTTY signals heard by skimmers around the world.",
-    mark: "RB", markColor: "warning", statsKey: "rbn", site: "reversebeacon.net",
+    mark: "RB", markColor: "warning", statsKey: "rbn", site: "reversebeacon.net", via: null,
     runBy: { operator: "Reverse Beacon Network volunteers", feed: "Telnet stream of skimmer spots", modes: "CW, RTTY" },
     about: [
       "The Reverse Beacon Network is a network of automated receivers, called skimmers, that listen across the bands and report every CW and RTTY signal they decode, with signal strength and speed.",
@@ -168,7 +174,7 @@ export const SOURCES: SourceInfo[] = [
   {
     id: "dxcluster", name: "DX Cluster", full: "DXSpider network", status: "live", interval: "streaming", pollSeconds: 60, desc: "Human-entered DX spots", alerts: true,
     volume: "standard", title: "DX Cluster", tagline: "Spots entered by operators and shared across cluster nodes.",
-    mark: "DX", markColor: "success", statsKey: "dx", site: null,
+    mark: "DX", markColor: "success", statsKey: "dx", site: null, via: null,
     runBy: { operator: "Volunteer cluster node operators", feed: "Telnet stream from a DXSpider node", modes: "Any, as the spotter enters it" },
     about: [
       "A DX Cluster is a network of nodes where operators post the stations they hear, often rare or distant ones, for everyone connected to see.",
@@ -194,7 +200,7 @@ export const SOURCES: SourceInfo[] = [
   {
     id: "aprs", name: "APRS-IS", full: "Automatic Packet Reporting System", status: "live", interval: "streaming", pollSeconds: 60, desc: "Every packet on the worldwide APRS-IS feed", alerts: false,
     volume: "high", title: "APRS-IS", tagline: "Position, weather and message packets from the worldwide APRS-IS network.",
-    mark: "AP", markColor: "warning", statsKey: "aprs", site: "aprs2.net",
+    mark: "AP", markColor: "warning", statsKey: "aprs", site: "aprs2.net", via: null,
     runBy: { operator: "APRS-IS tier 2 network volunteers", feed: "Full feed over TCP, receive only", modes: "APRS packets" },
     about: [
       "APRS-IS links the world's APRS radio networks over the internet. Igates forward the packets they hear, from positions and weather reports to messages.",
@@ -207,7 +213,7 @@ export const SOURCES: SourceInfo[] = [
   {
     id: "wwff", name: "WWFF", full: "World Wide Flora & Fauna", status: "live", interval: "every 60s", pollSeconds: 60, desc: "Reference activation spots from spots.wwff.co", alerts: true,
     volume: "standard", title: "WWFF", tagline: "Activators in nature reserves and protected areas around the world.",
-    mark: "WW", markColor: "success", statsKey: "wwff", site: "wwff.co",
+    mark: "WW", markColor: "success", statsKey: "wwff", site: "wwff.co", via: null,
     runBy: { operator: "World Wide Flora & Fauna", feed: "Spot list, polled every 60 seconds", modes: "CW, SSB, digital" },
     about: [
       "World Wide Flora & Fauna is an award program for portable operation from nature reserves and protected areas. Activators and hunters post spots to the WWFF spotting page as they operate.",
@@ -232,7 +238,7 @@ export const SOURCES: SourceInfo[] = [
   {
     id: "wwbota", name: "WWBOTA", full: "Worldwide Bunkers on the Air", status: "live", interval: "every 60s", pollSeconds: 60, desc: "Bunker activation spots from api.wwbota.net", alerts: true,
     volume: "standard", title: "WWBOTA", tagline: "Activators at Cold War and WW2 bunkers around the world.",
-    mark: "WB", markColor: "error", statsKey: "wwbota", site: "wwbota.net",
+    mark: "WB", markColor: "error", statsKey: "wwbota", site: "wwbota.net", via: null,
     runBy: { operator: "Worldwide Bunkers on the Air", feed: "Spot list, polled every 60 seconds", modes: "CW, SSB, FM, digital" },
     about: [
       "Worldwide Bunkers on the Air is an award program for portable operation from bunkers, from WW2 pillboxes to Cold War observation posts. Activators and hunters post spots to the WWBOTA spotting page as they operate, and one spot can name several bunkers.",
@@ -253,6 +259,30 @@ export const SOURCES: SourceInfo[] = [
       source: "wwbota", reference: "B/EA-0103, B/EA-0104, B/EA-0105", place_name: "Búnker 1 del Cerro de los Ángeles", spotter: "EA4IYL",
     },
   },
+  {
+    id: "iota", name: "IOTA", full: "Islands on the Air", status: "live", interval: "streaming", pollSeconds: 60, desc: "Island references in DX Cluster spots", alerts: true,
+    volume: "standard", title: "IOTA", tagline: "Island activations, read from DX Cluster spots.",
+    mark: "IO", markColor: "primary", statsKey: "iota", site: "www.iota-world.org", via: "dxcluster",
+    runBy: { operator: "IOTA Ltd (iota-world.org)", feed: "DX Cluster spots that name an IOTA reference", modes: "CW, SSB, digital" },
+    about: [
+      "Islands on the Air is an award program for operating from the world's island groups, each with a reference such as EU-005. IOTA has no spot feed of its own: activators are spotted on the DX Cluster with the reference in the comment.",
+      "Long Lines reads the reference out of every DX Cluster spot and names the island group from the IOTA list, refreshed monthly. To get these spots, make a DX Cluster connection with an IOTA island rule.",
+    ],
+    showsUp: [
+      "Callsign profile: last heard, references, activity",
+      "Connection filters: IOTA island, Park, summit, or location contains",
+    ],
+    schema: deliveredSchema("dxcluster", {
+      reference: { description: "IOTA reference." },
+      place_name: { description: "Island group name." },
+      state: noValue("DX Cluster"),
+      url: noValue("DX Cluster"),
+    }),
+    example: {
+      id: 58161602, time: "2026-10-14T14:36:10Z", callsign: "HF0POL", frequency_khz: 14025, mode: "cw", band: "20m",
+      source: "dxcluster", reference: "AN-010", place_name: "South Shetland Islands", spotter: "K1ABC",
+    },
+  },
 ];
 
 /** A live source by id, for /sources/:id; planned and unknown ids give undefined. */
@@ -260,8 +290,13 @@ export function findLiveSource(id: string | undefined): SourceInfo | undefined {
   return SOURCES.find((s) => s.id === id && s.status === "live");
 }
 
-/** Sources a subscription can pick and the recent-spots tabs show: live and alerting. */
-export const LIVE_SOURCES = SOURCES.filter((s) => s.status === "live" && s.alerts);
+/** Sources a subscription can pick and the recent-spots tabs show: live and alerting, and not carried by another. */
+export const LIVE_SOURCES = SOURCES.filter((s) => s.status === "live" && s.alerts && s.via === null);
+
+/** The source whose ingest health stands for this one: its carrier, else itself. */
+export function healthId(source: SourceInfo): string {
+  return source.via ?? source.id;
+}
 
 export function sourceName(id: string): string {
   return SOURCES.find((s) => s.id === id)?.name ?? id;
