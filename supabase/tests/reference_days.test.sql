@@ -3,7 +3,7 @@
 -- bounded and runs from the hourly job only when it rolled nothing up and filled no callsign_days.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(38);
+select plan(42);
 
 create or replace function pg_temp.d(p_offset int) returns date language sql as $$
   select (now() at time zone 'utc')::date + p_offset;
@@ -192,6 +192,40 @@ select record_callsign_rollup_failure(pg_temp.d(-7), 'callsign_days fill: refuse
 select fill_reference_days(pg_temp.d(-7));
 select is((select status from callsign_rollup_status where day = pg_temp.d(-7)), 'fill_failed',
   'a reference fill keeps a callsign_days fill''s failure');
+-- And the other way round: a callsign_days fill keeps a reference_days fill's failure.
+update callsign_rollup_days set references_filled_at = null, days_filled_at = null where day = pg_temp.d(-8);
+select record_callsign_rollup_failure(pg_temp.d(-8), 'reference_days fill: refused');
+select * from fill_callsign_days(pg_temp.d(-8));
+select is((select (status, days_filled_at is not null, last_error)::text from callsign_rollup_status
+           where day = pg_temp.d(-8)), '(fill_failed,t,"reference_days fill: refused")',
+  'a callsign_days fill keeps a reference_days fill''s failure');
+select fill_reference_days(pg_temp.d(-8));
+select is((select (status, attempts)::text from callsign_rollup_status where day = pg_temp.d(-8)), '(done,)',
+  'which goes once the reference fill succeeds');
+
+-- The live read of PR 4 goes through spot_stream, by reference and time, and uses the index (the
+-- index is on the view's reference expression, so the predicate reaches the raw_spots arm).
+create or replace function pg_temp.plan(p_query text) returns text language plpgsql as $$
+declare
+  v_line text;
+  v_plan text := '';
+begin
+  for v_line in execute 'explain ' || p_query loop
+    v_plan := v_plan || v_line || E'\n';
+  end loop;
+  return v_plan;
+end;
+$$;
+set local enable_seqscan = off;
+select ok(pg_temp.plan($q$select callsign, spot_time from spot_stream
+                           where reference = 'US-0817' and spot_time >= now() - interval '14 days'$q$)
+          like '%raw_spots_reference_time_idx%',
+  'a read of spot_stream by reference and time uses raw_spots_reference_time_idx');
+select ok(pg_temp.plan($q$select callsign, spot_time from spot_stream
+                           where program = 'WWBOTA' and reference = 'B/G-2114'$q$)
+          like '%raw_spots_reference_time_idx%',
+  'so does one by reference alone');
+reset enable_seqscan;
 
 -- The job's shape and schedule.
 select is(pg_get_function_result('public.backfill_callsign_rollups(int)'::regprocedure),

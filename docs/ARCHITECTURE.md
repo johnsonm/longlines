@@ -1008,9 +1008,11 @@ rollups keep per-station counts and breakdowns forever, never per-spotter rows (
   and RBN and DX Cluster spots carry no reference. Heard role only, every activator stored (hidden
   calls too; the reader leaves them out). Day grain forever, no running totals, never compacted.
   Primary key `(program, reference, day, base, source)` and an index on `(base, day)`; a few
-  thousand rows a day. `raw_spots_reference_time_idx`, on `raw_spots` by
-  `coalesce(pota_reference, sota_summit_ref, wwff_reference)` and `spot_time` where it is not null,
-  serves the live read of the days not rolled up yet.
+  thousand rows a day. `raw_spots_reference_time_idx`, on `raw_spots` by `spot_stream`'s
+  `reference` expression (`coalesce(pota_reference, sota_summit_ref, wwff_reference,
+  wwbota_references[1])`) and `spot_time` where it is not null, serves the live read of the days
+  not rolled up yet, which goes through `spot_stream` like every profile read; the view's
+  expression and the index change together.
 - **Exactly once.** `rollup_callsign_day(day)` inserts the day's `callsign_rollup_days` marker
   first and does nothing when it is already there: references, seen and variants are running
   totals and would double. `callsign_days` is filled by one more data-modifying CTE of the same
@@ -1075,7 +1077,9 @@ rollups keep per-station counts and breakdowns forever, never per-spotter rows (
   `reference_days` has its own fill: `fill_reference_days(day)` (locking the marker row too) builds a
   marked day with `references_filled_at` null from `raw_spots` (`source in ('pota', 'sotawatch',
   'wwff')`), which is exact for every day, writes the roll-up's rows (pgTAP compares the two), sets
-  `references_filled_at` and deletes the day's failures row only when it is its own.
+  `references_filled_at` and deletes the day's failures row only when it is its own, as
+  `fill_callsign_days` does with `callsign_days fill: ` rows since the same migration, so neither
+  fill's success clears the other's failure (the one row holds whichever failed last).
   `backfill_reference_days(n)` takes days that never failed first, oldest first, at most `n` filled
   and `2n` attempts, and records a failure as `reference_days fill: ...`.
 - **Status.** A day that fails in the hourly job lands in `callsign_rollup_failures` (`attempts`,

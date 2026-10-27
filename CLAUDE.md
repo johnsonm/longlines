@@ -577,7 +577,10 @@ The delivery side (retries, pause, attempts, rendering, Vault) is in "Delivery r
   `references_filled_at`; `fill_reference_days` builds older days from `raw_spots` and must write
   the same rows (pgTAP compares them), so a change to one writer changes both.
   `backfill_reference_days` runs only in a run that rolled nothing up and filled no
-  `callsign_days`, and records failures as `reference_days fill: ...`.
+  `callsign_days`, and records failures as `reference_days fill: ...`; each fill's success deletes
+  the failures row only when it holds its own prefix, so neither clears the other's failure.
+  `raw_spots_reference_time_idx` is on `spot_stream`'s `reference` expression word for word, so a
+  live read of the view by reference and time uses it; change the two together.
 - A failed day goes through `record_callsign_rollup_failure` into `callsign_rollup_failures`,
   never only a `raise warning`; `rollup_callsign_day` deletes the row itself after its marker, so a
   manual `(day, true)` clears it. `maintain_rbn_spots` records a day it retires without a marker

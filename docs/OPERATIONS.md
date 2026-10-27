@@ -1238,6 +1238,8 @@ rows means every day is done. Otherwise:
   the archive has it`): build it with "Rebuilding a day from the archive". Or its
   `reference_days` fill keeps failing (`last_error` starts with `reference_days fill:`, and
   `references_filled_at` is null); that fill reads only `raw_spots`, so the error is the lead.
+  The day has one failures row, holding whichever fill failed last; either fill's success deletes
+  it only when it holds that fill's own error, so the other's stays.
 - `done`: rolled up whole. A `done` day whose `days_filled_at` is null has no `callsign_days` rows
   yet (see "Filling callsign_days for older days"), and one whose `references_filled_at` is null
   has no `reference_days` rows yet (see "Filling reference_days for older days").

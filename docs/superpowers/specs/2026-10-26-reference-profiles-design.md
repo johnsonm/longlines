@@ -73,8 +73,9 @@ Brad decided on 2026-10-26:
    it already makes over the day. Older days are filled from `raw_spots`, which is exact because
    `raw_spots` is never pruned and RBN spots carry no reference. The table is never compacted and
    has no running totals, so a fill can always rebuild it.
-6. **Days not rolled up yet are read live, by reference.** A partial expression index on
-   `raw_spots` by reference and time serves the read. The live window is the callsign profile's
+6. **Days not rolled up yet are read live, by reference.** The read goes through `spot_stream`,
+   as every profile read does, and a partial expression index on `raw_spots` by `spot_stream`'s
+   reference expression and time serves it. The live window is the callsign profile's
    (the unmarked days of the last 14, never before the first marker), so a day is never counted
    twice.
 7. **Hidden calls count nowhere** on a reference page: not in a list, not in a total. This is
@@ -216,11 +217,17 @@ Brad decided on 2026-10-26:
   it back), with the same bound, and keeps its return shape `(rollup_day, spots, error)`. Like
   `backfill_callsign_days` it takes days that never failed first, and stops at twice the bound in
   attempts. A failed fill is recorded through `record_callsign_rollup_failure` with the prefix
-  `reference_days fill: `; a successful one deletes only a failures row with that prefix.
+  `reference_days fill: `; a successful one deletes only a failures row with that prefix, and
+  `fill_callsign_days` is redefined to do the same with `callsign_days fill: `, so neither fill's
+  success clears the other's failure. The day's one failures row holds whichever fill failed last.
   `callsign_rollup_status` gains `references_filled_at`, and `fill_failed` covers either fill.
 - Index `raw_spots_reference_time_idx on raw_spots (coalesce(pota_reference, sota_summit_ref,
-  wwff_reference), spot_time) where coalesce(...) is not null`, built by a plain `create index if
-  not exists` in the migration (hosted `raw_spots` was about 562,000 rows / 342 MB on 2026-10-26).
+  wwff_reference, wwbota_references[1]), spot_time) where coalesce(...) is not null`: exactly
+  `spot_stream`'s `reference` expression, so PR 4's live read, `spot_stream where reference = ...
+  and spot_time >= ...`, reaches the `raw_spots` arm and uses it (the RBN arm's null reference
+  drops out; pgTAP checks the plan). The view's expression and the index change together. Built by
+  a plain `create index if not exists` in the migration (hosted `raw_spots` was about 562,000 rows
+  / 342 MB on 2026-10-26).
 - Size: one row per activator, reference, day and source. POTA, SOTA and WWFF together are a few
   thousand rows a day, about 1 MB.
 

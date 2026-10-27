@@ -24,8 +24,17 @@
 -- as "reference_days fill: ...", and callsign_rollup_status says fill_failed for it.
 --
 -- raw_spots_reference_time_idx serves PR 4's live read of the days not rolled up yet, by
--- reference and time (decision 6). Hosted raw_spots was ~562k rows / 342 MB on 2026-10-26, so a
--- plain build takes seconds inside the push.
+-- reference and time (decision 6). That read goes through spot_stream like every profile read, so
+-- the index is on spot_stream's reference expression exactly (WWBOTA's first bunker included):
+-- `where reference = ... and spot_time >= ...` on the view then pushes down into the raw_spots arm
+-- and uses it, and the RBN arm's null reference drops out (pgTAP checks the plan). Change the
+-- view's expression and the index together. Hosted raw_spots was ~562k rows / 342 MB on
+-- 2026-10-26, so a plain build takes seconds inside the push.
+--
+-- Both fills now share one rule for the day's callsign_rollup_failures row: a success deletes it
+-- only when it holds that fill's own error, so fill_callsign_days is redefined here (as
+-- 20261019000200, with only its delete narrowed) and a reference_days failure survives a later
+-- callsign_days success.
 --
 -- The hourly job holds row locks on callsign_rollup_days while it runs; the alter table below
 -- would otherwise queue behind it with the whole migration transaction open. A lock timeout
@@ -58,9 +67,10 @@ revoke all on reference_days from anon, authenticated;
 
 alter table callsign_rollup_days add column references_filled_at timestamptz;
 
+-- spot_stream's reference column, word for word, so a read of the view can use it.
 create index if not exists raw_spots_reference_time_idx
-  on raw_spots (coalesce(pota_reference, sota_summit_ref, wwff_reference), spot_time)
-  where coalesce(pota_reference, sota_summit_ref, wwff_reference) is not null;
+  on raw_spots (coalesce(pota_reference, sota_summit_ref, wwff_reference, wwbota_references[1]), spot_time)
+  where coalesce(pota_reference, sota_summit_ref, wwff_reference, wwbota_references[1]) is not null;
 
 -- ---------------------------------------------------------------------------
 -- The roll-up: one more data-modifying CTE over its b stage, and the marker records it
@@ -320,6 +330,111 @@ begin
 end;
 $$;
 
+-- The callsign_days fill, as 20261019000200 with one change: a success deletes the day's failures
+-- row only when it holds a callsign_days fill error, as fill_reference_days does for its own, so a
+-- reference_days fill failure recorded since stays (and the status view keeps saying fill_failed).
+create or replace function public.fill_callsign_days(p_day date)
+returns table (spots bigint, exact boolean)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_from      timestamptz := p_day::timestamp at time zone 'utc';
+  v_to        timestamptz := (p_day + 1)::timestamp at time zone 'utc';
+  v_filled    timestamptz;
+  v_retired   boolean;
+  v_no_rbn    boolean;
+  v_day_rows  boolean;
+  v_ref_rbn   bigint;
+  v_fresh     bigint;
+  v_fresh_rbn bigint;
+  v_exact     boolean;
+  v_spots     bigint;
+begin
+  select r.days_filled_at, r.without_rbn into v_filled, v_no_rbn
+  from callsign_rollup_days r where r.day = p_day
+  for update;
+  if not found or v_filled is not null then
+    return;
+  end if;
+
+  select count(*) > 0, coalesce(sum(a.spots) filter (where a.source = 'rbn'), 0)
+    into v_day_rows, v_ref_rbn
+  from callsign_activity a
+  where a.grain = 'day' and a.period = p_day and a.role = 'heard';
+
+  -- Compacted: no day rows at all, yet RBN month rows for its month. A day
+  -- rolled up knowingly without RBN has no RBN rows to lose and is filled.
+  v_retired := public.rbn_day_retired(p_day);
+  if v_retired and not v_no_rbn and not v_day_rows
+     and exists (select 1 from callsign_activity a
+                 where a.grain = 'month' and a.period = date_trunc('month', p_day)::date
+                   and a.role = 'heard' and a.source = 'rbn') then
+    raise exception 'fill_callsign_days: the RBN spots of % were retired and its day rows compacted; only the archive has it', p_day;
+  end if;
+
+  with p as materialized (
+    select s.source, s.callsign, s.mode, s.band, count(*)::int as n
+    from spot_stream s
+    where s.spot_time >= v_from and s.spot_time < v_to
+    group by s.source, s.callsign, s.mode, s.band
+  ),
+  names as materialized (
+    select c.callsign, public.base_callsign(c.callsign) as base
+    from (select distinct callsign from p) c
+  ),
+  b as materialized (
+    select p.*, nm.base from p join names nm on nm.callsign = p.callsign
+  ),
+  total as (
+    select coalesce(sum(n), 0)::bigint                                   as fresh,
+           coalesce(sum(n) filter (where source = 'rbn'), 0)::bigint     as fresh_rbn,
+           not v_retired and coalesce(sum(n) filter (where source = 'rbn'), 0) >= v_ref_rbn as rbn_exact
+    from b
+  ),
+  exact_fill as (
+    insert into callsign_days (base, day, source, spots, modes, bands)
+    select base, p_day, source, sum(n)::int,
+           coalesce(array_agg(distinct mode order by mode) filter (where mode is not null), '{}'),
+           coalesce(array_agg(distinct band order by band) filter (where band is not null), '{}')
+    from b
+    where source <> 'rbn' or (select t.rbn_exact from total t)
+    group by base, source
+    on conflict (base, day, source) do nothing
+  ),
+  approx_fill as (
+    insert into callsign_days (base, day, source, spots, modes, bands)
+    select a.base, p_day, a.source, sum(a.spots)::int,
+           coalesce(array_agg(distinct a.mode order by a.mode) filter (where a.mode is not null), '{}'),
+           coalesce(array_agg(distinct a.band order by a.band) filter (where a.band is not null), '{}')
+    from (select ca.base, ca.source, ca.band, ca.spots,
+                 case ca.mode_bucket when 'CW' then 'cw' end as mode
+          from callsign_activity ca
+          where ca.grain = 'day' and ca.period = p_day and ca.role = 'heard' and ca.source = 'rbn') a
+    where not (select t.rbn_exact from total t)
+    group by a.base, a.source
+    on conflict (base, day, source) do nothing
+  )
+  select t.fresh, t.fresh_rbn, t.rbn_exact into v_fresh, v_fresh_rbn, v_exact from total t;
+
+  v_spots := case when v_exact then v_fresh else v_fresh - v_fresh_rbn + v_ref_rbn end;
+
+  update callsign_rollup_days r
+  set days_filled_at = now(),
+      spots          = coalesce(r.spots, v_spots),
+      -- A day rolled up with (day, true) before without_rbn existed.
+      without_rbn    = r.without_rbn or (v_ref_rbn = 0 and public.rbn_day_archived_rows(p_day) > 0)
+  where r.day = p_day;
+  delete from callsign_rollup_failures f
+  where f.day = p_day and f.last_error like 'callsign_days fill: %';
+
+  spots := v_spots;
+  exact := v_exact;
+  return next;
+end;
+$$;
+
 -- At most p_max_days filled days and twice that many attempts a run (null: every unfilled
 -- day), each day in its own subtransaction. Oldest first, days that failed before last (as
 -- backfill_callsign_days, so a day that keeps failing cannot hold the rest back).
@@ -483,6 +598,7 @@ left join callsign_rollup_failures f on f.day = d.day;
 
 revoke all on callsign_rollup_status from anon, authenticated;
 revoke all on function public.fill_reference_days(date) from public, anon, authenticated;
+revoke all on function public.fill_callsign_days(date) from public, anon, authenticated;
 revoke all on function public.backfill_reference_days(int) from public, anon, authenticated;
 revoke all on function public.rollup_callsign_day(date, boolean) from public, anon, authenticated;
 revoke all on function public.backfill_callsign_rollups(int) from public, anon, authenticated;
