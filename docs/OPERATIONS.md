@@ -60,6 +60,7 @@ Times are UTC.
 | `prune-callsign-lookups` | :15 hourly | `prune_callsign_lookups()` |
 | `rollup-callsign-days` | :25 hourly | `backfill_callsign_rollups(2)` |
 | `apply-license-loads` | :50 hourly | `apply_license_loads()` |
+| `apply-reference-loads` | :55 hourly | `apply_reference_loads()`: swaps a finished POTA, SOTA or WWFF list in; fails while a program's newest load is refused |
 | `housekeeping` | 03:00 daily | `run_housekeeping()` |
 | `maintain-rbn-spots` | 03:35 daily | `maintain_rbn_spots()` |
 | `maintain-aprs-packets` | 03:45 daily | `maintain_aprs_packets()` |
@@ -1438,6 +1439,73 @@ serving the same zip with Range support.
 A local run (functions URL on localhost) does not load licenses by default. To exercise the real
 load locally, serve `load-licenses` and set `RELAY_LICENSES=https://data.fcc.gov/download/pub/uls/complete/l_amat.zip`;
 it downloads about 160 MB, so not routinely.
+
+# Reference catalog (POTA, SOTA, WWFF lists)
+
+How it works is in `docs/ARCHITECTURE.md` ("Reference catalog").
+
+## First deploy
+
+The relay deploys itself on merge, so the database and function go first. If the relay checks
+before they exist, it logs `[catalogs] check failed: ...` and tries again a day later. Nothing
+breaks in the meantime.
+
+```sh
+supabase db push                             # 20261026001100_reference_catalog
+supabase functions deploy load-references    # new function: the GitHub integration skips it
+```
+
+The function uses the existing `LONGLINES_RELAY_SECRET`. The relay's first check runs fifteen
+minutes after it starts; it downloads about 60 MB (POTA 10 MB, SOTA and WWFF 25 MB each), one
+program at a time, and stages about 350,000 rows in ~180 requests of 2,000. Each load is applied
+at the next :55.
+
+```sql
+select id, program, version, state, staged_rows, started_at, finished_at, applied_at, error
+from reference_catalog_loads order by id desc limit 6;
+select program, count(*), count(*) filter (where active) as active
+from reference_catalog group by program;
+select reference_load_status();
+```
+
+## Is it current?
+
+Each program's last `applied` load should have `started_at` under about eight days old (the relay
+reloads a list a week after its last applied load started, once its `Last-Modified` is newer; it
+checks once a day). Relay logs show each step with `[catalogs]` (`fly logs`):
+
+- `<program>: loading <url> (<Last-Modified>)`, then `<program>: N staged, M skipped, finished`.
+  A few skips are normal (WWFF repeats its header row partway down the file).
+- `<program>: load failed: ...` names the download, parse or function error; the load is
+  `abandoned` with the same text in `error` and is retried twelve hours after it started. A load
+  still `staging` long after it started means the relay stopped mid-load (a deploy, a crash); the
+  next `begin` for that program abandons it.
+- `<program>: ... refused`: SQL refused the list as incomplete or below the floor (fewer than 90%
+  of the program's current rows, or 10,000 on a first load). `error` says which. The old list
+  stays, and the relay never downloads that `Last-Modified` again; a newer file is loaded as
+  usual.
+
+While a program's newest load is refused, every `apply-reference-loads` run that swaps nothing
+(and refuses nothing itself) fails with `apply_reference_loads: the newest <program> list load was
+refused`, so `/health`'s Scheduled jobs card shows it until a good load lands. A real shrink of a program's list (more than
+10% of it removed at once) is refused the same way: a refusal deletes its staged rows, so nothing
+can be marked through by hand. The floor lives only in `reference_load_floor(program)`; changing
+it is a migration.
+
+A load stuck at `finished` past :55 means the cron job failed: `select * from cron.job_run_details
+where jobid = (select jobid from cron.job where jobname = 'apply-reference-loads') order by
+start_time desc limit 3;`.
+
+## Turning it off
+
+`fly secrets set RELAY_CATALOGS=off` (restarts the machine) stops the relay loading the lists;
+`fly secrets unset RELAY_CATALOGS` turns it back on. Unlike `RELAY_LICENSES`, it cannot name
+another URL: the three URLs are `CATALOG_URLS` in `relay/config.ts`.
+
+A local run (functions URL on localhost) does not load the lists by default. To exercise the real
+load locally, serve `load-references` and set `RELAY_CATALOGS=on`; it downloads about 60 MB, so not
+routinely. `supabase/seed.sql` writes a small catalog for the seeded references directly, since
+it is far below the floor.
 
 # Callsign profiles
 

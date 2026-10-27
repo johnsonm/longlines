@@ -156,7 +156,7 @@ function isAborted(signal: AbortSignal): boolean {
 }
 
 /** Abortable read that fails when the server goes quiet; `what` names the download. */
-async function readWithin<T>(
+export async function readWithin<T>(
   reader: ReadableStreamDefaultReader<T>,
   ms: number,
   what: string,

@@ -17,6 +17,12 @@ describe("SourceMark", () => {
     expect(container.querySelector("img")).toHaveAttribute("src", expect.stringMatching(/rbn\.png$/));
   });
 
+  it("shows the WWBOTA logo", () => {
+    const { container } = renderPage(<SourceMark source={findLiveSource("wwbota")!} />);
+    expect(container.querySelector("img")).toHaveAttribute("src", expect.stringMatching(/wwbota\.png$/));
+    expect(container).not.toHaveTextContent("WB");
+  });
+
   it("falls back to the two-letter mark for a source without a logo", () => {
     const { container } = renderPage(<SourceMark source={planned} size="large" />);
     expect(container.querySelector("img")).toBeNull();

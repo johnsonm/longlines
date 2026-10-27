@@ -454,6 +454,11 @@ The delivery side (retries, pause, attempts, rendering, Vault) is in "Delivery r
   (`apply_license_loads`, pg_cron), because the swap outlasts the API's 8 s statement timeout.
   Never stage or store ULS address, city, ZIP, PO box, phone, email or FRN fields. No test
   downloads from the FCC; tests build a zip and serve it locally (`relay/__tests__/zip_server.ts`).
+- It also runs the weekly reference list load (`relay/catalogs.ts`, off with `RELAY_CATALOGS=off`):
+  one program at a time, a list is streamed when its applied load began a week ago and the file's
+  `Last-Modified` is newer, parsed by `_shared/reference_catalog.ts` (columns by header name, never
+  position) and staged through `load-references`; the 90% floor and the swap are SQL's
+  (`finish_reference_load`, `apply_reference_loads`). Tests serve fixtures cut from the real files.
 
 ## Sender rules
 
