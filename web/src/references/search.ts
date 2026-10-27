@@ -54,20 +54,29 @@ const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /**
  * A name cut into runs, the query's words marked, so the page can set them in medium weight.
- * Case-insensitive as SQL's upper() comparison is; the longest word wins where two overlap.
+ * Case-insensitive as SQL's upper() comparison is. Every occurrence of every word is marked, so
+ * words that overlap (`mitch hell` in "Mitchell") are all set, as SQL found each one on its own.
  */
 export function nameParts(name: string, words: string[]): NamePart[] {
-  const sorted = [...new Set(words)].filter(Boolean).sort((a, b) => b.length - a.length);
-  if (!sorted.length || !name) return name ? [{ text: name, match: false }] : [];
-  const pattern = new RegExp(sorted.map(escape).join("|"), "giu");
+  if (!name) return [];
+  const marked: boolean[] = new Array<boolean>(name.length).fill(false);
+  for (const word of new Set(words)) {
+    if (!word) continue;
+    const pattern = new RegExp(escape(word), "giu");
+    for (let m = pattern.exec(name); m !== null; m = pattern.exec(name)) {
+      marked.fill(true, m.index, m.index + m[0].length);
+      // Step one code point, not past the match, so an occurrence overlapping this one is found too.
+      pattern.lastIndex = m.index + ((name.codePointAt(m.index) ?? 0) > 0xffff ? 2 : 1);
+    }
+  }
   const parts: NamePart[] = [];
   let at = 0;
-  for (const m of name.matchAll(pattern)) {
-    if (m.index > at) parts.push({ text: name.slice(at, m.index), match: false });
-    parts.push({ text: m[0], match: true });
-    at = m.index + m[0].length;
+  for (let i = 1; i <= name.length; i++) {
+    if (i === name.length || marked[i] !== marked[at]) {
+      parts.push({ text: name.slice(at, i), match: marked[at] ?? false });
+      at = i;
+    }
   }
-  if (at < name.length) parts.push({ text: name.slice(at), match: false });
   return parts;
 }
 

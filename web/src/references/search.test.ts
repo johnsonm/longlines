@@ -66,6 +66,27 @@ describe("nameParts", () => {
     expect(nameParts("Mitchell", ["mit", "mitchell"])).toEqual([{ text: "Mitchell", match: true }]);
   });
 
+  it("marks every word where two overlap without one containing the other", () => {
+    expect(nameParts("Mitchell", ["mitch", "hell"])).toEqual([{ text: "Mitchell", match: true }]);
+    expect(nameParts("Mount Mitchell State Park", ["mitch", "chell"])).toEqual([
+      { text: "Mount ", match: false },
+      { text: "Mitchell", match: true },
+      { text: " State Park", match: false },
+    ]);
+    expect(nameParts("Banana", ["ana"])).toEqual([
+      { text: "B", match: false },
+      { text: "anana", match: true },
+    ]);
+  });
+
+  it("keeps a character outside the basic plane whole", () => {
+    expect(nameParts("A \u{1D400} peak", ["\u{1D400}"])).toEqual([
+      { text: "A ", match: false },
+      { text: "\u{1D400}", match: true },
+      { text: " peak", match: false },
+    ]);
+  });
+
   it("treats regular expression characters and SQL wildcards as text", () => {
     expect(nameParts("100% (Wild) Area", ["%", "(wild)"])).toEqual([
       { text: "100", match: false },

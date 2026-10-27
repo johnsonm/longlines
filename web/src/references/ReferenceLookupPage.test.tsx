@@ -143,6 +143,25 @@ describe("ReferenceLookupPage form", () => {
     expect(searchReferences).not.toHaveBeenCalled();
   });
 
+  it("drops a refusal when Back changes the search", async () => {
+    answer(ONE);
+    const { user, where, field } = renderAt("?q=first");
+    await results('1 match for "first"');
+    await user.clear(field());
+    await user.type(field(), "second{Enter}");
+    await results('1 match for "second"');
+    await user.clear(field());
+    await user.type(field(), "x{Enter}");
+    expect(screen.getByText("A search is 2 to 64 characters, at most 6 words.")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Browser back" }));
+    expect(where()).toBe("/ref?q=first");
+    expect(field()).toHaveValue("first");
+    await results('1 match for "first"');
+    expect(screen.queryByText("A search is 2 to 64 characters, at most 6 words.")).not.toBeInTheDocument();
+    expect(field()).not.toHaveAttribute("aria-invalid", "true");
+  });
+
   it("refuses a link's search outside the bounds without asking", () => {
     const { field } = renderAt("?q=x");
     expect(field()).toHaveValue("x");

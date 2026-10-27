@@ -37,15 +37,17 @@ export function ReferenceLookupPage() {
   const q = (params.get("q") ?? "").trim();
   const program = referenceProgram(params.get("program") ?? "");
 
-  // The field follows the URL when Back or a link changes the search.
+  // A submitted query outside search_references' bounds, until the field or the search changes.
+  const [refused, setRefused] = useState(false);
+  // The field follows the URL when Back or a link changes the search, and a refusal goes with
+  // what was typed.
   const [value, setValue] = useState(q);
   const [shownQ, setShownQ] = useState(q);
   if (shownQ !== q) {
     setShownQ(q);
     setValue(q);
+    setRefused(false);
   }
-  // A submitted query outside search_references' bounds, until the field changes.
-  const [refused, setRefused] = useState(false);
 
   const valid = q !== "" && validSearch(q);
   const { search, error, loading, retry } = useReferenceSearch(valid ? q : null, program);
