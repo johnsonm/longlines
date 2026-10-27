@@ -5,6 +5,7 @@ import dxclusterLogo from "../assets/sources/dxcluster.png";
 import potaLogo from "../assets/sources/pota.png";
 import rbnLogo from "../assets/sources/rbn.png";
 import sotawatchLogo from "../assets/sources/sotawatch.png";
+import wwbotaLogo from "../assets/sources/wwbota.png";
 import wwffLogo from "../assets/sources/wwff.png";
 
 /** Program logos by source id: 128 px squares on an opaque background, so they read in both colour schemes. */
@@ -12,6 +13,7 @@ const LOGOS: Record<string, string> = {
   pota: potaLogo,
   sotawatch: sotawatchLogo,
   wwff: wwffLogo,
+  wwbota: wwbotaLogo,
   dxcluster: dxclusterLogo,
   aprs: aprsLogo,
   rbn: rbnLogo,
