@@ -809,7 +809,8 @@ firehose table.
   `sources` lists `wwbota`: an empty list means `source not in ('dxcluster', 'wwff', 'wwbota')`.
   Bunker activations are often POTA or WWFF activations too (`B/G-2114 POTA GB-0051`).
 - **Reference rule.** "Park, summit, or location contains" searches every bunker of the spot
-  (`array_to_string(wwbota_references, ',')`), so a rule naming the third bunker of an n-fer matches.
+  (`array_to_string(wwbota_references, ',')`), so a rule naming the third bunker of an n-fer matches;
+  the exact `reference is` compares every element of `wwbota_references`.
 - **Rendering.** `render_push_field('reference')` is the bunkers joined with ", " and
   `place_name` the first bunker's name, for push, Discord and webhooks alike. There is no source
   URL: WWBOTA has no public page per bunker. The Discord card color is gold.
@@ -1220,7 +1221,7 @@ and points, and the valid dates. No raw upstream row is kept.
   a load itself commits instead: raising would roll that refusal back and leave the load
   `finished`, which the relay waits on, for as long as the other program stays refused.
 - **Access.** Service-role only: the three tables (RLS on, no policies) and every RPC. Clients
-  will read the catalog only through the reference profile (PR 4).
+  read the catalog only through the reference profile ("Reference profiles").
 
 # Callsign profiles
 
@@ -1276,6 +1277,61 @@ A profile is everything Long Lines has heard from one station, for a public page
   by hashing every IPv4 address. Profiles are
   cached in the database for 15 minutes and sent with `Cache-Control: public, max-age=300`.
   `prune_callsign_lookups()` clears finished windows and expired entries hourly at :15.
+
+# Reference profiles
+
+```mermaid
+flowchart LR
+  B[browser, signed in or not] -- "GET ?program=&reference=" --> F[reference-profile function]
+  F -- "record_profile_lookup (shared with profiles)" --> L[(lookup_rate_limits)]
+  F -- "cached_reference_profile" --> C[(reference_profile_cache, 15 min)]
+  C -- miss --> P["reference_profile(program, reference)"]
+  P --> K[(reference_catalog)]
+  P --> D[(reference_days)]
+  P -- "by reference and time" --> V[spot_stream]
+  P --> H[(hidden_callsigns)]
+```
+
+A reference profile is the public page of one POTA park, SOTA summit or WWFF reference,
+`/ref/<program>/<reference>` (spec `docs/superpowers/specs/2026-10-26-reference-profiles-design.md`).
+
+- **One RPC.** `reference_profile(program, reference)` returns the whole page as jsonb: the
+  catalog header, totals, first and last activation, the year heat map, monthly activations,
+  bands, modes, top activators, recent activations and the week's newest 25 spots. Its shape is
+  `ReferenceProfile` in `web/src/references/types.ts`, read by the function's Zod schema and pinned
+  by `supabase/tests/reference_profile.test.sql`. It is security definer and not granted to
+  clients.
+- **Activations.** One activator (base call) at the reference on one UTC day. Rolled-up days come
+  from `reference_days`; the days of the last 14 without a `callsign_rollup_days` marker (never
+  before the first marker) are read live from `spot_stream`, and each day is read from one side
+  only. The live read is the program's POTA, SOTAwatch or WWFF spots at the reference, through
+  `raw_spots_reference_time_idx` (RBN's arm has no reference and drops out of the plan); about
+  4 to 13 ms on the seeded database.
+- **Per-spot figures.** `reference_days` keeps only distinct modes and bands per activator and
+  day, so the bands chart, the mode shares, the calls as most recently spotted and who was spotted
+  first come from the same index read over all time (`raw_spots` is never pruned), counting only
+  the spots of the activations counted above, so the mode spots add up to the spot total.
+  `spot_stream` carries `comment` for the recent spots.
+- **Hidden calls.** An activator in `hidden_callsigns` counts in no list and no total, a spot by a
+  hidden spotter stays out of the recent spots, and a cache row built before the newest
+  `hidden_at` is a miss, so hiding takes effect at once.
+- **Not found.** Null, and a 404 "Reference not found.", for a program without a list, a
+  malformed reference (letters, digits, `/` and `-`, at most 64) or one in neither the catalog nor
+  any visible spot. A spotted reference outside the list gets a page without its header.
+- **The function.** `reference-profile` (`_shared/handlers/reference_profile.ts`) works like
+  `callsign-profile`: `verify_jwt = false`, never imports `isServiceRole`, refuses malformed input
+  before any database call, shares `lookupLimit` (one budget with profiles and group pages), never
+  logs a reference, and sends `Cache-Control: public, max-age=300` on a 200. A failed RPC or a
+  reply outside the schema is a 500 "Reference pages are unavailable right now."
+- **Links.** `referencePath` (`web/src/references/paths.ts`) builds every link to a reference page,
+  only for POTA, SOTA and WWFF: the callsign profile's places, Stats' most spotted references,
+  group statistics' places and the band map's crowd menu. "Get alerts" opens
+  `/connections/new?source=&reference=`, which prefills an exact `reference is` rule.
+- **The exact reference rule.** `reference is` / `is_not` (beside `contains` / `not_contains`)
+  compare upper-cased values with each of a spot's references (POTA, SOTA, WWFF, every WWBOTA
+  bunker, IOTA) for equality, so `US-1000` never matches `US-10000`; `contains` stays for partial
+  text such as `US-NC`. Exact values are validated in `normalize_subscription_rules` (trimmed,
+  upper-cased, at most 64 characters) and matched in `rule_matches`.
 
 ## Management API
 

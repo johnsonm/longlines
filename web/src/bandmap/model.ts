@@ -103,11 +103,20 @@ export function tooltipText(spot: BandMapSpot, now: Date): string {
   return `${spot.callsign}  ${frequencyAndMode(spot)} · ${spotAge(spot.spot_time, now)}`;
 }
 
+/** A crowd menu row's second line in three parts, so the menu can link the reference: "14075.0 kHz FT8 · POTA ", "US-0817", " · 2m ago". */
+export function crowdParts(spot: BandMapSpot, now: Date): { lead: string; reference: string | null; tail: string } {
+  const source = sourceInfo(spot.source).label;
+  return {
+    lead: `${frequencyAndMode(spot)} · ${source}${spot.reference ? " " : ""}`,
+    reference: spot.reference,
+    tail: ` · ${spotAge(spot.spot_time, now)}`,
+  };
+}
+
 /** A crowd menu row's second line: "14075.0 kHz FT8 · POTA US-0817 · 2m ago". */
 export function crowdDetail(spot: BandMapSpot, now: Date): string {
-  const source = sourceInfo(spot.source).label;
-  const where = spot.reference ? `${source} ${spot.reference}` : source;
-  return `${frequencyAndMode(spot)} · ${where} · ${spotAge(spot.spot_time, now)}`;
+  const { lead, reference, tail } = crowdParts(spot, now);
+  return `${lead}${reference ?? ""}${tail}`;
 }
 
 /** "26 stations near 14.082". */

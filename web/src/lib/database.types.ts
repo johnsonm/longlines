@@ -955,6 +955,20 @@ isOneToOne: false
                   Relationships: [
                     
                   ]
+                },"reference_profile_cache": {
+                  Row: {
+                    "generated_at": string,"payload": NonNullable<Json>,"program": string,"reference": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "generated_at": string,"payload": NonNullable<Json>,"program": string,"reference": string
+                  }
+                  Update: {
+                    "generated_at"?: string,"payload"?: NonNullable<Json>,"program"?: string,"reference"?: string
+                  }
+                  Relationships: [
+                    
+                  ]
                 },"send_test_limits": {
                   Row: {
                     "destination_id": string,"tests": number,"user_id": string,"window_start": string
@@ -1166,7 +1180,7 @@ isOneToOne: true
                   ]
                 },"spot_stream": {
                   Row: {
-                    "band": string | null,"base_callsign": string | null,"callsign": string | null,"frequency_khz": number | null,"mode": string | null,"mode_bucket": string | null,"program": string | null,"reference": string | null,"reference_location": string | null,"reference_name": string | null,"snr": number | null,"source": string | null,"spot_time": string | null,"spotter": string | null,"spotter_base": string | null
+                    "band": string | null,"base_callsign": string | null,"callsign": string | null,"comment": string | null,"frequency_khz": number | null,"mode": string | null,"mode_bucket": string | null,"program": string | null,"reference": string | null,"reference_location": string | null,"reference_name": string | null,"snr": number | null,"source": string | null,"spot_time": string | null,"spotter": string | null,"spotter_base": string | null
                   }
                   ComputedFields: never
                   Relationships: [
@@ -1277,6 +1291,9 @@ isOneToOne: true
                            },
 "cached_health":
 { Args: { "p_range": string }; Returns: Json
+                           },
+"cached_reference_profile":
+{ Args: { "p_program": string,"p_reference": string }; Returns: Json
                            },
 "callsign_available":
 { Args: { "p_callsign": string }; Returns: boolean
@@ -1755,6 +1772,9 @@ isOneToOne: true
                            },
 "reference_load_status":
 { Args: Record<PropertyKey, never>; Returns: Json
+                           },
+"reference_profile":
+{ Args: { "p_program": string,"p_reference": string }; Returns: Json
                            },
 "refresh_stats_rollups":
 { Args: Record<PropertyKey, never>; Returns: undefined

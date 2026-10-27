@@ -39,6 +39,8 @@ interface Props {
   callsign?: string | null;
   /** With `source` and no `callsign`: the group id a group's Get alerts starts the filter with. */
   group?: string | null;
+  /** With `source` and neither of those: the reference a reference page's Get alerts starts the filter with. */
+  reference?: string | null;
   subs: SubscriptionWithLinks[];
   dests: Destination[];
   loading: boolean;
@@ -47,8 +49,8 @@ interface Props {
   mobile: boolean;
 }
 
-/** /connections/new?source=…[&callsign=…|&group=…] and /connections/:id. An unknown id or source goes back to the list. */
-export function SubscriptionEditorPage({ id, source, callsign, group, subs, loading, ...rest }: Props) {
+/** /connections/new?source=…[&callsign=…|&group=…|&reference=…] and /connections/:id. An unknown id or source goes back to the list. */
+export function SubscriptionEditorPage({ id, source, callsign, group, reference, subs, loading, ...rest }: Props) {
   if (id) {
     const existing = subs.find((s) => s.id === id);
     if (!existing) return loading ? <LinearProgress /> : <Navigate to="/connections" replace />;
@@ -58,9 +60,12 @@ export function SubscriptionEditorPage({ id, source, callsign, group, subs, load
   if (!picked) return <Navigate to="/connections" replace />;
   const call = callsign?.trim() || null;
   const startGroup = call ? null : group?.trim() || null;
+  // Upper case, as normalize_subscription_rules stores an exact reference.
+  const ref = call || startGroup ? null : reference?.trim().toUpperCase() || null;
   return (
     <Editor
-      key={`${picked.id}:${call ?? ""}:${startGroup ?? ""}`} initial={blankSub(picked.id, call, startGroup)} startGroup={startGroup} {...rest}
+      key={`${picked.id}:${call ?? ""}:${startGroup ?? ""}:${ref ?? ""}`} initial={blankSub(picked.id, call, startGroup, ref)} startGroup={startGroup}
+      {...rest}
     />
   );
 }

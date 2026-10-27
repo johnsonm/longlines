@@ -78,6 +78,8 @@ describe("GroupStatistics", () => {
     expect(screen.getByText("Club spots by mode")).toBeInTheDocument();
     const places = card("Most activated places");
     expect(within(places).getByText("Falls Lake SRA")).toBeInTheDocument();
+    expect(within(places).getByRole("link", { name: "US-2763" })).toHaveAttribute("href", "/ref/pota/US-2763");
+    expect(within(places).getByRole("link", { name: "W4C/CM-001" })).toHaveAttribute("href", "/ref/sota/W4C/CM-001");
     expect(within(places).getAllByRole("link", { name: "W4ABC" })[0]).toHaveAttribute("href", "/call/W4ABC");
     expect(within(places).getByText("By")).toBeInTheDocument();
   });

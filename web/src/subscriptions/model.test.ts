@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Destination, SubscriptionWithLinks } from "../lib/api";
 import {
   ANY_ISLAND, blankSub, CONTINENTS, fieldInfo, fieldsFor, hasPositiveRule, islandValues, linkedDestinations, namesStations, needsCallsign,
-  newRow, opLabel, parseKhz, pickableSource, picksStations, quietLabel, rowInvalid, rowsOf, ruleSummaries, rulesOf, singleSource, toInput,
+  newRow, opLabel, parseKhz, pickableSource, picksStations, quietLabel, referenceValues, rowInvalid, rowsOf, ruleSummaries, rulesOf, singleSource, toInput,
   usesIslandRule, withField, type Rule, type RuleRow,
 } from "./model";
 
@@ -27,6 +27,21 @@ describe("blankSub and toInput", () => {
     const sub = blankSub("pota", null, "g1");
     expect(sub.name).toBe("");
     expect(sub.rules).toEqual([[{ field: "group", op: "is", values: ["g1"] }]]);
+  });
+
+  it("starts a reference page's Get alerts filtered to exactly that reference", () => {
+    const sub = blankSub("sotawatch", null, null, "W4C/CM-001");
+    expect(sub.name).toBe("Activators at W4C/CM-001");
+    expect(sub.rules).toEqual([[{ field: "reference", op: "is", values: ["W4C/CM-001"] }]]);
+    // A callsign or a group wins over a reference.
+    expect(blankSub("pota", null, "g1", "US-2763").rules).toEqual([[{ field: "group", op: "is", values: ["g1"] }]]);
+    expect(blankSub("pota", null, "g1", "US-2763").name).toBe("");
+  });
+
+  it("reads exact reference values trimmed and upper-cased, each once", () => {
+    expect(referenceValues([" us-2763 ", "US-2763", "", "w4c/cm-001"])).toEqual(["US-2763", "W4C/CM-001"]);
+    expect(opLabel("reference", "is")).toBe("is");
+    expect(opLabel("reference", "is_not")).toBe("is not");
   });
 
   it("carries a subscription's rules into the editor", () => {
@@ -79,7 +94,7 @@ describe("rows and rules", () => {
 
   it("resets the condition and values when the field changes", () => {
     const r = withField(row("or", "frequency", "gt", "14000"), "reference");
-    expect([r.join, r.op, r.values]).toEqual(["or", "contains", []]);
+    expect([r.join, r.op, r.values]).toEqual(["or", "is", []]);
   });
 
   it("starts a new row on the first field not used yet", () => {
@@ -90,7 +105,7 @@ describe("rows and rules", () => {
 
   it("offers each field its own conditions", () => {
     expect(fieldInfo("frequency").ops).toEqual(["is", "is_not", "gt", "lt"]);
-    expect(fieldInfo("reference").ops).toEqual(["contains", "not_contains"]);
+    expect(fieldInfo("reference").ops).toEqual(["is", "is_not", "contains", "not_contains"]);
     expect(fieldInfo("band").ops).toEqual(["is", "is_not"]);
     expect(opLabel("group", "is_not")).toBe("is not in");
     expect(opLabel("frequency", "gt")).toBe("is greater than");

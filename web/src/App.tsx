@@ -28,6 +28,7 @@ import { ApiTokensPage } from "./tokens/ApiTokensPage";
 import { AccountPage } from "./account/AccountPage";
 import { LookupPage } from "./profile/LookupPage";
 import { CallsignPage } from "./profile/CallsignPage";
+import { ReferencePage } from "./references/ReferencePage";
 import { loadDestinations, loadSubscriptions, signOut, type Destination, type SubscriptionWithLinks } from "./lib/api";
 import type { TimePrefs } from "./lib/time";
 import { pushCleanup } from "./pwa/push";
@@ -81,6 +82,7 @@ function Router() {
       <Route path="/health" element={<PublicRoute page="health" />} />
       <Route path="/lookup" element={<PublicRoute page="lookup" />} />
       <Route path="/call/*" element={<PublicRoute page="call" />} />
+      <Route path="/ref/:program/*" element={<PublicRoute page="ref" />} />
       <Route path="/g/:slug" element={<PublicRoute page="group-public" />} />
       <Route path="/account" element={<RequireAuth page="account" />} />
       <Route path="/api-tokens" element={<RequireAuth page="api-tokens" />} />
@@ -107,13 +109,13 @@ function PublicOnly({ children }: { children: ReactNode }) {
   return children;
 }
 
-type Page = "sources" | "source" | "band-map" | "subscriptions" | "subscription-new" | "subscription" | "groups" | "group" | "group-settings" | "destinations" | "destination-new" | "destination" | "stats" | "health" | "lookup" | "call" | "account" | "api-tokens" | "group-public";
-type PublicPage = "band-map" | "stats" | "health" | "lookup" | "call" | "group-public";
+type Page = "sources" | "source" | "band-map" | "subscriptions" | "subscription-new" | "subscription" | "groups" | "group" | "group-settings" | "destinations" | "destination-new" | "destination" | "stats" | "health" | "lookup" | "call" | "ref" | "account" | "api-tokens" | "group-public";
+type PublicPage = "band-map" | "stats" | "health" | "lookup" | "call" | "ref" | "group-public";
 
 // Signed-out visitors read profiles in UTC.
 const UTC: TimePrefs = { utcTimes: true, timezone: "UTC" };
 
-/** The band map, Stats, Health, callsign profiles and public group pages are public: signed out, AppShell shows them with the other sections disabled. */
+/** The band map, Stats, Health, callsign and reference profiles and public group pages are public: signed out, AppShell shows them with the other sections disabled. */
 function PublicRoute({ page }: { page: PublicPage }) {
   const { session, sessionLoading } = useApp();
   if (sessionLoading) return <LinearProgress />;
@@ -125,6 +127,7 @@ function PublicRoute({ page }: { page: PublicPage }) {
       {page === "health" && <HealthPage />}
       {page === "lookup" && <LookupPage />}
       {page === "call" && <CallsignPage prefs={UTC} />}
+      {page === "ref" && <ReferencePage signedIn={false} />}
       {page === "group-public" && <PublicGroupRoute />}
     </AppShell>
   );
@@ -175,12 +178,13 @@ function GroupRoute({ tab }: { tab: "statistics" | "settings" }) {
 }
 
 /** The editor takes its id or source as props, so its tests need no router params. */
-function SubscriptionRoute(props: Omit<ComponentProps<typeof SubscriptionEditorPage>, "id" | "source" | "callsign" | "group">) {
+function SubscriptionRoute(props: Omit<ComponentProps<typeof SubscriptionEditorPage>, "id" | "source" | "callsign" | "group" | "reference">) {
   const { id } = useParams();
   const [search] = useSearchParams();
   return (
     <SubscriptionEditorPage
       {...props} id={id} source={search.get("source")} callsign={search.get("callsign")} group={search.get("group")}
+      reference={search.get("reference")}
     />
   );
 }
@@ -284,6 +288,7 @@ function SignedIn({ page }: { page: Page }) {
       {page === "health" && <HealthPage />}
       {page === "lookup" && <LookupPage />}
       {page === "call" && <CallsignPage prefs={prefs} signedIn />}
+      {page === "ref" && <ReferencePage signedIn />}
       {page === "account" && <AccountPage profile={profile} />}
       {page === "api-tokens" && <ApiTokensPage />}
       {page === "group-public" && <PublicGroupRoute />}

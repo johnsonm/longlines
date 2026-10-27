@@ -972,6 +972,7 @@ components:
         | `group` | `is`, `is_not` | Callsign group ids. A spot's base call is checked against the members. |
         | `band` | `is`, `is_not` | Bands, for example `20m`, lowercased for you. |
         | `mode` | `is`, `is_not` | Modes or mode families, for example `cw`, `ft8`, `digital`. |
+        | `reference` | `is`, `is_not` | References, uppercased for you, such as `US-2763`, `W4C/CM-001` or `KFF-6101`. Each must equal one of the spot's references: its POTA park, SOTA summit, WWFF reference, any of a WWBOTA spot's bunkers or a DX Cluster spot's IOTA reference, so `US-1000` never matches `US-10000`. A reference need not be in a program's list; a spot without one passes `is_not`. At most 64 characters each. |
         | `reference` | `contains`, `not_contains` | Text to look for in a POTA reference or location, a SOTA summit code, a WWFF reference, any of a WWBOTA spot's bunkers or a DX Cluster spot's IOTA reference, such as `US-NC`, `KFF-`, `B/G-` or `EU-005`. Ignores case. |
         | `frequency` | `is`, `is_not`, `gt`, `lt` | One number, in kHz. `gt` is greater than and `lt` less than. |
         | `island` | `is`, `is_not` | IOTA references (`EU-005`) or continents (`EU`, every island on it), uppercased for you. Only DX Cluster spots name an island, read from the comment; a spot without one passes `is_not`. |

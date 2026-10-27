@@ -7,6 +7,7 @@ import {
 import { BarChart, LineChart, PieChart } from "@mui/x-charts";
 import { DataGrid, type GridColDef, type GridRenderCellParams } from "@mui/x-data-grid";
 import { Link as RouterLink } from "react-router";
+import { ReferenceLink } from "../references/ReferenceLink";
 import { PageTitle } from "../layout/PageTitle";
 import { lookupPath } from "../profile/format";
 import { ChartCard, GRID, Kpi } from "./parts";
@@ -54,7 +55,10 @@ const NO_APRS: StatsPayload["aprs"] = { packets: 0, stations: 0, igates: 0, type
 const MINUTES_PER_WEEK = 7 * 24 * 60;
 
 const REFERENCE_COLUMNS: GridColDef[] = [
-  { field: "reference", headerName: "Reference", width: 120, sortable: false },
+  {
+    field: "reference", headerName: "Reference", width: 120, sortable: false,
+    renderCell: ({ row, value }: GridRenderCellParams<{ program: string }, string>) => <ReferenceLink program={row.program} reference={value ?? ""} />,
+  },
   { field: "name", headerName: "Name", flex: 1, minWidth: 140, sortable: false },
   { field: "program", headerName: "Program", width: 90, sortable: false },
   { field: "activations", headerName: "Activations", type: "number", width: 100, sortable: false },

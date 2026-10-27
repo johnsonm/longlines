@@ -41,7 +41,8 @@ export const FIELDS: readonly FieldInfo[] = [
   { id: "group", label: "Callsign group", ops: ["is", "is_not"] },
   { id: "band", label: "Band", ops: ["is", "is_not"] },
   { id: "mode", label: "Mode", ops: ["is", "is_not"] },
-  { id: "reference", label: "Park, summit, or location", ops: ["contains", "not_contains"] },
+  // `is` first, so a new reference row matches one reference exactly; `contains` keeps partial text such as US-NC.
+  { id: "reference", label: "Park, summit, or location", ops: ["is", "is_not", "contains", "not_contains"] },
   { id: "frequency", label: "Frequency (kHz)", ops: ["is", "is_not", "gt", "lt"] },
   { id: "island", label: "IOTA island", ops: ["is", "is_not"] },
 ];
@@ -122,6 +123,11 @@ export function parseKhz(text: string): number | null {
   if (!/^\d{1,7}(\.\d{1,3})?$/.test(t)) return null;
   const n = Number(t);
   return n > 0 ? n : null;
+}
+
+/** An exact reference as normalize_subscription_rules stores it: trimmed and upper-cased. */
+export function referenceValues(values: string[]): string[] {
+  return [...new Set(values.map((v) => v.trim().toUpperCase()).filter(Boolean))];
 }
 
 /** A row's values ready to store, or null when it has none yet (or no valid frequency). */
@@ -250,11 +256,15 @@ export function needsCallsign(sources: string[], rules: Rules): boolean {
   return sources.length === 1 && sources[0] === "rbn" && !namesStations(rules);
 }
 
-/** A new subscription on one source, filtered to a callsign (a profile's Get alerts) or else a group id (a group's). */
-export const blankSub = (source: string, callsign?: string | null, group?: string | null): SubscriptionInput => ({
-  name: callsign ? `${callsign} on the air` : "", enabled: true, sources: [source],
+/**
+ * A new subscription on one source, filtered to a callsign (a profile's Get alerts), else a group id (a group's),
+ * else one reference exactly (a reference page's).
+ */
+export const blankSub = (source: string, callsign?: string | null, group?: string | null, reference?: string | null): SubscriptionInput => ({
+  name: callsign ? `${callsign} on the air` : reference && !group ? `Activators at ${reference}` : "", enabled: true, sources: [source],
   rules: callsign ? [[{ field: "callsign", op: "is", values: [callsign] }]]
-    : group ? [[{ field: "group", op: "is", values: [group] }]] : [],
+    : group ? [[{ field: "group", op: "is", values: [group] }]]
+    : reference ? [[{ field: "reference", op: "is", values: [reference] }]] : [],
   quiet_minutes: 10, destinations: [],
 });
 

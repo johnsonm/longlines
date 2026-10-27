@@ -117,12 +117,18 @@ Brad decided on 2026-10-26:
 14. **"Get alerts" opens a new connection for the reference**: `/connections/new` with the
     program's source and a rule that matches that reference only, the way the callsign profile
     prefills a `callsign is` rule. Signed out it is "Sign in to get alerts". The reference field
-    has only `contains` today, a substring test over all of a spot's references, so a
+    had only `contains`, a substring test over all of a spot's references, so a
     `reference contains US-1000` rule also matches US-10000 to US-10009 (1,164 POTA references are
-    a prefix of another). The PR that builds the button therefore adds an exact `reference is` op
-    (a value equal to one of the spot's references, case-insensitive) in
-    `normalize_subscription_rules`, `rule_matches`, `docs/openapi.yaml` and the rule builder, and
-    prefills `reference is`. *(Amended in PR 2 review; Brad to confirm before that PR.)*
+    a prefix of another). PR 4 therefore adds exact `is` and `is_not` ops beside `contains` and
+    `not_contains` (which stay, for partial text such as `US-` or `US-NC`, so stored connections
+    keep working): `is` passes a spot when one of its references (POTA, SOTA, WWFF, any WWBOTA
+    bunker, IOTA) equals a value, case-insensitively, and `is_not` one that has none of them (a
+    spot without a reference passes). Values are trimmed and upper-cased by
+    `normalize_subscription_rules`, at most 64 characters each, and need not be in the catalog
+    (decision 8). The ops go in `normalize_subscription_rules`, `rule_matches`, `docs/openapi.yaml`
+    and the rule builder, where a new reference row starts at `is`; the button prefills
+    `reference is`. Values are typed as chips; PR 5 adds a catalog picker. *(Amended in PR 2
+    review; confirmed by Brad 2026-10-26.)*
 
 ## Schema
 
@@ -254,7 +260,15 @@ Brad decided on 2026-10-26:
   well inside the statement timeout, and the database is near its disk threshold.
 - `reference_profile_cache` and `cached_reference_profile(program, reference)`: 15 minutes,
   single-flight under an advisory lock, as `cached_callsign_profile`. `prune_callsign_lookups`
-  also deletes expired rows.
+  also deletes expired rows. *(As built: a null result is never cached, and a row built before the
+  newest `hidden_callsigns.hidden_at` is a miss, so hiding takes effect at once.)*
+- *As built (PR 4):* `reference_days` keeps distinct modes and bands, not counts, and only base
+  calls, so the bands chart, the mode shares, the calls as most recently spotted and who was
+  spotted first come from the same `spot_stream` index read over all time, counting only the
+  spots of the activations history counts (the mode spots add up to `totals.spots`). The live read
+  keeps the program's spots from the `pota`, `sotawatch` and `wwff` sources, as the roll-up writes
+  `reference_days`. `spot_stream` gains a `comment` column (last) for `recentSpots`, and a spot by
+  a hidden spotter stays out of `recentSpots`.
 - The shape is `ReferenceProfile` in `web/src/references/types.ts`, pinned by
   `supabase/tests/reference_profile.test.sql`; change the SQL, the type and the test together. The
   exact fields follow the canvas.
@@ -278,7 +292,10 @@ Brad decided on 2026-10-26:
 - `reference-profile` (PR 4): GET `?program=&reference=`, `verify_jwt = false`, never imports
   `isServiceRole`. It shares the callsign profile's rate limit (`lookupLimit`) and payload schema
   pattern (`_shared/handlers/callsign_profile.ts`); 404 for an unknown or malformed reference;
-  `Cache-Control: public, max-age=300`.
+  `Cache-Control: public, max-age=300`. *(As built: the 404 is `{error: "Reference not found."}`
+  for a program other than pota, sota or wwff too, and malformed input gets it before any database
+  call; a failed RPC or a reply outside the schema is a 500 "Reference pages are unavailable right
+  now.")*
 - `reference-search` (PR 5): GET `?q=&program=`, the same rules as `reference-profile` (no
   `isServiceRole`, `lookupLimit`, a Zod schema for `search_references`' reply). A query is 2 to
   64 characters after trimming, at most 6 words; anything else is a 400. Never logs a query.
@@ -302,13 +319,19 @@ files from a local server, as the license tests do.
 | `/ref` | `PublicRoute` | Reference lookup (PR 5) |
 
 - `web/src/references/`: the page, `useReferenceProfile` (one request per visit; no polling), types.
-  The heat map reuses `profile/calendar.ts` and `ActivityHeatMap`.
+  The heat map reuses `profile/calendar.ts` and `ActivityHeatMap`. *(As built: the callsign
+  profile's grid card moved into `profile/HeatMapCard.tsx`, which `ActivityHeatMap` and
+  `ReferenceHeatMap` both use. The page redirects to the lower-case program and upper-case
+  reference before it asks the function; a program without pages shows Not found without a
+  request, and `/ref/<program>/` with no reference goes to `/lookup` until PR 5 adds `/ref`.
+  `referencePath` in `references/paths.ts` builds every reference link.)*
 - Every reference shown in the app links to its page: the callsign profile's "Where they've been
   spotted" table, Stats "Most spotted parks, summits and WWFF references", group statistics "Most
   activated places" and the band map's crowd menu. Every callsign on the reference page links to
   `/call/<base>` with the base call from SQL.
-- `api.ts` gains `getReferenceProfile` (and `searchReferences` in PR 5), calling the functions
-  with plain `fetch` like `getCallsignProfile`.
+- `api.ts` gains `loadReferenceProfile` (and `searchReferences` in PR 5), calling the functions
+  with plain `fetch` like `loadCallsignProfile`. Only the function's own 404 body means "no such
+  page"; any other 404 is an outage.
 - Program chips use the band map's colors (`SOURCES` in `bandmap/model.ts`): POTA `primary`, SOTA
   `secondary`, WWFF `success`, from the theme.
 

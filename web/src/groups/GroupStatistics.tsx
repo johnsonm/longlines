@@ -3,8 +3,9 @@ import {
   Box, Button, Card, CardContent, Grid, Link, MenuItem, Stack, TextField, Typography, useMediaQuery, useTheme,
 } from "@mui/material";
 import { BarChart } from "@mui/x-charts";
-import { DataGrid, type GridColDef } from "@mui/x-data-grid";
+import { DataGrid, type GridColDef, type GridRenderCellParams } from "@mui/x-data-grid";
 import { Link as RouterLink } from "react-router";
+import { ReferenceLink } from "../references/ReferenceLink";
 import { compact, fmt } from "../stats/format";
 import { ChartCard, GRID, Kpi } from "../stats/parts";
 import { plural } from "../profile/format";
@@ -229,7 +230,12 @@ function PlacesCard({ places }: { places: Stats["places"] }) {
   const mobile = useMediaQuery(theme.breakpoints.down("sm"));
   const hasBy = places.some((p) => p.by !== undefined);
   const columns: GridColDef[] = [
-    { field: "reference", headerName: "Reference", width: 120, sortable: false },
+    {
+      field: "reference", headerName: "Reference", width: 120, sortable: false,
+      renderCell: ({ row, value }: GridRenderCellParams<{ program: string }, string>) => (
+        <ReferenceLink program={row.program} reference={value ?? ""} />
+      ),
+    },
     { field: "name", headerName: "Name", flex: 1, minWidth: 140, sortable: false, valueFormatter: (v: string | null) => v ?? "" },
     { field: "program", headerName: "Program", width: 90, sortable: false },
     { field: "times", headerName: "Times", type: "number", width: 70, sortable: false },

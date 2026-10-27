@@ -1673,3 +1673,51 @@ rebuild one group's now: `delete from group_stats_cache where group_id = '<id>';
 Profiles are cached for 15 minutes. To rebuild one now:
 `delete from callsign_profile_cache where callsign = 'KK4PWJ';`. Days that are rolled up come from
 the rollups ("Callsign rollups" above); today and yesterday until 02:25 UTC are read live.
+
+# Reference profiles
+
+How they work is in `docs/ARCHITECTURE.md` ("Reference profiles"). They need the reference
+catalog and `reference_days` above.
+
+## First deploy (hosted)
+
+`20261027001200_reference_profile` adds `reference_profile`, its cache, a `comment` column at the
+end of `spot_stream`, and the reference rule's exact ops (`is`, `is_not`). It builds no index
+(the live read uses `raw_spots_reference_time_idx` from `20261027001100`), so the push takes
+seconds. Push it before Vercel ships the web: the builder's new default op `is` is refused by the
+old `normalize_subscription_rules` ("A reference rule can't use is.").
+
+```sh
+supabase migration list                        # 20261027001200 pending
+supabase db push
+supabase functions deploy reference-profile    # new function: the GitHub integration skips it
+```
+
+Until the function is deployed, `/ref/...` shows its error state (a gateway 404 is not "Not
+found"). Then check, in the SQL editor:
+
+```sql
+select cached_reference_profile('pota', 'US-2763') -> 'totals';
+select cached_reference_profile('pota', 'ZZ-0000');    -- null: in neither the list nor a spot
+```
+
+## Is it working?
+
+```sh
+curl -si "$SUPABASE_URL/functions/v1/reference-profile?program=pota&reference=US-2763" | head -20
+```
+
+200 with `Cache-Control: public, max-age=300` and the profile; 404 `Reference not found.` for a
+program without pages, a malformed reference, or one in neither the list nor any spot; 429 past
+30 lookups a minute from one client, counted with callsign profiles and group pages; 500
+`Reference pages are unavailable right now.` when the RPC failed or its reply did not fit the
+schema (the function logs `reference-profile:` with the error, never the reference).
+
+## A reference page looks stale or wrong
+
+Reference pages are cached for 15 minutes. To rebuild one now:
+`delete from reference_profile_cache where program = 'pota' and reference = 'US-2763';`.
+Rolled-up days come from `reference_days`; a day rolled up before that table existed counts only
+once the fill reaches it ("Filling reference_days for older days" above). Hiding a call
+(`hidden_callsigns`, "Hiding a profile" above) drops it from every reference page on the next
+load: a cache row built before the newest `hidden_at` is rebuilt.
