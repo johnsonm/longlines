@@ -67,10 +67,12 @@ revoke all on reference_days from anon, authenticated;
 
 alter table callsign_rollup_days add column references_filled_at timestamptz;
 
--- spot_stream's reference column, word for word, so a read of the view can use it.
+-- spot_stream's reference column, word for word (as 20261027001000_iota defines it), so a read of
+-- the view can use it.
 create index if not exists raw_spots_reference_time_idx
-  on raw_spots (coalesce(pota_reference, sota_summit_ref, wwff_reference, wwbota_references[1]), spot_time)
-  where coalesce(pota_reference, sota_summit_ref, wwff_reference, wwbota_references[1]) is not null;
+  on raw_spots (coalesce(pota_reference, sota_summit_ref, wwff_reference, wwbota_references[1], iota_reference),
+                spot_time)
+  where coalesce(pota_reference, sota_summit_ref, wwff_reference, wwbota_references[1], iota_reference) is not null;
 
 -- ---------------------------------------------------------------------------
 -- The roll-up: one more data-modifying CTE over its b stage, and the marker records it

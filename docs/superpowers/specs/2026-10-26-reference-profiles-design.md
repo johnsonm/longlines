@@ -222,7 +222,8 @@ Brad decided on 2026-10-26:
   success clears the other's failure. The day's one failures row holds whichever fill failed last.
   `callsign_rollup_status` gains `references_filled_at`, and `fill_failed` covers either fill.
 - Index `raw_spots_reference_time_idx on raw_spots (coalesce(pota_reference, sota_summit_ref,
-  wwff_reference, wwbota_references[1]), spot_time) where coalesce(...) is not null`: exactly
+  wwff_reference, wwbota_references[1], iota_reference), spot_time) where coalesce(...) is not
+  null`: exactly
   `spot_stream`'s `reference` expression, so PR 4's live read, `spot_stream where reference = ...
   and spot_time >= ...`, reaches the `raw_spots` arm and uses it (the RBN arm's null reference
   drops out; pgTAP checks the plan). The view's expression and the index change together. Built by

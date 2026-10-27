@@ -1010,7 +1010,7 @@ rollups keep per-station counts and breakdowns forever, never per-spotter rows (
   Primary key `(program, reference, day, base, source)` and an index on `(base, day)`; a few
   thousand rows a day. `raw_spots_reference_time_idx`, on `raw_spots` by `spot_stream`'s
   `reference` expression (`coalesce(pota_reference, sota_summit_ref, wwff_reference,
-  wwbota_references[1])`) and `spot_time` where it is not null, serves the live read of the days
+  wwbota_references[1], iota_reference)`) and `spot_time` where it is not null, serves the live read of the days
   not rolled up yet, which goes through `spot_stream` like every profile read; the view's
   expression and the index change together.
 - **Exactly once.** `rollup_callsign_day(day)` inserts the day's `callsign_rollup_days` marker

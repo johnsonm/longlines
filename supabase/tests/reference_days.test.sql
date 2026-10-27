@@ -1,4 +1,4 @@
--- pgTAP: reference_days, the activations per reference and day (20261026001200): the roll-up
+-- pgTAP: reference_days, the activations per reference and day (20261027001100): the roll-up
 -- writes them, fill_reference_days writes the same rows from raw_spots, backfill_reference_days is
 -- bounded and runs from the hourly job only when it rolled nothing up and filled no callsign_days.
 begin;

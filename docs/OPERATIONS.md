@@ -1288,7 +1288,7 @@ needs the archive.
 
 ## Filling reference_days for older days
 
-`20261026001200` adds `reference_days` (the reference profiles' activations) and
+`20261027001100` adds `reference_days` (the reference profiles' activations) and
 `callsign_rollup_days.references_filled_at`. It takes the same 10 s lock timeout as the
 callsign_days migration (see "Pushing the callsign_days migration"; run the push again away from
 :25 if it times out), and builds `raw_spots_reference_time_idx` inside the push: hosted
