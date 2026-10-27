@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { NOT_IN_LIST, PARK, RETIRED, SUMMIT, WWFF_REF } from "./fixtures";
 import {
   aboutRows, aboutSubheader, aboutTitle, activationDetail, cellActivators, coordinates, footerText, gridLabel, headerChips, isRetired, isToday,
-  modesLabel, neverActivatedMessage, notFoundMessage, notInListMessage, periodLabel, periodTitle, phoneSpotTime, retiredMessage, selfSpot,
+  lastActivatedWhen, modesLabel, neverActivatedMessage, notFoundMessage, notInListMessage, periodLabel, periodTitle, phoneSpotTime, retiredMessage, selfSpot,
   shortDay, spotDetail, spotTime, todayLine, topActivatorDetail,
 } from "./format";
 
@@ -102,6 +102,13 @@ describe("times and rows", () => {
     expect(isToday("2026-10-25T23:59:00Z", NOW)).toBe(false);
   });
 
+  it("words the last activation's time relative today and by date for an earlier UTC day", () => {
+    expect(lastActivatedWhen("2026-10-26T18:51:00Z", NOW)).toBe("12 min ago (18:51 UTC)");
+    // 70 minutes ago, but yesterday (UTC): the date, not "1 h ago" (decision 12).
+    expect(lastActivatedWhen("2026-10-26T23:10:00Z", new Date("2026-10-27T00:20:00Z"))).toBe("Oct 26 (23:10 UTC)");
+    expect(lastActivatedWhen("2025-12-31T15:02:00Z", NOW)).toBe("Dec 31, 2025 (15:02 UTC)");
+  });
+
   it("shortens days and times for the tables and phone rows", () => {
     expect(shortDay("2026-10-25", NOW)).toBe("Oct 25");
     expect(shortDay("2025-10-25", NOW)).toBe("Oct 25, 2025");
@@ -119,9 +126,12 @@ describe("times and rows", () => {
     expect(selfSpot(plain!)).toBe(false);
     expect(spotDetail({ ...plain!, frequencyKhz: null, mode: null })).toBe("by W3PLS");
     expect(activationDetail(PARK.recentActivations[0]!)).toBe("20m, 40m · CW · 18 spots");
-    expect(activationDetail(PARK.recentActivations[1]!)).toBe("40m · USB, SSB · 1 spot");
+    expect(activationDetail(PARK.recentActivations[1]!)).toBe("40m · CW, SSB · 1 spot");
     expect(activationDetail({ ...PARK.recentActivations[1]!, bands: [], modes: [] })).toBe("1 spot");
     expect(modesLabel(["cw", "CW", "ft8"])).toBe("CW, FT8");
+    // Older days store usb and lsb as spelled; readers group them as SSB.
+    expect(modesLabel(["usb", "ssb"])).toBe("SSB");
+    expect(modesLabel(["lsb", "ft8", "USB"])).toBe("SSB, FT8");
   });
 
   it("words the heat map's periods and days", () => {

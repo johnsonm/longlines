@@ -5,7 +5,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(108);
+select plan(110);
 
 -- Start from empty tables so watched_among and preview see only these rows.
 delete from deliveries;
@@ -289,6 +289,12 @@ select is(pg_temp.norm('[[{"field":"reference","op":"contains","values":[" us-nc
 select throws_ok(format('select pg_temp.norm(%L)', jsonb_build_array(jsonb_build_array(
     jsonb_build_object('field', 'reference', 'op', 'is', 'values', array['US-1000', repeat('A', 65)])))),
   'P0001', 'A reference can be at most 64 characters.', 'an exact reference is at most 64 characters');
+select throws_ok($$ select pg_temp.norm('[[{"field":"reference","op":"is","values":["US-1000, US-1001"]}]]') $$,
+  'P0001', 'A reference takes letters, digits, / and -, such as US-2763 or W4C/CM-001.',
+  'an exact reference refuses a comma-joined list, which would never match');
+select throws_ok($$ select pg_temp.norm('[[{"field":"reference","op":"is_not","values":["US 1000"]}]]') $$,
+  'P0001', 'A reference takes letters, digits, / and -, such as US-2763 or W4C/CM-001.',
+  'is_not refuses a value outside the reference shape too');
 select lives_ok(format('select pg_temp.norm(%L)', jsonb_build_array(jsonb_build_array(
     jsonb_build_object('field', 'reference', 'op', 'is_not', 'values', array[repeat('A', 64), 'ZZ-0000'])))),
   'a 64-character reference, and one in no catalog, are accepted');

@@ -13,11 +13,11 @@ import { Navigate, Link as RouterLink, useLocation, useNavigate, useParams } fro
 import { errorText, useApp } from "../app/hooks";
 import { PageTitle } from "../layout/PageTitle";
 import { shareLink } from "../lib/share";
-import { dateLabel, frequencyLabel, lastHeardWhen, lookupPath, monthLabel, onAirNow } from "../profile/format";
+import { dateLabel, frequencyLabel, lookupPath, monthLabel, onAirNow } from "../profile/format";
 import { compact, fmt } from "../stats/format";
 import { ChartCard, GRID, Kpi } from "../stats/parts";
 import {
-  aboutRows, aboutSubheader, aboutTitle, activationDetail, footerText, headerChips, isRetired, isToday, modesLabel, neverActivatedMessage,
+  aboutRows, aboutSubheader, aboutTitle, activationDetail, footerText, headerChips, isRetired, isToday, lastActivatedWhen, modesLabel, neverActivatedMessage,
   notFoundMessage, notInListMessage, phoneSpotTime, PROGRAMS, retiredMessage, shortDay, spotDetail, spotTime, todayLine, topActivatorDetail,
 } from "./format";
 import { programSource, referencePath, referenceProgram, referenceUrl } from "./paths";
@@ -114,7 +114,7 @@ function Header({ profile, signedIn, now }: { profile: ReferenceProfile; signedI
               <Typography variant={mobile ? "h4" : "h3"} component="h1">{reference}</Typography>
               <Chip size="small" color={info.color} label={info.short} />
             </Stack>
-            {catalog?.name && <Typography variant="h6" color="text.secondary">{catalog.name}</Typography>}
+            {catalog?.name && <Typography variant="h6" component="p" color="text.secondary">{catalog.name}</Typography>}
             <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap", mt: 1 }}>
               {headerChips(profile).map((c) => <Chip key={c.label} size="small" variant={c.outlined ? "outlined" : "filled"} label={c.label} />)}
             </Stack>
@@ -141,7 +141,7 @@ function Header({ profile, signedIn, now }: { profile: ReferenceProfile; signedI
 
 /** The header's band: the newest spot at the reference, from the live read. */
 function LastActivated({ last, now, mobile }: { last: ReferenceLast; now: Date; mobile: boolean }) {
-  const when = lastHeardWhen(last.time, now);
+  const when = lastActivatedWhen(last.time, now);
   // SQL sends today's figures only for a spot from today; a page left open past midnight drops them.
   const today = last.today && isToday(last.time, now) ? last.today : null;
   return (

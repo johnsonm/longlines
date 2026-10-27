@@ -59,7 +59,7 @@ export const PARK: ReferenceProfile = {
   ],
   recentActivations: [
     { day: "2026-10-26", callsign: "N4MTS/P", base: "N4MTS", spots: 18, bands: ["20m", "40m"], modes: ["cw"] },
-    { day: "2026-10-25", callsign: "KJ4ABS", base: "KJ4ABS", spots: 1, bands: ["40m"], modes: ["usb", "ssb"] },
+    { day: "2026-10-25", callsign: "KJ4ABS", base: "KJ4ABS", spots: 1, bands: ["40m"], modes: ["cw", "lsb", "usb"] },
   ],
   recentSpots: [
     {

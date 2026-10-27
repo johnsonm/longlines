@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Card, CardContent, Link, ListItemText, ListSubheader, Menu, MenuItem, Typography, useTheme } from "@mui/material";
+import { Card, CardContent, ListItemText, ListSubheader, Menu, MenuItem, Typography, useTheme } from "@mui/material";
 import { ChartsReferenceLine } from "@mui/x-charts/ChartsReferenceLine";
 import { ScatterChart } from "@mui/x-charts/ScatterChart";
 import type { ScatterItemIdentifier } from "@mui/x-charts/models";
@@ -8,7 +8,7 @@ import type { BandPlan } from "../lib/bandplan";
 import { lookupPath } from "../profile/format";
 import { referencePath, sourceProgram } from "../references/paths";
 import {
-  crowdAround, crowdParts, crowdTitle, crowdTolerance, heardLabel, mhz, segmentMarks, SOURCES, tooltipText,
+  crowdAround, crowdDetail, crowdTitle, crowdTolerance, heardLabel, mhz, segmentMarks, SOURCES, tooltipText,
 } from "./model";
 import type { BandMapSource, BandMapSpot } from "./types";
 
@@ -104,31 +104,22 @@ export function BandStrip({ plan, stations, shown, mobile }: {
         slotProps={{ paper: { sx: { maxHeight: 360 } } }}
       >
         {crowd && <ListSubheader>{crowdTitle(crowd.stations.length, crowd.khz)}</ListSubheader>}
-        {crowd?.stations.map((s) => {
-          const { lead, reference, tail } = crowdParts(s, crowd.at);
+        {crowd?.stations.flatMap((s) => {
           const program = sourceProgram(s.source);
-          const path = reference && program ? referencePath(program, reference) : null;
-          return (
+          const path = s.reference && program ? referencePath(program, s.reference) : null;
+          const station = (
             <MenuItem key={s.id} onClick={() => open(s)}>
-              <ListItemText
-                primary={s.callsign}
-                secondary={
-                  <>
-                    {lead}
-                    {path
-                      ? (
-                        // The row opens the station's profile; its reference opens the park or summit instead.
-                        <Link component={RouterLink} to={path} underline="hover" onClick={(e) => { e.stopPropagation(); setCrowd(null); }}>
-                          {reference}
-                        </Link>
-                      )
-                      : reference}
-                    {tail}
-                  </>
-                }
-              />
+              <ListItemText primary={s.callsign} secondary={crowdDetail(s, crowd.at)} />
             </MenuItem>
           );
+          // The park or summit is an item of its own under the station, so the arrow keys reach it;
+          // a link inside the station's item could only be clicked.
+          return path === null ? [station] : [
+            station,
+            <MenuItem key={`${s.id}-reference`} dense component={RouterLink} to={path} onClick={() => setCrowd(null)}>
+              <ListItemText inset primary={s.reference} slotProps={{ primary: { color: "primary", variant: "body2" } }} />
+            </MenuItem>,
+          ];
         })}
       </Menu>
     </Card>

@@ -4,7 +4,7 @@
 // every figure, list and ranking; this only words them.
 
 import { sourceInfo } from "../bandmap/model";
-import { dateLabel, frequencyLabel, plural } from "../profile/format";
+import { dateLabel, frequencyLabel, lastHeardWhen, plural } from "../profile/format";
 import { fmt } from "../stats/format";
 import { referenceProgram } from "./paths";
 import type { ReferenceActivation, ReferenceCalendarPeriod, ReferenceCatalog, ReferenceProfile, ReferenceProgram, ReferenceSpot } from "./types";
@@ -155,6 +155,15 @@ export function isToday(time: string, now: Date): boolean {
   return time.slice(0, 10) === now.toISOString().slice(0, 10);
 }
 
+/**
+ * The Last activated band's time: the callsign profile's "12 min ago (18:51 UTC)" for a spot from
+ * today (UTC), else the date, "Oct 12 (15:02 UTC)" (decision 12), even when it was under a day ago.
+ */
+export function lastActivatedWhen(time: string, now: Date): string {
+  if (isToday(time, now)) return lastHeardWhen(time, now);
+  return `${shortDay(time.slice(0, 10), now)} (${TIME.format(new Date(time))} UTC)`;
+}
+
 /** "Spotted 18 times today, on 20m and 40m."; "once" for one spot. */
 export function todayLine(today: { spots: number; bands: string[] }): string {
   const times = today.spots === 1 ? "once" : `${fmt(today.spots)} times`;
@@ -177,9 +186,12 @@ export function phoneSpotTime(time: string, now: Date): string {
   return isToday(time, now) ? TIME.format(new Date(time)) : shortDay(time.slice(0, 10), now);
 }
 
-/** Modes as the tables show them: "CW, SSB". */
+/**
+ * Modes as the tables show them: "CW, SSB". Days stored before sidebands were folded keep usb and
+ * lsb as spelled, and readers group them (CLAUDE.md, Callsign rollup rules), as the Modes chart does.
+ */
 export function modesLabel(modes: string[]): string {
-  return [...new Set(modes.map((m) => m.toUpperCase()))].join(", ");
+  return [...new Set(modes.map((m) => m.toUpperCase()).map((m) => (m === "USB" || m === "LSB" ? "SSB" : m)))].join(", ");
 }
 
 /** Did the activator spot itself? */

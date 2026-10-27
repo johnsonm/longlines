@@ -41,8 +41,8 @@
 -- The reference rule gains exact ops (decision 14): is passes a spot when one of its references
 -- (pota_reference, sota_summit_ref, wwff_reference, any of wwbota_references, iota_reference)
 -- equals one of the values, case-insensitively; is_not passes a spot with none of them, including
--- one with no reference. Values are trimmed and upper-cased, at most 64 characters, and need not be
--- in the catalog (decision 8). contains and not_contains are unchanged, for partial text. The
+-- one with no reference. Values are trimmed and upper-cased, at most 64 characters of letters,
+-- digits, / and - (reference_profile's shape), and need not be in the catalog (decision 8). contains and not_contains are unchanged, for partial text. The
 -- reference rule's ops are now is, is_not, contains and not_contains.
 
 -- ---------------------------------------------------------------------------
@@ -503,7 +503,7 @@ grant execute on function public.cached_reference_profile(text, text) to service
 -- ---------------------------------------------------------------------------
 
 -- normalize_subscription_rules: as in 20261027001000, with is and is_not for the reference field:
--- values trimmed and upper-cased, at most 64 characters each.
+-- values trimmed and upper-cased, at most 64 characters each, of letters, digits, / and -.
 create or replace function public.normalize_subscription_rules(p_rules jsonb, p_user uuid, p_strict boolean)
 returns jsonb
 language plpgsql
@@ -606,6 +606,12 @@ begin
         if v_field = 'reference' and v_op in ('is', 'is_not') and exists (
              select 1 from jsonb_array_elements_text(v_values) as v where length(v) > 64) then
           raise exception 'A reference can be at most 64 characters.';
+        end if;
+        -- reference_profile's shape: a comma-joined list ("US-1000, US-1001") would never equal
+        -- a spot's reference, so is would never pass and is_not would exclude nothing.
+        if v_field = 'reference' and v_op in ('is', 'is_not') and exists (
+             select 1 from jsonb_array_elements_text(v_values) as v where v !~ '^[A-Z0-9/-]+$') then
+          raise exception 'A reference takes letters, digits, / and -, such as US-2763 or W4C/CM-001.';
         end if;
       end if;
 

@@ -124,7 +124,8 @@ Brad decided on 2026-10-26:
     keep working): `is` passes a spot when one of its references (POTA, SOTA, WWFF, any WWBOTA
     bunker, IOTA) equals a value, case-insensitively, and `is_not` one that has none of them (a
     spot without a reference passes). Values are trimmed and upper-cased by
-    `normalize_subscription_rules`, at most 64 characters each, and need not be in the catalog
+    `normalize_subscription_rules`, at most 64 characters each of letters, digits, `/` and `-`
+    (the builder splits a typed list on commas and spaces into chips), and need not be in the catalog
     (decision 8). The ops go in `normalize_subscription_rules`, `rule_matches`, `docs/openapi.yaml`
     and the rule builder, where a new reference row starts at `is`; the button prefills
     `reference is`. Values are typed as chips; PR 5 adds a catalog picker. *(Amended in PR 2
@@ -476,6 +477,21 @@ States:
 Elsewhere: the callsign profile's `Where they've been spotted` table, Stats `Most spotted parks,
 summits and WWFF references`, group statistics `Most activated places` and the band map's crowd
 menu link each reference to its page. Nothing else about them changes.
+
+### Get alerts and the rule builder (PR 4)
+
+Not on the canvas; written for PR 4 (decision 14), Brad to confirm the wording.
+
+- The connection "Get alerts for {ref}" opens is named `Activators at {ref}` (`Activators at
+  US-2763`), as the callsign profile's is `{call} on the air`.
+- The reference rule's conditions: `is`, `is not`, `contains`, `does not contain`.
+- With `is` or `is not`: helper text `Matches a POTA, SOTA, WWFF, WWBOTA or IOTA reference exactly,
+  such as US-2763 or W4C/CM-001.` and placeholder `US-2763, W4C/CM-001`. A typed or pasted list
+  becomes one chip per reference; a value outside the reference shape marks the field as an error
+  and the connection can't be saved.
+- With `contains` or `does not contain`, unchanged: helper text `Matches POTA references and
+  locations, SOTA summit codes, WWFF references, WWBOTA bunkers and IOTA islands.` and placeholder
+  `US-NC, W4C/, US-0817`.
 
 ### Reference lookup (`/ref`)
 

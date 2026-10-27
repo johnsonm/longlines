@@ -3,7 +3,7 @@ import type { Destination, SubscriptionWithLinks } from "../lib/api";
 import {
   ANY_ISLAND, blankSub, CONTINENTS, fieldInfo, fieldsFor, hasPositiveRule, islandValues, linkedDestinations, namesStations, needsCallsign,
   newRow, opLabel, parseKhz, pickableSource, picksStations, quietLabel, referenceValues, rowInvalid, rowsOf, ruleSummaries, rulesOf, singleSource, toInput,
-  usesIslandRule, withField, type Rule, type RuleRow,
+  usesIslandRule, withField, type Rule, type RuleOp, type RuleRow,
 } from "./model";
 
 const GROUPS = [{ id: "g1", name: "Friends" }, { id: "g2", name: "RARS members" }, { id: "g3", name: "Unused" }];
@@ -40,6 +40,15 @@ describe("blankSub and toInput", () => {
 
   it("reads exact reference values trimmed and upper-cased, each once", () => {
     expect(referenceValues([" us-2763 ", "US-2763", "", "w4c/cm-001"])).toEqual(["US-2763", "W4C/CM-001"]);
+    // A list typed or pasted as one value is one chip per reference.
+    expect(referenceValues(["us-1000, us-1001", "US-1000;\tw4c/cm-001"])).toEqual(["US-1000", "US-1001", "W4C/CM-001"]);
+    const ref = (op: RuleOp, ...values: string[]): RuleRow => ({ key: 1, join: "and", field: "reference", op, values });
+    expect(rulesOf([ref("is", "us-1000, us-1001")])).toEqual([[{ field: "reference", op: "is", values: ["US-1000", "US-1001"] }]]);
+    expect(rowInvalid(ref("is", "US_1000"))).toBe(true);
+    expect(rowInvalid(ref("is_not", "w4c/cm-001"))).toBe(false);
+    expect(rowInvalid(ref("is", "A".repeat(65)))).toBe(true);
+    // Contains keeps partial text as typed.
+    expect(rowInvalid(ref("contains", "US NC"))).toBe(false);
     expect(opLabel("reference", "is")).toBe("is");
     expect(opLabel("reference", "is_not")).toBe("is not");
   });

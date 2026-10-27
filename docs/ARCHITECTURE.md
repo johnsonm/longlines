@@ -976,7 +976,8 @@ rollups keep per-station counts and breakdowns forever, never per-spotter rows (
 
 - **`spot_stream`.** One row shape for every source: `source`, `spot_time`, `callsign`,
   `base_callsign`, `spotter`, `spotter_base`, `frequency_khz`, `band`, `mode`, `mode_bucket`,
-  `snr`, `program`, `reference`, `reference_name`, `reference_location`. `program` is `POTA`,
+  `snr`, `program`, `reference`, `reference_name`, `reference_location`, `comment`
+  (`raw_spots.comment`, null for RBN). `program` is `POTA`,
   `SOTA`, `WWFF`, `WWBOTA` or `IOTA`, and `reference` and `reference_name` fall back to the WWFF
   columns, then the first WWBOTA bunker, then the IOTA reference, after the POTA and SOTA columns. It is `raw_spots` without its RBN rows
   (copies) plus `rbn_spots`. A source that writes `raw_spots` appears with no change;
@@ -1331,7 +1332,8 @@ A reference profile is the public page of one POTA park, SOTA summit or WWFF ref
   compare upper-cased values with each of a spot's references (POTA, SOTA, WWFF, every WWBOTA
   bunker, IOTA) for equality, so `US-1000` never matches `US-10000`; `contains` stays for partial
   text such as `US-NC`. Exact values are validated in `normalize_subscription_rules` (trimmed,
-  upper-cased, at most 64 characters) and matched in `rule_matches`.
+  upper-cased, at most 64 characters of letters, digits, `/` and `-`, so a comma-joined list is
+  refused) and matched in `rule_matches`.
 
 ## Management API
 

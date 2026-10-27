@@ -1,4 +1,5 @@
 import type { Destination, SubscriptionInput, SubscriptionWithLinks } from "../lib/api";
+import { splitCallsigns } from "../groups/parse";
 import type { CallsignGroup } from "../groups/types";
 import { LIVE_SOURCES, modeLabel, SOURCES, type SourceInfo } from "../sources/sources";
 
@@ -125,10 +126,18 @@ export function parseKhz(text: string): number | null {
   return n > 0 ? n : null;
 }
 
-/** An exact reference as normalize_subscription_rules stores it: trimmed and upper-cased. */
+/**
+ * Exact references as normalize_subscription_rules stores them, upper-cased. A reference never holds
+ * a comma or a space, so a typed or pasted list ("us-1000, us-1001") becomes one chip each.
+ */
 export function referenceValues(values: string[]): string[] {
-  return [...new Set(values.map((v) => v.trim().toUpperCase()).filter(Boolean))];
+  return [...new Set(values.flatMap((v) => splitCallsigns(v.toUpperCase())))];
 }
+
+/** An exact reference's shape, as normalize_subscription_rules and reference_profile take it. */
+const REFERENCE_VALUE = /^[A-Z0-9/-]{1,64}$/;
+
+const exactReference = (row: RuleRow) => row.field === "reference" && (row.op === "is" || row.op === "is_not");
 
 /** A row's values ready to store, or null when it has none yet (or no valid frequency). */
 function storedValues(row: RuleRow): (string | number)[] | null {
@@ -140,16 +149,22 @@ function storedValues(row: RuleRow): (string | number)[] | null {
     const islands = islandValues(row.values);
     return islands.length ? islands : null;
   }
+  if (exactReference(row)) {
+    const references = referenceValues(row.values);
+    return references.length ? references : null;
+  }
   const values = row.values.map((v) => v.trim()).filter(Boolean);
   return values.length ? values : null;
 }
 
 /**
- * A frequency row with text that isn't a number, or an island row with a value that is neither a
- * reference nor a continent: shown as an error, and the page won't save.
+ * A frequency row with text that isn't a number, an island row with a value that is neither a
+ * reference nor a continent, or an exact reference row with a value outside the reference shape:
+ * shown as an error, and the page won't save.
  */
 export function rowInvalid(row: RuleRow): boolean {
   if (row.field === "island") return islandValues(row.values).some((v) => !ISLAND_VALUE.test(v));
+  if (exactReference(row)) return referenceValues(row.values).some((v) => !REFERENCE_VALUE.test(v));
   return row.field === "frequency" && (row.values[0] ?? "").trim() !== "" && storedValues(row) === null;
 }
 

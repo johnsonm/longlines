@@ -116,7 +116,7 @@ function Header({ profile, signedIn }: { profile: CallsignProfile; signedIn: boo
               <Typography variant={mobile ? "h4" : "h3"} component="h1">{callsign}</Typography>
               <Flag country={profile.country?.name} />
             </Stack>
-            {license?.name && <Typography variant="h6" color="text.secondary">{license.name}</Typography>}
+            {license?.name && <Typography variant="h6" component="p" color="text.secondary">{license.name}</Typography>}
             <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap", mt: 1 }}>
               {license?.operatorClass && <Chip size="small" label={license.operatorClass} />}
               {place && <Chip size="small" label={place} />}

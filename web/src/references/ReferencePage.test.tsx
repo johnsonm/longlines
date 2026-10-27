@@ -182,6 +182,8 @@ describe("ReferencePage profile", () => {
     renderAt("/ref/pota/US-2763");
     expect(header().queryByText(/^Spotted .* today/)).not.toBeInTheDocument();
     expect(header().queryByText("On the air now")).not.toBeInTheDocument();
+    // Under a day old but from yesterday (UTC): the date, not "5 h ago".
+    expect(header().getByText("Oct 26 (18:51 UTC)")).toBeInTheDocument();
   });
 
   it("shows a summit's earlier spot by its date, without today's line", () => {
@@ -238,7 +240,7 @@ describe("ReferencePage profile", () => {
     const recent = card("Recent activations");
     expect(recent.getByText("Newest first. An activation is one activator spotted here on one UTC day.")).toBeInTheDocument();
     expect(recent.getByText("20m, 40m")).toBeInTheDocument();
-    expect(recent.getByText("USB, SSB")).toBeInTheDocument();
+    expect(recent.getByText("CW, SSB")).toBeInTheDocument();
     expect(recent.getAllByRole("link", { name: "KJ4ABS" })[0]).toHaveAttribute("href", "/call/KJ4ABS");
 
     const spots = card("Recent spots");

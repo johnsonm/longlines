@@ -130,14 +130,15 @@ export function FilterStep({ sub, setSub, rows, setRows, groups, groupsFailed, p
           />
         );
       case "reference": {
-        // Typed as chips for now; a catalog picker comes with the reference lookup. An exact reference is upper-cased as SQL stores it.
+        // Typed as chips for now; a catalog picker comes with the reference lookup. An exact reference is
+        // upper-cased as SQL stores it, and a typed or pasted list is split into one chip per reference.
         const exact = row.op === "is" || row.op === "is_not";
         return (
           <Autocomplete
             // autoSelect commits a reference left in the field on blur, as for callsigns.
             multiple freeSolo autoSelect options={[] as string[]} value={row.values}
             onChange={(_e, v) => set(exact ? referenceValues(v) : [...new Set(v.map((x) => x.trim()).filter(Boolean))])}
-            renderInput={(p) => <TextField {...p} label={label} placeholder={exact ? "US-2763, W4C/CM-001" : "US-NC, W4C/, US-0817"} />}
+            renderInput={(p) => <TextField {...p} label={label} placeholder={exact ? "US-2763, W4C/CM-001" : "US-NC, W4C/, US-0817"} error={rowInvalid(row)} />}
           />
         );
       }

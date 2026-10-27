@@ -320,6 +320,21 @@ describe("edit subscription", () => {
     expect(saveSubscription).toHaveBeenLastCalledWith(expect.objectContaining({ rules: [[rule("reference", "is", "US-2763", "W4C/CM-001")]] }));
   });
 
+  it("splits a typed or pasted list of exact references into one chip each", async () => {
+    const { user } = render({ id: "s1", subs: [sub({ rules: [[rule("reference", "is", "US-2763")]] })] });
+    await user.type(screen.getByLabelText("Values"), "us-1000, us-1001{Enter}");
+    expect(screen.getByRole("button", { name: "US-1000" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "US-1001" })).toBeInTheDocument();
+    await user.click(save());
+    expect(saveSubscription).toHaveBeenLastCalledWith(expect.objectContaining({ rules: [[rule("reference", "is", "US-2763", "US-1000", "US-1001")]] }));
+  });
+
+  it("refuses an exact reference outside the reference shape", async () => {
+    const { user } = render({ id: "s1", subs: [sub({ rules: [[rule("reference", "is_not", "US-2763")]] })] });
+    await user.type(screen.getByLabelText("Values"), "US_1000{Enter}");
+    expect(save()).toBeDisabled();
+  });
+
   it("on DX Cluster, picks IOTA islands by continent, by reference or all at once", async () => {
     const { user } = render({ id: "s1", subs: [sub({ sources: ["dxcluster"], rules: [[rule("island", "is", "EU")]] })] });
     expect(screen.getByText("Matches the IOTA reference in a DX Cluster spot's comment, such as EU-005, or every island on a continent.")).toBeInTheDocument();
