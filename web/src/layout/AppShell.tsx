@@ -13,6 +13,7 @@ import SendIcon from "@mui/icons-material/Send";
 import InsightsIcon from "@mui/icons-material/Insights";
 import MonitorHeartIcon from "@mui/icons-material/MonitorHeart";
 import PersonSearchIcon from "@mui/icons-material/PersonSearch";
+import TravelExploreIcon from "@mui/icons-material/TravelExplore";
 import KeyIcon from "@mui/icons-material/Key";
 import LoginIcon from "@mui/icons-material/Login";
 import SearchIcon from "@mui/icons-material/Search";
@@ -36,6 +37,8 @@ const NAV = [
   { id: "groups", label: "Groups", icon: <GroupsIcon />, open: false },
   { id: "band-map", label: "Band map", icon: <GraphicEqIcon />, open: true },
   { id: "lookup", label: "Callsign lookup", icon: <PersonSearchIcon />, open: true },
+  // Its id is the section, so /ref and every /ref/<program>/<reference> page highlight it.
+  { id: "ref", label: "Reference lookup", icon: <TravelExploreIcon />, open: true },
   { id: "stats", label: "Stats", icon: <InsightsIcon />, open: true },
   { id: "health", label: "Health", icon: <MonitorHeartIcon />, open: true },
   { id: "api-tokens", label: "API tokens", icon: <KeyIcon />, open: false },

@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import {
   Alert, AlertTitle, Autocomplete, Box, Button, FormControl, IconButton, InputLabel, Link, MenuItem, Select, Stack, TextField, Typography,
 } from "@mui/material";
@@ -10,10 +10,11 @@ import type { CallsignGroup } from "../groups/types";
 import { splitCallsigns } from "../groups/parse";
 import { BANDS, MODES, modeLabel, type SourceInfo } from "../sources/sources";
 import {
-  ANY_ISLAND, CONTINENTS, fieldInfo, fieldsFor, islandValues, MAX_RULES, needsCallsign, newRow, opLabel, QUIET_OPTIONS, referenceValues,
-  rowInvalid, rulesOf, withField,
+  ANY_ISLAND, CONTINENTS, fieldInfo, fieldsFor, islandValues, MAX_RULES, needsCallsign, newRow, opLabel, QUIET_OPTIONS,
+  newReferenceSearchCache, rowInvalid, rulesOf, searchProgram, withField,
   type Join, type RuleField, type RuleOp, type RuleRow,
 } from "./model";
+import { ReferenceValuesField } from "./ReferenceValuesField";
 
 /** "Europe (EU)" for a continent; a reference, and Any island, as they are. */
 function islandLabel(value: string): string {
@@ -45,6 +46,8 @@ interface Props {
 
 export function FilterStep({ sub, setSub, rows, setRows, groups, groupsFailed, perDay, source, stationCount, mobile }: Props) {
   const available = fieldsFor(sub.sources);
+  // The reference picker's answers, kept while the editor is open and shared by every reference row.
+  const [searchCache] = useState(newReferenceSearchCache);
   const rules = rulesOf(rows);
   const missingCall = needsCallsign(sub.sources, rules);
   const joins = rows.slice(1).map((r) => r.join);
@@ -129,19 +132,21 @@ export function FilterStep({ sub, setSub, rows, setRows, groups, groupsFailed, p
             renderInput={(p) => <TextField {...p} label={label} />}
           />
         );
-      case "reference": {
-        // Typed as chips for now; a catalog picker comes with the reference lookup. An exact reference is
-        // upper-cased as SQL stores it, and a typed or pasted list is split into one chip per reference.
-        const exact = row.op === "is" || row.op === "is_not";
-        return (
+      case "reference":
+        // An exact reference is picked from the POTA, SOTA and WWFF lists or typed, upper-cased as SQL
+        // stores it, a typed or pasted list split into one chip per reference. Contains keeps plain text.
+        return row.op === "is" || row.op === "is_not" ? (
+          <ReferenceValuesField
+            values={row.values} onChange={set} program={searchProgram(sub.sources)} cache={searchCache} label={label} error={rowInvalid(row)}
+          />
+        ) : (
           <Autocomplete
             // autoSelect commits a reference left in the field on blur, as for callsigns.
             multiple freeSolo autoSelect options={[] as string[]} value={row.values}
-            onChange={(_e, v) => set(exact ? referenceValues(v) : [...new Set(v.map((x) => x.trim()).filter(Boolean))])}
-            renderInput={(p) => <TextField {...p} label={label} placeholder={exact ? "US-2763, W4C/CM-001" : "US-NC, W4C/, US-0817"} error={rowInvalid(row)} />}
+            onChange={(_e, v) => set([...new Set(v.map((x) => x.trim()).filter(Boolean))])}
+            renderInput={(p) => <TextField {...p} label={label} placeholder="US-NC, W4C/, US-0817" error={rowInvalid(row)} />}
           />
         );
-      }
       case "island":
         return (
           <Autocomplete

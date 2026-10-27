@@ -435,6 +435,12 @@ verify_jwt = false
 [functions.reference-profile]
 verify_jwt = false
 
+# reference-search serves the Reference lookup page and the reference rule's
+# picker to signed-out browsers. It checks no caller identity, only the callsign
+# profile's per-IP rate limit (_shared/handlers/reference_search.ts).
+[functions.reference-search]
+verify_jwt = false
+
 # band-map serves the public band map to signed-out browsers. It checks no
 # caller identity; every visitor shares one 30-second cache in SQL
 # (_shared/handlers/band_map.ts).

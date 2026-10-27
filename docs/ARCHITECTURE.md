@@ -1335,6 +1335,50 @@ A reference profile is the public page of one POTA park, SOTA summit or WWFF ref
   upper-cased, at most 64 characters of letters, digits, `/` and `-`, so a comma-joined list is
   refused) and matched in `rule_matches`.
 
+## Reference lookup
+
+```mermaid
+flowchart LR
+  B[browser, signed in or not] -- "GET ?q=&program=" --> F[reference-search function]
+  F -- "record_profile_lookup (shared with profiles)" --> L[(lookup_rate_limits)]
+  F -- "search_references(query, program)" --> S[search_references]
+  S --> K[(reference_catalog)]
+  S --> D[(reference_days)]
+  S --> H[(hidden_callsigns)]
+```
+
+`/ref` finds a POTA park, SOTA summit or WWFF reference by its reference or its name, and the
+reference rule's picker suggests list entries from the same function (decisions 11 and 14 of the
+spec).
+
+- **One RPC.** `search_references(query, program)` (`20261027001400`) returns up to 25 list rows
+  and `more`. A search is every whitespace-separated word of the trimmed query, upper-cased, found
+  with `strpos` in the reference or the upper-cased name (never `like`, so `%` and `_` are
+  literal); 2 to 64 characters and at most 6 words, else null. A null program searches all three.
+  It reads only the catalog and `reference_days` (no live days). Activations are distinct
+  (base, day) pairs without hidden calls; retired rows and rows never activated are kept; the order
+  is activations, then reference. Its shape is `ReferenceSearch` in `web/src/references/types.ts`,
+  pinned by `supabase/tests/reference_search.test.sql`. Each row's header comes from
+  `reference_catalog_header(row)`, the same object `reference_profile` builds as `catalog` (pgTAP
+  compares the two), without latitude, longitude and validFrom.
+- **No new index.** The catalog (about 350,000 rows) is scanned once into a materialized CTE, and
+  each match counts its activations from its own range of `reference_days`' primary key, so no two
+  large sets are joined. On the real lists with 2,000,000 synthetic `reference_days` rows, `us`
+  (about 25,000 matches) took about 0.4 s and `an` (63,000) about 1 s; the adversarial `e a`
+  (210,000 matches) about 2.6 s, inside the 8 s statement timeout.
+- **The function.** `reference-search` (`_shared/handlers/reference_search.ts`) works like
+  `reference-profile`: `verify_jwt = false`, never imports `isServiceRole`, refuses a bad query or
+  program with a 400 before any database call, shares `lookupLimit`, never logs a query, and sends
+  `Cache-Control: public, max-age=300` on a 200. A failed RPC or a reply outside the schema is a
+  500 "Reference search is unavailable right now."
+- **The page.** `/ref` keeps `q` and `program` in the query string, makes one request per
+  submitted search, and with no query lists the Stats snapshot's most spotted references without
+  a request. `/ref/<program>/` with no reference redirects to `/ref`.
+- **The picker.** With `is` / `is_not`, the reference rule's values field searches as the user
+  types (300 ms debounce, at least 2 characters, answers cached for the editor's lifetime, a stale
+  answer never shown) in the one program among the sources or all three, and still accepts any
+  typed reference.
+
 ## Management API
 
 Scripts manage destinations, subscriptions and callsign groups through the `api` Edge Function with

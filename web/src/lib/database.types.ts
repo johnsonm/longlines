@@ -895,9 +895,9 @@ isOneToOne: true
                   ]
                 },"reference_catalog": {
                   Row: {
-                    "active": boolean,"altitude_m": number | null,"country": string | null,"grid": string | null,"latitude": number | null,"location": string | null,"longitude": number | null,"name": string | null,"points": number | null,"program": string,"reference": string,"region": string | null,"valid_from": string | null,"valid_to": string | null
+                    "active": boolean,"altitude_m": number | null,"country": string | null,"grid": string | null,"latitude": number | null,"location": string | null,"longitude": number | null,"name": string | null,"points": number | null,"program": string,"reference": string,"region": string | null,"valid_from": string | null,"valid_to": string | null,"reference_catalog_header": Json | null
                   }
-                  ComputedFields: never
+                  ComputedFields: "reference_catalog_header"
                   Insert: {
                     "active": boolean,"altitude_m"?: number | null,"country"?: string | null,"grid"?: string | null,"latitude"?: number | null,"location"?: string | null,"longitude"?: number | null,"name"?: string | null,"points"?: number | null,"program": string,"reference": string,"region"?: string | null,"valid_from"?: string | null,"valid_to"?: string | null
                   }
@@ -1767,6 +1767,9 @@ isOneToOne: true
 "record_sender_heartbeat":
 { Args: { "p_last_progress_at": string,"p_rss_bytes": number,"p_started_at": string }; Returns: undefined
                            },
+"reference_catalog_header":
+{ Args: { "c": Omit<Database["public"]['Tables']["reference_catalog"]['Row'], Database["public"]['Tables']["reference_catalog"]['ComputedFields']> }; Returns: Json
+                           },
 "reference_load_floor":
 { Args: { "p_program": string }; Returns: number
                            },
@@ -1860,6 +1863,9 @@ isOneToOne: true
 { Args: { "p_enabled": boolean,"p_headers": Json,"p_id": string,"p_name": string,"p_settings": Json,"p_url": string }; Returns: {
               "id": string,"signing_secret": string
             }[]
+                           },
+"search_references":
+{ Args: { "p_program": string,"p_query": string }; Returns: Json
                            },
 "send_test_account_limit":
 { Args: Record<PropertyKey, never>; Returns: number

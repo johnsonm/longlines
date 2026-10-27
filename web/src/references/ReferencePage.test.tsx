@@ -77,9 +77,9 @@ describe("ReferencePage URL", () => {
     expect(useReferenceProfile).toHaveBeenLastCalledWith("sota", "W4C/CM-001");
   });
 
-  it("sends a page without a reference to lookup", async () => {
+  it("sends a page without a reference to Reference lookup", async () => {
     const { where } = renderAt("/ref/pota/");
-    await waitFor(() => expect(where()).toHaveTextContent("/lookup"));
+    await waitFor(() => expect(where()).toHaveTextContent(/^\/ref$/));
   });
 
   it("answers a program without pages as not found, without asking", () => {

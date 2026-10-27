@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Destination, SubscriptionWithLinks } from "../lib/api";
 import {
   ANY_ISLAND, blankSub, CONTINENTS, fieldInfo, fieldsFor, hasPositiveRule, islandValues, linkedDestinations, namesStations, needsCallsign,
-  newRow, opLabel, parseKhz, pickableSource, picksStations, quietLabel, referenceValues, rowInvalid, rowsOf, ruleSummaries, rulesOf, singleSource, toInput,
+  newRow, opLabel, parseKhz, pickableSource, picksStations, quietLabel, referenceValues, rowInvalid, rowsOf, ruleSummaries, rulesOf, searchProgram, searchQuery, singleSource, toInput,
   usesIslandRule, withField, type Rule, type RuleOp, type RuleRow,
 } from "./model";
 
@@ -226,5 +226,26 @@ describe("labels and links", () => {
   it("resolves destinations in the subscription's order and drops missing ones", () => {
     const dests = [{ id: "d1", name: "A" }, { id: "d2", name: "B" }] as Destination[];
     expect(linkedDestinations(["d2", "gone", "d1"], dests).map((d) => d.name)).toEqual(["B", "A"]);
+  });
+});
+
+describe("reference search", () => {
+  it("searches the one program among the sources, else all of them", () => {
+    expect(searchProgram(["pota"])).toBe("pota");
+    expect(searchProgram(["sotawatch"])).toBe("sota");
+    expect(searchProgram(["wwff", "dxcluster", "wwbota"])).toBe("wwff");
+    expect(searchProgram(["pota", "sotawatch"])).toBeNull();
+    expect(searchProgram(["dxcluster"])).toBeNull();
+    expect(searchProgram([])).toBeNull();
+  });
+
+  it("takes 2 to 64 characters and at most six words, trimmed and with spaces collapsed", () => {
+    expect(searchQuery(" m ")).toBeNull();
+    expect(searchQuery("mi")).toBe("mi");
+    expect(searchQuery("  mount \t mitchell ")).toBe("mount mitchell");
+    expect(searchQuery("a b c d e f")).toBe("a b c d e f");
+    expect(searchQuery("a b c d e f g")).toBeNull();
+    expect(searchQuery("x".repeat(64))).toBe("x".repeat(64));
+    expect(searchQuery("x".repeat(65))).toBeNull();
   });
 });

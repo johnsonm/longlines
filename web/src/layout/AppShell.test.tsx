@@ -88,9 +88,21 @@ describe("AppShell", () => {
   it("lists the sections in order and keeps Callsign lookup highlighted on profiles", () => {
     renderPage(shell(), { route: "/call/KK4PWJ" });
     const labels = screen.getAllByRole("button").map((b) => b.textContent);
-    const order = ["Sources", "Connections", "Destinations", "Groups", "Band map", "Callsign lookup", "Stats", "API tokens"];
+    const order = ["Sources", "Connections", "Destinations", "Groups", "Band map", "Callsign lookup", "Reference lookup", "Stats", "API tokens"];
     expect(labels.filter((l) => order.includes(l ?? ""))).toEqual(order);
     expect(screen.getByRole("button", { name: "Callsign lookup" })).toHaveClass("Mui-selected");
+    expect(screen.getByRole("button", { name: "Reference lookup" })).not.toHaveClass("Mui-selected");
+  });
+
+  it("highlights Reference lookup on the lookup page and on every reference page, and opens it", async () => {
+    const { unmount } = renderPage(shell(), { route: "/ref" });
+    expect(screen.getByRole("button", { name: "Reference lookup" })).toHaveClass("Mui-selected");
+    unmount();
+    const { user } = renderPage(shell(), { route: "/ref/sota/W4C/CM-001" });
+    expect(screen.getByRole("button", { name: "Reference lookup" })).toHaveClass("Mui-selected");
+    expect(screen.getByRole("button", { name: "Callsign lookup" })).not.toHaveClass("Mui-selected");
+    await user.click(screen.getByRole("button", { name: "Reference lookup" }));
+    expect(screen.getByTestId("location")).toHaveTextContent(/^\/ref$/);
   });
 
   it("looks up a callsign from the app bar search box", async () => {
@@ -162,7 +174,7 @@ describe("AppShell", () => {
 describe("AppShell signed out", () => {
   const signedOut = { app: { session: null, profile: null } };
   const LOCKED = ["Sources", "Connections", "Destinations", "Groups", "API tokens"];
-  const OPEN = ["Band map", "Callsign lookup", "Stats", "Health"];
+  const OPEN = ["Band map", "Callsign lookup", "Reference lookup", "Stats", "Health"];
 
   it("shows every section, with the account ones disabled and explained", async () => {
     const { user } = renderPage(shell(), { route: "/stats", ...signedOut });

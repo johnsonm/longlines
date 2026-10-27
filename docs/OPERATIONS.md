@@ -1721,3 +1721,38 @@ Rolled-up days come from `reference_days`; a day rolled up before that table exi
 once the fill reaches it ("Filling reference_days for older days" above). Hiding a call
 (`hidden_callsigns`, "Hiding a profile" above) drops it from every reference page on the next
 load: a cache row built before the newest `hidden_at` is rebuilt.
+
+## Reference lookup (`/ref`) and the reference picker
+
+`20261027001400_reference_search` adds `search_references` and its helper
+`reference_catalog_header`. It builds no index and changes no table, so the push takes seconds.
+Push it and deploy the function before Vercel ships the web: until then `/ref` and the reference
+rule's picker say the search is unavailable (the picker still accepts typed references).
+
+```sh
+supabase migration list                        # 20261027001400 pending
+supabase db push
+supabase functions deploy reference-search     # new function: the GitHub integration skips it
+```
+
+Then check, in the SQL editor:
+
+```sql
+select search_references('mitchell', null) -> 'more';
+select search_references('x', null);                   -- null: under 2 characters
+```
+
+And from a shell:
+
+```sh
+curl -si "$SUPABASE_URL/functions/v1/reference-search?q=mitchell" | head -20
+curl -si "$SUPABASE_URL/functions/v1/reference-search?q=us&program=pota" | head -20
+```
+
+200 with `Cache-Control: public, max-age=300` and `{results, more}`; 400 `A search is 2 to 64
+characters, at most 6 words.` or `The program must be pota, sota or wwff.` before any database
+call; 429 past 30 lookups a minute from one client, counted with callsign profiles, group pages
+and reference pages; 500 `Reference search is unavailable right now.` when the RPC failed or its
+reply did not fit the schema (the function logs `reference-search:` with the error, never the
+query). Searches are not cached in the database; each one scans the catalog once (about 0.4 s for
+`us`). Until the relay's first reference list loads land, the search finds nothing.

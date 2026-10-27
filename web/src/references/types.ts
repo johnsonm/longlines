@@ -92,3 +92,28 @@ export type ReferenceSpot = {
   comment: string | null;
   source: string;
 };
+
+// One row of a reference search, as the reference-search Edge Function
+// returns it. It is built by search_references() in SQL, read by the function
+// with referenceSearchSchema (supabase/functions/_shared/handlers/reference_search.ts)
+// and pinned by supabase/tests/reference_search.test.sql; change all four together.
+// The catalog fields are reference_profile's `catalog`, derived the same way.
+export type ReferenceSearchResult = {
+  program: ReferenceProgram;
+  reference: string; // upper case, as stored
+  name: string | null;
+  active: boolean;
+  validTo: string | null; // YYYY-MM-DD
+  location: string | null; // POTA
+  association: string | null; // SOTA
+  region: string | null; // SOTA region / WWFF region, as ReferenceProfile.catalog
+  country: string | null; // WWFF
+  grid: string | null;
+  altitudeM: number | null; // SOTA
+  points: number | null; // SOTA
+  activations: number; // distinct (base, day) in reference_days, hidden calls excluded
+  lastDay: string | null; // YYYY-MM-DD
+};
+
+/** The first 25 matches, most activated first, then by reference; `more` when a 26th exists. */
+export type ReferenceSearch = { results: ReferenceSearchResult[]; more: boolean };

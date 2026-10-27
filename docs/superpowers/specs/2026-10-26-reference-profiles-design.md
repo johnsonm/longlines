@@ -129,7 +129,14 @@ Brad decided on 2026-10-26:
     (decision 8). The ops go in `normalize_subscription_rules`, `rule_matches`, `docs/openapi.yaml`
     and the rule builder, where a new reference row starts at `is`; the button prefills
     `reference is`. Values are typed as chips; PR 5 adds a catalog picker. *(Amended in PR 2
-    review; confirmed by Brad 2026-10-26.)*
+    review; confirmed by Brad 2026-10-26.)* *(As built in PR 5: with `is` / `is not` the values
+    field is an MUI Autocomplete (`subscriptions/ReferenceValuesField.tsx`) whose options come from
+    `searchReferences`, debounced 300 ms, at least 2 characters, cached per search for the editor's
+    lifetime, a late answer never replacing a newer one; it searches the one program among the
+    sources, else all three. Typed values still go in as chips, so WWBOTA, IOTA and unlisted
+    references work; a failed search never blocks typing. Point for Brad: the field keeps
+    autoSelect on blur, so a name such as "Mount Mitchell" typed and left without picking an
+    option becomes two chips, `MOUNT` and `MITCHELL`, both valid shapes, visible and deletable.)*
 
 ## Schema
 
@@ -258,7 +265,16 @@ Brad decided on 2026-10-26:
   returns `{results: [...], more: boolean}`, each result the catalog header plus activations and
   last day from `reference_days`. Words are matched with `strpos` on upper-cased text, not
   `like`, so `%` and `_` in a query are literal. No new index: a scan of the narrow catalog is
-  well inside the statement timeout, and the database is near its disk threshold.
+  well inside the statement timeout, and the database is near its disk threshold. *(As built:
+  `20261027001400`. A null program searches all three; another program, or a query that is not 2
+  to 64 characters after trimming or has more than 6 words, returns null. Activations are distinct
+  (base, day) pairs without hidden calls; retired and never-activated rows are kept; the order is
+  activations, then reference, the first 25 and `more`. The header is
+  `reference_catalog_header(row)`, the object `reference_profile` builds inline as `catalog`
+  (pgTAP compares them), without latitude, longitude and validFrom. It reads only the catalog,
+  `reference_days` and `hidden_callsigns`: one catalog scan, then each match's own range of
+  `reference_days`' primary key. On the real lists (350,553 rows) with 2,000,000 synthetic
+  `reference_days` rows: `us` 0.4 s, `an` 1.1 s, the adversarial `e a` (210,000 matches) 2.6 s.)*
 - `reference_profile_cache` and `cached_reference_profile(program, reference)`: 15 minutes,
   single-flight under an advisory lock, as `cached_callsign_profile`. `prune_callsign_lookups`
   also deletes expired rows. *(As built: a null result is never cached, and a row built before the
@@ -300,6 +316,10 @@ Brad decided on 2026-10-26:
 - `reference-search` (PR 5): GET `?q=&program=`, the same rules as `reference-profile` (no
   `isServiceRole`, `lookupLimit`, a Zod schema for `search_references`' reply). A query is 2 to
   64 characters after trimming, at most 6 words; anything else is a 400. Never logs a query.
+  *(As built: the 400s are `A search is 2 to 64 characters, at most 6 words.` and `The program
+  must be pota, sota or wwff.` (an absent or empty program searches all three), both before any
+  database call; a failed RPC or a reply outside the schema is a 500 "Reference search is
+  unavailable right now."; `Cache-Control: public, max-age=300` on a 200.)*
 
 ## Relay
 
@@ -325,7 +345,13 @@ files from a local server, as the license tests do.
   `ReferenceHeatMap` both use. The page redirects to the lower-case program and upper-case
   reference before it asks the function; a program without pages shows Not found without a
   request, and `/ref/<program>/` with no reference goes to `/lookup` until PR 5 adds `/ref`.
-  `referencePath` in `references/paths.ts` builds every reference link.)*
+  `referencePath` in `references/paths.ts` builds every reference link. PR 5: `/ref/<program>/`
+  goes to `/ref`. The lookup page keeps the submitted query and program in the URL
+  (`/ref?q=mitchell&program=sota`), so Back and a shared link show the same search, and asks once
+  per search through `useReferenceSearch`, which keeps each (query, program) for the function's
+  five minutes. A query outside the bounds is refused in the page without a request, with the
+  function's 400 message. The nav item's id is the `ref` section, so it is highlighted on `/ref`
+  and every reference page.)*
 - Every reference shown in the app links to its page: the callsign profile's "Where they've been
   spotted" table, Stats "Most spotted parks, summits and WWFF references", group statistics "Most
   activated places" and the band map's crowd menu. Every callsign on the reference page links to
@@ -363,7 +389,7 @@ files from a local server, as the license tests do.
    reference links across the app, `database.types.ts`, CLAUDE.md "Reference profile rules".
    Deploy: `db push`, deploy `reference-profile`; Vercel ships the web.
 5. **Reference lookup** (`reference-lookup`): `search_references`, `reference-search`, the `/ref`
-   page and its nav item. Deploy: `db push`, deploy `reference-search`; Vercel ships the web.
+   page and its nav item, the reference rule's catalog picker, `database.types.ts`. Deploy: `db push`, deploy `reference-search`; Vercel ships the web.
 6. **Previews and the delivery field** (`reference-previews`): `web/api/ref-preview.ts`, the
    rewrite, `reference_url` for webhooks and Discord with editor and doc changes. Deploy: `db
    push`; Vercel ships the web and the function; the sender needs nothing (SQL renders the field).
@@ -494,6 +520,22 @@ Not on the canvas; written for PR 4 (decision 14), Brad to confirm the wording.
   locations, SOTA summit codes, WWFF references, WWBOTA bunkers and IOTA islands.` and placeholder
   `US-NC, W4C/, US-0817`.
 
+### Reference picker (PR 5)
+
+Not on the canvas; written for PR 5 (decision 14), Brad to confirm the wording.
+
+- With `is` or `is not`, the reference rule's values field searches the POTA, SOTA and WWFF lists as
+  you type (2 characters or more): only the program of the connection's source when it has exactly
+  one of POTA, SOTAwatch and WWFF, else all three. Each option shows the reference, its program
+  chip, the name, and a `Retired` chip when retired; choosing one adds the reference as a chip.
+  Enter still adds whatever is typed, in or out of the lists (WWBOTA, IOTA, unlisted), a typed list
+  split on commas and spaces into one chip each, and the reference shape check still applies.
+- Placeholder `US-2763 or Mount Mitchell` (replaces `US-2763, W4C/CM-001`); helper text unchanged.
+- While searching: `Searching the lists…`
+- No options: `Not in the POTA, SOTA or WWFF lists. Press Enter to add it anyway.`
+- Search failed: `Search is unavailable. Press Enter to add a reference.`
+- With `contains` or `does not contain`, unchanged: no search.
+
 ### Reference lookup (`/ref`)
 
 - Nav item `Reference lookup`, after `Callsign lookup`, open signed out.
@@ -513,6 +555,13 @@ Not on the canvas; written for PR 4 (decision 14), Brad to confirm the wording.
 - No results: `No parks, summits or WWFF references match "{query}".`
 - No query: `Most spotted this week` / `Parks, summits and WWFF references`, the first five of the
   Stats `topReferences` with their spots, and a `More on the Stats page` link.
+- *Added in PR 5, Brad to confirm:* a query outside 2 to 64 characters or over 6 words is refused
+  under the field with the function's 400 message, `A search is 2 to 64 characters, at most 6
+  words.`; a failed search shows the function's message (the profile's `Too many lookups. Try
+  again in a minute.`, `Reference search is unavailable right now.`), or `Couldn't search the
+  reference lists.` when there is none. `{n}` in the results title is the rows shown, at most 25.
+  The SOTA detail line shows the region as the list spells it (`NC-Central Mountains`), as the
+  reference page's chip does; the canvas drew `Central Mountains`.
 
 ### Link previews
 
