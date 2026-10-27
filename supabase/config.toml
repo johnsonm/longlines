@@ -470,6 +470,11 @@ verify_jwt = false
 [functions.load-licenses]
 verify_jwt = false
 
+# load-references is called by the same relay with the same secret for the weekly
+# POTA, SOTA and WWFF reference list loads (_shared/handlers/load_references.ts).
+[functions.load-references]
+verify_jwt = false
+
 # relay-status is the same relay's once-a-minute heartbeat for the Health page,
 # with the same secret (_shared/handlers/relay_status.ts).
 [functions.relay-status]

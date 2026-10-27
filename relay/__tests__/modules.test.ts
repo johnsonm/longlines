@@ -4,7 +4,7 @@ import {
   FunctionCallError,
   ValidationError,
 } from "../../supabase/functions/_shared/errors.ts";
-import { FCC_AMATEUR_ZIP, loadConfig } from "../config.ts";
+import { CATALOG_URLS, FCC_AMATEUR_ZIP, loadConfig } from "../config.ts";
 import {
   APRS_DEFAULT_HOST,
   APRS_DEFAULT_PORT,
@@ -49,6 +49,7 @@ Deno.test("loadConfig reads the environment and normalises values", function ():
     loginCall: "KK4PWJ",
     healthPort: 8080,
     licenseZipUrl: FCC_AMATEUR_ZIP,
+    catalogUrls: CATALOG_URLS,
   });
 });
 
@@ -108,6 +109,31 @@ Deno.test("loadConfig turns the license load off, off locally, or points it at a
     ConfigError,
     "RELAY_LICENSES must be off or a URL",
   );
+});
+
+Deno.test("loadConfig turns the reference list load on or off, off locally", function (): void {
+  assertEquals(loadConfig(env(withValues(BASE, { RELAY_CATALOGS: " OFF " }))).catalogUrls, null);
+  assertEquals(
+    loadConfig(env(withValues(BASE, { RELAY_CATALOGS: "on" }))).catalogUrls,
+    CATALOG_URLS,
+  );
+  // Local functions: off unless RELAY_CATALOGS asks for the lists.
+  const local = withValues(BASE, {
+    LONGLINES_FUNCTIONS_URL: "http://127.0.0.1:54321/functions/v1",
+  });
+  assertEquals(loadConfig(env(local)).catalogUrls, null);
+  assertEquals(
+    loadConfig(env(withValues(local, { RELAY_CATALOGS: "on" }))).catalogUrls,
+    CATALOG_URLS,
+  );
+  assertThrows(
+    () => loadConfig(env(withValues(BASE, { RELAY_CATALOGS: "yes" }))),
+    ConfigError,
+    "RELAY_CATALOGS must be on or off",
+  );
+  for (const url of Object.values(CATALOG_URLS)) {
+    assertEquals(url.startsWith("https://"), true, url);
+  }
 });
 
 Deno.test("the Docker image allows every environment variable the relay reads", function (): void {

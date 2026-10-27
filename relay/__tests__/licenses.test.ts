@@ -569,6 +569,7 @@ Deno.test(
         loginCall: "N0CALL",
         healthPort: 0,
         licenseZipUrl: url,
+        catalogUrls: null,
       },
       [],
       {

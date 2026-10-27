@@ -14,6 +14,14 @@ import {
   type UlsKind,
   type UlsRow,
 } from "./uls.ts";
+import {
+  type ReferenceCatalogRow,
+  type ReferenceFinishState,
+  referenceFinishStateSchema,
+  type ReferenceLoadStatus,
+  referenceLoadStatusSchema,
+  type ReferenceProgram,
+} from "./reference_catalog.ts";
 import { sourceSchema } from "./types.ts";
 import type {
   AprsDb,
@@ -32,6 +40,7 @@ import type {
   NormalizedSpot,
   RbnDb,
   RbnSpotRow,
+  ReferenceDb,
   RepointTarget,
   Source,
   SpotFailure,
@@ -70,7 +79,8 @@ const callsignsSchema: z.ZodType<Array<string | null> | null> = z
 // fcc_license_load_status: returns the newest load as jsonb, or null before the first.
 const loadStatusSchema: z.ZodType<LicenseLoad | null> = licenseLoadSchema.nullable();
 
-// fcc_license_load_begin returns bigint, fcc_license_load_rows integer.
+// fcc_license_load_begin and begin_reference_load return bigint, fcc_license_load_rows and
+// stage_reference_rows integer.
 const loadNumberSchema: z.ZodType<number> = z.number();
 
 // archive_pending_slices: returns table (slice_start timestamptz, slice_end timestamptz).
@@ -298,6 +308,49 @@ export function createLicenseDb(client: SupabaseClient): LicenseDb {
     },
     async abandonLoad(load: number, error: string): Promise<void> {
       await call("fcc_license_load_abandon", { p_load: load, p_error: error });
+    },
+  };
+}
+
+/** ReferenceDb over the reference list load RPCs (20261026001100). */
+export function createReferenceDb(client: SupabaseClient): ReferenceDb {
+  /** Calls the RPC and returns its result unvalidated; throws when the call fails. */
+  async function call(fn: string, args: Record<string, unknown> | undefined): Promise<unknown> {
+    const result = await client.rpc(fn, args);
+    if (result.error !== null) {
+      throw callFailed(fn, result.error, result.status);
+    }
+    const data: unknown = result.data;
+    return data;
+  }
+  return {
+    async loadStatus(): Promise<ReferenceLoadStatus> {
+      const data = await call("reference_load_status", undefined);
+      return parseWith(
+        referenceLoadStatusSchema,
+        data,
+        "loadStatus: reference_load_status result",
+      );
+    },
+    async beginLoad(program: ReferenceProgram, version: string): Promise<number> {
+      const data = await call("begin_reference_load", { p_program: program, p_version: version });
+      return parseWith(loadNumberSchema, data, "beginLoad: begin_reference_load result");
+    },
+    async stageRows(load: number, rows: ReferenceCatalogRow[]): Promise<number> {
+      const data = await call("stage_reference_rows", { p_load: load, p_rows: rows });
+      return parseWith(loadNumberSchema, data, "stageRows: stage_reference_rows result");
+    },
+    async finishLoad(load: number, rows: number): Promise<ReferenceFinishState> {
+      const data = await call("finish_reference_load", { p_load: load, p_rows: rows });
+      return parseWith(
+        referenceFinishStateSchema,
+        data,
+        "finishLoad: finish_reference_load result",
+      );
+    },
+    // Returns void, so there is no result to read.
+    async abandonLoad(load: number, error: string): Promise<void> {
+      await call("abandon_reference_load", { p_load: load, p_error: error });
     },
   };
 }

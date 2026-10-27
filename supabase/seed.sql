@@ -14,7 +14,10 @@
 -- Shapes, not real volumes: about 450 POTA, 70 SOTA and 80 WWFF activations a day with
 -- weekend bumps and a daily cycle, and about 55,000 RBN spots a day (the real
 -- feed is ~1.5M; this keeps a preview branch small). The pgTAP suites clear
--- the tables they count, so they pass with or without this data.
+-- the tables they count, so they pass with or without this data. The reference
+-- lists (reference_catalog) hold the seeded parks, summits and WWFF references
+-- as a weekly load would leave them, minus one in fifty, so a reference page
+-- can show both a listed and an unlisted reference.
 --
 -- One DO block on purpose: Supabase branching sends the seed file as a single
 -- prepared batch, so a temp table created by one statement does not exist yet
@@ -244,6 +247,61 @@ from seed_days d,
      lateral (select d.day_start + make_interval(secs => ((10 + g % 4) * 3600 + s * 500 + g * 11)::int) as spot_time) as t
 where t.spot_time < now() - interval '5 minutes';
 
+-- Reference lists ---------------------------------------------------------------
+
+-- What apply_reference_loads would leave (a seed is far below the load floor, so it writes the
+-- table directly): every seeded reference but one in fifty, one in twenty-five retired, with
+-- made-up coordinates and the six-character locator the parser gives them.
+create function pg_temp.seed_hash(t text, n int) returns int language sql immutable as $$
+  select mod(hashtext(t)::bigint + 2147483648, n)::int;
+$$;
+
+create function pg_temp.seed_grid(lat numeric, lon numeric) returns text language sql immutable as $$
+  select chr(65 + floor((lon + 180) / 20)::int) || chr(65 + floor((lat + 90) / 10)::int)
+         || floor(mod(lon + 180, 20) / 2)::int || floor(mod(lat + 90, 10))::int
+         || chr(97 + floor(mod(lon + 180, 2) * 12)::int) || chr(97 + floor(mod(lat + 90, 1) * 24)::int);
+$$;
+
+insert into reference_catalog (program, reference, name, active, location, latitude, longitude, grid)
+select 'pota', p.reference, p.name, p.i % 25 <> 3, p.location, c.lat, c.lon, pg_temp.seed_grid(c.lat, c.lon)
+from seed_parks p,
+     lateral (select round(30 + pg_temp.seed_hash(p.reference, 1800) / 100.0, 4) as lat,
+                     round(-122 + pg_temp.seed_hash(p.reference || 'lon', 4700) / 100.0, 4) as lon) as c
+where p.i % 50 <> 7;
+
+insert into reference_catalog (program, reference, name, active, region, latitude, longitude, grid, altitude_m, points,
+                               valid_from, valid_to)
+select 'sota', s.ref, 'Seed Peak ' || split_part(s.ref, '-', 2), s.h % 25 <> 3,
+       split_part(s.ref, '/', 1) || ', ' || split_part(split_part(s.ref, '/', 2), '-', 1) || ' Seed Region',
+       c.lat, c.lon, pg_temp.seed_grid(c.lat, c.lon), 300 + s.h % 3500, 1 + s.h % 10,
+       date '2010-07-01', case when s.h % 25 = 3 then date '2019-12-31' end
+from (select r.ref, pg_temp.seed_hash(r.ref, 1000000) as h
+      from (select distinct sota_summit_ref as ref from raw_spots
+            where source = 'sotawatch' and source_spot_id like 'seed-%') r) s,
+     lateral (select round(-40 + pg_temp.seed_hash(s.ref, 9000) / 100.0, 4) as lat,
+                     round(-120 + pg_temp.seed_hash(s.ref || 'lon', 27000) / 100.0, 4) as lon) as c
+where s.h % 50 <> 7;
+
+insert into reference_catalog (program, reference, name, active, region, country, latitude, longitude, grid,
+                               valid_from, valid_to)
+select 'wwff', w.ref, w.name, w.h % 25 <> 3, w.region,
+       case split_part(w.ref, '-', 1) when 'KFF' then 'United States' when 'ONFF' then 'Belgium'
+            when 'DLFF' then 'Germany' when 'GFF' then 'England' when 'OKFF' then 'Czech Republic'
+            when 'SPFF' then 'Poland' when 'FFF' then 'France' when 'IFF' then 'Italy' end,
+       c.lat, c.lon, pg_temp.seed_grid(c.lat, c.lon),
+       date '2012-01-01', case when w.h % 25 = 3 then date '2021-06-30' end
+from (select x.wwff_reference as ref, min(x.wwff_reference_name) as name,
+             min(substr(p.location, 4, 2)) as region, pg_temp.seed_hash(x.wwff_reference, 1000000) as h
+      from raw_spots x
+      left join seed_parks p on p.reference like 'US-%' and x.wwff_reference = 'KFF-' || substr(p.reference, 4)
+      where x.source = 'wwff' and x.source_spot_id like 'seed-%'
+      group by x.wwff_reference) w,
+     lateral (select case when w.ref like 'KFF-%' then round(30 + pg_temp.seed_hash(w.ref, 1800) / 100.0, 4)
+                          else round(42 + pg_temp.seed_hash(w.ref, 1200) / 100.0, 4) end as lat,
+                     case when w.ref like 'KFF-%' then round(-122 + pg_temp.seed_hash(w.ref || 'lon', 4700) / 100.0, 4)
+                          else round(-5 + pg_temp.seed_hash(w.ref || 'lon', 3000) / 100.0, 4) end as lon) as c
+where w.h % 50 <> 7;
+
 -- RBN -------------------------------------------------------------------------
 
 -- About 55,000 spots a day from 260 skimmers hearing 9,000 stations, busiest in
@@ -317,7 +375,8 @@ perform public.refresh_stats_snapshot_at(now());
 drop table seed_days, seed_states, seed_parks, seed_pota_activations, seed_pota_spots,
            seed_associations, seed_sota_activations;
 drop function pg_temp.seed_call(int, text[]), pg_temp.gauss(int), pg_temp.skewed(int, double precision, int),
-              pg_temp.family(text), pg_temp.freq(text, text, int);
+              pg_temp.family(text), pg_temp.freq(text, text, int), pg_temp.seed_hash(text, int),
+              pg_temp.seed_grid(numeric, numeric);
 
 end
 $seed$;
