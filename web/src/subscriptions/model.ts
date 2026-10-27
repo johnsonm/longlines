@@ -1,6 +1,9 @@
 import type { Destination, SubscriptionInput, SubscriptionWithLinks } from "../lib/api";
 import { splitCallsigns } from "../groups/parse";
 import type { CallsignGroup } from "../groups/types";
+import { sourceProgram } from "../references/paths";
+import { searchWords, validSearch } from "../references/search";
+import type { ReferenceProgram, ReferenceSearchResult } from "../references/types";
 import { LIVE_SOURCES, modeLabel, SOURCES, type SourceInfo } from "../sources/sources";
 
 export type RuleField = "callsign" | "group" | "band" | "mode" | "reference" | "frequency" | "island";
@@ -132,6 +135,39 @@ export function parseKhz(text: string): number | null {
  */
 export function referenceValues(values: string[]): string[] {
   return [...new Set(values.flatMap((v) => splitCallsigns(v.toUpperCase())))];
+}
+
+/**
+ * The list the reference picker searches: the one program among the connection's sources (SOTAwatch's
+ * is SOTA), or null for all of them when the sources name none or several.
+ */
+export function searchProgram(sources: string[]): ReferenceProgram | null {
+  const programs = [...new Set(sources.map(sourceProgram).filter((p) => p !== null))];
+  return programs.length === 1 ? programs[0]! : null;
+}
+
+/**
+ * The picker's search for what is typed, its words joined by single spaces; null when the
+ * reference-search function would refuse it (validSearch), so it is never sent.
+ */
+export function searchQuery(input: string): string | null {
+  const query = searchWords(input).join(" ");
+  return validSearch(query) ? query : null;
+}
+
+/** Searches already answered, kept for as long as the editor is open; shared by its reference rows. */
+export interface ReferenceSearchCache {
+  /** By searchKey: the results of a finished search. */
+  results: Map<string, ReferenceSearchResult[]>;
+  /**
+   * By searchKey: searches sent and not answered yet, so the same search is never sent twice at once.
+   * Every field showing that search waits on the one promise, so each learns when it answers or fails.
+   */
+  pending: Map<string, Promise<ReferenceSearchResult[]>>;
+}
+
+export function newReferenceSearchCache(): ReferenceSearchCache {
+  return { results: new Map(), pending: new Map() };
 }
 
 /** An exact reference's shape, as normalize_subscription_rules and reference_profile take it. */

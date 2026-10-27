@@ -225,6 +225,7 @@ Deno.test("no verify_jwt = false function imports isServiceRole", function (): v
       "group-page",
       "load-references",
       "reference-profile",
+      "reference-search",
     ]
   ) {
     assertEquals(open.includes(fn), true, `config.toml lists ${fn} with verify_jwt = false`);

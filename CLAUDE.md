@@ -632,7 +632,8 @@ The delivery side (retries, pause, attempts, rendering, Vault) is in "Delivery r
 ## Reference profile rules
 
 The design is `docs/superpowers/specs/2026-10-26-reference-profiles-design.md` (Brad's reference
-profile canvas); its Copy section ("Reference page") is the copy source for `/ref/*`.
+profile canvas); its Copy section ("Reference page", "Reference lookup (`/ref`)", "Reference
+picker (PR 5)") is the copy source for `/ref`, `/ref/*` and the reference rule's picker.
 
 - `reference_profile(program, reference)` builds the whole page in SQL. Its shape is
   `ReferenceProfile` in `web/src/references/types.ts`, read by `referenceProfileSchema`
@@ -667,6 +668,32 @@ profile canvas); its Copy section ("Reference page") is the copy source for `/re
   (program lower case, reference upper case) before it asks the function. The heat map shares
   `profile/HeatMapCard.tsx` and `profile/calendar.ts` with the callsign profile and its
   per-period shading; never fork the grid.
+- `search_references(query, program)` (`20261027001500`) is the Reference lookup's search: every
+  whitespace-separated word of the trimmed query, upper-cased, found with `strpos` (never `like`, so
+  `%` and `_` are literal) in the reference or the upper-cased list name; 2 to 64 characters, at
+  most 6 words, else null. It reads only `reference_catalog` and `reference_days` (no live days),
+  counts activations as distinct (base, day) with hidden calls left out, keeps retired and
+  never-activated rows, and returns the first 25 by activations then reference, with `more`. No new
+  index: the catalog is scanned once; with few matches each reads its own primary-key range, with
+  many (past a twentieth of `reference_days`' `reltuples`) one grouped pass over the primary key
+  serves them all. `search_references_at(query, program, grouped_from)` is the body (the pgTAP test
+  runs both ways and requires the same payload); keep the two arms' counts identical. Its header is
+  `reference_catalog_header(row)`, which must equal `reference_profile`'s inline `catalog` (pgTAP
+  compares them); change the two together. Its shape is `ReferenceSearch` in
+  `web/src/references/types.ts`, read by `referenceSearchSchema`
+  (`_shared/handlers/reference_search.ts`) and pinned by `supabase/tests/reference_search.test.sql`.
+- `reference-search` is `verify_jwt = false` and never imports `isServiceRole`. It refuses a bad
+  query or program with a 400 before any database call, shares `lookupLimit`, never logs a query,
+  and sends `Cache-Control: public, max-age=300` only on a 200.
+- `/ref` (public, nav item Reference lookup after Callsign lookup, highlighted on `/ref` and every
+  `/ref/*` page) keeps `q` and `program` in the query string and makes one request per submitted
+  search, never per keystroke; with no query it shows the Stats snapshot's `topReferences` through
+  `useStats()`, with no new request. `/ref/<program>/` without a reference goes to `/ref`.
+- The reference rule's picker (`subscriptions/ReferenceValuesField.tsx`, `is` / `is_not` only)
+  only suggests list entries from `searchReferences` (debounced, cached for the editor's lifetime,
+  a stale answer never shown, a search in flight shared by every row through `cache.pending`); any
+  typed value still goes in, checked by the shape check, except that Enter on several words the
+  lists match waits for an option. It never evaluates rules or tests a spot.
 
 ## Band map rules
 
@@ -804,7 +831,9 @@ page" canvas); its Copy section is the copy source for `/health`.
   `reference_catalog`; `contains` values stay as typed, so stored connections keep saving. Never
   make `contains` exact or drop it: partial text (`US-NC`, `KFF-`) is what it is for. A new
   reference row in the builder starts at `is`, and a reference page's Get alerts prefills
-  `reference is` (`/connections/new?source=&reference=`).
+  `reference is` (`/connections/new?source=&reference=`). With `is` / `is_not` the values field is
+  the catalog picker (see "Reference profile rules"), which searches the one program among the
+  sources (SOTAwatch's is SOTA) or all three; `contains` keeps the plain chip field.
 - `normalize_subscription_rules` is the only validator and normaliser; `save_subscription` and
   `preview_subscription` both go through it. `group_ids` is derived from the rules (every group
   named, `is` or `is_not`) and written only by `save_subscription`; never set it elsewhere.

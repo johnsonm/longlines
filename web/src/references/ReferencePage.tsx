@@ -40,7 +40,7 @@ export function ReferencePage({ signedIn }: { signedIn: boolean }) {
   const program = params.program ?? "";
   const raw = params["*"] ?? "";
   const reference = raw.replace(/^\/+|\/+$/g, "").toUpperCase();
-  if (!reference) return <Navigate to="/lookup" replace />;
+  if (!reference) return <Navigate to="/ref" replace />;
   const known = referenceProgram(program);
   const path = known && referencePath(known, reference);
   // A program without pages, or a reference the router can't hold, is no page; neither costs a request.

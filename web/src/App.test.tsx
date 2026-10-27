@@ -73,6 +73,7 @@ vi.mock("./stats/StatsPage", () => ({ StatsPage: () => <p>stats page</p> }));
 vi.mock("./health/HealthPage", () => ({ HealthPage: () => <p>health page</p> }));
 vi.mock("./account/AccountPage", () => ({ AccountPage: () => <p>account page</p> }));
 vi.mock("./profile/LookupPage", () => ({ LookupPage: () => <p>lookup page</p> }));
+vi.mock("./references/ReferenceLookupPage", () => ({ ReferenceLookupPage: () => <p>reference lookup page</p> }));
 vi.mock("./references/ReferencePage", async () => {
   const { useParams } = await import("react-router");
   return {
@@ -229,6 +230,19 @@ describe("App routing", () => {
     session(null);
     renderAt("/call/KK4PWJ/P");
     expect(await screen.findByText("callsign page UTC signed out")).toBeInTheDocument();
+  });
+
+  it("serves Reference lookup signed out, and inside the app when signed in", async () => {
+    session(null);
+    const { unmount } = renderAt("/ref");
+    expect(await screen.findByText("reference lookup page")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sign in" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reference lookup" })).toHaveClass("Mui-selected");
+    unmount();
+    session(SESSION);
+    renderAt("/ref");
+    expect(await screen.findByText("reference lookup page")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Sign in" })).not.toBeInTheDocument();
   });
 
   it("serves a reference page signed out, and signed in with its alerts", async () => {

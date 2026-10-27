@@ -29,6 +29,7 @@ import { ApiTokensPage } from "./tokens/ApiTokensPage";
 import { AccountPage } from "./account/AccountPage";
 import { LookupPage } from "./profile/LookupPage";
 import { CallsignPage } from "./profile/CallsignPage";
+import { ReferenceLookupPage } from "./references/ReferenceLookupPage";
 import { ReferencePage } from "./references/ReferencePage";
 import { loadDestinations, loadSubscriptions, signOut, type Destination, type SubscriptionWithLinks } from "./lib/api";
 import type { TimePrefs } from "./lib/time";
@@ -84,6 +85,7 @@ function Router() {
       <Route path="/health" element={<PublicRoute page="health" />} />
       <Route path="/lookup" element={<PublicRoute page="lookup" />} />
       <Route path="/call/*" element={<PublicRoute page="call" />} />
+      <Route path="/ref" element={<PublicRoute page="ref-lookup" />} />
       <Route path="/ref/:program/*" element={<PublicRoute page="ref" />} />
       <Route path="/g/:slug" element={<PublicRoute page="group-public" />} />
       <Route path="/account" element={<RequireAuth page="account" />} />
@@ -111,8 +113,8 @@ function PublicOnly({ children }: { children: ReactNode }) {
   return children;
 }
 
-type Page = "home" | "sources" | "source" | "band-map" | "subscriptions" | "subscription-new" | "subscription" | "groups" | "group" | "group-settings" | "destinations" | "destination-new" | "destination" | "stats" | "health" | "lookup" | "call" | "ref" | "account" | "api-tokens" | "group-public";
-type PublicPage = "band-map" | "stats" | "health" | "lookup" | "call" | "ref" | "group-public";
+type Page = "home" | "sources" | "source" | "band-map" | "subscriptions" | "subscription-new" | "subscription" | "groups" | "group" | "group-settings" | "destinations" | "destination-new" | "destination" | "stats" | "health" | "lookup" | "call" | "ref-lookup" | "ref" | "account" | "api-tokens" | "group-public";
+type PublicPage = "band-map" | "stats" | "health" | "lookup" | "call" | "ref-lookup" | "ref" | "group-public";
 
 // Signed-out visitors read profiles in UTC.
 const UTC: TimePrefs = { utcTimes: true, timezone: "UTC" };
@@ -129,6 +131,7 @@ function PublicRoute({ page }: { page: PublicPage }) {
       {page === "health" && <HealthPage />}
       {page === "lookup" && <LookupPage />}
       {page === "call" && <CallsignPage prefs={UTC} />}
+      {page === "ref-lookup" && <ReferenceLookupPage />}
       {page === "ref" && <ReferencePage signedIn={false} />}
       {page === "group-public" && <PublicGroupRoute />}
     </AppShell>
@@ -291,6 +294,7 @@ function SignedIn({ page }: { page: Page }) {
       {page === "health" && <HealthPage />}
       {page === "lookup" && <LookupPage />}
       {page === "call" && <CallsignPage prefs={prefs} signedIn />}
+      {page === "ref-lookup" && <ReferenceLookupPage />}
       {page === "ref" && <ReferencePage signedIn />}
       {page === "account" && <AccountPage profile={profile} />}
       {page === "api-tokens" && <ApiTokensPage />}

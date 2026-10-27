@@ -1335,6 +1335,60 @@ A reference profile is the public page of one POTA park, SOTA summit or WWFF ref
   upper-cased, at most 64 characters of letters, digits, `/` and `-`, so a comma-joined list is
   refused) and matched in `rule_matches`.
 
+## Reference lookup
+
+```mermaid
+flowchart LR
+  B[browser, signed in or not] -- "GET ?q=&program=" --> F[reference-search function]
+  F -- "record_profile_lookup (shared with profiles)" --> L[(lookup_rate_limits)]
+  F -- "search_references(query, program)" --> S[search_references]
+  S --> K[(reference_catalog)]
+  S --> D[(reference_days)]
+  S --> H[(hidden_callsigns)]
+```
+
+`/ref` finds a POTA park, SOTA summit or WWFF reference by its reference or its name, and the
+reference rule's picker suggests list entries from the same function (decisions 11 and 14 of the
+spec).
+
+- **One RPC.** `search_references(query, program)` (`20261027001500`) returns up to 25 list rows
+  and `more`. A search is every whitespace-separated word of the trimmed query, upper-cased, found
+  with `strpos` in the reference or the upper-cased name (never `like`, so `%` and `_` are
+  literal); 2 to 64 characters and at most 6 words, else null. A null program searches all three.
+  It reads only the catalog and `reference_days` (no live days). Activations are distinct
+  (base, day) pairs without hidden calls; retired rows and rows never activated are kept; the order
+  is activations, then reference. Its shape is `ReferenceSearch` in `web/src/references/types.ts`,
+  pinned by `supabase/tests/reference_search.test.sql`. Each row's header comes from
+  `reference_catalog_header(row)`, the same object `reference_profile` builds as `catalog` (pgTAP
+  compares the two), without latitude, longitude and validFrom.
+- **No new index.** The catalog (about 350,000 rows) is scanned once into a materialized CTE
+  (`offset 0` keeps the upper-cased text built once a row, not once a word). The activations then
+  come one of two ways, whichever reads less: with few matches, each counts its own range of
+  `reference_days`' primary key (about 9 us a match); with many, one grouped pass over the whole
+  primary key, in its order, is joined to the matches (about 0.4 us a row). `search_references`
+  switches once the matches pass a twentieth of `reference_days`' `reltuples`, where the two cost
+  about the same; `search_references_at(query, program, grouped_from)` is the body, and pgTAP runs
+  both ways and requires the same payload. A query can match the whole catalog: every POTA, SOTA
+  and WWFF reference holds a `-`, so `- -` (3 characters, 2 words) is a valid search for every row.
+  Measured on the real lists (350,553 rows) with 2,000,000 synthetic `reference_days` rows (90,000
+  references activated) after a vacuum: `mitchell` 0.2 s, `us` (25,000 matches) 0.4 s, `an`
+  (63,000) 0.8 s, `e a` (210,000) 0.9 s, and `- -` or `-0` (every row) 1.0 to 1.1 s, the worst
+  case. One probe a match had cost 3.8 s for `- -`. The worst case grows with `reference_days`, at
+  about 0.4 s a million rows, so at about 15,000,000 rows it would near the 8 s statement timeout;
+  a per-reference summary maintained by the roll-up is the step after that.
+- **The function.** `reference-search` (`_shared/handlers/reference_search.ts`) works like
+  `reference-profile`: `verify_jwt = false`, never imports `isServiceRole`, refuses a bad query or
+  program with a 400 before any database call, shares `lookupLimit`, never logs a query, and sends
+  `Cache-Control: public, max-age=300` on a 200. A failed RPC or a reply outside the schema is a
+  500 "Reference search is unavailable right now."
+- **The page.** `/ref` keeps `q` and `program` in the query string, makes one request per
+  submitted search, and with no query lists the Stats snapshot's most spotted references without
+  a request. `/ref/<program>/` with no reference redirects to `/ref`.
+- **The picker.** With `is` / `is_not`, the reference rule's values field searches as the user
+  types (300 ms debounce, at least 2 characters, answers cached for the editor's lifetime, a stale
+  answer never shown) in the one program among the sources or all three, and still accepts any
+  typed reference.
+
 ## Management API
 
 Scripts manage destinations, subscriptions and callsign groups through the `api` Edge Function with

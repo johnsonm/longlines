@@ -5,7 +5,7 @@ import { supabase, SUPABASE_ANON_KEY, SUPABASE_URL } from "../supabase";
 import type { Database, Json } from "./database.types";
 import type { LatestStats, StatsPayload } from "../stats/types";
 import type { CallsignProfile } from "../profile/types";
-import type { ReferenceProfile } from "../references/types";
+import type { ReferenceProfile, ReferenceProgram, ReferenceSearch } from "../references/types";
 import type { BandMapPayload } from "../bandmap/types";
 import type { HealthPayload, HealthRange } from "../health/types";
 import type { CallsignGroup, GroupInput, NormalizedCallsigns } from "../groups/types";
@@ -918,6 +918,19 @@ export async function loadReferenceProfile(program: string, reference: string): 
     if (err instanceof ApiError && err.code === "404" && err.message === REFERENCE_NOT_FOUND) return null;
     throw err;
   }
+}
+
+/**
+ * Up to 25 POTA, SOTA and WWFF list entries whose reference or name holds
+ * every word of the query, from the reference-search Edge Function, which
+ * works signed out, so no session is sent. A null program searches all three.
+ * A query outside 2 to 64 characters or over 6 words rejects with code "400",
+ * the rate limit with "429".
+ */
+export async function searchReferences(query: string, program: ReferenceProgram | null): Promise<ReferenceSearch> {
+  const params = new URLSearchParams({ q: query });
+  if (program !== null) params.set("program", program);
+  return fetchFunction<ReferenceSearch>(`reference-search?${params.toString()}`, { headers: { apikey: SUPABASE_ANON_KEY } });
 }
 
 // ---- Band map ---------------------------------------------------------------

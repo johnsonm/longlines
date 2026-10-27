@@ -780,6 +780,28 @@ describe("reference profiles", () => {
     respond(429, { error: "Too many lookups. Try again in a minute." });
     await expect(api.loadReferenceProfile("pota", "US-2763")).rejects.toMatchObject({ code: "429" });
   });
+
+  it("GETs reference-search with the query, and the program only when there is one", async () => {
+    fake.client.auth.getSession.mockClear();
+    const fetchMock = respond(200, { results: [], more: false });
+    expect(await api.searchReferences("mount mitchell", null)).toEqual({ results: [], more: false });
+    let [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("https://proj.supabase.co/functions/v1/reference-search?q=mount+mitchell");
+    expect(init).toEqual({ headers: { apikey: "anon-key" } });
+    expect(fake.client.auth.getSession).not.toHaveBeenCalled();
+
+    const sota = respond(200, { results: [], more: true });
+    expect(await api.searchReferences("W4C/CM", "sota")).toEqual({ results: [], more: true });
+    [url] = sota.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("https://proj.supabase.co/functions/v1/reference-search?q=W4C%2FCM&program=sota");
+  });
+
+  it("rejects a refused search and the rate limit with the function's message and status", async () => {
+    respond(400, { error: "A search is 2 to 64 characters." });
+    await expect(api.searchReferences("x", null)).rejects.toMatchObject({ message: "A search is 2 to 64 characters.", code: "400" });
+    respond(429, { error: "Too many lookups. Try again in a minute." });
+    await expect(api.searchReferences("mitchell", "pota")).rejects.toMatchObject({ code: "429" });
+  });
 });
 
 describe("band map", () => {

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import { renderPage } from "../test/render";
 import {
-  listGroups, previewSubscription, saveSubscription, type Destination, type Preview, type RecentSpot, type SubscriptionWithLinks,
+  listGroups, previewSubscription, saveSubscription, searchReferences, type Destination, type Preview, type RecentSpot, type SubscriptionWithLinks,
 } from "../lib/api";
 import type { CallsignGroup } from "../groups/types";
 import { useStats } from "../stats/useStats";
@@ -12,6 +12,7 @@ vi.mock("../lib/api", () => ({
   listGroups: vi.fn(),
   previewSubscription: vi.fn(),
   saveSubscription: vi.fn(),
+  searchReferences: vi.fn(),
 }));
 vi.mock("../stats/useStats", () => ({ useStats: vi.fn() }));
 
@@ -63,6 +64,7 @@ beforeEach(() => {
   vi.mocked(previewSubscription).mockReset().mockResolvedValue(preview({
     spots: [spot(1, "K8ABC"), spot(2, "W7XYZ"), spot(3, "N0DEF"), spot(4, "KL7GHI"), spot(5, "N4DXX")],
   }));
+  vi.mocked(searchReferences).mockReset().mockResolvedValue({ results: [], more: false });
   vi.mocked(listGroups).mockReset().mockResolvedValue([group("g1", "Friends"), group("g2", "RARS members")]);
   vi.mocked(useStats).mockReset().mockReturnValue({
     stats: { generatedAt: "2026-10-14T13:00:00Z", payload: { hourly: HOURLY } } as never, loading: false, error: null,
@@ -327,6 +329,27 @@ describe("edit subscription", () => {
     expect(screen.getByRole("button", { name: "US-1001" })).toBeInTheDocument();
     await user.click(save());
     expect(saveSubscription).toHaveBeenLastCalledWith(expect.objectContaining({ rules: [[rule("reference", "is", "US-2763", "US-1000", "US-1001")]] }));
+  });
+
+  it("searches the one reference list among the sources, or all of them", async () => {
+    const cases: [string[], string | null][] = [[["sotawatch"], "sota"], [["pota", "dxcluster"], "pota"], [["pota", "wwff"], null], [["dxcluster"], null]];
+    for (const [sources, program] of cases) {
+      vi.mocked(searchReferences).mockClear();
+      const { user, unmount } = render({ id: "s1", subs: [sub({ sources, rules: [[rule("reference", "is", "US-2763")]] })] });
+      // Pasted, so no shorter search is sent on the way.
+      await user.click(screen.getByPlaceholderText("US-2763 or Mount Mitchell"));
+      await user.paste("mitchell");
+      await waitFor(() => expect(searchReferences).toHaveBeenCalledWith("mitchell", program));
+      expect(searchReferences).toHaveBeenCalledTimes(1);
+      unmount();
+    }
+  });
+
+  it("searches no list for a contains rule", async () => {
+    const { user } = render({ id: "s1", subs: [sub({ rules: [[rule("reference", "contains", "US-NC")]] })] });
+    await user.type(screen.getByPlaceholderText("US-NC, W4C/, US-0817"), "mitchell");
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    expect(searchReferences).not.toHaveBeenCalled();
   });
 
   it("refuses an exact reference outside the reference shape", async () => {

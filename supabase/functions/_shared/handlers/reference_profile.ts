@@ -166,7 +166,8 @@ export interface ReferenceProfile {
 
 // RPC jsonb can gain keys across deploys, so every object is loose.
 
-const programSchema: z.ZodType<ReferenceProgram> = z.enum(REFERENCE_PROGRAMS);
+/** One of the programs with a list; shared with reference-search. */
+export const referenceProgramSchema: z.ZodType<ReferenceProgram> = z.enum(REFERENCE_PROGRAMS);
 
 const catalogSchema: z.ZodType<ReferenceCatalog> = z.looseObject({
   name: z.string().nullable(),
@@ -284,7 +285,7 @@ const spotSchema: z.ZodType<ReferenceSpot> = z.looseObject({
 
 /** One reference_profile payload, as cached_reference_profile returns it. */
 export const referenceProfileSchema: z.ZodType<ReferenceProfile> = z.looseObject({
-  program: programSchema,
+  program: referenceProgramSchema,
   reference: z.string(),
   sourceUrl: z.string().nullable(),
   catalog: catalogSchema.nullable(),
@@ -318,7 +319,7 @@ export function parseProgram(raw: string | null): ReferenceProgram | null {
   if (raw === null) {
     return null;
   }
-  const program = programSchema.safeParse(raw.trim().toLowerCase());
+  const program = referenceProgramSchema.safeParse(raw.trim().toLowerCase());
   if (program.success) {
     return program.data;
   }
