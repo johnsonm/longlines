@@ -1324,12 +1324,18 @@ its primary key, so a few MB a day. Check it with
 `select count(*), min(day), max(day), pg_size_pretty(pg_total_relation_size('callsign_days')) from callsign_days;`
 and, per day, `select day, source, count(*) from callsign_days group by 1, 2 order by 1, 2;`.
 
+`reference_days` is never compacted either: one row per program, reference, day, activator and
+source, a few thousand rows (about 1 MB) a day. Check it with
+`select count(*), min(day), max(day), pg_size_pretty(pg_total_relation_size('reference_days')) from reference_days;`
+and, per day, `select day, program, count(*) from reference_days group by 1, 2 order by 1, 2;`.
+
 ## Rolling a day up again
 
 Not supported: references, days on the air and variants are running totals, so a second pass
 would count the day twice. A day's `callsign_activity`, `callsign_reach`, `callsign_references`,
-`callsign_seen` and `callsign_variants` cannot be redone. The one table that can be filled late
-is `callsign_days`, from the archive, below.
+`callsign_seen` and `callsign_variants` cannot be redone. The tables that can be filled late are
+`callsign_days`, from the archive (below), and `reference_days`, from `raw_spots` (see "Filling
+reference_days for older days").
 
 ## Rebuilding a day from the archive
 
