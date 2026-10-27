@@ -221,6 +221,10 @@ describe("CallsignPage profile", () => {
     expect(screen.getByRole("img", { name: "Map of visits by state" })).toBeInTheDocument();
     expect(screen.getByText("Pisgah National Forest")).toBeInTheDocument();
     expect(screen.getByText("T.M. Goodwin")).toBeInTheDocument();
+    // Each reference links to its page; SOTA's "/" stays a path separator.
+    expect(screen.getByRole("link", { name: "US-0817" })).toHaveAttribute("href", "/ref/pota/US-0817");
+    expect(screen.getByRole("link", { name: "W4C/CM-001" })).toHaveAttribute("href", "/ref/sota/W4C/CM-001");
+    expect(screen.getByRole("link", { name: "KFF-5268" })).toHaveAttribute("href", "/ref/wwff/KFF-5268");
     expect(screen.getByText("Germany")).toBeInTheDocument();
     expect(screen.getByText("W3LPL")).toBeInTheDocument();
     expect(screen.getByText("31 dB")).toBeInTheDocument();

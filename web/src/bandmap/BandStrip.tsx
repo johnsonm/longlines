@@ -3,9 +3,10 @@ import { Card, CardContent, ListItemText, ListSubheader, Menu, MenuItem, Typogra
 import { ChartsReferenceLine } from "@mui/x-charts/ChartsReferenceLine";
 import { ScatterChart } from "@mui/x-charts/ScatterChart";
 import type { ScatterItemIdentifier } from "@mui/x-charts/models";
-import { useNavigate } from "react-router";
+import { Link as RouterLink, useNavigate } from "react-router";
 import type { BandPlan } from "../lib/bandplan";
 import { lookupPath } from "../profile/format";
+import { referencePath, sourceProgram } from "../references/paths";
 import {
   crowdAround, crowdDetail, crowdTitle, crowdTolerance, heardLabel, mhz, segmentMarks, SOURCES, tooltipText,
 } from "./model";
@@ -103,11 +104,23 @@ export function BandStrip({ plan, stations, shown, mobile }: {
         slotProps={{ paper: { sx: { maxHeight: 360 } } }}
       >
         {crowd && <ListSubheader>{crowdTitle(crowd.stations.length, crowd.khz)}</ListSubheader>}
-        {crowd?.stations.map((s) => (
-          <MenuItem key={s.id} onClick={() => open(s)}>
-            <ListItemText primary={s.callsign} secondary={crowdDetail(s, crowd.at)} />
-          </MenuItem>
-        ))}
+        {crowd?.stations.flatMap((s) => {
+          const program = sourceProgram(s.source);
+          const path = s.reference && program ? referencePath(program, s.reference) : null;
+          const station = (
+            <MenuItem key={s.id} onClick={() => open(s)}>
+              <ListItemText primary={s.callsign} secondary={crowdDetail(s, crowd.at)} />
+            </MenuItem>
+          );
+          // The park or summit is an item of its own under the station, so the arrow keys reach it;
+          // a link inside the station's item could only be clicked.
+          return path === null ? [station] : [
+            station,
+            <MenuItem key={`${s.id}-reference`} dense component={RouterLink} to={path} onClick={() => setCrowd(null)}>
+              <ListItemText inset primary={s.reference} slotProps={{ primary: { color: "primary", variant: "body2" } }} />
+            </MenuItem>,
+          ];
+        })}
       </Menu>
     </Card>
   );

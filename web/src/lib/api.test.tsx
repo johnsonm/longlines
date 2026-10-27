@@ -747,6 +747,30 @@ describe("callsign profiles", () => {
   });
 });
 
+describe("reference profiles", () => {
+  it("GETs the reference-profile function with the program and reference as given and no session", async () => {
+    fake.client.auth.getSession.mockClear();
+    const fetchMock = respond(200, { program: "sota", reference: "W4C/CM-001" });
+    expect(await api.loadReferenceProfile("sota", "W4C/CM-001")).toEqual({ program: "sota", reference: "W4C/CM-001" });
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("https://proj.supabase.co/functions/v1/reference-profile?program=sota&reference=W4C%2FCM-001");
+    expect(init).toEqual({ headers: { apikey: "anon-key" } });
+    expect(fake.client.auth.getSession).not.toHaveBeenCalled();
+  });
+
+  it("returns null for the function's own 404", async () => {
+    respond(404, { error: "Reference not found." });
+    expect(await api.loadReferenceProfile("pota", "US-27X3")).toBeNull();
+  });
+
+  it("treats a gateway 404 as an outage, and rejects with any other failure", async () => {
+    respond(404, { error: "Requested function was not found" });
+    await expect(api.loadReferenceProfile("pota", "US-2763")).rejects.toMatchObject({ code: "404" });
+    respond(429, { error: "Too many lookups. Try again in a minute." });
+    await expect(api.loadReferenceProfile("pota", "US-2763")).rejects.toMatchObject({ code: "429" });
+  });
+});
+
 describe("band map", () => {
   it("GETs the band-map function with no session", async () => {
     fake.client.auth.getSession.mockClear();

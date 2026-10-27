@@ -8,10 +8,11 @@ import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import ShareIcon from "@mui/icons-material/Share";
 // MUI X Charts and Data Grid are the MIT community packages, fixed and read-only as on the Stats page.
 import { BarChart, PieChart } from "@mui/x-charts";
-import { DataGrid, type GridColDef } from "@mui/x-data-grid";
+import { DataGrid, type GridColDef, type GridRenderCellParams } from "@mui/x-data-grid";
 import { Navigate, useLocation, useNavigate, useParams } from "react-router";
 import { errorText, useApp } from "../app/hooks";
 import { ApiError } from "../lib/api";
+import { ReferenceLink } from "../references/ReferenceLink";
 import { SourcePickerDialog } from "../subscriptions/SourcePickerDialog";
 import type { TimePrefs } from "../lib/time";
 import { shareLink } from "../lib/share";
@@ -115,7 +116,7 @@ function Header({ profile, signedIn }: { profile: CallsignProfile; signedIn: boo
               <Typography variant={mobile ? "h4" : "h3"} component="h1">{callsign}</Typography>
               <Flag country={profile.country?.name} />
             </Stack>
-            {license?.name && <Typography variant="h6" color="text.secondary">{license.name}</Typography>}
+            {license?.name && <Typography variant="h6" component="p" color="text.secondary">{license.name}</Typography>}
             <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap", mt: 1 }}>
               {license?.operatorClass && <Chip size="small" label={license.operatorClass} />}
               {place && <Chip size="small" label={place} />}
@@ -234,7 +235,10 @@ function HuntingCard({ hunting }: { hunting: HeardProfile["hunting"] }) {
 const RECENT_REFERENCES = 10;
 
 const REFERENCE_COLUMNS: GridColDef[] = [
-  { field: "reference", headerName: "Reference", width: 110, sortable: false },
+  {
+    field: "reference", headerName: "Reference", width: 110, sortable: false,
+    renderCell: ({ row, value }: GridRenderCellParams<{ program: string }, string>) => <ReferenceLink program={row.program} reference={value ?? ""} />,
+  },
   { field: "name", headerName: "Name", flex: 1, minWidth: 120, sortable: false },
   { field: "program", headerName: "Program", width: 80, sortable: false },
   { field: "activations", headerName: "Visits", type: "number", width: 70, sortable: false },

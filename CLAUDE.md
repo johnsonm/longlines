@@ -629,6 +629,45 @@ The delivery side (retries, pause, attempts, rendering, Vault) is in "Delivery r
   profile's own `callsign`. The web never works out a base call. A link built from a call as typed
   (`lookupPath`) works only because the profile page swaps it for the base the profile returns.
 
+## Reference profile rules
+
+The design is `docs/superpowers/specs/2026-10-26-reference-profiles-design.md` (Brad's reference
+profile canvas); its Copy section ("Reference page") is the copy source for `/ref/*`.
+
+- `reference_profile(program, reference)` builds the whole page in SQL. Its shape is
+  `ReferenceProfile` in `web/src/references/types.ts`, read by `referenceProfileSchema`
+  (`_shared/handlers/reference_profile.ts`) and pinned by
+  `supabase/tests/reference_profile.test.sql`; change the SQL, the type, the schema, the web
+  fixtures and the test together. Every figure, ranking and list length is SQL's. It is not
+  granted to clients: the public `reference-profile` function reads it through
+  `cached_reference_profile` (15 minutes, single-flight, nulls never cached) after
+  `record_profile_lookup`, and `prune_callsign_lookups` deletes its expired rows.
+- An activation is one activator (base call) at the reference on one UTC day. History is
+  `reference_days` plus the live days from `spot_stream` by `reference` and `spot_time` (served by
+  `raw_spots_reference_time_idx`): the unmarked days of the last 14, never before the first
+  marker, so a day is read from one side only and never counted twice. The live read keeps the
+  program's spots from the `pota`, `sotawatch` and `wwff` sources, as `rollup_callsign_day` writes
+  `reference_days`; a DX Cluster spot naming a park never counts. Bands, modes and the calls as
+  spotted come from the same all-time read, counting only the spots of activations history counts.
+- Hidden calls count nowhere: an activator in `hidden_callsigns` (by base) is in no list and no
+  total, a spot by a hidden spotter is not in `recentSpots`, and a cache row older than the newest
+  `hidden_at` is a miss.
+- `reference_profile` returns null (the function's 404 "Reference not found.") for a program other
+  than `pota`, `sota`, `wwff`, a reference that is not letters, digits, `/` and `-` (at most 64),
+  or one in neither the catalog nor any visible spot. A reference outside the list but spotted
+  gets a page with `catalog` and `sourceUrl` null. The function checks the same shape before any
+  database call and answers malformed input with the same 404.
+- `reference-profile` is `verify_jwt = false` and never imports `isServiceRole`. It shares the
+  callsign profile's `lookupLimit` (one budget per client), never logs a reference, and sends
+  `Cache-Control: public, max-age=300` only on a 200.
+- Only POTA, SOTA and WWFF references link to a page, and every link is built by `referencePath`
+  (`web/src/references/paths.ts`); WWBOTA bunkers and IOTA islands stay plain text. Every
+  callsign on the page links to `/call/<base>` with the base from SQL.
+- `useReferenceProfile` makes one request per visit and never polls. The page normalises the URL
+  (program lower case, reference upper case) before it asks the function. The heat map shares
+  `profile/HeatMapCard.tsx` and `profile/calendar.ts` with the callsign profile and its
+  per-period shading; never fork the grid.
+
 ## Band map rules
 
 - `/band-map` is public (`PublicRoute`). Its data comes only from the `band-map` function, which
@@ -738,6 +777,14 @@ page" canvas); its Copy section is the copy source for `/health`.
   C"; And binds tighter). Each rule is `{field, op, values}`; the fields and ops are listed at the top
   of `20261014000500_subscription_rules.sql` and in `docs/openapi.yaml`. `[]` passes every spot. The
   source stays its own column (`sources`), not a rule.
+- The reference field has exact ops `is` / `is_not` (`20261027001200`) beside `contains` /
+  `not_contains`. `is` passes a spot when one of its references (POTA, SOTA, WWFF, every WWBOTA
+  bunker, IOTA) equals a value; `is_not` passes a spot with none, a spot without a reference
+  included. Exact values are trimmed and upper-cased, at most 64 characters, and need not be in
+  `reference_catalog`; `contains` values stay as typed, so stored connections keep saving. Never
+  make `contains` exact or drop it: partial text (`US-NC`, `KFF-`) is what it is for. A new
+  reference row in the builder starts at `is`, and a reference page's Get alerts prefills
+  `reference is` (`/connections/new?source=&reference=`).
 - `normalize_subscription_rules` is the only validator and normaliser; `save_subscription` and
   `preview_subscription` both go through it. `group_ids` is derived from the rules (every group
   named, `is` or `is_not`) and written only by `save_subscription`; never set it elsewhere.

@@ -5,7 +5,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(90);
+select plan(110);
 
 -- Start from empty tables so watched_among and preview see only these rows.
 delete from deliveries;
@@ -200,8 +200,8 @@ select throws_ok($$ select pg_temp.norm('[[{"op":"is","values":["red"]}]]') $$,
   'P0001', 'Unknown rule field: none.', 'a rule without a field is refused');
 select throws_ok($$ select pg_temp.norm('[[{"field":"band","op":"contains","values":["20m"]}]]') $$,
   'P0001', 'A band rule can''t use contains.', 'band takes is or is_not');
-select throws_ok($$ select pg_temp.norm('[[{"field":"reference","op":"is","values":["US-NC"]}]]') $$,
-  'P0001', 'A reference rule can''t use is.', 'reference takes contains or not_contains');
+select throws_ok($$ select pg_temp.norm('[[{"field":"reference","op":"gt","values":["US-NC"]}]]') $$,
+  'P0001', 'A reference rule can''t use gt.', 'reference takes is, is_not, contains or not_contains');
 select throws_ok($$ select pg_temp.norm('[[{"field":"callsign","op":"gt","values":["W1AW"]}]]') $$,
   'P0001', 'A callsign rule can''t use gt.', 'gt is for frequency only');
 select throws_ok($$ select pg_temp.norm('[[{"field":"mode","values":["cw"]}]]') $$,
@@ -265,6 +265,92 @@ select is(pg_temp.norm(jsonb_build_array(jsonb_build_array(
     -> 0 -> 0 -> 'values', jsonb_build_array((select club::text from grp)),
   'group ids are stored lowercase');
 select is(pg_temp.norm(null), '[]'::jsonb, 'null rules normalize to none');
+
+-- ---------------------------------------------------------------------------
+-- The reference rule's exact ops (20261027001200)
+-- ---------------------------------------------------------------------------
+
+-- A spot with any reference columns, the rest as pg_temp.spot gives them.
+create function pg_temp.refspot(p_refs jsonb)
+returns raw_spots language sql as $$
+  select jsonb_populate_record(null::raw_spots, jsonb_build_object(
+    'id', 0, 'source', 'pota', 'source_spot_id', 'x', 'content_hash', 'x', 'ingested_at', now(), 'spot_time', now(),
+    'callsign', 'W1AW', 'frequency_khz', 14062, 'band', '20m', 'mode', 'cw', 'comment', '', 'raw_payload', '{}',
+    'mode_family', 'cw', 'base_callsign', 'W1AW') || p_refs);
+$$;
+
+select is(pg_temp.norm('[[{"field":"reference","op":"is","values":[" us-1000 ","US-1000","w4c/cm-001"]}],
+                         [{"field":"reference","op":"is_not","values":["kff-1234"]}]]'),
+  '[[{"field":"reference","op":"is","values":["US-1000","W4C/CM-001"]}],
+    [{"field":"reference","op":"is_not","values":["KFF-1234"]}]]'::jsonb,
+  'reference is / is_not: values trimmed, upper-cased and de-duplicated');
+select is(pg_temp.norm('[[{"field":"reference","op":"contains","values":[" us-nc "]}]]') -> 0 -> 0 -> 'values',
+  '["us-nc"]'::jsonb, 'reference contains keeps its values as typed, trimmed');
+select throws_ok(format('select pg_temp.norm(%L)', jsonb_build_array(jsonb_build_array(
+    jsonb_build_object('field', 'reference', 'op', 'is', 'values', array['US-1000', repeat('A', 65)])))),
+  'P0001', 'A reference can be at most 64 characters.', 'an exact reference is at most 64 characters');
+select throws_ok($$ select pg_temp.norm('[[{"field":"reference","op":"is","values":["US-1000, US-1001"]}]]') $$,
+  'P0001', 'A reference takes letters, digits, / and -, such as US-2763 or W4C/CM-001.',
+  'an exact reference refuses a comma-joined list, which would never match');
+select throws_ok($$ select pg_temp.norm('[[{"field":"reference","op":"is_not","values":["US 1000"]}]]') $$,
+  'P0001', 'A reference takes letters, digits, / and -, such as US-2763 or W4C/CM-001.',
+  'is_not refuses a value outside the reference shape too');
+select lives_ok(format('select pg_temp.norm(%L)', jsonb_build_array(jsonb_build_array(
+    jsonb_build_object('field', 'reference', 'op', 'is_not', 'values', array[repeat('A', 64), 'ZZ-0000'])))),
+  'a 64-character reference, and one in no catalog, are accepted');
+select lives_ok(format('select pg_temp.norm(%L)', jsonb_build_array(jsonb_build_array(
+    jsonb_build_object('field', 'reference', 'op', 'contains', 'values', array[repeat('A', 65)])))),
+  'contains keeps no length limit, so stored connections still save');
+select throws_ok($$ select pg_temp.norm('[[{"field":"reference","op":"is","values":[" "]}]]') $$,
+  'P0001', 'Give the reference rule a value.', 'an exact reference rule needs a value');
+
+select ok(spot_matches(pg_temp.one('reference', 'is', '["US-1000"]'), pg_temp.refspot('{"pota_reference":"US-1000"}')),
+  'reference is: a park equal to the value matches');
+select ok(not spot_matches(pg_temp.one('reference', 'is', '["US-1000"]'), pg_temp.refspot('{"pota_reference":"US-10000"}'))
+          and spot_matches(pg_temp.one('reference', 'contains', '["US-1000"]'), pg_temp.refspot('{"pota_reference":"US-10000"}')),
+  'reference is: US-1000 does not match US-10000, which contains matches');
+select ok(spot_matches(pg_temp.one('reference', 'is', '["US-1000"]'), pg_temp.refspot('{"pota_reference":"us-1000"}')),
+  'reference is: case-insensitive');
+select ok(spot_matches(pg_temp.one('reference', 'is', '["W4C/CM-001"]'),
+                       pg_temp.refspot('{"source":"sotawatch","sota_summit_ref":"W4C/CM-001"}'))
+          and spot_matches(pg_temp.one('reference', 'is', '["KFF-1234"]', '{wwff}'),
+                           pg_temp.refspot('{"source":"wwff","wwff_reference":"KFF-1234"}'))
+          and spot_matches(pg_temp.one('reference', 'is', '["OC-001"]', '{dxcluster}'),
+                           pg_temp.refspot('{"source":"dxcluster","iota_reference":"OC-001"}')),
+  'reference is: a summit, a WWFF reference and an IOTA island (their sources named, as source_matches needs)');
+select ok(spot_matches(pg_temp.one('reference', 'is', '["B/G-2115"]', '{wwbota}'),
+                       pg_temp.refspot('{"source":"wwbota","wwbota_references":["B/G-2114","b/g-2115"]}')),
+  'reference is: any of a WWBOTA spot''s bunkers, not only the first');
+select ok(not spot_matches(pg_temp.one('reference', 'is', '["US-NC"]'),
+                           pg_temp.refspot('{"pota_reference":"US-1000","pota_location":"US-NC"}')),
+  'reference is: a park''s location is not a reference');
+select ok(not spot_matches(pg_temp.one('reference', 'is_not', '["US-1000"]'), pg_temp.refspot('{"pota_reference":"US-1000"}')),
+  'reference is_not: excludes the reference');
+select ok(spot_matches(pg_temp.one('reference', 'is_not', '["US-1000"]'), pg_temp.refspot('{"pota_reference":"US-10000"}')),
+  'reference is_not: passes another reference');
+select ok(spot_matches(pg_temp.one('reference', 'is_not', '["US-1000"]'), pg_temp.refspot('{}')),
+  'reference is_not: passes a spot with no reference');
+select ok(not spot_matches(pg_temp.one('reference', 'is', '["US-1000"]'), pg_temp.refspot('{}')),
+  'reference is: a spot with no reference never matches');
+
+-- preview_subscription goes through the same validator and matcher.
+insert into raw_spots (source, source_spot_id, content_hash, spot_time, callsign, spotter, frequency_khz, band, mode,
+                       mode_family, pota_reference, raw_payload)
+values ('pota', 'ref-a', 'ref-a', now() - interval '1 hour', 'W1AW', 'K4SWL', 14062, '20m', 'cw', 'cw', 'US-1000', '{}'),
+       ('pota', 'ref-b', 'ref-b', now() - interval '1 hour', 'K4SWL', 'W1AW', 14062, '20m', 'cw', 'cw', 'US-10000', '{}');
+select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
+select is((select array[(select count from preview_subscription(
+                            '{"sources":["pota"],"rules":[[{"field":"reference","op":"is","values":[" us-1000 "]}]]}')),
+                        (select count from preview_subscription(
+                            '{"sources":["pota"],"rules":[[{"field":"reference","op":"contains","values":["US-1000"]}]]}')),
+                        (select count from preview_subscription(
+                            '{"sources":["pota"],"rules":[[{"field":"reference","op":"is_not","values":["US-1000"]}]]}'))]),
+  array[1, 2, 1]::bigint[], 'preview: is US-1000 finds one park, contains both, is_not the other');
+select throws_ok($$ select * from preview_subscription(jsonb_build_object('rules', jsonb_build_array(jsonb_build_array(
+    jsonb_build_object('field', 'reference', 'op', 'is', 'values', array[repeat('A', 65)]))))) $$,
+  'P0001', 'A reference can be at most 64 characters.', 'preview checks an exact reference as save does');
+reset role;
+delete from raw_spots where source_spot_id in ('ref-a', 'ref-b');
 
 -- ---------------------------------------------------------------------------
 -- preview_subscription
