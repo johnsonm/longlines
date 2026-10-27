@@ -1,7 +1,7 @@
--- pgTAP: home_flow() (20261027001300_home_flow), the Home page's counts and each
--- connection's sources. Pins the payload shape (HomeFlow in web/src/home/types.ts), the
--- 24-hour windows (matched by created_at, delivered by sent_at), distinct spots, the
--- matcher's source rules, per-user isolation and access.
+-- pgTAP: home_flow() (20261027001300_home_flow, 20261027001400_home_flow_sources), the
+-- Home page's counts and each connection's sources. Pins the payload shape (HomeFlow in
+-- web/src/home/types.ts), the 24-hour windows (matched by created_at, delivered by sent_at),
+-- distinct spots, the matcher's source rules, per-user isolation and access.
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
