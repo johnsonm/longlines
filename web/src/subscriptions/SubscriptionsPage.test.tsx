@@ -166,6 +166,8 @@ describe("Pick your source", () => {
     expect(within(dialog).getByRole("radio", { name: /WWFF/ })).toBeEnabled();
     expect(within(dialog).queryByText("Not yet available")).not.toBeInTheDocument();
     expect(within(dialog).getByRole("radio", { name: /Parks on the Air/ })).toBeChecked();
+    // IOTA rides on DX Cluster; the editor starts it as a DX Cluster connection with an island rule.
+    expect(within(dialog).getByRole("radio", { name: /IOTA/ })).toBeEnabled();
 
     await user.click(within(dialog).getByRole("radio", { name: /Reverse Beacon Network/ }));
     await user.click(within(dialog).getByRole("button", { name: "Continue" }));

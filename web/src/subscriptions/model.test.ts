@@ -38,6 +38,14 @@ describe("blankSub and toInput", () => {
     expect(blankSub("pota", null, "g1", "US-2763").name).toBe("");
   });
 
+  it("starts IOTA on DX Cluster with every island, beside a callsign, group or reference", () => {
+    const every: Rule = { field: "island", op: "is", values: CONTINENTS.map((c) => c.code) };
+    expect(blankSub("iota")).toMatchObject({ name: "", sources: ["dxcluster"], rules: [[every]] });
+    expect(blankSub("iota", "KK4PWJ").rules).toEqual([[{ field: "callsign", op: "is", values: ["KK4PWJ"] }, every]]);
+    expect(blankSub("iota", null, "g1").rules).toEqual([[{ field: "group", op: "is", values: ["g1"] }, every]]);
+    expect(blankSub("dxcluster").rules).toEqual([]);
+  });
+
   it("reads exact reference values trimmed and upper-cased, each once", () => {
     expect(referenceValues([" us-2763 ", "US-2763", "", "w4c/cm-001"])).toEqual(["US-2763", "W4C/CM-001"]);
     // A list typed or pasted as one value is one chip per reference.
@@ -199,8 +207,8 @@ describe("sources", () => {
     expect(pickableSource("aprs")).toBeNull();
     expect(pickableSource("wwff")?.id).toBe("wwff");
     expect(pickableSource("wwbota")?.id).toBe("wwbota");
-    // IOTA rides on DX Cluster: a connection picks DX Cluster and an island rule.
-    expect(pickableSource("iota")).toBeNull();
+    // IOTA rides on DX Cluster: picking it starts a DX Cluster connection with an island rule (blankSub).
+    expect(pickableSource("iota")?.id).toBe("iota");
     expect(pickableSource(null)).toBeNull();
   });
 

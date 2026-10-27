@@ -102,9 +102,9 @@ describe("SOURCES catalog fields", () => {
     expect(findLiveSource(undefined)).toBeUndefined();
   });
 
-  it("carries IOTA on DX Cluster and never offers it as a connection source", () => {
+  it("carries IOTA on DX Cluster and offers both as connection sources", () => {
     expect(SOURCES.filter((s) => s.via !== null).map((s) => [s.id, s.via])).toEqual([["iota", "dxcluster"]]);
-    expect(LIVE_SOURCES.map((s) => s.id)).not.toContain("iota");
+    expect(LIVE_SOURCES.map((s) => s.id)).toContain("iota");
     expect(LIVE_SOURCES.map((s) => s.id)).toContain("dxcluster");
     const iota = findLiveSource("iota")!;
     expect(iota.schema!.find((f) => f.name === "reference")!.description).toBe("IOTA reference.");
