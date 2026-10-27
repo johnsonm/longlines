@@ -23,6 +23,8 @@ export function GroupPage({ id, tab }: { id: string; tab: GroupTab }) {
   const period = parsePeriod(search.get("period"));
   const [stats, setStats] = useState<OwnerGroupStatistics | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // The Settings tab puts its Cancel and Save changes here, in the title row like the other editors.
+  const [actionsSlot, setActionsSlot] = useState<HTMLElement | null>(null);
   // Only the newest request lands: a slow build for a period left behind never replaces a newer one.
   const latest = useRef(0);
 
@@ -69,11 +71,14 @@ export function GroupPage({ id, tab }: { id: string; tab: GroupTab }) {
           </Stack>
           <Typography variant="body2" color="text.secondary">{groupMeta(g.member_count, g.subscription_count)}</Typography>
         </Box>
-        {!mobile && (
-          <Button variant="outlined" startIcon={<NotificationsActiveIcon />} disabled={alerts.busyId === g.id} onClick={() => alerts.start(g.id)}>
-            Get alerts
-          </Button>
-        )}
+        <Stack direction="row" spacing={1}>
+          {!mobile && (
+            <Button variant="outlined" startIcon={<NotificationsActiveIcon />} disabled={alerts.busyId === g.id} onClick={() => alerts.start(g.id)}>
+              Get alerts
+            </Button>
+          )}
+          {tab === "settings" && <Stack direction="row" spacing={1} ref={setActionsSlot} />}
+        </Stack>
       </Stack>
       <Tabs value={tab}>
         <Tab value="statistics" label="Statistics" component={RouterLink} to={`/groups/${g.id}${query}`} />
@@ -81,7 +86,7 @@ export function GroupPage({ id, tab }: { id: string; tab: GroupTab }) {
       </Tabs>
       {error && <Alert severity="error">{error}</Alert>}
       {tab === "statistics" && <GroupStatistics stats={stats} period={period} onPeriod={choosePeriod} />}
-      {tab === "settings" && <GroupSettings group={g} onSaved={load} />}
+      {tab === "settings" && <GroupSettings group={g} onSaved={load} actionsSlot={actionsSlot} />}
       {alerts.dialog}
     </Stack>
   );

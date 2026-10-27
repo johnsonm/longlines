@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   Alert, Box, Button, Card, CardContent, CardHeader, Chip, Divider, Grid, LinearProgress, Stack, Switch, TextField, Tooltip, Typography,
 } from "@mui/material";
@@ -25,9 +26,14 @@ interface Stored {
 /**
  * The Settings tab: the public page and its link, name, members, the
  * connections that use the group, and Delete. One Save changes saves name,
- * members and sharing through save_callsign_group.
+ * members and sharing through save_callsign_group. Cancel and Save changes
+ * render into actionsSlot, the page's title row, once it is mounted.
  */
-export function GroupSettings({ group, onSaved }: { group: OwnerGroup; onSaved: () => Promise<void> }) {
+export function GroupSettings({ group, onSaved, actionsSlot }: {
+  group: OwnerGroup;
+  onSaved: () => Promise<void>;
+  actionsSlot: HTMLElement | null;
+}) {
   const notify = useNotify();
   const navigate = useNavigate();
   const [stored, setStored] = useState<Stored | null>(null);
@@ -165,10 +171,13 @@ export function GroupSettings({ group, onSaved }: { group: OwnerGroup; onSaved: 
           </Stack>
         </CardContent>
       </Card>
-      <Stack direction="row" spacing={1} sx={{ justifyContent: "flex-end" }}>
-        <Button onClick={() => setForm(stored)} disabled={busy}>Cancel</Button>
-        <Button variant="contained" onClick={() => void save()} disabled={busy || !form.name.trim()}>Save changes</Button>
-      </Stack>
+      {actionsSlot && createPortal(
+        <>
+          <Button onClick={() => setForm(stored)} disabled={busy}>Cancel</Button>
+          <Button variant="contained" onClick={() => void save()} disabled={busy || !form.name.trim()}>Save changes</Button>
+        </>,
+        actionsSlot,
+      )}
 
       <Grid container spacing={3}>
         <Grid size={{ xs: 12, md: 7 }}>

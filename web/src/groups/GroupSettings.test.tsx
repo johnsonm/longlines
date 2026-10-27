@@ -33,7 +33,7 @@ beforeEach(() => {
 
 function render(group: Partial<OwnerGroup> = {}) {
   const onSaved = vi.fn(() => Promise.resolve());
-  return { ...renderPage(<GroupSettings group={{ ...OWNER.group, ...group }} onSaved={onSaved} />, { route: "/groups/g1/settings" }), onSaved };
+  return { ...renderPage(<GroupSettings group={{ ...OWNER.group, ...group }} onSaved={onSaved} actionsSlot={document.body} />, { route: "/groups/g1/settings" }), onSaved };
 }
 
 const publicSwitch = () => screen.getByRole("switch", { name: "Public statistics page" });
