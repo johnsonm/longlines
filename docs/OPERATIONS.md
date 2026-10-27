@@ -1235,12 +1235,16 @@ rows means every day is done. Otherwise:
 - `fill_failed`: rolled up, but its `callsign_days` fill keeps failing (`last_error` starts with
   `callsign_days fill:`). The one expected cause is a retired day, not `without_rbn`, whose
   `callsign_activity` day rows were compacted into month rows before the fill reached it (`only
-  the archive has it`): build it with "Rebuilding a day from the archive".
+  the archive has it`): build it with "Rebuilding a day from the archive". Or its
+  `reference_days` fill keeps failing (`last_error` starts with `reference_days fill:`, and
+  `references_filled_at` is null); that fill reads only `raw_spots`, so the error is the lead.
 - `done`: rolled up whole. A `done` day whose `days_filled_at` is null has no `callsign_days` rows
-  yet (see "Filling callsign_days for older days").
+  yet (see "Filling callsign_days for older days"), and one whose `references_filled_at` is null
+  has no `reference_days` rows yet (see "Filling reference_days for older days").
 
 Every day's attempts, including the retention record, also raise a Postgres warning
-(`callsign rollup of ... failed`, `callsign_days fill of ... failed`, `rbn retention: ... retired
+(`callsign rollup of ... failed`, `callsign_days fill of ... failed`, `reference_days fill of ...
+failed`, `rbn retention: ... retired
 without its callsign rollup`), but the view is the record; `cron.job_run_details` shows the run as succeeded either way.
 
 ## Pushing the callsign_days migration
@@ -1279,6 +1283,33 @@ from the archive (below). A row with an `error` was undone, recorded in `callsig
 (status `fill_failed`) and retried on the next call or hour; a retired day whose
 `callsign_activity` day rows were compacted is refused every time (`only the archive has it`) and
 needs the archive.
+
+## Filling reference_days for older days
+
+`20261026001200` adds `reference_days` (the reference profiles' activations) and
+`callsign_rollup_days.references_filled_at`. It takes the same 10 s lock timeout as the
+callsign_days migration (see "Pushing the callsign_days migration"; run the push again away from
+:25 if it times out), and builds `raw_spots_reference_time_idx` inside the push: hosted
+`raw_spots` was about 562,000 rows / 342 MB on 2026-10-26, which builds in seconds.
+
+New days get their rows from the roll-up. Every day rolled up before the push has
+`references_filled_at` null and no `reference_days` rows, so reference pages undercount until the
+fill reaches it. The hourly job fills two days a run, days that never failed first and then oldest
+first, only in a run that rolled no day up and filled no `callsign_days`; each day is one read of
+that day's POTA, SOTAwatch and WWFF rows in `raw_spots`, exact for every day because `raw_spots` is
+never pruned. Three weeks of history take about half a day. To see it, or to go faster:
+
+```sql
+select * from backfill_reference_days(10);   -- repeat until it returns no rows
+select day, references_filled_at from callsign_rollup_status where status like 'done%' and references_filled_at is null;
+```
+
+Each row is a day with the reference spots it counted. A row with an `error` was undone, recorded
+in `callsign_rollup_failures` as `reference_days fill: ...` (status `fill_failed`) and retried on
+the next call or hour. `reference_days` is never compacted and has no running totals, so a day can
+be rebuilt: `delete from reference_days where day = '<day>'; update callsign_rollup_days set
+references_filled_at = null where day = '<day>'; select fill_reference_days('<day>');` in one
+transaction.
 
 ## Size
 

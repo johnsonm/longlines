@@ -568,6 +568,16 @@ The delivery side (retries, pause, attempts, rendering, Vault) is in "Delivery r
   RBN count is below what the roll-up counted, and a retired day (not `without_rbn`) whose day rows
   were compacted into month rows is refused. `compact_callsign_rollups` keeps a day's rows until
   `callsign_rollup_days.days_filled_at` is set.
+- `reference_days` (program, reference, UTC day, activator base, source: spots, `modes[]` and
+  `bands[]` as `callsign_days`) is the reference profiles' activations: day grain, never compacted,
+  no running totals. `program` is lower case (`pota`, `sota`, `wwff`) and `reference` upper case,
+  as `reference_catalog`; only the POTA, SOTAwatch and WWFF sources write it (never RBN, DX Cluster
+  or WWBOTA). Every activator is stored, hidden calls too; readers leave them out. The roll-up
+  writes it from its `b` stage in the marker's transaction (`on conflict do nothing`) and sets
+  `references_filled_at`; `fill_reference_days` builds older days from `raw_spots` and must write
+  the same rows (pgTAP compares them), so a change to one writer changes both.
+  `backfill_reference_days` runs only in a run that rolled nothing up and filled no
+  `callsign_days`, and records failures as `reference_days fill: ...`.
 - A failed day goes through `record_callsign_rollup_failure` into `callsign_rollup_failures`,
   never only a `raise warning`; `rollup_callsign_day` deletes the row itself after its marker, so a
   manual `(day, true)` clears it. `maintain_rbn_spots` records a day it retires without a marker
@@ -575,7 +585,8 @@ The delivery side (retries, pause, attempts, rendering, Vault) is in "Delivery r
   for it (state, not partition existence), decided before any drop: never scan `rbn_spots` under
   a drop's lock.
   `callsign_rollup_status` is the operator's view (order: `fill_failed`, `done_without_rbn`, `done`,
-  `rbn_retired`, `failed`, `pending`). All of it is service-role only.
+  `rbn_retired`, `failed`, `pending`; `fill_failed` covers both fills). All of it is service-role
+  only.
 - `backfill_callsign_rollups(p_max_days)` keeps its return shape `(rollup_day, spots, error)`:
   `seed.sql`, `scripts/smoke-test.sql` and pgTAP call it. The fill's rows stay out of it, and it
   runs the fill only when its day loop rolled nothing up, and the fill attempts at most twice
