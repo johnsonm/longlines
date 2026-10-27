@@ -702,7 +702,7 @@ describe("callsign groups", () => {
   });
 
   it("loadHomeFlow returns home_flow's payload", async () => {
-    const flow = { matched: 3, delivered: 4, sources: [], subscriptions: [], links: [] };
+    const flow = { matched: 3, delivered: 4, sources: [], subscriptions: [], links: [], subscription_sources: [] };
     fake.rpcs.set("home_flow", { data: flow });
     expect(await api.loadHomeFlow()).toEqual(flow);
     expect(fake.client.rpc).toHaveBeenCalledWith("home_flow");

@@ -1724,13 +1724,13 @@ load: a cache row built before the newest `hidden_at` is rebuilt.
 
 ## Reference lookup (`/ref`) and the reference picker
 
-`20261027001400_reference_search` adds `search_references` and its helper
-`reference_catalog_header`. It builds no index and changes no table, so the push takes seconds.
-Push it and deploy the function before Vercel ships the web: until then `/ref` and the reference
-rule's picker say the search is unavailable (the picker still accepts typed references).
+`20261027001500_reference_search` adds `search_references`, its body `search_references_at` and
+the helper `reference_catalog_header`. It builds no index and changes no table, so the push takes
+seconds. Push it and deploy the function before Vercel ships the web: until then `/ref` and the
+reference rule's picker say the search is unavailable (the picker still accepts typed references).
 
 ```sh
-supabase migration list                        # 20261027001400 pending
+supabase migration list                        # 20261027001500 pending
 supabase db push
 supabase functions deploy reference-search     # new function: the GitHub integration skips it
 ```

@@ -1351,7 +1351,7 @@ flowchart LR
 reference rule's picker suggests list entries from the same function (decisions 11 and 14 of the
 spec).
 
-- **One RPC.** `search_references(query, program)` (`20261027001400`) returns up to 25 list rows
+- **One RPC.** `search_references(query, program)` (`20261027001500`) returns up to 25 list rows
   and `more`. A search is every whitespace-separated word of the trimmed query, upper-cased, found
   with `strpos` in the reference or the upper-cased name (never `like`, so `%` and `_` are
   literal); 2 to 64 characters and at most 6 words, else null. A null program searches all three.

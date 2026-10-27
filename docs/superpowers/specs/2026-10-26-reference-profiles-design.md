@@ -270,7 +270,7 @@ Brad decided on 2026-10-26:
   last day from `reference_days`. Words are matched with `strpos` on upper-cased text, not
   `like`, so `%` and `_` in a query are literal. No new index: a scan of the narrow catalog is
   well inside the statement timeout, and the database is near its disk threshold. *(As built:
-  `20261027001400`. A null program searches all three; another program, or a query that is not 2
+  `20261027001500`. A null program searches all three; another program, or a query that is not 2
   to 64 characters after trimming or has more than 6 words, returns null. Activations are distinct
   (base, day) pairs without hidden calls; retired and never-activated rows are kept; the order is
   activations, then reference, the first 25 and `more`. The header is

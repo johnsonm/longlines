@@ -668,7 +668,7 @@ picker (PR 5)") is the copy source for `/ref`, `/ref/*` and the reference rule's
   (program lower case, reference upper case) before it asks the function. The heat map shares
   `profile/HeatMapCard.tsx` and `profile/calendar.ts` with the callsign profile and its
   per-period shading; never fork the grid.
-- `search_references(query, program)` (`20261027001400`) is the Reference lookup's search: every
+- `search_references(query, program)` (`20261027001500`) is the Reference lookup's search: every
   whitespace-separated word of the trimmed query, upper-cased, found with `strpos` (never `like`, so
   `%` and `_` are literal) in the reference or the upper-cased list name; 2 to 64 characters, at
   most 6 words, else null. It reads only `reference_catalog` and `reference_days` (no live days),
@@ -718,16 +718,20 @@ picker (PR 5)") is the copy source for `/ref`, `/ref/*` and the reference rule's
 
 - `/home` is the signed-in landing page (sign-in, set password and unknown paths go there) and is
   not public. Its copy comes from Brad's "Long Lines home" canvas.
-- Counts come only from `home_flow()`: the caller's last 24 hours of `deliveries` (matched =
-  distinct spots by `created_at`, delivered = sent rows by `sent_at`). Names, types, sources and
-  links come from the lists `SignedIn` already loads. `home_flow` is web-only: never add it to
-  `api_call`, and never return spot data from it. Its shape is `HomeFlow` (`web/src/home/types.ts`),
+- The diagram draws the configuration, not the traffic: every connection (no cap), every source
+  each takes spots from and every destination, linked or not. The last 24 hours only label nodes and weight links; never drop
+  a node or link for being quiet.
+- `home_flow()` gives what the lists `SignedIn` loads can't: the caller's last 24 hours of
+  `deliveries` (matched = distinct spots by `created_at`, delivered = sent rows by `sent_at`) and
+  `subscription_sources`, each connection's sources by the matcher's own rules (`source_matches`,
+  and RBN only with an AND group that names stations). Never expand "any source" in TypeScript.
+  `home_flow` is web-only: never add it to `api_call`, and never return spot data from it. Its shape is `HomeFlow` (`web/src/home/types.ts`),
   pinned by `supabase/tests/home_flow.test.sql`; change the SQL, the type and the test together.
 - Nothing records a match for a connection the matcher skips (off, or no enabled destination), so
   the page shows an en dash for it; never count matches live over `raw_spots` per visitor.
 - The diagram is plain MUI plus one SVG per gap (`preserveAspectRatio="none"`,
   `vector-effect="non-scaling-stroke"`); no chart or graph dependency. Geometry is the pure
-  `home/layout.ts`, node choice and order `home/model.ts` (`TOP_CONNECTIONS`). Link colours are
+  `home/layout.ts`, node choice and order `home/model.ts`. Link colours are
   each source's catalog `markColor` from the theme (`home/colors.ts`), never hex.
 
 ## Callsign group rules
@@ -834,7 +838,7 @@ page" canvas); its Copy section is the copy source for `/health`.
   `preview_subscription` both go through it. `group_ids` is derived from the rules (every group
   named, `is` or `is_not`) and written only by `save_subscription`; never set it elsewhere.
   `normalize_subscription_sources` is the only check on `sources` (both call it); its list is
-  `raw_spots_source_check` without `aprs`, so a new source goes in both. Band values are stored
+  `raw_spots_source_check` without `aprs`, so a new source goes in both, and in `home_flow`'s list. Band values are stored
   lowercase, and a rule takes at most 1,000 values.
 - Matching is `rule_matches` per rule inside `spot_matches`; never evaluate rules in TypeScript.
   The web's `model.ts` only converts builder rows to rules (`rulesOf` drops rows without values) and
