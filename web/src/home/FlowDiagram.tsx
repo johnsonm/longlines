@@ -45,12 +45,16 @@ function Column({ children }: { children: ReactNode }) {
   return <Stack sx={{ width: NODE_WIDTH, flex: "none", justifyContent: "space-between" }}>{children}</Stack>;
 }
 
-/** One gap between columns: an SVG stretched across it, strokes kept at their pixel width. */
+/**
+ * One gap between columns: an SVG stretched across it, strokes kept at their pixel width. Block, not inline:
+ * an inline SVG sits on the text baseline, and the descender space under it overflows the fixed-height row,
+ * which the diagram's horizontal scroller turns into a vertical scroll bar.
+ */
 function Links({ height, paths, links }: { height: number; paths: LinkPath[]; links: FlowLink[] }) {
   const theme = useTheme();
   return (
     <Box sx={{ flex: "1 1 0", minWidth: 0 }}>
-      <svg aria-hidden="true" width="100%" height={height} viewBox={`0 0 100 ${height}`} preserveAspectRatio="none" overflow="visible">
+      <svg aria-hidden="true" width="100%" height={height} viewBox={`0 0 100 ${height}`} preserveAspectRatio="none" overflow="visible" display="block">
         {paths.map((p, i) => (
           <path
             key={i} d={p.d} fill="none" stroke={sourceColor(theme, links[i]?.source ?? null)} strokeOpacity={0.45}

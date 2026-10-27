@@ -81,7 +81,10 @@ describe("HomePage on desktop", () => {
       expect(p).toHaveAttribute("stroke-opacity", "0.45");
     }
     expect(paths[0]).toHaveAttribute("stroke", "#1976d2");
-    expect(container.querySelector("svg[preserveAspectRatio='none']")).toHaveAttribute("viewBox", expect.stringMatching(/^0 0 100 \d+$/));
+    const svg = container.querySelector("svg[preserveAspectRatio='none']");
+    expect(svg).toHaveAttribute("viewBox", expect.stringMatching(/^0 0 100 \d+$/));
+    // Inline, the SVG's baseline gap overflows the row and gives the diagram a vertical scroll bar.
+    expect(svg).toHaveAttribute("display", "block");
   });
 
   it("draws the whole configuration when nothing has flowed", async () => {
