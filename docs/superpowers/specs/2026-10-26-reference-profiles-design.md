@@ -380,7 +380,8 @@ files from a local server, as the license tests do.
   prefix; `scripts/smoke-test.sql` still passes and checks a SOTA activation.
 - **Profile.** pgTAP pins the shape; a hidden call is in no list and no total; a live day and a
   rolled-up day are not counted twice; a reference with spots and no catalog row, and one with
-  neither. `advisor.test.sql` lists the new functions.
+  neither. The new functions are in neither of `advisor.test.sql`'s lists (not client-callable,
+  search_path pinned); `reference_profile.test.sql` checks their grants and search_path.
 - **Web.** Vitest for the page, links and `ref-preview.ts` (tags for a Discordbot User-Agent,
   escaping, 404). `cd web && npm run test:all`.
 - **After deploy.** `curl -A Discordbot https://longlines.io/ref/pota/US-2763` shows the park's
