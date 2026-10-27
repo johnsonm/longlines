@@ -10,8 +10,6 @@ import { SOURCES } from "../sources/sources";
 import type { LinkInput } from "./layout";
 import type { HomeFlow } from "./types";
 
-/** How many connections the diagram shows; the rest fold into one "N more connections" node. */
-export const TOP_CONNECTIONS = 6;
 
 /** A missing number. */
 export const DASH = "–";
@@ -51,11 +49,6 @@ export interface Flow {
   sources: SourceNode[];
   connections: ConnectionNode[];
   destinations: DestinationNode[];
-  /** Sources and destinations only hidden connections use, counted in a "+N more" node. */
-  moreSources: number;
-  moreDestinations: number;
-  /** The connections past TOP_CONNECTIONS; null when none are hidden. */
-  moreConnections: { count: number; matched: number } | null;
   sourceLinks: FlowLink[];
   destinationLinks: FlowLink[];
 }
@@ -115,23 +108,19 @@ export function buildFlow(subs: SubscriptionWithLinks[], dests: Destination[], f
   });
 
   const ranked = [...nodes].sort((a, b) => (b.matched ?? 0) - (a.matched ?? 0) || a.name.localeCompare(b.name));
-  const shown = ranked.slice(0, TOP_CONNECTIONS);
-  const hidden = ranked.slice(TOP_CONNECTIONS);
 
   // Grouped under their first source to keep links from crossing: groups in the order their busiest
   // connection ranks, connections without a source last.
   const groups: (string | null)[] = [];
-  for (const c of shown) if (c.source !== null && !groups.includes(c.source)) groups.push(c.source);
+  for (const c of ranked) if (c.source !== null && !groups.includes(c.source)) groups.push(c.source);
   groups.push(null);
-  const connections = groups.flatMap((g) => shown.filter((c) => c.source === g));
+  const connections = groups.flatMap((g) => ranked.filter((c) => c.source === g));
 
   // Sources in the order the connections first use them.
   const sourceTotals = new Map((flow?.sources ?? []).map((s) => [s.source, s.matched]));
   const sourceIds: string[] = [];
   for (const c of connections) for (const r of subSources.get(c.id) ?? []) if (!sourceIds.includes(r.source)) sourceIds.push(r.source);
   const sources = sourceIds.map((id) => ({ id, matched: sourceTotals.get(id) ?? 0 }));
-  const hiddenSources = new Set(hidden.flatMap((c) => (subSources.get(c.id) ?? []).map((r) => r.source)));
-  const moreSources = [...hiddenSources].filter((id) => !sourceIds.includes(id)).length;
 
   // A connection's destinations: the ones it links to, and any it sent to in the window since unlinked.
   const subById = new Map(subs.map((s) => [s.id, s]));
@@ -141,7 +130,7 @@ export function buildFlow(subs: SubscriptionWithLinks[], dests: Destination[], f
     return [...ids].filter((d) => destById.has(d));
   };
 
-  // Destinations the shown connections reach, by the mean row of those connections, then the ones no
+  // Destinations the connections reach, by the mean row of those connections, then the ones no
   // connection reaches yet.
   const rowsOf = new Map<string, number[]>();
   connections.forEach((c, i) => {
@@ -152,14 +141,12 @@ export function buildFlow(subs: SubscriptionWithLinks[], dests: Destination[], f
     return rows.reduce((a, b) => a + b, 0) / Math.max(rows.length, 1);
   };
   const totals = destinationTotals(dests, flow);
-  const reachedByHidden = new Set(hidden.flatMap((c) => linked(c.id)));
   const destinations = [
     ...totals
       .filter((d) => rowsOf.has(d.id))
       .sort((a, b) => mean(a.id) - mean(b.id) || (b.delivered ?? 0) - (a.delivered ?? 0) || a.name.localeCompare(b.name)),
-    ...totals.filter((d) => !rowsOf.has(d.id) && !reachedByHidden.has(d.id)).sort((a, b) => a.name.localeCompare(b.name)),
+    ...totals.filter((d) => !rowsOf.has(d.id)).sort((a, b) => a.name.localeCompare(b.name)),
   ];
-  const moreDestinations = [...reachedByHidden].filter((id) => !rowsOf.has(id)).length;
 
   const sourceRow = new Map(sources.map((s, i) => [s.id, i]));
   const destinationRow = new Map(destinations.map((d, i) => [d.id, i]));
@@ -174,9 +161,6 @@ export function buildFlow(subs: SubscriptionWithLinks[], dests: Destination[], f
     sources,
     connections,
     destinations,
-    moreSources,
-    moreDestinations,
-    moreConnections: hidden.length > 0 ? { count: hidden.length, matched: hidden.reduce((n, c) => n + (c.matched ?? 0), 0) } : null,
     sourceLinks,
     destinationLinks,
   };
@@ -199,9 +183,4 @@ const TYPE_LABELS: Record<string, string> = { discord: "Discord", webhook: "Webh
 /** "Discord · 131 delivered". */
 export function destinationDetail(d: DestinationNode): string {
   return `${TYPE_LABELS[d.type] ?? d.type} · ${count(d.delivered)} delivered`;
-}
-
-/** "9 more connections", "1 more connection". */
-export function moreConnectionsName(n: number): string {
-  return `${count(n)} more connection${n === 1 ? "" : "s"}`;
 }

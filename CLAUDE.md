@@ -691,9 +691,8 @@ profile canvas); its Copy section ("Reference page") is the copy source for `/re
 
 - `/home` is the signed-in landing page (sign-in, set password and unknown paths go there) and is
   not public. Its copy comes from Brad's "Long Lines home" canvas.
-- The diagram draws the configuration, not the traffic: every connection (the top
-  `TOP_CONNECTIONS` by matched, the rest in a "more" node), every source each takes spots from and
-  every destination, linked or not. The last 24 hours only label nodes and weight links; never drop
+- The diagram draws the configuration, not the traffic: every connection (no cap), every source
+  each takes spots from and every destination, linked or not. The last 24 hours only label nodes and weight links; never drop
   a node or link for being quiet.
 - `home_flow()` gives what the lists `SignedIn` loads can't: the caller's last 24 hours of
   `deliveries` (matched = distinct spots by `created_at`, delivered = sent rows by `sent_at`) and
@@ -705,7 +704,7 @@ profile canvas); its Copy section ("Reference page") is the copy source for `/re
   the page shows an en dash for it; never count matches live over `raw_spots` per visitor.
 - The diagram is plain MUI plus one SVG per gap (`preserveAspectRatio="none"`,
   `vector-effect="non-scaling-stroke"`); no chart or graph dependency. Geometry is the pure
-  `home/layout.ts`, node choice and order `home/model.ts` (`TOP_CONNECTIONS`). Link colours are
+  `home/layout.ts`, node choice and order `home/model.ts`. Link colours are
   each source's catalog `markColor` from the theme (`home/colors.ts`), never hex.
 
 ## Callsign group rules

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Destination, SubscriptionWithLinks } from "../lib/api";
 import {
-  buildFlow, connectionDetail, count, destinationDetail, destinationTotals, moreConnectionsName, TOP_CONNECTIONS,
+  buildFlow, connectionDetail, count, destinationDetail, destinationTotals,
 } from "./model";
 import type { HomeFlow } from "./types";
 
@@ -53,15 +53,13 @@ describe("buildFlow: connections", () => {
     expect(f.destinations[0]?.delivered).toBeNull();
   });
 
-  it(`shows the top ${TOP_CONNECTIONS} by matched and folds the rest into one node`, () => {
-    const subs = Array.from({ length: 9 }, (_, i) => sub(`c${i}`, ["d1"]));
-    const f = buildFlow(subs, dests, flow(subs.map((s, i) => [s.id, "pota", 100 - i])));
-    expect(f.connections.map((c) => c.id)).toEqual(["c0", "c1", "c2", "c3", "c4", "c5"]);
-    expect(f.moreConnections).toEqual({ count: 3, matched: 94 + 93 + 92 });
-  });
-
-  it("has no more node when everything fits", () => {
-    expect(buildFlow([sub("a", ["d1"])], dests, flow([])).moreConnections).toBeNull();
+  it("shows every connection, busiest first, however many there are and whether or not they matched", () => {
+    const subs = Array.from({ length: 12 }, (_, i) => sub(`c${i}`, ["d1"]));
+    const f = buildFlow(subs, dests, flow(subs.slice(0, 9).map((s, i) => [s.id, "pota", 100 - i]), [], [], subs.map((s) => [s.id, "pota"])));
+    // The quiet ones follow by name ("Conn c10" sorts before "Conn c9").
+    expect(f.connections.map((c) => c.id)).toEqual(["c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c10", "c11", "c9"]);
+    expect(f.connections.slice(9).map((c) => c.matched)).toEqual([0, 0, 0]);
+    expect(f.sourceLinks).toHaveLength(12);
   });
 
   it("groups connections under their source in the order each group's busiest ranks, idle ones last", () => {
@@ -86,15 +84,6 @@ describe("buildFlow: sources", () => {
       { from: 1, to: 0, value: 1, source: "sotawatch" },
       { from: 2, to: 1, value: 5, source: "rbn" },
     ]);
-  });
-
-  it("counts sources only hidden connections touch", () => {
-    const subs = Array.from({ length: 8 }, (_, i) => sub(`c${i}`, []));
-    const rows: [string, string, number][] = subs.map((s, i) => [s.id, "pota", 100 - i]);
-    rows.push(["c6", "rbn", 1], ["c7", "wwff", 1]);
-    const f = buildFlow(subs, [], flow(rows));
-    expect(f.sources.map((s) => s.id)).toEqual(["pota"]);
-    expect(f.moreSources).toBe(2);
   });
 });
 
@@ -125,12 +114,10 @@ describe("buildFlow: destinations", () => {
     expect(f.destinationLinks).toEqual([]);
   });
 
-  it("counts destinations only hidden connections reach, and totals include hidden connections", () => {
-    const dests = [dest("seen"), dest("hidden")];
-    const subs = Array.from({ length: 7 }, (_, i) => sub(`c${i}`, i === 6 ? ["hidden", "seen"] : ["seen"]));
-    const f = buildFlow(subs, dests, flow(subs.map((s, i) => [s.id, "pota", 100 - i]), [["c0", "seen", 1], ["c6", "seen", 5]]));
+  it("totals a destination's deliveries over every connection", () => {
+    const subs = [sub("a", ["seen"]), sub("b", ["seen"])];
+    const f = buildFlow(subs, [dest("seen")], flow([], [["a", "seen", 1], ["b", "seen", 5]]));
     expect(f.destinations.map((d) => [d.id, d.delivered])).toEqual([["seen", 6]]);
-    expect(f.moreDestinations).toBe(1);
   });
 });
 
@@ -169,7 +156,6 @@ describe("buildFlow: configuration, traffic or not", () => {
     const f = buildFlow([sub("a", ["linked"])], dests, flow([], [], [], [["a", "pota"]]));
     expect(f.destinations.map((d) => d.id)).toEqual(["linked", "spare-a", "spare-b"]);
     expect(f.destinationLinks.map((l) => l.to)).toEqual([0]);
-    expect(f.moreDestinations).toBe(0);
   });
 });
 
@@ -199,10 +185,5 @@ describe("copy", () => {
     expect(destinationDetail({ id: "d", name: "D", type: "push", delivered: null })).toBe("Push · – delivered");
     expect(destinationDetail({ id: "d", name: "D", type: "webhook", delivered: 49 })).toBe("Webhook · 49 delivered");
     expect(destinationDetail({ id: "d", name: "D", type: "pager", delivered: 1 })).toBe("pager · 1 delivered");
-  });
-
-  it("names the more node", () => {
-    expect(moreConnectionsName(9)).toBe("9 more connections");
-    expect(moreConnectionsName(1)).toBe("1 more connection");
   });
 });

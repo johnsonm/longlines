@@ -98,30 +98,18 @@ describe("HomePage on desktop", () => {
     for (const p of paths) expect(p).toHaveAttribute("stroke-width", "2");
   });
 
-  it("caps the diagram at six connections and links the rest to Connections", async () => {
-    const subs = Array.from({ length: 8 }, (_, i) => sub(`c${i}`, `Conn ${i}`, ["d1"]));
+  it("shows every connection, with no cap", async () => {
+    const subs = Array.from({ length: 10 }, (_, i) => sub(`c${i}`, `Conn ${i}`, ["d1"]));
     vi.mocked(loadHomeFlow).mockResolvedValue({
       ...FLOW,
-      subscriptions: subs.map((s, i) => ({ subscription_id: s.id, source: "pota", matched: 10 - i })),
+      subscriptions: subs.slice(0, 3).map((s, i) => ({ subscription_id: s.id, source: "pota", matched: 10 - i })),
       links: [],
+      subscription_sources: subs.map((s) => ({ subscription_id: s.id, source: "pota" })),
     });
     render(subs);
-    expect(await screen.findByText("Last 24 hours. Line width shows how many spots matched. Showing your top 6 connections.")).toBeInTheDocument();
-    expect(link(/^2 more connections 7 matched · View all$/)).toHaveAttribute("href", "/connections");
-    expect(screen.queryByRole("link", { name: /^Conn 6/ })).not.toBeInTheDocument();
-  });
-
-  it("counts sources and destinations only hidden connections touch", async () => {
-    const subs = Array.from({ length: 7 }, (_, i) => sub(`c${i}`, `Conn ${i}`, i === 6 ? ["d2"] : ["d1"]));
-    vi.mocked(loadHomeFlow).mockResolvedValue({
-      ...FLOW,
-      subscriptions: subs.map((s, i) => ({ subscription_id: s.id, source: i === 6 ? "rbn" : "pota", matched: 10 - i })),
-      links: [],
-    });
-    render(subs);
-    await screen.findByText("1 more connection");
-    const more = screen.getAllByRole("link", { name: /^\+1 more View all$/ });
-    expect(more.map((a) => a.getAttribute("href"))).toEqual(["/sources", "/destinations"]);
+    expect(await screen.findByText("Last 24 hours. Line width shows how many spots matched.")).toBeInTheDocument();
+    for (const s of subs) expect(link(new RegExp(`^${s.name} `))).toHaveAttribute("href", `/connections/${s.id}`);
+    expect(screen.queryByText(/more connection/)).not.toBeInTheDocument();
   });
 
   it("shows en dashes and toasts when the counts don't load", async () => {
