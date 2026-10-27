@@ -24,7 +24,7 @@ export function SetPasswordPage() {
     try {
       await updatePassword(next);
       notify("Password changed");
-      void navigate("/sources", { replace: true });
+      void navigate("/home", { replace: true });
     } catch (err) {
       setError(errorText(err, "Couldn't change your password."));
     } finally {

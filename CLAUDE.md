@@ -687,6 +687,22 @@ profile canvas); its Copy section ("Reference page") is the copy source for `/re
   POTA `primary` in the middle, SOTA `secondary` on top, all from `theme.palette`, never hex. The
   band plan (`web/src/lib/bandplan.ts`) is for display only and never decides a spot's mode.
 
+## Home page rules
+
+- `/home` is the signed-in landing page (sign-in, set password and unknown paths go there) and is
+  not public. Its copy comes from Brad's "Long Lines home" canvas.
+- Counts come only from `home_flow()`: the caller's last 24 hours of `deliveries` (matched =
+  distinct spots by `created_at`, delivered = sent rows by `sent_at`). Names, types, sources and
+  links come from the lists `SignedIn` already loads. `home_flow` is web-only: never add it to
+  `api_call`, and never return spot data from it. Its shape is `HomeFlow` (`web/src/home/types.ts`),
+  pinned by `supabase/tests/home_flow.test.sql`; change the SQL, the type and the test together.
+- Nothing records a match for a connection the matcher skips (off, or no enabled destination), so
+  the page shows an en dash for it; never count matches live over `raw_spots` per visitor.
+- The diagram is plain MUI plus one SVG per gap (`preserveAspectRatio="none"`,
+  `vector-effect="non-scaling-stroke"`); no chart or graph dependency. Geometry is the pure
+  `home/layout.ts`, node choice and order `home/model.ts` (`TOP_CONNECTIONS`). Link colours are
+  each source's catalog `markColor` from the theme (`home/colors.ts`), never hex.
+
 ## Callsign group rules
 
 - Membership is live: a `group` rule stores group ids, never a copy of the calls, so editing a
