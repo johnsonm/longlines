@@ -110,6 +110,10 @@ select ok(not has_function_privilege('authenticated', 'public.throttle_destinati
 -- Queue p_n deliveries of fresh spots for p_dest, newest at p_newest and a
 -- minute apart, straight into deliveries and the queue (the matcher's path is
 -- covered above). Returns the delivery ids, newest spot first.
+-- claim_deliveries ages rows, refills buckets and lifts throttles by
+-- clock_timestamp(), so the rows and every setup a claim reads below are stamped
+-- by the wall clock too: by now() a slow runner (CI has taken over a minute to
+-- get here) would make a fresh row look older than the batch hold.
 create function pg_temp.queue(p_dest uuid, p_prefix text, p_n int, p_newest timestamptz)
 returns bigint[] language plpgsql as $$
 declare
@@ -123,8 +127,8 @@ begin
       'pota_reference', 'US-2763', 'pota_location', 'US-NC', 'raw_payload', '{}'::jsonb))
     from generate_series(1, p_n) i));
   with ins as (
-    insert into deliveries (subscription_id, destination_id, spot_id)
-    select (select id from sub), p_dest, r.id
+    insert into deliveries (subscription_id, destination_id, spot_id, created_at)
+    select (select id from sub), p_dest, r.id, clock_timestamp()
     from raw_spots r
     where r.source = 'pota' and r.source_spot_id like p_prefix || '%'
     order by r.spot_time desc
@@ -281,9 +285,9 @@ select pg_temp.reset_queue();
 select pg_temp.queue((select id from dp), 'push-', 5, now());
 select is((select count(*) from claim_deliveries(200, 60)), 3::bigint, 'push: three spots a minute');
 select is((select count(*) from claim_deliveries(200, 60)), 0::bigint, 'then nothing until the bucket refills');
-update destinations set claim_tokens_at = now() - interval '30 seconds' where id = (select id from dp);
+update destinations set claim_tokens_at = clock_timestamp() - interval '30 seconds' where id = (select id from dp);
 select is((select count(*) from claim_deliveries(200, 60)), 1::bigint, 'half a minute refills one of the three');
-update destinations set claim_tokens_at = now() - interval '1 minute' where id = (select id from dp);
+update destinations set claim_tokens_at = clock_timestamp() - interval '1 minute' where id = (select id from dp);
 select is((select count(*) from claim_deliveries(200, 60)), 1::bigint, 'a minute refills the bucket; the last spot goes');
 update destinations set claim_tokens_at = now() - interval '1 hour' where id = (select id from dp);
 select pg_temp.queue((select id from dp), 'push2-', 5, now());
@@ -313,7 +317,7 @@ select mark_deliveries_sent(array(select delivery_id from hold1), array(select m
 select pg_temp.queue((select id from dw), 'hold-w2-', 2, now());
 select is((select count(*) from claim_deliveries(2, 60) c where c.destination ->> 'id' = (select id::text from dw)), 2::bigint,
   'held rows take no share of p_limit');
-update deliveries set created_at = now() - interval '31 seconds' where id = (select min(id) from hold);
+update deliveries set created_at = clock_timestamp() - interval '31 seconds' where id = (select min(id) from hold);
 create temp table hold2 as select * from claim_deliveries(200, 60) with ordinality;
 select results_eq($$ select (spot ->> 'spot_time')::timestamptz from hold2 order by ordinality $$,
   $$ values (now()), (now() - interval '1 minute'), (now() - interval '2 minutes') $$,
@@ -330,8 +334,8 @@ select is((select count(*) from claim_deliveries(200, 60)), 0::bigint, 'a row in
 
 select pg_temp.reset_queue();
 select pg_temp.queue((select id from dd), 'holdt-', 3, now());
-update deliveries set created_at = now() - interval '31 seconds';
-update destinations set throttled_until = now() + interval '1 minute' where id = (select id from dd);
+update deliveries set created_at = clock_timestamp() - interval '31 seconds';
+update destinations set throttled_until = clock_timestamp() + interval '1 minute' where id = (select id from dd);
 select is((select count(*) from claim_deliveries(200, 60)), 0::bigint, 'a throttle holds rows older than the window');
 update destinations set throttled_until = now() - interval '1 second' where id = (select id from dd);
 select is((select count(*) from claim_deliveries(200, 60)), 3::bigint, 'and when it lifts they go at once');
@@ -353,7 +357,7 @@ select results_eq($$ select status, dropped_at, count(*) from deliveries group b
   $$ values ('dropped', null::timestamptz, 2::bigint) $$, 'its rows are dropped as unwanted, not as a loss');
 select pg_temp.reset_queue();
 select pg_temp.queue((select id from dd), 'thr2-', 2, now());
-update destinations set throttled_until = now() + interval '1 minute' where id = (select id from dd);
+update destinations set throttled_until = clock_timestamp() + interval '1 minute' where id = (select id from dd);
 select is((select count(*) from claim_deliveries(200, 60)), 0::bigint, 'a throttled destination is not claimed');
 update destinations set throttled_until = now() - interval '1 second' where id = (select id from dd);
 create temp table thr as select * from claim_deliveries(200, 60);
@@ -395,12 +399,12 @@ select pg_temp.reset_queue();
 select results_eq($$ select * from delivery_queue_stats() $$, $$ values (0::bigint, 0::bigint) $$, 'stats on an empty queue');
 create temp table expw as select id, n from unnest(pg_temp.queue((select id from dw), 'exp-w-', 2, now())) with ordinality as t(id, n);
 create temp table expp as select id, n from unnest(pg_temp.queue((select id from dp), 'exp-p-', 2, now())) with ordinality as t(id, n);
-update deliveries set created_at = now() - interval '25 hours' where id = (select id from expw where n = 1);
-update deliveries set created_at = now() - interval '23 hours' where id = (select id from expw where n = 2);
+update deliveries set created_at = clock_timestamp() - interval '25 hours' where id = (select id from expw where n = 1);
+update deliveries set created_at = clock_timestamp() - interval '23 hours' where id = (select id from expw where n = 2);
 -- A push destination's own "drop if the device is offline for" (30 minutes by default) replaces
 -- destination_max_age for it (20261016000400); push_destinations.test.sql covers the other values.
-update deliveries set created_at = now() - interval '31 minutes' where id = (select id from expp where n = 1);
-update deliveries set created_at = now() - interval '29 minutes' where id = (select id from expp where n = 2);
+update deliveries set created_at = clock_timestamp() - interval '31 minutes' where id = (select id from expp where n = 1);
+update deliveries set created_at = clock_timestamp() - interval '29 minutes' where id = (select id from expp where n = 2);
 -- Nothing is claimable, so the sweep is the only thing the call does.
 update destinations set throttled_until = now() + interval '1 hour';
 select is((select count(*) from claim_deliveries(200, 60)), 0::bigint, 'nothing claimed while every destination is throttled');
