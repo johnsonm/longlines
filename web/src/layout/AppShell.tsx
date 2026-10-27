@@ -5,6 +5,7 @@ import {
   useColorScheme, useMediaQuery, useTheme,
 } from "@mui/material";
 import MenuIcon from "@mui/icons-material/Menu";
+import HomeIcon from "@mui/icons-material/Home";
 import SensorsIcon from "@mui/icons-material/Sensors";
 import GraphicEqIcon from "@mui/icons-material/GraphicEq";
 import FilterListIcon from "@mui/icons-material/FilterList";
@@ -31,6 +32,7 @@ import { InstallDialog } from "./InstallDialog";
 
 // `open` sections are public; signed out, the rest stay in the drawer, disabled, to show what an account adds.
 const NAV = [
+  { id: "home", label: "Home", icon: <HomeIcon />, open: false },
   { id: "sources", label: "Sources", icon: <SensorsIcon />, open: false },
   { id: "connections", label: "Connections", icon: <FilterListIcon />, open: false },
   { id: "destinations", label: "Destinations", icon: <SendIcon />, open: false },

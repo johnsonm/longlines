@@ -10,6 +10,7 @@ import { CheckEmailPage } from "./auth/CheckEmailPage";
 import { ResetPasswordPage } from "./auth/ResetPasswordPage";
 import { SetPasswordPage } from "./auth/SetPasswordPage";
 import { AppShell } from "./layout/AppShell";
+import { HomePage } from "./home/HomePage";
 import { SourcesPage } from "./sources/SourcesPage";
 import { SourceDetailPage } from "./sources/SourceDetailPage";
 import { DestinationsPage } from "./destinations/DestinationsPage";
@@ -66,6 +67,7 @@ function Router() {
       <Route path="/check-email" element={<CheckEmailPage />} />
       <Route path="/reset-password" element={<ResetPasswordPage />} />
       <Route path="/set-password" element={<SetPasswordPage />} />
+      <Route path="/home" element={<RequireAuth page="home" />} />
       <Route path="/sources" element={<RequireAuth page="sources" />} />
       <Route path="/sources/:id" element={<RequireAuth page="source" />} />
       <Route path="/connections" element={<RequireAuth page="subscriptions" />} />
@@ -88,7 +90,7 @@ function Router() {
       <Route path="/g/:slug" element={<PublicRoute page="group-public" />} />
       <Route path="/account" element={<RequireAuth page="account" />} />
       <Route path="/api-tokens" element={<RequireAuth page="api-tokens" />} />
-      <Route path="*" element={<Navigate to="/sources" replace />} />
+      <Route path="*" element={<Navigate to="/home" replace />} />
     </Routes>
   );
 }
@@ -107,11 +109,11 @@ function PublicOnly({ children }: { children: ReactNode }) {
   const { session, sessionLoading } = useApp();
   const { state } = useLocation() as { state: { from?: string } | null };
   if (sessionLoading) return <LinearProgress />;
-  if (session) return <Navigate to={state?.from ?? "/sources"} replace />;
+  if (session) return <Navigate to={state?.from ?? "/home"} replace />;
   return children;
 }
 
-type Page = "sources" | "source" | "band-map" | "subscriptions" | "subscription-new" | "subscription" | "groups" | "group" | "group-settings" | "destinations" | "destination-new" | "destination" | "stats" | "health" | "lookup" | "call" | "ref-lookup" | "ref" | "account" | "api-tokens" | "group-public";
+type Page = "home" | "sources" | "source" | "band-map" | "subscriptions" | "subscription-new" | "subscription" | "groups" | "group" | "group-settings" | "destinations" | "destination-new" | "destination" | "stats" | "health" | "lookup" | "call" | "ref-lookup" | "ref" | "account" | "api-tokens" | "group-public";
 type PublicPage = "band-map" | "stats" | "health" | "lookup" | "call" | "ref-lookup" | "ref" | "group-public";
 
 // Signed-out visitors read profiles in UTC.
@@ -209,7 +211,7 @@ function DestinationRoute(props: Omit<ComponentProps<typeof PushDestinationPage>
 }
 
 const LOAD_FAILED = "Couldn't load your destinations and connections.";
-const LIST_PAGES = new Set<Page>(["subscriptions", "subscription-new", "subscription", "destinations", "destination-new", "destination"]);
+const LIST_PAGES = new Set<Page>(["home", "subscriptions", "subscription-new", "subscription", "destinations", "destination-new", "destination"]);
 
 /** A failed load in place of the page, with Retry. */
 function LoadError({ message, retry }: { message: string; retry: () => Promise<void> }) {
@@ -271,6 +273,7 @@ function SignedIn({ page }: { page: Page }) {
 
   return (
     <AppShell destinationsFailing={dests.some((d) => d.health === "failing")}>
+      {page === "home" && <HomePage subs={subs} dests={dests} loading={loading} />}
       {page === "sources" && <SourcesPage />}
       {page === "source" && <SourceDetailPage prefs={prefs} subs={subs} />}
       {page === "band-map" && <BandMapPage />}

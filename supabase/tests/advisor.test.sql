@@ -23,7 +23,7 @@ select set_eq(
   array['callsign_available', 'create_destination', 'rotate_signing_secret', 'save_subscription',
         'delete_subscription', 'preview_subscription', 'list_ingest_health', 'list_recent_spots',
         'normalize_group_callsigns', 'save_callsign_group', 'delete_callsign_group', 'list_callsign_groups',
-        'get_group_statistics', 'list_group_summaries',
+        'get_group_statistics', 'list_group_summaries', 'home_flow',
         'create_api_token', 'rotate_api_token',
         'register_push_device', 'unregister_push_device', 'list_push_devices', 'delete_push_device',
         'rename_push_device', 'report_push_device_blocked', 'save_push_destination', 'get_push_destination',

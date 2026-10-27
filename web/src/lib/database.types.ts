@@ -1524,6 +1524,9 @@ isOneToOne: true
 "health_worker_memory_bytes":
 { Args: Record<PropertyKey, never>; Returns: number
                            },
+"home_flow":
+{ Args: Record<PropertyKey, never>; Returns: Json
+                           },
 "ingest_aprs_packets":
 { Args: { "p_rows": Json }; Returns: number
                            },

@@ -26,7 +26,7 @@ describe("SetPasswordPage", () => {
     await user.type(screen.getByLabelText("Confirm new password"), "hunter22");
     await user.click(screen.getByRole("button", { name: "Set password" }));
     expect(updatePassword).toHaveBeenCalledWith("hunter22");
-    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/sources"));
+    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/home"));
     expect(app.notify).toHaveBeenCalledWith("Password changed");
   });
 
