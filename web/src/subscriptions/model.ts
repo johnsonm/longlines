@@ -294,7 +294,7 @@ export function singleSource(sources: string[]): SourceInfo | null {
   return sources.length === 1 ? (SOURCES.find((s) => s.id === sources[0]) ?? null) : null;
 }
 
-/** A source a new subscription can be made from: live and alerting. */
+/** A source a new subscription can be made from: live and alerting, or carried by one (IOTA). */
 export function pickableSource(id: string | null): SourceInfo | null {
   return LIVE_SOURCES.find((s) => s.id === id) ?? null;
 }
@@ -311,13 +311,21 @@ export function needsCallsign(sources: string[], rules: Rules): boolean {
  * A new subscription on one source, filtered to a callsign (a profile's Get alerts), else a group id (a group's),
  * else one reference exactly (a reference page's).
  */
-export const blankSub = (source: string, callsign?: string | null, group?: string | null, reference?: string | null): SubscriptionInput => ({
-  name: callsign ? `${callsign} on the air` : reference && !group ? `Activators at ${reference}` : "", enabled: true, sources: [source],
-  rules: callsign ? [[{ field: "callsign", op: "is", values: [callsign] }]]
-    : group ? [[{ field: "group", op: "is", values: [group] }]]
-    : reference ? [[{ field: "reference", op: "is", values: [reference] }]] : [],
-  quiet_minutes: 10, destinations: [],
-});
+/**
+ * A new subscription on one source. IOTA starts on DX Cluster, its carrier, with an island rule for
+ * every continent (Any island) beside any callsign, group or reference it starts with.
+ */
+export function blankSub(source: string, callsign?: string | null, group?: string | null, reference?: string | null): SubscriptionInput {
+  const iota = source === "iota";
+  const start: Rule[] = callsign ? [{ field: "callsign", op: "is", values: [callsign] }]
+    : group ? [{ field: "group", op: "is", values: [group] }]
+    : reference ? [{ field: "reference", op: "is", values: [reference] }] : [];
+  const rules: Rule[] = iota ? [...start, { field: "island", op: "is", values: islandValues([ANY_ISLAND]) }] : start;
+  return {
+    name: callsign ? `${callsign} on the air` : reference && !group ? `Activators at ${reference}` : "", enabled: true,
+    sources: [iota ? "dxcluster" : source], rules: rules.length ? [rules] : [], quiet_minutes: 10, destinations: [],
+  };
+}
 
 export function toInput(s: SubscriptionWithLinks): SubscriptionInput {
   return {

@@ -291,8 +291,10 @@ The design is `docs/superpowers/specs/2026-10-27-iota-design.md`.
   catalog; until then never add a second island list.
 - The `island` rule (`is` / `is_not`, references or continents) is validated by
   `normalize_subscription_rules` and matched by `rule_matches`; the web offers it only when the
-  sources list DX Cluster. The catalog's IOTA entry has `via: "dxcluster"`: kept out of
-  `LIVE_SOURCES`, health from DX Cluster (`healthId`), "Create connection" opens a DX Cluster one.
+  sources list DX Cluster. The catalog's IOTA entry has `via: "dxcluster"`: health from DX Cluster (`healthId`). It is in
+  `LIVE_SOURCES`, so the source picker offers it; picking it (or its "Create connection",
+  `?source=iota`) starts a DX Cluster connection with an Any island rule (`blankSub`), never an
+  `iota` source.
 - Profiles and group statistics count program `'IOTA'` (`kpis.activations.iota`,
   `kpis.places.islands`); Stats only `daily[].iota` / `hourly[].iota`, for the catalog's rates.
 
