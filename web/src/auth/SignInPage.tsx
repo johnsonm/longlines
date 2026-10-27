@@ -96,7 +96,7 @@ export function SignInPage() {
     setError(null);
     try {
       await signIn(ident, pw);
-      void navigate(state.from ?? "/sources", { replace: true });
+      void navigate(state.from ?? "/home", { replace: true });
     } catch (err) {
       setError(errorText(err, "Couldn't sign in."));
     } finally {

@@ -11,6 +11,7 @@ import type { HealthPayload, HealthRange } from "../health/types";
 import type { CallsignGroup, GroupInput, NormalizedCallsigns } from "../groups/types";
 import type { GroupPeriod, GroupSummary, OwnerGroupStatistics, PublicGroupStatistics } from "../groups/stats/types";
 import type { Rules } from "../subscriptions/model";
+import type { HomeFlow } from "../home/types";
 
 type Tables = Database["public"]["Tables"];
 type Views = Database["public"]["Views"];
@@ -780,6 +781,17 @@ export async function previewSubscription(filter: SubscriptionFilter): Promise<P
     station_count: Number(row?.station_count ?? 0),
     window_size: Number(row?.window_size ?? 0),
   };
+}
+
+// ---- Home ---------------------------------------------------------------------
+
+/** The Home page's last 24 hours (home_flow): counts only; names, types and links come from the loaded lists. */
+export async function loadHomeFlow(): Promise<HomeFlow> {
+  const { data, error } = await supabase.rpc("home_flow");
+  if (error) fail(error, "Couldn't load your last 24 hours.");
+  if (data === null) throw new ApiError("Couldn't load your last 24 hours.");
+  // jsonb in the generated types; its shape is pinned by supabase/tests/home_flow.test.sql.
+  return data as unknown as HomeFlow;
 }
 
 // ---- Callsign groups ---------------------------------------------------------

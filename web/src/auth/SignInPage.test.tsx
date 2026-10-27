@@ -32,13 +32,13 @@ describe("SignInPage: sign in", () => {
     await waitFor(() => expect(where()).toHaveTextContent("/destinations"));
   });
 
-  it("defaults to Sources after sign in", async () => {
+  it("defaults to Home after sign in", async () => {
     setMobile(true);
     const { user } = renderPage(<SignInPage />, { route: "/signin" });
     await user.type(screen.getByLabelText("Callsign or email"), "kk4pwj");
     await user.type(screen.getByLabelText("Password"), "hunter22");
     await user.click(screen.getByRole("button", { name: "Sign in" }));
-    await waitFor(() => expect(where()).toHaveTextContent("/sources"));
+    await waitFor(() => expect(where()).toHaveTextContent("/home"));
   });
 
   it("shows the sign-in error", async () => {

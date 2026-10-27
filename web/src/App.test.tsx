@@ -28,6 +28,11 @@ vi.mock("./auth/SignInPage", async () => {
 vi.mock("./auth/CheckEmailPage", () => ({ CheckEmailPage: () => <p>check-email page</p> }));
 vi.mock("./auth/ResetPasswordPage", () => ({ ResetPasswordPage: () => <p>reset page</p> }));
 vi.mock("./auth/SetPasswordPage", () => ({ SetPasswordPage: () => <p>set-password page</p> }));
+vi.mock("./home/HomePage", () => ({
+  HomePage: ({ subs, dests, loading }: { subs: unknown[]; dests: Destination[]; loading: boolean }) => (
+    <p>home page {loading ? "loading" : `${subs.length} connections, ${dests.length} destinations`}</p>
+  ),
+}));
 vi.mock("./sources/SourcesPage", () => ({
   SourcesPage: () => <p>sources page</p>,
 }));
@@ -145,9 +150,9 @@ describe("App routing", () => {
     expect(screen.getByRole("progressbar")).toBeInTheDocument();
   });
 
-  it("sends signed-in users from sign in to Sources", async () => {
+  it("sends signed-in users from sign in to Home", async () => {
     renderAt("/signin");
-    expect(await screen.findByText("sources page")).toBeInTheDocument();
+    expect(await screen.findByText(/^home page/)).toBeInTheDocument();
   });
 
   it("sends a new session on sign in back to the page it came from, where SignInPage sends it", async () => {
@@ -159,9 +164,21 @@ describe("App routing", () => {
     expect(await screen.findByText("stats page")).toBeInTheDocument();
   });
 
-  it("redirects unknown paths to Sources", async () => {
+  it("redirects unknown paths to Home", async () => {
     renderAt("/nope");
-    expect(await screen.findByText("sources page")).toBeInTheDocument();
+    expect(await screen.findByText(/^home page/)).toBeInTheDocument();
+  });
+
+  it("keeps Home for signed-in users and sends signed-out visitors from it to sign in", async () => {
+    session(null);
+    renderAt("/home");
+    expect(await screen.findByText("sign-in page /home")).toBeInTheDocument();
+  });
+
+  it("gives Home the shared lists", async () => {
+    vi.mocked(loadDestinations).mockResolvedValue([DEST]);
+    renderAt("/home");
+    expect(await screen.findByText("home page 0 connections, 1 destinations")).toBeInTheDocument();
   });
 
   it.each([
@@ -346,7 +363,7 @@ describe("App routing", () => {
     expect(screen.getByText("sources page")).toBeInTheDocument();
   });
 
-  it.each(["/destinations", "/destinations/dc", "/connections", "/connections/s1"])(
+  it.each(["/home", "/destinations", "/destinations/dc", "/connections", "/connections/s1"])(
     "shows a failed load on %s with Retry instead of an empty list or a redirect, and recovers",
     async (path) => {
       vi.mocked(loadDestinations).mockRejectedValueOnce(new Error("x")).mockResolvedValue([{ ...DEST, id: "dc", type: "discord" }]);

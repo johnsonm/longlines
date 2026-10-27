@@ -701,6 +701,17 @@ describe("callsign groups", () => {
     await expect(api.loadGroupStatistics("g1", "30d")).rejects.toThrow("Group not found.");
   });
 
+  it("loadHomeFlow returns home_flow's payload", async () => {
+    const flow = { matched: 3, delivered: 4, sources: [], subscriptions: [], links: [] };
+    fake.rpcs.set("home_flow", { data: flow });
+    expect(await api.loadHomeFlow()).toEqual(flow);
+    expect(fake.client.rpc).toHaveBeenCalledWith("home_flow");
+    fake.rpcs.set("home_flow", { data: null });
+    await expect(api.loadHomeFlow()).rejects.toThrow("Couldn't load your last 24 hours.");
+    fake.rpcs.set("home_flow", { error: boom });
+    await expect(api.loadHomeFlow()).rejects.toThrow("boom");
+  });
+
   it("deleteGroup goes through its RPC", async () => {
     await api.deleteGroup("g1");
     expect(fake.client.rpc).toHaveBeenCalledWith("delete_callsign_group", { p_id: "g1" });
