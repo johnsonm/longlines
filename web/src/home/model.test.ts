@@ -6,13 +6,14 @@ import {
 import type { HomeFlow } from "./types";
 
 const dest = (id: string, type = "discord", enabled = true) => ({ id, name: `Dest ${id}`, type, enabled }) as Destination;
-const sub = (id: string, destinations: string[], enabled = true) =>
-  ({ id, name: `Conn ${id}`, enabled, destinations }) as SubscriptionWithLinks;
+const sub = (id: string, destinations: string[], enabled = true, sources: string[] = []) =>
+  ({ id, name: `Conn ${id}`, enabled, destinations, sources }) as SubscriptionWithLinks;
 
 function flow(
   subscriptions: [string, string, number][],
   links: [string, string, number][] = [],
   sources: [string, number][] = [],
+  configured: [string, string][] = [],
 ): HomeFlow {
   return {
     matched: 0,
@@ -20,6 +21,7 @@ function flow(
     sources: sources.map(([source, matched]) => ({ source, matched })),
     subscriptions: subscriptions.map(([subscription_id, source, matched]) => ({ subscription_id, source, matched })),
     links: links.map(([subscription_id, destination_id, delivered]) => ({ subscription_id, destination_id, delivered })),
+    subscription_sources: configured.map(([subscription_id, source]) => ({ subscription_id, source })),
   };
 }
 
@@ -129,6 +131,45 @@ describe("buildFlow: destinations", () => {
     const f = buildFlow(subs, dests, flow(subs.map((s, i) => [s.id, "pota", 100 - i]), [["c0", "seen", 1], ["c6", "seen", 5]]));
     expect(f.destinations.map((d) => [d.id, d.delivered])).toEqual([["seen", 6]]);
     expect(f.moreDestinations).toBe(1);
+  });
+});
+
+describe("buildFlow: configuration, traffic or not", () => {
+  it("links a quiet connection to every source it takes spots from, at the thinnest width", () => {
+    const f = buildFlow([sub("a", ["d1"])], [dest("d1")], flow([], [], [], [["a", "sotawatch"], ["a", "pota"]]));
+    expect(f.sources).toEqual([{ id: "pota", matched: 0 }, { id: "sotawatch", matched: 0 }]);
+    expect(f.sourceLinks).toEqual([
+      { from: 0, to: 0, value: 0, source: "pota" },
+      { from: 1, to: 0, value: 0, source: "sotawatch" },
+    ]);
+    // Coloured by its first source in catalog order while nothing has matched.
+    expect(f.connections[0]?.source).toBe("pota");
+    expect(f.destinationLinks).toEqual([{ from: 0, to: 0, value: 0, source: "pota" }]);
+  });
+
+  it("takes a connection's sources from SQL, not its own list, so any source reads as SQL expands it", () => {
+    const f = buildFlow([sub("any", ["d1"], true, [])], [dest("d1")], flow([], [], [], [["any", "pota"], ["any", "sotawatch"], ["any", "rbn"]]));
+    expect(f.sources.map((s) => s.id)).toEqual(["pota", "sotawatch", "rbn"]);
+  });
+
+  it("falls back to the connection's own list when the counts didn't load", () => {
+    const f = buildFlow([sub("a", ["d1"], true, ["dxcluster"]), sub("any", ["d1"], true, [])], [dest("d1")], null);
+    expect(f.sources.map((s) => s.id)).toEqual(["dxcluster"]);
+    expect(f.connections.find((c) => c.id === "any")?.source).toBeNull();
+  });
+
+  it("puts the busiest source first and keeps one it matched from that is no longer configured", () => {
+    const f = buildFlow([sub("a", ["d1"])], [dest("d1")], flow([["a", "rbn", 3], ["a", "wwff", 7]], [], [], [["a", "pota"], ["a", "rbn"]]));
+    expect(f.sourceLinks.map((l) => [l.source, l.value])).toEqual([["wwff", 7], ["rbn", 3], ["pota", 0]]);
+    expect(f.connections[0]?.source).toBe("wwff");
+  });
+
+  it("shows destinations no connection reaches yet after the linked ones, with no links", () => {
+    const dests = [dest("spare-b"), dest("linked"), dest("spare-a")];
+    const f = buildFlow([sub("a", ["linked"])], dests, flow([], [], [], [["a", "pota"]]));
+    expect(f.destinations.map((d) => d.id)).toEqual(["linked", "spare-a", "spare-b"]);
+    expect(f.destinationLinks.map((l) => l.to)).toEqual([0]);
+    expect(f.moreDestinations).toBe(0);
   });
 });
 

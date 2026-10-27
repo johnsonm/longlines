@@ -1,7 +1,13 @@
--- The Home page's counts (the "Long Lines home" canvas): the caller's last 24 hours of
--- deliveries, which are the only record of a match. Names, types, sources and links come from
--- the tables the web app already reads; this returns numbers only, never spot data, and stays
--- out of api_call (the management API is configuration only).
+-- The Home page's diagram (the "Long Lines home" canvas) draws the caller's configuration, and
+-- this gives it the two things the web app can't read itself: the counts for the caller's last 24
+-- hours of deliveries (the only record of a match), and which sources each connection takes spots
+-- from. Names, types and destination links come from the tables the web app already reads. It
+-- returns no spot data and stays out of api_call (the management API is configuration only).
+--
+-- subscription_sources is every (connection, source) pair the matcher would let through, decided
+-- by its own predicates: source_matches (an empty list is "any" of POTA, SOTAwatch and RBN) and,
+-- for RBN, an AND group that names stations, as in spot_matches. The source list is
+-- normalize_subscription_sources'; a new source goes in both.
 --
 -- What the numbers can and cannot say:
 --   * A connection with no enabled destination, or a disabled one, makes no deliveries
@@ -53,6 +59,16 @@ as $$
       select jsonb_agg(jsonb_build_object('subscription_id', s.subscription_id, 'destination_id', s.destination_id, 'delivered', s.n)
                        order by s.subscription_id, s.destination_id)
       from (select subscription_id, destination_id, count(*) as n from sent group by subscription_id, destination_id) s
+    ), '[]'::jsonb),
+    'subscription_sources', coalesce((
+      select jsonb_agg(jsonb_build_object('subscription_id', s.id, 'source', src.source) order by s.id, src.source)
+      from subscriptions s
+      cross join unnest(array['pota', 'sotawatch', 'wwff', 'wwbota', 'rbn', 'dxcluster']) as src(source)
+      where s.user_id = auth.uid()
+        and public.source_matches(s.sources, src.source)
+        and (src.source <> 'rbn' or exists (
+              select 1 from jsonb_array_elements(s.rules) as g
+              where public.rules_name_stations(jsonb_build_array(g))))
     ), '[]'::jsonb)
   )
   where auth.uid() is not null;
