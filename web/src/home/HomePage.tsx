@@ -8,7 +8,7 @@ import { errorText, useNotify } from "../app/hooks";
 import { SourcePickerDialog } from "../subscriptions/SourcePickerDialog";
 import { DestinationDialog } from "../destinations/DestinationDialog";
 import { DestinationIcon, FlowDiagram, FlowNode } from "./FlowDiagram";
-import { buildFlow, count, destinationDetail, destinationTotals, DASH, TOP_CONNECTIONS } from "./model";
+import { buildFlow, count, destinationDetail, destinationTotals, DASH } from "./model";
 import type { HomeFlow } from "./types";
 
 interface Props {
@@ -97,7 +97,7 @@ export function HomePage({ subs, dests, loading }: Props) {
 
   const caption = phone
     ? "Last 24 hours, by destination."
-    : `Last 24 hours. Line width shows how many spots matched.${model.moreConnections ? ` Showing your top ${TOP_CONNECTIONS} connections.` : ""}`;
+    : "Last 24 hours. Line width shows how many spots matched.";
 
   return (
     <>

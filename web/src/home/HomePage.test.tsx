@@ -9,7 +9,7 @@ import type { HomeFlow } from "./types";
 vi.mock("../lib/api", () => ({ loadHomeFlow: vi.fn(), loadLatestStats: vi.fn() }));
 
 const dest = (id: string, name: string, type: string) => ({ id, name, type, enabled: true }) as Destination;
-const sub = (id: string, name: string, destinations: string[]) => ({ id, name, enabled: true, destinations }) as SubscriptionWithLinks;
+const sub = (id: string, name: string, destinations: string[]) => ({ id, name, enabled: true, destinations, sources: [] as string[] }) as SubscriptionWithLinks;
 
 const DESTS = [dest("d1", "RARS Discord", "discord"), dest("d2", "Logger", "webhook")];
 const SUBS = [sub("s1", "POTA Carolinas", ["d1", "d2"]), sub("s2", "DX 20m CW", ["d2"]), sub("s3", "All POTA", [])];
@@ -25,6 +25,11 @@ const FLOW: HomeFlow = {
     { subscription_id: "s1", destination_id: "d1", delivered: 131 },
     { subscription_id: "s1", destination_id: "d2", delivered: 12 },
     { subscription_id: "s2", destination_id: "d2", delivered: 37 },
+  ],
+  subscription_sources: [
+    { subscription_id: "s1", source: "pota" },
+    { subscription_id: "s2", source: "dxcluster" },
+    { subscription_id: "s3", source: "pota" },
   ],
 };
 
@@ -66,9 +71,10 @@ describe("HomePage on desktop", () => {
     expect(link(/^RARS Discord Discord · 131 delivered$/)).toHaveAttribute("href", "/destinations/d1");
     expect(link(/^Logger Webhook · 49 delivered$/)).toHaveAttribute("href", "/destinations/d2");
 
-    // Two source links and three destination links, in the source's colour at 0.45, true-pixel strokes.
+    // Three source links (All POTA's too, though it matched nothing) and three destination links,
+    // in the source's colour at 0.45, true-pixel strokes.
     const paths = diagramPaths(container);
-    expect(paths).toHaveLength(5);
+    expect(paths).toHaveLength(6);
     for (const p of paths) {
       expect(p.getAttribute("d")).toMatch(/^M0 [\d.]+ C50 [\d.]+ 50 [\d.]+ 100 [\d.]+$/);
       expect(p).toHaveAttribute("vector-effect", "non-scaling-stroke");
@@ -78,30 +84,32 @@ describe("HomePage on desktop", () => {
     expect(container.querySelector("svg[preserveAspectRatio='none']")).toHaveAttribute("viewBox", expect.stringMatching(/^0 0 100 \d+$/));
   });
 
-  it("caps the diagram at six connections and links the rest to Connections", async () => {
-    const subs = Array.from({ length: 8 }, (_, i) => sub(`c${i}`, `Conn ${i}`, ["d1"]));
-    vi.mocked(loadHomeFlow).mockResolvedValue({
-      ...FLOW,
-      subscriptions: subs.map((s, i) => ({ subscription_id: s.id, source: "pota", matched: 10 - i })),
-      links: [],
-    });
-    render(subs);
-    expect(await screen.findByText("Last 24 hours. Line width shows how many spots matched. Showing your top 6 connections.")).toBeInTheDocument();
-    expect(link(/^2 more connections 7 matched · View all$/)).toHaveAttribute("href", "/connections");
-    expect(screen.queryByRole("link", { name: /^Conn 6/ })).not.toBeInTheDocument();
+  it("draws the whole configuration when nothing has flowed", async () => {
+    vi.mocked(loadHomeFlow).mockResolvedValue({ ...FLOW, matched: 0, delivered: 0, sources: [], subscriptions: [], links: [] });
+    const { container } = render(SUBS, [...DESTS, dest("d3", "Spare", "push")]);
+    expect(await screen.findAllByText("0")).toHaveLength(2);
+    expect(link(/^POTA 0 matched$/)).toHaveAttribute("href", "/sources/pota");
+    expect(link(/^DX Cluster 0 matched$/)).toBeInTheDocument();
+    expect(link(/^POTA Carolinas 0 matched · 2 destinations$/)).toBeInTheDocument();
+    expect(link(/^Spare Push · 0 delivered$/)).toHaveAttribute("href", "/destinations/d3");
+    // Every configured link, at the 2 px floor; the spare destination has none.
+    const paths = diagramPaths(container);
+    expect(paths).toHaveLength(6);
+    for (const p of paths) expect(p).toHaveAttribute("stroke-width", "2");
   });
 
-  it("counts sources and destinations only hidden connections touch", async () => {
-    const subs = Array.from({ length: 7 }, (_, i) => sub(`c${i}`, `Conn ${i}`, i === 6 ? ["d2"] : ["d1"]));
+  it("shows every connection, with no cap", async () => {
+    const subs = Array.from({ length: 10 }, (_, i) => sub(`c${i}`, `Conn ${i}`, ["d1"]));
     vi.mocked(loadHomeFlow).mockResolvedValue({
       ...FLOW,
-      subscriptions: subs.map((s, i) => ({ subscription_id: s.id, source: i === 6 ? "rbn" : "pota", matched: 10 - i })),
+      subscriptions: subs.slice(0, 3).map((s, i) => ({ subscription_id: s.id, source: "pota", matched: 10 - i })),
       links: [],
+      subscription_sources: subs.map((s) => ({ subscription_id: s.id, source: "pota" })),
     });
     render(subs);
-    await screen.findByText("1 more connection");
-    const more = screen.getAllByRole("link", { name: /^\+1 more View all$/ });
-    expect(more.map((a) => a.getAttribute("href"))).toEqual(["/sources", "/destinations"]);
+    expect(await screen.findByText("Last 24 hours. Line width shows how many spots matched.")).toBeInTheDocument();
+    for (const s of subs) expect(link(new RegExp(`^${s.name} `))).toHaveAttribute("href", `/connections/${s.id}`);
+    expect(screen.queryByText(/more connection/)).not.toBeInTheDocument();
   });
 
   it("shows en dashes and toasts when the counts don't load", async () => {
