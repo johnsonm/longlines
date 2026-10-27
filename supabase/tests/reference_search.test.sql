@@ -2,11 +2,11 @@
 -- web/src/references/types.ts, every key and its type), every word matched in the reference or the
 -- name, case-insensitively, % and _ taken literally, the program filter, refused queries and
 -- programs, the order (activations, then reference), the 25 cap and more, references never
--- activated, retired rows, hidden calls in no count and no last day, the header equal to
--- reference_profile's catalog for each program, and the grants.
+-- activated, retired rows, hidden calls in no count and no last day, the probes and the grouped
+-- pass agreeing, the header equal to reference_profile's catalog for each program, and the grants.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(55);
+select plan(57);
 
 create or replace function pg_temp.keys(p jsonb) returns text[] language sql as $$
   select array_agg(k order by k) from jsonb_object_keys(p) as k;
@@ -190,6 +190,22 @@ select is((pg_temp.refs(search_references('capped', null)))[1:4], array['XX-0013
 delete from reference_catalog where reference = 'XX-0025';
 select is(search_references('capped', null) -> 'more', 'false'::jsonb, '25 matches: no more');
 
+-- Probes or one grouped pass ----------------------------------------------------
+
+-- search_references_at's last argument is the number of matches from which it reads
+-- reference_days in one grouped pass; 0 always does, the largest bigint never does.
+select is(
+  (select jsonb_agg(jsonb_build_array(v.q, v.p) order by v.q, v.p)
+   from (values ('mitchell', null), ('mitchell', 'pota'), ('mitchell', 'wwff'), ('capped', null),
+                ('capped', 'pota'), ('- -', null), ('- -', 'sota'), ('cm-00', 'sota'), ('nowhere', null),
+                ('us 2747', null)) as v(q, p)
+   where search_references_at(v.q, v.p, 0)
+         is distinct from search_references_at(v.q, v.p, 9223372036854775807)),
+  null,
+  'the grouped pass gives the probes'' payload: counts, hidden calls, last days, order, cap and more');
+select is(search_references_at('- -', null, 0) -> 'results' -> 0 ->> 'reference', 'US-2747',
+  'the grouped pass ranks a query that matches every row');
+
 -- The header is reference_profile's catalog --------------------------------------
 
 select is(
@@ -215,13 +231,16 @@ select ok(not has_function_privilege('anon', 'public.search_references(text, tex
           and has_function_privilege('service_role', 'public.search_references(text, text)', 'execute'),
   'search_references is the service role''s only');
 select ok(not has_function_privilege('anon', 'public.reference_catalog_header(public.reference_catalog)', 'execute')
-          and not has_function_privilege('authenticated', 'public.reference_catalog_header(public.reference_catalog)', 'execute'),
-  'reference_catalog_header is not a client''s');
+          and not has_function_privilege('authenticated', 'public.reference_catalog_header(public.reference_catalog)', 'execute')
+          and not has_function_privilege('anon', 'public.search_references_at(text, text, bigint)', 'execute')
+          and not has_function_privilege('authenticated', 'public.search_references_at(text, text, bigint)', 'execute'),
+  'reference_catalog_header and search_references_at are not a client''s');
 select ok(
   (select bool_and('search_path=public' = any (p.proconfig) or 'search_path=""' = any (p.proconfig))
    from pg_proc p
-   where p.pronamespace = 'public'::regnamespace and p.proname in ('search_references', 'reference_catalog_header')),
-  'both pin search_path');
+   where p.pronamespace = 'public'::regnamespace
+     and p.proname in ('search_references', 'search_references_at', 'reference_catalog_header')),
+  'all three pin search_path');
 
 select * from finish();
 rollback;

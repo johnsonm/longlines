@@ -159,12 +159,15 @@ export function searchQuery(input: string): string | null {
 export interface ReferenceSearchCache {
   /** By searchKey: the results of a finished search. */
   results: Map<string, ReferenceSearchResult[]>;
-  /** Searches sent and not answered yet, so the same search is never sent twice at once. */
-  pending: Set<string>;
+  /**
+   * By searchKey: searches sent and not answered yet, so the same search is never sent twice at once.
+   * Every field showing that search waits on the one promise, so each learns when it answers or fails.
+   */
+  pending: Map<string, Promise<ReferenceSearchResult[]>>;
 }
 
 export function newReferenceSearchCache(): ReferenceSearchCache {
-  return { results: new Map(), pending: new Set() };
+  return { results: new Map(), pending: new Map() };
 }
 
 /** An exact reference's shape, as normalize_subscription_rules and reference_profile take it. */

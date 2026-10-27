@@ -304,6 +304,32 @@ describe("ReferenceLookupPage results", () => {
     expect(screen.getByRole("alert")).toBeInTheDocument();
   });
 
+  it("asks again when the failed search is submitted again", async () => {
+    vi.mocked(searchReferences).mockRejectedValueOnce(new Error("Too many lookups. Try again in a minute."));
+    const { user, where } = renderAt("?q=retried");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Too many lookups. Try again in a minute.");
+    answer(MITCHELL);
+    await user.click(screen.getByRole("button", { name: "Look up" }));
+    await results('6 matches for "retried"');
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(searchReferences).toHaveBeenCalledTimes(2);
+    expect(where()).toBe("/ref?q=retried");
+    // Answered now, the same search is the cache's again.
+    await user.click(screen.getByRole("button", { name: "Look up" }));
+    expect(searchReferences).toHaveBeenCalledTimes(2);
+  });
+
+  it("asks again from the program chip already chosen, whatever order the link put the parameters in", async () => {
+    vi.mocked(searchReferences).mockRejectedValueOnce(new Error("Couldn't reach the server."));
+    const { user, where } = renderAt("?program=sota&q=reordered");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't reach the server.");
+    answer(MITCHELL);
+    await user.click(screen.getByRole("button", { name: "SOTA summits" }));
+    await results('6 matches for "reordered"');
+    expect(searchReferences).toHaveBeenLastCalledWith("reordered", "sota");
+    expect(where()).toBe("/ref?q=reordered&program=sota");
+  });
+
   it("falls back to its own words for a failure without a message", async () => {
     vi.mocked(searchReferences).mockRejectedValueOnce(new Error(""));
     renderAt("?q=silent");
@@ -328,6 +354,8 @@ describe("ReferenceLookupPage with no search", () => {
       "/ref/pota/US-2763", "/ref/pota/US-0001", "/ref/sota/W4C/CM-001", "/ref/wwff/KFF-6101", "/ref/pota/US-0002", "/stats",
     ]);
     expect(within(links[0]!).getByText("Mount Mitchell State Park")).toBeInTheDocument();
+    // The references are list rows, not headings: the card's title is the only one.
+    expect(card.getAllByRole("heading").map((h) => h.textContent)).toEqual(["Most spotted this week"]);
     expect(within(links[0]!).getByText("1,412")).toBeInTheDocument();
     expect(within(links[0]!).getByText("POTA").closest(".MuiChip-root")).toHaveClass("MuiChip-colorPrimary");
     expect(within(links[2]!).getByText("SOTA").closest(".MuiChip-root")).toHaveClass("MuiChip-colorSecondary");

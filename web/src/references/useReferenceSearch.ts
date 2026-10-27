@@ -33,6 +33,8 @@ export interface ReferenceSearchState {
   search: ReferenceSearch | null;
   error: unknown;
   loading: boolean;
+  /** Asks again after a failure: the cache keeps no failed search, but an unchanged key alone never asks. */
+  retry: () => void;
 }
 
 /**
@@ -42,6 +44,7 @@ export interface ReferenceSearchState {
 export function useReferenceSearch(query: string | null, program: ReferenceProgram | null): ReferenceSearchState {
   const key = query === null ? null : keyOf(query, program);
   const [result, setResult] = useState<Result | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     if (key === null) return;
@@ -57,12 +60,17 @@ export function useReferenceSearch(query: string | null, program: ReferenceProgr
     return () => {
       active = false;
     };
-  }, [key]);
+  }, [key, attempt]);
 
-  if (key === null) return { search: null, error: null, loading: false };
+  const retry = () => {
+    setResult(null);
+    setAttempt((n) => n + 1);
+  };
+
+  if (key === null) return { search: null, error: null, loading: false, retry };
   // A result for another search is stale; a cached one renders without a loading flash.
   const current: Result = result?.key === key ? result : { key };
   const search = current.search ?? searches.peek(key) ?? null;
   const error = search ? null : current.error ?? null;
-  return { search, error, loading: !search && !error };
+  return { search, error, loading: !search && !error, retry };
 }

@@ -48,7 +48,7 @@ export function ReferenceLookupPage() {
   const [refused, setRefused] = useState(false);
 
   const valid = q !== "" && validSearch(q);
-  const { search, error, loading } = useReferenceSearch(valid ? q : null, program);
+  const { search, error, loading, retry } = useReferenceSearch(valid ? q : null, program);
   // A link's query outside the bounds is refused without a request, as a typed one is.
   const invalid = refused || (q !== "" && !valid && value === q);
 
@@ -56,8 +56,10 @@ export function ReferenceLookupPage() {
     const next = new URLSearchParams();
     if (query) next.set("q", query);
     if (p) next.set("program", p);
-    // An unchanged search adds no history entry (and the cache answers it anyway).
+    // An unchanged search adds no history entry (and the cache answers it anyway). After a failure
+    // the same search asks again, so Look up is how to try again.
     if (next.toString() !== params.toString()) setParams(next);
+    if (query === q && p === program && error !== null) retry();
   };
 
   const submit = (e: FormEvent) => {
@@ -265,7 +267,7 @@ function MostSpotted() {
             <Stack direction="row" spacing={1.5} useFlexGap sx={{ alignItems: "center", width: "100%" }}>
               {program && <ProgramChip program={program} />}
               <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-                <Typography variant="subtitle2" color="primary">{r.reference}</Typography>
+                <Typography variant="subtitle2" component="div" color="primary">{r.reference}</Typography>
                 {r.name && <Typography variant="body2" color="text.secondary">{r.name}</Typography>}
               </Box>
               <Typography variant="body2" color="text.secondary">{fmt(r.spots)}</Typography>

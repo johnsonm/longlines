@@ -674,7 +674,10 @@ picker (PR 5)") is the copy source for `/ref`, `/ref/*` and the reference rule's
   most 6 words, else null. It reads only `reference_catalog` and `reference_days` (no live days),
   counts activations as distinct (base, day) with hidden calls left out, keeps retired and
   never-activated rows, and returns the first 25 by activations then reference, with `more`. No new
-  index: the catalog is scanned once and each match reads its own primary-key range. Its header is
+  index: the catalog is scanned once; with few matches each reads its own primary-key range, with
+  many (past a twentieth of `reference_days`' `reltuples`) one grouped pass over the primary key
+  serves them all. `search_references_at(query, program, grouped_from)` is the body (the pgTAP test
+  runs both ways and requires the same payload); keep the two arms' counts identical. Its header is
   `reference_catalog_header(row)`, which must equal `reference_profile`'s inline `catalog` (pgTAP
   compares them); change the two together. Its shape is `ReferenceSearch` in
   `web/src/references/types.ts`, read by `referenceSearchSchema`
@@ -688,8 +691,9 @@ picker (PR 5)") is the copy source for `/ref`, `/ref/*` and the reference rule's
   `useStats()`, with no new request. `/ref/<program>/` without a reference goes to `/ref`.
 - The reference rule's picker (`subscriptions/ReferenceValuesField.tsx`, `is` / `is_not` only)
   only suggests list entries from `searchReferences` (debounced, cached for the editor's lifetime,
-  a stale answer never shown); any typed value still goes in, checked by the shape check. It never
-  evaluates rules or tests a spot.
+  a stale answer never shown, a search in flight shared by every row through `cache.pending`); any
+  typed value still goes in, checked by the shape check, except that Enter on several words the
+  lists match waits for an option. It never evaluates rules or tests a spot.
 
 ## Band map rules
 

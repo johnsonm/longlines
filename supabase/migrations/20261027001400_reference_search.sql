@@ -15,7 +15,14 @@
 -- are distinct (base, day) pairs, hidden calls left out (decision 7). Every matching list row comes
 -- back, retired ones and ones never activated included, ordered by activations, then reference;
 -- the first 25, and whether there were more. No new index (the spec's Schema section): the catalog
--- is scanned once, and each match reads only its own range of reference_days' primary key.
+-- is scanned once, and the activations come one of two ways, whichever reads less. A search with
+-- few matches reads each match's own range of reference_days' primary key (about 9 us a match); one
+-- with many reads the whole primary key once, grouped, in its own order (about 0.4 us a row), and
+-- joins the matches to that. search_references switches when the matches pass a twentieth of
+-- reference_days' rows (pg_class.reltuples), where the two cost about the same. Measured at about
+-- 350,000 list rows and 2,000,000 reference_days rows (docs/ARCHITECTURE.md): 0.2 s for a few
+-- matches, 0.7 s for 63,000, and 1.2 s for a search such as `- -` that matches every row. The
+-- worst case grows with reference_days, at about 0.4 s a million rows.
 --
 -- The result header is reference_profile's catalog header without latitude, longitude and
 -- validFrom. reference_catalog_header(row) states that header once; reference_profile still builds
@@ -58,19 +65,25 @@ $$;
 -- {results: [{program, reference, name, active, validTo, location, association, region, country,
 -- grid, altitudeM, points, activations, lastDay}], more}, or null for a query that is not 2 to 64
 -- characters after trimming, has more than 6 words, or a program other than pota, sota or wwff
--- (null searches all three).
-create function public.search_references(p_query text, p_program text)
+-- (null searches all three). p_grouped_from is the number of matches from which the activations
+-- come from one grouped pass over reference_days rather than one probe a match; both give the same
+-- payload, and search_references picks it (the pgTAP test runs both ways).
+create function public.search_references_at(p_query text, p_program text, p_grouped_from bigint)
 returns jsonb
 language plpgsql
 stable
 security definer
 set search_path = public
+-- Plan each call with its words and program as constants: a cached generic plan cannot use the
+-- program to narrow the grouped pass and was measured several times slower.
+set plan_cache_mode = force_custom_plan
 as $$
 declare
   v_query   text := regexp_replace(coalesce(p_query, ''), '^\s+|\s+$', '', 'g');
   v_program text := lower(btrim(p_program));
   v_words   text[];
   v_count   int;
+  v_hidden  text[];
   v_payload jsonb;
 begin
   if p_program is not null and v_program not in ('pota', 'sota', 'wwff') then
@@ -86,32 +99,59 @@ begin
   end if;
   -- Six words always; strpos(text, '') is 1, so a padding word matches every row.
   v_words := v_words || array_fill(''::text, array[6 - v_count]);
+  -- Hidden calls count nowhere (decision 7). A constant list keeps the grouped pass a plain
+  -- filter on the primary key's order, where an anti-join would lose it.
+  v_hidden := array(select h.callsign from hidden_callsigns h);
 
   with
-  -- Every list row with every word in its reference or name: one scan of the catalog.
+  -- Every list row with every word in its reference or name: one scan of the catalog. offset 0
+  -- keeps the subquery whole, so the upper-cased text is built once a row, not once a word.
   matched as materialized (
     select c.program, c.reference
     from (select c.program, c.reference, c.reference || ' ' || upper(coalesce(c.name, '')) as hay
           from reference_catalog c
-          where p_program is null or c.program = v_program) c
+          where p_program is null or c.program = v_program
+          offset 0) c
     where strpos(c.hay, v_words[1]) > 0 and strpos(c.hay, v_words[2]) > 0
       and strpos(c.hay, v_words[3]) > 0 and strpos(c.hay, v_words[4]) > 0
       and strpos(c.hay, v_words[5]) > 0 and strpos(c.hay, v_words[6]) > 0
   ),
-  -- Each match's activations and last day from its own range of reference_days' primary key
-  -- (program, reference, day, base, source), so the cost follows the matches, never the whole
-  -- table, and no large set is joined to another. count(distinct) sorts each range's few rows; a
-  -- distinct subquery would build a hash table per match, several times slower over 200,000 of
-  -- them. The top 25 and one more, to tell whether there were more.
-  top as (
+  size as materialized (select count(*) as n from matched),
+  -- Few matches: each one's activations and last day from its own range of the primary key
+  -- (program, reference, day, base, source). count(distinct) sorts each range's few rows; a
+  -- distinct subquery would build a hash table per match, several times slower.
+  probed as (
     select m.program, m.reference, t.activations, t.last_day
     from matched m
     cross join lateral (
       select count(distinct (d.day, d.base))::int as activations, max(d.day) as last_day
       from reference_days d
       where d.program = m.program and d.reference = m.reference
-        and not exists (select 1 from hidden_callsigns h where h.callsign = d.base)) t
-    order by t.activations desc, m.reference, m.program
+        and d.base <> all(v_hidden)) t
+    where (select s.n from size s) < p_grouped_from
+  ),
+  -- Many matches: every reference's activations in one pass over the primary key, in its order
+  -- (the inner group is one (day, base) pair; the outer counts them), joined to the matches. A
+  -- match never activated has none.
+  grouped as (
+    select m.program, m.reference, coalesce(a.activations, 0) as activations, a.last_day
+    from matched m
+    left join (
+      select x.program, x.reference, count(*)::int as activations, max(x.day) as last_day
+      from (select d.program, d.reference, d.day, d.base
+            from reference_days d
+            where (p_program is null or d.program = v_program)
+              and d.base <> all(v_hidden)
+            group by d.program, d.reference, d.day, d.base) x
+      group by x.program, x.reference) a on a.program = m.program and a.reference = m.reference
+    where (select s.n from size s) >= p_grouped_from
+  ),
+  -- The top 25 and one more, to tell whether there were more. Only one arm runs: the other's
+  -- condition is a one-time filter.
+  top as (
+    select u.program, u.reference, u.activations, u.last_day
+    from (select * from probed union all select * from grouped) u
+    order by u.activations desc, u.reference, u.program
     limit 26
   ),
   ranked as (
@@ -135,6 +175,23 @@ begin
 end;
 $$;
 
+-- The search the reference-search function calls: the grouped pass once the matches pass a
+-- twentieth of reference_days' estimated rows, where it costs about what the probes would.
+create function public.search_references(p_query text, p_program text)
+returns jsonb
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select public.search_references_at(
+           p_query, p_program,
+           (select greatest(c.reltuples, 0)::bigint / 20
+            from pg_catalog.pg_class c
+            where c.oid = 'public.reference_days'::regclass));
+$$;
+
 revoke all on function public.reference_catalog_header(public.reference_catalog) from public, anon, authenticated;
+revoke all on function public.search_references_at(text, text, bigint) from public, anon, authenticated;
 revoke all on function public.search_references(text, text) from public, anon, authenticated;
 grant execute on function public.search_references(text, text) to service_role;

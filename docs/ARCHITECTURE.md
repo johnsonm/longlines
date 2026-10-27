@@ -1361,11 +1361,21 @@ spec).
   pinned by `supabase/tests/reference_search.test.sql`. Each row's header comes from
   `reference_catalog_header(row)`, the same object `reference_profile` builds as `catalog` (pgTAP
   compares the two), without latitude, longitude and validFrom.
-- **No new index.** The catalog (about 350,000 rows) is scanned once into a materialized CTE, and
-  each match counts its activations from its own range of `reference_days`' primary key, so no two
-  large sets are joined. On the real lists with 2,000,000 synthetic `reference_days` rows, `us`
-  (about 25,000 matches) took about 0.4 s and `an` (63,000) about 1 s; the adversarial `e a`
-  (210,000 matches) about 2.6 s, inside the 8 s statement timeout.
+- **No new index.** The catalog (about 350,000 rows) is scanned once into a materialized CTE
+  (`offset 0` keeps the upper-cased text built once a row, not once a word). The activations then
+  come one of two ways, whichever reads less: with few matches, each counts its own range of
+  `reference_days`' primary key (about 9 us a match); with many, one grouped pass over the whole
+  primary key, in its order, is joined to the matches (about 0.4 us a row). `search_references`
+  switches once the matches pass a twentieth of `reference_days`' `reltuples`, where the two cost
+  about the same; `search_references_at(query, program, grouped_from)` is the body, and pgTAP runs
+  both ways and requires the same payload. A query can match the whole catalog: every POTA, SOTA
+  and WWFF reference holds a `-`, so `- -` (3 characters, 2 words) is a valid search for every row.
+  Measured on the real lists (350,553 rows) with 2,000,000 synthetic `reference_days` rows (90,000
+  references activated) after a vacuum: `mitchell` 0.2 s, `us` (25,000 matches) 0.4 s, `an`
+  (63,000) 0.8 s, `e a` (210,000) 0.9 s, and `- -` or `-0` (every row) 1.0 to 1.1 s, the worst
+  case. One probe a match had cost 3.8 s for `- -`. The worst case grows with `reference_days`, at
+  about 0.4 s a million rows, so at about 15,000,000 rows it would near the 8 s statement timeout;
+  a per-reference summary maintained by the roll-up is the step after that.
 - **The function.** `reference-search` (`_shared/handlers/reference_search.ts`) works like
   `reference-profile`: `verify_jwt = false`, never imports `isServiceRole`, refuses a bad query or
   program with a 400 before any database call, shares `lookupLimit`, never logs a query, and sends

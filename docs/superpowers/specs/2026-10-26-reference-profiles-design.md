@@ -134,9 +134,13 @@ Brad decided on 2026-10-26:
     `searchReferences`, debounced 300 ms, at least 2 characters, cached per search for the editor's
     lifetime, a late answer never replacing a newer one; it searches the one program among the
     sources, else all three. Typed values still go in as chips, so WWBOTA, IOTA and unlisted
-    references work; a failed search never blocks typing. Point for Brad: the field keeps
-    autoSelect on blur, so a name such as "Mount Mitchell" typed and left without picking an
-    option becomes two chips, `MOUNT` and `MITCHELL`, both valid shapes, visible and deletable.)*
+    references work; a failed search never blocks typing. When the typed text has several words
+    and the lists match it (say "Mount Mitchell", with W4C/CM-001 and US-2763 listed), Enter waits
+    for an option (arrow keys or a click) instead of adding `MOUNT` and `MITCHELL`, two valid
+    shapes that never match a spot; text the lists don't match still goes in on Enter. Point for
+    Brad: the field keeps autoSelect on blur, so that same name typed and left without picking an
+    option still becomes the two chips, visible and deletable. Whether blur should drop the text,
+    keep it, or Enter should pick the top option instead is a product call.)*
 
 ## Schema
 
@@ -272,9 +276,13 @@ Brad decided on 2026-10-26:
   activations, then reference, the first 25 and `more`. The header is
   `reference_catalog_header(row)`, the object `reference_profile` builds inline as `catalog`
   (pgTAP compares them), without latitude, longitude and validFrom. It reads only the catalog,
-  `reference_days` and `hidden_callsigns`: one catalog scan, then each match's own range of
-  `reference_days`' primary key. On the real lists (350,553 rows) with 2,000,000 synthetic
-  `reference_days` rows: `us` 0.4 s, `an` 1.1 s, the adversarial `e a` (210,000 matches) 2.6 s.)*
+  `reference_days` and `hidden_callsigns`: one catalog scan, then either each match's own range of
+  `reference_days`' primary key (few matches) or one grouped pass over that primary key (many: past
+  a twentieth of its `reltuples`), whichever reads less; `search_references_at` takes the switch
+  point so pgTAP can run both. On the real lists (350,553 rows) with 2,000,000 synthetic
+  `reference_days` rows: `us` 0.4 s, `an` 0.8 s, `e a` (210,000 matches) 0.9 s, and the worst case,
+  a query such as `- -` that matches every row (every reference holds a `-`), 1.1 s, against 3.8 s
+  with a probe per match. It grows with `reference_days` at about 0.4 s a million rows.)*
 - `reference_profile_cache` and `cached_reference_profile(program, reference)`: 15 minutes,
   single-flight under an advisory lock, as `cached_callsign_profile`. `prune_callsign_lookups`
   also deletes expired rows. *(As built: a null result is never cached, and a row built before the
@@ -529,7 +537,9 @@ Not on the canvas; written for PR 5 (decision 14), Brad to confirm the wording.
   one of POTA, SOTAwatch and WWFF, else all three. Each option shows the reference, its program
   chip, the name, and a `Retired` chip when retired; choosing one adds the reference as a chip.
   Enter still adds whatever is typed, in or out of the lists (WWBOTA, IOTA, unlisted), a typed list
-  split on commas and spaces into one chip each, and the reference shape check still applies.
+  split on commas and spaces into one chip each, and the reference shape check still applies. The
+  one exception: several words that the lists match (a name such as "Mount Mitchell") wait for an
+  option on Enter rather than becoming one chip a word. No new copy.
 - Placeholder `US-2763 or Mount Mitchell` (replaces `US-2763, W4C/CM-001`); helper text unchanged.
 - While searching: `Searching the lists…`
 - No options: `Not in the POTA, SOTA or WWFF lists. Press Enter to add it anyway.`

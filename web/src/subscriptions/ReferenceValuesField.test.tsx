@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, screen } from "@testing-library/react";
-import { useState } from "react";
+import { act, screen, within } from "@testing-library/react";
+import { useEffect, useState } from "react";
 import { renderPage } from "../test/render";
 import { searchReferences } from "../lib/api";
 import type { ReferenceProgram, ReferenceSearch, ReferenceSearchResult } from "../references/types";
@@ -225,6 +225,37 @@ describe("ReferenceValuesField", () => {
     expect(changes.at(-1)).toEqual(["US-2763"]);
   });
 
+  it("waits for an option when Enter follows a name the lists match, instead of adding its words", async () => {
+    const { user, input, changes } = render();
+    await user.type(input(), "mount mitchell");
+    await advance(300);
+    expect(screen.getByText("Mount Mitchell State Park")).toBeInTheDocument();
+    await user.keyboard("{Enter}");
+    expect(changes).toEqual([]);
+    expect(input()).toHaveValue("mount mitchell");
+    expect(screen.getByText("Mount Mitchell State Park")).toBeInTheDocument();
+    await user.keyboard("{ArrowDown}{Enter}");
+    expect(changes.at(-1)).toEqual(["W4C/CM-001"]);
+  });
+
+  it("still adds a name of several words that the lists don't match", async () => {
+    vi.mocked(searchReferences).mockResolvedValue({ results: [], more: false });
+    const { user, input, changes } = render();
+    await user.type(input(), "us-1000 us-1001");
+    await advance(300);
+    expect(screen.getByText(NOT_LISTED_TEXT)).toBeInTheDocument();
+    await user.keyboard("{Enter}");
+    expect(changes.at(-1)).toEqual(["US-1000", "US-1001"]);
+  });
+
+  it("lists options without headings", async () => {
+    const { user, input } = render();
+    await user.type(input(), "mitch");
+    await advance(300);
+    expect(screen.getByText("W4C/CM-001")).toBeInTheDocument();
+    expect(screen.queryAllByRole("heading")).toEqual([]);
+  });
+
   it("retries a search that failed when it is typed again", async () => {
     vi.mocked(searchReferences).mockRejectedValueOnce(new Error("503"));
     const { user, input } = render();
@@ -236,5 +267,74 @@ describe("ReferenceValuesField", () => {
     await advance(300);
     expect(searchReferences).toHaveBeenCalledTimes(2);
     expect(screen.getByText("Mount Mitchell")).toBeInTheDocument();
+  });
+
+  describe("two fields sharing one cache", () => {
+    function renderTwo(cache: ReferenceSearchCache) {
+      // Drops the first field from outside, so the second keeps the focus (a blur would commit its text).
+      const control = { drop: () => {} };
+      function Two() {
+        const [first, setFirst] = useState(true);
+        useEffect(() => {
+          control.drop = () => setFirst(false);
+        }, []);
+        const field = (label: string) => (
+          <ReferenceValuesField values={[]} onChange={() => {}} program={null} cache={cache} label={label} error={false} />
+        );
+        return (
+          <>
+            {first && field("First")}
+            {field("Second")}
+          </>
+        );
+      }
+      const r = renderPage(<Two />);
+      return { ...r, control, input: (name: string) => screen.getByRole("combobox", { name }) };
+    }
+
+    /** The listbox a field opened (MUI renders the open one's in a popper). */
+    const listbox = () => within(screen.getByRole("listbox"));
+
+    it("shows the answer to a search the other field sent", async () => {
+      const out = deferred<ReferenceSearch>();
+      vi.mocked(searchReferences).mockReturnValueOnce(out.promise);
+      const { user, input } = renderTwo(newReferenceSearchCache());
+      await user.type(input("First"), "mitch");
+      await advance(300);
+      await user.type(input("Second"), "mitch");
+      await advance(300);
+      expect(screen.getByText(SEARCHING_TEXT)).toBeInTheDocument();
+      await act(async () => out.resolve(MITCHELL));
+      expect(listbox().getByText("Mount Mitchell")).toBeInTheDocument();
+      expect(searchReferences).toHaveBeenCalledTimes(1);
+    });
+
+    it("says the other field's search failed", async () => {
+      const out = deferred<ReferenceSearch>();
+      vi.mocked(searchReferences).mockReturnValueOnce(out.promise);
+      const { user, input } = renderTwo(newReferenceSearchCache());
+      await user.type(input("First"), "mitch");
+      await advance(300);
+      await user.type(input("Second"), "mitch");
+      await advance(300);
+      await act(async () => out.reject(new Error("503")));
+      expect(screen.getByText(SEARCH_FAILED_TEXT)).toBeInTheDocument();
+      expect(screen.queryByText(SEARCHING_TEXT)).not.toBeInTheDocument();
+    });
+
+    it("hears the answer after the field that sent it is gone", async () => {
+      const out = deferred<ReferenceSearch>();
+      vi.mocked(searchReferences).mockReturnValueOnce(out.promise);
+      const { user, input, control } = renderTwo(newReferenceSearchCache());
+      await user.type(input("First"), "mitch");
+      await advance(300);
+      await user.type(input("Second"), "mitch");
+      await advance(300);
+      act(() => control.drop());
+      expect(screen.queryByRole("combobox", { name: "First" })).not.toBeInTheDocument();
+      await act(async () => out.resolve(MITCHELL));
+      expect(listbox().getByText("Mount Mitchell")).toBeInTheDocument();
+      expect(screen.queryByText(SEARCHING_TEXT)).not.toBeInTheDocument();
+    });
   });
 });

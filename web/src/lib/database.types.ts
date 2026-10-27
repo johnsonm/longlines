@@ -1870,6 +1870,9 @@ isOneToOne: true
 "search_references":
 { Args: { "p_program": string,"p_query": string }; Returns: Json
                            },
+"search_references_at":
+{ Args: { "p_grouped_from": number,"p_program": string,"p_query": string }; Returns: Json
+                           },
 "send_test_account_limit":
 { Args: Record<PropertyKey, never>; Returns: number
                            },
