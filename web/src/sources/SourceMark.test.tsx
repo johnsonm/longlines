@@ -23,6 +23,12 @@ describe("SourceMark", () => {
     expect(container).not.toHaveTextContent("WB");
   });
 
+  it("shows the IOTA logo", () => {
+    const { container } = renderPage(<SourceMark source={findLiveSource("iota")!} />);
+    expect(container.querySelector("img")).toHaveAttribute("src", expect.stringMatching(/iota\.png$/));
+    expect(container).not.toHaveTextContent("IO");
+  });
+
   it("falls back to the two-letter mark for a source without a logo", () => {
     const { container } = renderPage(<SourceMark source={planned} size="large" />);
     expect(container.querySelector("img")).toBeNull();
