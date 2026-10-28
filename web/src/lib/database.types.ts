@@ -1323,6 +1323,9 @@ isOneToOne: true
 "compact_callsign_rollups":
 { Args: Record<PropertyKey, never>; Returns: undefined
                            },
+"complete_profile":
+{ Args: { "p_callsign": string,"p_name": string }; Returns: undefined
+                           },
 "create_api_token":
 { Args: { "p_lifetime_days"?: number,"p_name": string,"p_scope": string }; Returns: {
               "created_at": string,"expires_at": string,"id": string,"lifetime_days": number,"name": string,"scope": string,"token": string,"token_prefix": string

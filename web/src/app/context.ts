@@ -8,6 +8,8 @@ export interface AppContextValue {
   profile: Profile | null;
   /** Why the signed-in user's profile failed to load; null while loading or once loaded. */
   profileError: string | null;
+  /** Signed in with no profile yet: an account made with Google, before it picks a callsign. */
+  profileMissing: boolean;
   refreshProfile: () => Promise<void>;
   notify: (message: string) => void;
   toast: string | null;

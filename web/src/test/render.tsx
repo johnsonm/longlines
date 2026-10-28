@@ -35,6 +35,7 @@ export function appValue(overrides: Partial<AppContextValue> = {}): AppContextVa
     sessionLoading: false,
     profile: PROFILE,
     profileError: null,
+    profileMissing: false,
     refreshProfile: vi.fn(() => Promise.resolve()),
     notify: vi.fn(),
     toast: null,

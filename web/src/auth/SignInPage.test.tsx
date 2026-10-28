@@ -2,18 +2,20 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { screen, waitFor } from "@testing-library/react";
 import { renderPage } from "../test/render";
 import { setMobile } from "../test/media";
-import { callsignAvailable, signIn, signUp } from "../lib/api";
+import { callsignAvailable, signIn, signInWithGoogle, signUp } from "../lib/api";
 import { SignInPage } from "./SignInPage";
 
 vi.mock("../lib/api", () => ({
   signIn: vi.fn(),
   signUp: vi.fn(),
+  signInWithGoogle: vi.fn(),
   callsignAvailable: vi.fn(),
 }));
 
 beforeEach(() => {
   vi.mocked(signIn).mockReset().mockResolvedValue(undefined);
   vi.mocked(signUp).mockReset().mockResolvedValue(undefined);
+  vi.mocked(signInWithGoogle).mockReset().mockResolvedValue(undefined);
   vi.mocked(callsignAvailable).mockReset().mockResolvedValue(true);
   localStorage.clear();
 });
@@ -135,5 +137,33 @@ describe("SignInPage: create account", () => {
     await fill(user);
     await user.click(screen.getByRole("button", { name: "Create account" }));
     expect(await screen.findByText("Email rate limit exceeded")).toBeInTheDocument();
+  });
+});
+
+describe("SignInPage: Google", () => {
+  it("signs in with Google and stays busy while the browser leaves", async () => {
+    const { user } = renderPage(<SignInPage />, { route: "/signin" });
+    const google = screen.getByRole("button", { name: "Sign in with Google" });
+    await user.click(google);
+    expect(signInWithGoogle).toHaveBeenCalledTimes(1);
+    expect(google).toBeDisabled();
+    expect(screen.getByRole("progressbar")).toBeInTheDocument();
+  });
+
+  it("offers Google sign-up without submitting the form", async () => {
+    const { user } = renderPage(<SignInPage />, { route: "/signin" });
+    await user.click(screen.getByRole("tab", { name: "Create account" }));
+    await user.click(screen.getByRole("button", { name: "Sign up with Google" }));
+    expect(signInWithGoogle).toHaveBeenCalledTimes(1);
+    expect(callsignAvailable).not.toHaveBeenCalled();
+    expect(signUp).not.toHaveBeenCalled();
+  });
+
+  it("shows a Google error and lets the user try again", async () => {
+    vi.mocked(signInWithGoogle).mockRejectedValue(new Error("Unsupported provider: provider is not enabled"));
+    const { user } = renderPage(<SignInPage />, { route: "/signin" });
+    await user.click(screen.getByRole("button", { name: "Sign in with Google" }));
+    expect(await screen.findByText("Unsupported provider: provider is not enabled")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sign in with Google" })).toBeEnabled();
   });
 });

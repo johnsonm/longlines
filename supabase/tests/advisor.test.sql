@@ -20,7 +20,7 @@ select set_eq(
 
 select set_eq(
   $$select proname::text from public_functions where has_function_privilege('authenticated', oid, 'execute')$$,
-  array['callsign_available', 'create_destination', 'rotate_signing_secret', 'save_subscription',
+  array['callsign_available', 'complete_profile', 'create_destination', 'rotate_signing_secret', 'save_subscription',
         'delete_subscription', 'preview_subscription', 'list_ingest_health', 'list_recent_spots',
         'normalize_group_callsigns', 'save_callsign_group', 'delete_callsign_group', 'list_callsign_groups',
         'get_group_statistics', 'list_group_summaries', 'home_flow',

@@ -1,7 +1,7 @@
--- pgTAP: profiles, sign-up trigger, callsign_available, RLS.
+-- pgTAP: profiles, sign-up trigger, callsign_available, complete_profile, RLS.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(13);
+select plan(22);
 
 -- Two users signing up with metadata, as Supabase Auth would insert them.
 insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at,
@@ -48,6 +48,43 @@ reset role;
 select is((select name from profiles where id = '22222222-2222-2222-2222-222222222222'), '', 'user cannot update another profile');
 select throws_ok($$ insert into profiles (id, callsign) values ('22222222-2222-2222-2222-222222222222', 'K1ABC') $$,
   '23505', null, 'profiles.id is unique per user');
+
+-- A Google sign-up has no callsign: no profile until complete_profile.
+insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at,
+  raw_app_meta_data, raw_user_meta_data, created_at, updated_at)
+values
+  ('55555555-5555-5555-5555-555555555555', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
+   'e@example.com', '', now(), '{"provider":"google","providers":["google"]}', '{"full_name":"Ellen"}', now(), now());
+select is((select count(*) from profiles where id = '55555555-5555-5555-5555-555555555555'), 0::bigint,
+  'a Google sign-up without a callsign gets no profile');
+
+select throws_ok($$
+  insert into auth.users (id, instance_id, aud, role, email, encrypted_password, raw_app_meta_data, raw_user_meta_data, created_at, updated_at)
+  values ('66666666-6666-6666-6666-666666666666', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
+    'f@example.com', 'x', '{"provider":"email","providers":["email"]}', '{}', now(), now())
+$$, 'P0001', 'Enter a valid amateur callsign.', 'an email sign-up without a callsign is still rejected');
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"55555555-5555-5555-5555-555555555555","role":"authenticated"}';
+select throws_ok($$ select complete_profile('NOTACALL', '') $$, 'P0001', 'Enter a valid amateur callsign.',
+  'complete_profile rejects a bad callsign');
+select throws_ok($$ select complete_profile('w1aw', '') $$, 'P0001', 'That callsign is already taken.',
+  'complete_profile rejects a taken callsign');
+select lives_ok($$ select complete_profile(' n0call ', ' Ellen ') $$, 'complete_profile creates the profile');
+select is((select callsign || '|' || name from profiles), 'N0CALL|Ellen', 'with the normalized callsign and trimmed name');
+select throws_ok($$ select complete_profile('K1ABC', '') $$, 'P0001', 'Your account is already set up.',
+  'complete_profile refuses a second profile');
+reset role;
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}';
+select throws_ok($$ select complete_profile('K1ABC', '') $$, 'P0001', 'Your account is already set up.',
+  'complete_profile refuses a user who signed up with a callsign');
+reset role;
+
+set local role anon;
+select throws_ok($$ select complete_profile('K1ABC', '') $$, '42501', null, 'anon cannot call complete_profile');
+reset role;
 
 select * from finish();
 rollback;
