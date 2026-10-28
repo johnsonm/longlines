@@ -9,7 +9,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(145);
+select plan(147);
 select pgmq.purge_queue('spot_events');
 select pgmq.purge_queue('deliveries_queue');
 
@@ -79,20 +79,25 @@ select is((select health || ':' || consecutive_failures from destinations), 'ok:
 -- ---------------------------------------------------------------------------
 select results_eq($$ select rate_per_minute, burst from destination_budget('discord') $$,
   $$ values (300::numeric, 100::numeric) $$, 'discord budget: 300 spots a minute, banking two claims of 50 (20261018000100)');
-select is(array[destination_claim_interval('discord'), destination_claim_interval('push'), destination_claim_interval('webhook')],
-  array[interval '10 seconds', interval '0', interval '0'],
+select is(array[destination_claim_interval('discord'), destination_claim_interval('push'), destination_claim_interval('webhook'),
+                destination_claim_interval('local_cluster')],
+  array[interval '10 seconds', interval '0', interval '0', interval '0'],
   'a Discord destination is claimed on average every 10 seconds (6 claims of 5 messages a minute); other types have no interval');
-select is(array[destination_claim_max('discord'), destination_claim_max('push'), destination_claim_max('webhook')],
-  array[50::numeric, null, null], 'a Discord claim takes at most 50 spots (5 messages of 10); other types only their tokens');
+select is(array[destination_claim_max('discord'), destination_claim_max('push'), destination_claim_max('webhook'),
+                destination_claim_max('local_cluster')],
+  array[50::numeric, null, null, null], 'a Discord claim takes at most 50 spots (5 messages of 10); other types only their tokens');
 select results_eq($$ select rate_per_minute, burst from destination_budget('push') $$,
   $$ values (3::numeric, 3::numeric) $$, 'push budget: 3 spots a minute');
 select results_eq($$ select rate_per_minute, burst from destination_budget('webhook') $$,
   $$ values (1000::numeric, 1000::numeric) $$, 'webhook budget: 1000 spots a minute');
+select results_eq($$ select rate_per_minute, burst from destination_budget('local_cluster') $$,
+  $$ values (120::numeric, 120::numeric) $$, 'local_cluster budget: 120 spots a minute (20261028000500)');
 select is((select array_agg(destination_throttle_seconds(l) order by l) from generate_series(0, 6) l),
   array[60, 60, 120, 240, 480, 900, 900], 'throttle hold: 60 s at level 1, doubling to a 900 s ceiling');
 select is(destination_max_age('push'), interval '15 minutes', 'push deliveries expire after 15 minutes');
 select is(destination_max_age('webhook'), interval '24 hours', 'webhook deliveries expire after 24 hours');
 select is(destination_max_age('discord'), interval '24 hours', 'discord deliveries expire after 24 hours');
+select is(destination_max_age('local_cluster'), interval '2 minutes', 'local_cluster deliveries expire after 2 minutes');
 select has_index('deliveries', 'deliveries_destination_dropped_at_idx', array['destination_id', 'dropped_at'],
   'dropped_at is indexed per destination');
 select ok(not has_column_privilege('authenticated', 'public.destinations', 'throttled_until', 'select')
