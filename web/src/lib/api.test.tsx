@@ -27,6 +27,7 @@ const fake = vi.hoisted(() => {
       setSession: vi.fn(() => Promise.resolve({ error: null as { message: string } | null })),
       getSession: vi.fn(() => Promise.resolve({ data: { session: { access_token: "jwt" } as { access_token: string } | null } })),
       signUp: vi.fn(() => Promise.resolve({ error: null as Result["error"] })),
+      signInWithOAuth: vi.fn(() => Promise.resolve({ error: null as Result["error"] })),
       resetPasswordForEmail: vi.fn(() => Promise.resolve({ error: null as Result["error"] })),
       updateUser: vi.fn(() => Promise.resolve({ error: null as Result["error"] })),
       signOut: vi.fn(() => Promise.resolve({ error: null as Result["error"] })),
@@ -173,6 +174,22 @@ describe("auth wrappers", () => {
       password: "pw",
       options: { data: { callsign: "KK4PWJ", name: "Brad" } },
     });
+  });
+
+  it("signInWithGoogle comes back to the site root", async () => {
+    await api.signInWithGoogle();
+    expect(fake.client.auth.signInWithOAuth).toHaveBeenCalledWith({ provider: "google", options: { redirectTo: window.location.origin } });
+    fake.client.auth.signInWithOAuth.mockResolvedValueOnce({ error: { message: "" } });
+    await expect(api.signInWithGoogle()).rejects.toThrow("Couldn't sign in with Google.");
+  });
+
+  it("completeProfile calls complete_profile and surfaces its message", async () => {
+    await api.completeProfile("KK4PWJ", "Brad");
+    expect(fake.client.rpc).toHaveBeenCalledWith("complete_profile", { p_callsign: "KK4PWJ", p_name: "Brad" });
+    fake.rpcs.set("complete_profile", { error: { message: "That callsign is already taken.", code: "P0001" } });
+    await expect(api.completeProfile("W1AW", "")).rejects.toThrow("That callsign is already taken.");
+    fake.rpcs.set("complete_profile", { error: { message: "" } });
+    await expect(api.completeProfile("W1AW", "")).rejects.toThrow("Couldn't finish creating your account.");
   });
 
   it("requestPasswordReset sends users back to /set-password", async () => {

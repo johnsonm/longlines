@@ -167,6 +167,24 @@ describe("new subscription", () => {
     }));
   });
 
+  it("starts IOTA as a DX Cluster connection on every island, beside a profile's callsign", async () => {
+    const { user, unmount } = render({ source: "iota" });
+    expect(screen.getByText("DX Cluster")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Europe (EU)" })).toBeInTheDocument();
+    const every = rule("island", "is", "AF", "AN", "AS", "EU", "NA", "OC", "SA");
+    await waitFor(() => expect(previewSubscription).toHaveBeenCalledWith({ sources: ["dxcluster"], rules: [[every]] }));
+    await user.type(screen.getByLabelText(/^Name/), "Islands");
+    await user.click(save());
+    expect(saveSubscription).toHaveBeenCalledWith(expect.objectContaining({ name: "Islands", sources: ["dxcluster"], rules: [[every]] }));
+    unmount();
+
+    render({ source: "iota", callsign: "KK4PWJ" });
+    expect(screen.getByLabelText(/^Name/)).toHaveValue("KK4PWJ on the air");
+    await waitFor(() => expect(previewSubscription).toHaveBeenLastCalledWith({
+      sources: ["dxcluster"], rules: [[rule("callsign", "is", "KK4PWJ"), every]],
+    }));
+  });
+
   it("starts filtered to the group a group's Get alerts passed, named once the groups load", async () => {
     const { user } = render({ source: "rbn", group: "g2" });
     expect(await screen.findByLabelText(/^Name/)).toHaveValue("RARS members on the air");
@@ -387,6 +405,7 @@ describe("edit subscription", () => {
   it("joins rules with And or Or and picks each rule's condition", async () => {
     const { user } = render({ id: "s1" });
     expect(screen.queryByRole("combobox", { name: "Join" })).not.toBeInTheDocument();
+    expect(screen.getByText("Where")).toBeInTheDocument();
     await user.click(screen.getByRole("combobox", { name: "Condition" }));
     await user.click(await screen.findByRole("option", { name: "is not" }));
 
@@ -497,6 +516,7 @@ describe("edit subscription", () => {
     render({ id: "s1", mobile: true, subs: [sub({ rules: [[BAND, rule("mode", "is", "cw")]] })] });
     expect(screen.getAllByRole("combobox", { name: "Condition" })[0]).toHaveTextContent("is");
     expect(screen.getByRole("combobox", { name: "Join" })).toHaveTextContent("And");
+    expect(screen.queryByText("Where")).not.toBeInTheDocument();
   });
 });
 

@@ -6,7 +6,8 @@ import { useSession } from "../auth/useSession";
 import { refreshPushRegistration } from "../pwa/push";
 
 // A load's result, kept with the user it belongs to so a switch of user hides it at once.
-type ProfileLoad = { userId: string; profile: Profile | null; error: string | null };
+// `missing`: the load succeeded and found no profile (a Google account with no callsign yet).
+type ProfileLoad = { userId: string; profile: Profile | null; missing: boolean; error: string | null };
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const { session, loading: sessionLoading } = useSession();
@@ -31,10 +32,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setLoad((prev) => (prev?.userId === userId ? { ...prev, error: null } : null));
     try {
       const profile = await loadProfile(userId);
-      if (request === latest.current) setLoad({ userId, profile, error: null });
+      if (request === latest.current) setLoad({ userId, profile, missing: !profile, error: null });
     } catch (err) {
       if (request === latest.current) {
-        setLoad({ userId, profile: null, error: errorText(err, "Couldn't load your profile.") });
+        setLoad({ userId, profile: null, missing: false, error: errorText(err, "Couldn't load your profile.") });
       }
     }
   }, [userId]);
@@ -53,19 +54,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const own = load && load.userId === userId ? load : null;
   const profile = own?.profile ?? null;
   const profileError = own?.error ?? null;
+  const profileMissing = own?.missing ?? false;
 
   const value = useMemo<AppContextValue>(() => ({
     session,
     sessionLoading,
     profile,
     profileError,
+    profileMissing,
     refreshProfile,
     notify: setToast,
     toast,
     clearToast: () => setToast(null),
     signInNotice,
     setSignInNotice,
-  }), [session, sessionLoading, profile, profileError, refreshProfile, toast, signInNotice]);
+  }), [session, sessionLoading, profile, profileError, profileMissing, refreshProfile, toast, signInNotice]);
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 }

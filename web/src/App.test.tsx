@@ -28,6 +28,7 @@ vi.mock("./auth/SignInPage", async () => {
 vi.mock("./auth/CheckEmailPage", () => ({ CheckEmailPage: () => <p>check-email page</p> }));
 vi.mock("./auth/ResetPasswordPage", () => ({ ResetPasswordPage: () => <p>reset page</p> }));
 vi.mock("./auth/SetPasswordPage", () => ({ SetPasswordPage: () => <p>set-password page</p> }));
+vi.mock("./auth/CompleteProfilePage", () => ({ CompleteProfilePage: () => <p>complete-profile page</p> }));
 vi.mock("./home/HomePage", () => ({
   HomePage: ({ subs, dests, loading }: { subs: unknown[]; dests: Destination[]; loading: boolean }) => (
     <p>home page {loading ? "loading" : `${subs.length} connections, ${dests.length} destinations`}</p>
@@ -168,6 +169,26 @@ describe("App routing", () => {
   it("redirects unknown paths to Home", async () => {
     renderAt("/nope");
     expect(await screen.findByText(/^home page/)).toBeInTheDocument();
+  });
+
+  it("holds the site root until the session is read, so Google's sign-in can take it from the URL", async () => {
+    session(null, true);
+    const { rerender } = renderAt("/");
+    expect(screen.getByRole("progressbar")).toBeInTheDocument();
+    session(SESSION);
+    rerender(
+      <MemoryRouter initialEntries={["/"]}>
+        <App />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText(/^home page/)).toBeInTheDocument();
+  });
+
+  it("asks an account without a profile for its callsign before any signed-in page", async () => {
+    vi.mocked(loadProfile).mockResolvedValue(null);
+    renderAt("/destinations");
+    expect(await screen.findByText("complete-profile page")).toBeInTheDocument();
+    expect(screen.queryByText(/^destinations page/)).not.toBeInTheDocument();
   });
 
   it("keeps Home for signed-in users and sends signed-out visitors from it to sign in", async () => {

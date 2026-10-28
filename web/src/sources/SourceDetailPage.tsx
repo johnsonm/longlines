@@ -115,7 +115,7 @@ export function SourceDetailPage({ prefs, subs }: { prefs: TimePrefs; subs: Subs
             </Button>
           )}
           {source.alerts && (
-            <Button variant="contained" startIcon={<AddIcon />} component={RouterLink} to={`/connections/new?source=${healthId(source)}`}>
+            <Button variant="contained" startIcon={<AddIcon />} component={RouterLink} to={`/connections/new?source=${source.id}`}>
               Create connection
             </Button>
           )}

@@ -9,6 +9,7 @@ import { SignInPage } from "./auth/SignInPage";
 import { CheckEmailPage } from "./auth/CheckEmailPage";
 import { ResetPasswordPage } from "./auth/ResetPasswordPage";
 import { SetPasswordPage } from "./auth/SetPasswordPage";
+import { CompleteProfilePage } from "./auth/CompleteProfilePage";
 import { AppShell } from "./layout/AppShell";
 import { HomePage } from "./home/HomePage";
 import { SourcesPage } from "./sources/SourcesPage";
@@ -90,9 +91,19 @@ function Router() {
       <Route path="/g/:slug" element={<PublicRoute page="group-public" />} />
       <Route path="/account" element={<RequireAuth page="account" />} />
       <Route path="/api-tokens" element={<RequireAuth page="api-tokens" />} />
-      <Route path="*" element={<Navigate to="/home" replace />} />
+      <Route path="*" element={<ToHome />} />
     </Routes>
   );
+}
+
+/**
+ * Unknown paths go to Home, but only once the session is read: Google's sign-in comes back to
+ * the site root with the session in the URL, and leaving first would drop it.
+ */
+function ToHome() {
+  const { sessionLoading } = useApp();
+  if (sessionLoading) return <LinearProgress />;
+  return <Navigate to="/home" replace />;
 }
 
 /** Subscriptions are now Connections: old /subscriptions bookmarks keep their id and query string. */
@@ -139,11 +150,12 @@ function PublicRoute({ page }: { page: PublicPage }) {
 }
 
 function RequireAuth({ page }: { page: Page }) {
-  const { session, sessionLoading, profile, profileError } = useApp();
+  const { session, sessionLoading, profile, profileError, profileMissing } = useApp();
   const location = useLocation();
   if (sessionLoading) return <LinearProgress />;
   if (!session) return <Navigate to="/signin" replace state={{ from: location.pathname + location.search + location.hash }} />;
   if (profileError) return <ProfileError message={profileError} />;
+  if (profileMissing) return <CompleteProfilePage />;
   if (!profile) return <LinearProgress />;
   return <SignedIn page={page} />;
 }

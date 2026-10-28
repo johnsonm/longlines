@@ -1,7 +1,7 @@
-import { useState, useSyncExternalStore, type FormEvent, type ReactNode } from "react";
+import { useState, useSyncExternalStore, type ReactNode } from "react";
 import {
-  AppBar, Avatar, Badge, Box, Button, Container, Divider, Drawer, IconButton, InputBase, List,
-  ListItemButton, ListItemIcon, ListItemText, Menu, MenuItem, Paper, ToggleButton, ToggleButtonGroup, Toolbar, Tooltip, Typography,
+  AppBar, Avatar, Badge, Box, Button, Container, Divider, Drawer, IconButton, List,
+  ListItemButton, ListItemIcon, ListItemText, Menu, MenuItem, ToggleButton, ToggleButtonGroup, Toolbar, Tooltip, Typography,
   useColorScheme, useMediaQuery, useTheme,
 } from "@mui/material";
 import MenuIcon from "@mui/icons-material/Menu";
@@ -17,14 +17,12 @@ import PersonSearchIcon from "@mui/icons-material/PersonSearch";
 import TravelExploreIcon from "@mui/icons-material/TravelExplore";
 import KeyIcon from "@mui/icons-material/Key";
 import LoginIcon from "@mui/icons-material/Login";
-import SearchIcon from "@mui/icons-material/Search";
 import LightModeIcon from "@mui/icons-material/LightMode";
 import DarkModeIcon from "@mui/icons-material/DarkMode";
 import SettingsBrightnessIcon from "@mui/icons-material/SettingsBrightness";
 import { useLocation, useNavigate } from "react-router";
 import { useApp } from "../app/hooks";
 import { signOut } from "../lib/api";
-import { INVALID_CALLSIGN, lookupPath } from "../profile/format";
 import { installState, promptInstall, subscribeInstall } from "../pwa/install";
 import { pushCleanup } from "../pwa/push";
 import { Footer } from "./Footer";
@@ -132,13 +130,6 @@ export function AppShell({ children, destinationsFailing = false }: { children: 
             </IconButton>
           )}
           <Typography variant="h6" sx={{ flexGrow: 1 }}>Long Lines</Typography>
-          {mobile
-            ? (
-              <IconButton color="inherit" onClick={() => go("lookup")} aria-label="Callsign lookup">
-                <SearchIcon />
-              </IconButton>
-            )
-            : <BarSearch />}
           {!signedIn && <SignedOutTheme />}
           {!signedIn && location.pathname !== "/signin" && (
             mobile
@@ -250,43 +241,5 @@ function ThemeSwitch() {
         ))}
       </ToggleButtonGroup>
     </Box>
-  );
-}
-
-/** The app bar's callsign search from md up; Paper gives it the theme's surface color on the colored bar. */
-function BarSearch() {
-  const navigate = useNavigate();
-  const [value, setValue] = useState("");
-  const [invalid, setInvalid] = useState(false);
-  const submit = (e: FormEvent) => {
-    e.preventDefault();
-    const path = lookupPath(value);
-    // Blank input does nothing; anything else lookupPath refuses (a "." or ".." segment) isn't a callsign.
-    if (!path) {
-      setInvalid(value.trim() !== "");
-      return;
-    }
-    setValue("");
-    void navigate(path);
-  };
-  return (
-    <Tooltip open={invalid} title={INVALID_CALLSIGN} disableHoverListener disableFocusListener disableTouchListener>
-      <Paper component="form" role="search" onSubmit={submit} elevation={0} sx={{ display: "flex", alignItems: "center", width: 260, mr: 2, pl: 1.5 }}>
-        <InputBase
-          value={value}
-          onChange={(e) => {
-            setValue(e.target.value);
-            setInvalid(false);
-          }}
-          error={invalid}
-          placeholder="Callsign, like KK4PWJ"
-          sx={{ flex: 1 }}
-          slotProps={{ input: { "aria-label": "Look up a callsign", autoCapitalize: "characters", autoCorrect: "off", spellCheck: false } }}
-        />
-        <IconButton type="submit" size="small" aria-label="Look up">
-          <SearchIcon />
-        </IconButton>
-      </Paper>
-    </Tooltip>
   );
 }

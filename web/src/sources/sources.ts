@@ -290,8 +290,11 @@ export function findLiveSource(id: string | undefined): SourceInfo | undefined {
   return SOURCES.find((s) => s.id === id && s.status === "live");
 }
 
-/** Sources a subscription can pick and the recent-spots tabs show: live and alerting, and not carried by another. */
-export const LIVE_SOURCES = SOURCES.filter((s) => s.status === "live" && s.alerts && s.via === null);
+/**
+ * Sources a new connection can start from: live and alerting. A carried source (IOTA) starts a connection on
+ * its carrier with the rule that picks its spots (`blankSub`).
+ */
+export const LIVE_SOURCES = SOURCES.filter((s) => s.status === "live" && s.alerts);
 
 /** The source whose ingest health stands for this one: its carrier, else itself. */
 export function healthId(source: SourceInfo): string {

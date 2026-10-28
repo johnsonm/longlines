@@ -195,6 +195,14 @@ Authentication → URL configuration:
 
 Authentication → Providers → Email: enable "Confirm email". Leave signups on.
 
+Authentication → Providers → Google: enable it with the Google OAuth client's id
+and secret. In Google Cloud, the client's authorized redirect URI is the project's
+`https://<project-ref>.supabase.co/auth/v1/callback`. Google's sign-in comes back
+to the site root (`redirectTo` is the origin), which the redirect URLs above
+already allow. A new Google account has no callsign, so it has no profile until
+the web's "Finish creating your account" screen calls `complete_profile`; an
+existing account whose email matches is linked to it by Auth and keeps its own.
+
 Authentication → SMTP: configure a custom SMTP provider. Supabase's built-in
 mailer only delivers to members of your organization and is rate limited, so
 sign-up confirmations and password resets for real users will not arrive

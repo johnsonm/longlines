@@ -6,6 +6,7 @@ import {
 import { useLocation, useNavigate } from "react-router";
 import CheckIcon from "@mui/icons-material/Check";
 import FilterAltIcon from "@mui/icons-material/FilterAlt";
+import GoogleIcon from "@mui/icons-material/Google";
 import GraphicEqIcon from "@mui/icons-material/GraphicEq";
 import GroupsIcon from "@mui/icons-material/Groups";
 import InsightsIcon from "@mui/icons-material/Insights";
@@ -14,7 +15,7 @@ import PersonSearchIcon from "@mui/icons-material/PersonSearch";
 import SendIcon from "@mui/icons-material/Send";
 import SensorsIcon from "@mui/icons-material/Sensors";
 import heroUrl from "../assets/landing-hero.jpg";
-import { callsignAvailable, signIn, signUp } from "../lib/api";
+import { callsignAvailable, signIn, signInWithGoogle, signUp } from "../lib/api";
 import { isValidCallsign, normalizeCallsign } from "../lib/callsign";
 import { errorText, useApp } from "../app/hooks";
 
@@ -131,6 +132,28 @@ export function SignInPage() {
     }
   };
 
+  // Leaves the page for Google's sign-in, so busy stays on until the browser goes.
+  const doGoogle = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await signInWithGoogle();
+    } catch (err) {
+      setError(errorText(err, "Couldn't sign in with Google."));
+      setBusy(false);
+    }
+  };
+
+  // A Google account that is new here signs up: it picks its callsign on the next screen.
+  const google = (
+    <>
+      <Divider>or</Divider>
+      <Button variant="outlined" size="large" startIcon={<GoogleIcon />} onClick={() => void doGoogle()} disabled={busy} fullWidth>
+        {mode === "signin" ? "Sign in with Google" : "Sign up with Google"}
+      </Button>
+    </>
+  );
+
   const signInCard = (
     <Paper elevation={4}>
       <Tabs value={mode} onChange={(_e, v: "signin" | "signup") => switchMode(v)} variant="fullWidth">
@@ -149,6 +172,7 @@ export function SignInPage() {
               <TextField label="Password" type="password" value={pw} onChange={(e) => setPw(e.target.value)} autoComplete="current-password" fullWidth />
               <Button type="submit" variant="contained" size="large" disabled={!ident || !pw || busy} fullWidth>Sign in</Button>
               <Button size="small" onClick={() => void navigate("/reset-password")} sx={{ alignSelf: "center" }}>Forgot your password?</Button>
+              {google}
             </Stack>
           </Box>
         )}
@@ -176,6 +200,7 @@ export function SignInPage() {
                 error={cfErr} helperText={cfErr ? "Passwords don't match." : " "} autoComplete="new-password" required fullWidth
               />
               <Button type="submit" variant="contained" size="large" disabled={busy} fullWidth>Create account</Button>
+              {google}
             </Stack>
           </Box>
         )}
