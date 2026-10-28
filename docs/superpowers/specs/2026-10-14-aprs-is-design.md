@@ -21,16 +21,16 @@ RBN. That volume shapes everything below.
 
 ## Shape
 
-The flow is relay → `ingest-aprs` → `ingest_aprs_packets` → `aprs_packets`. That table is
+The flow is inbound → `ingest-aprs` → `ingest_aprs_packets` → `aprs_packets`. That table is
 partitioned by UTC day on `received_at`, then archived and retired, the same pattern as
 `rbn_spots`. `docs/ARCHITECTURE.md` ("APRS-IS", "The spot archive") has the details, and
 `docs/OPERATIONS.md` ("APRS-IS") the runbook.
 
-- **Relay.** The relay needs a plain TCP line decoder (UTF-8, no telnet IAC). It also needs a login
+- **Inbound.** The inbound worker needs a plain TCP line decoder (UTF-8, no telnet IAC). It also needs a login
   line sent after the server's `# ...` banner: `user CALL pass -1 vers LongLines 0.1`. The feed is
   off until `APRS_LOGIN_CALL` is set, which also gates the rollout below. The forwarder buffer is
   150,000 lines.
-- **Dedup.** `unique (received_at, line_md5)`. The relay resends the same line with the same
+- **Dedup.** `unique (received_at, line_md5)`. The inbound worker resends the same line with the same
   `received_at` when a push fails.
 - **Health.** `aprs_packet_hours` counts packets per hour. It is kept indefinitely, so the Sources
   page never counts a day of packets.
@@ -64,13 +64,13 @@ These estimates assume 100 packets a second.
   plan's 8 GB, disk is $0.125/GB-month, so APRS-IS adds roughly $0.60-1 a month.
 - **Storage:** ~0.3 GB a day, ~8.5 GB a month, kept indefinitely. Pro includes 100 GB.
 
-The real rate is checked after the first day from the relay's stats log and `aprs_packet_hours`.
+The real rate is checked after the first day from the inbound worker's stats log and `aprs_packet_hours`.
 If it is far from 100 a second, the slice length or the window changes.
 
 ## Rollout
 
 1. Merge. The Supabase GitHub integration applies `20261014000010_aprs_source`, and Fly redeploys
-   the relay with the feed off.
+   the inbound worker with the feed off.
 2. `supabase functions deploy ingest-aprs`. The integration skips new functions.
 3. `fly secrets set APRS_LOGIN_CALL=<CALL-SSID>`. Use a call-SSID no other client uses.
 4. After a day, check the rate, `archive_status` and the `aprs_packets` size.

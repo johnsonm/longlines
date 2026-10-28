@@ -8,7 +8,7 @@ function licenseDb(): LicenseDb {
 
 async function handler(req: Request): Promise<Response> {
   return await handleLoadLicenses(req, {
-    secret: Deno.env.get("LONGLINES_RELAY_SECRET"),
+    secret: Deno.env.get("LONGLINES_INBOUND_SECRET"),
     db: licenseDb,
   });
 }

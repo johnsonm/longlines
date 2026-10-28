@@ -42,7 +42,7 @@ same as POTA. A conditional request would gain nothing at this size.
 ## Shape
 
 The flow is pg_cron → `ingest-wwff` → `runIngest` → `ingest_spots` → `raw_spots`, the same as POTA.
-There is no relay change and no firehose table.
+There is no inbound change and no firehose table.
 
 ### Adapter (`_shared/wwff.ts`)
 

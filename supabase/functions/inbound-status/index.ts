@@ -1,9 +1,9 @@
 import { createServiceClient } from "../_shared/db.ts";
-import { handleRelayStatus } from "../_shared/handlers/relay_status.ts";
+import { handleInboundStatus } from "../_shared/handlers/inbound_status.ts";
 
 async function handler(req: Request): Promise<Response> {
-  return await handleRelayStatus(req, {
-    secret: Deno.env.get("LONGLINES_RELAY_SECRET"),
+  return await handleInboundStatus(req, {
+    secret: Deno.env.get("LONGLINES_INBOUND_SECRET"),
     db: createServiceClient,
   });
 }

@@ -1,14 +1,14 @@
 // Buffers spot lines and pushes them in batches. A push also goes out when
 // nothing has been sent for heartbeatMs, even an empty one, so ingest_state
-// shows the relay alive. Failed pushes keep their lines and retry with backoff;
+// shows the inbound worker alive. Failed pushes keep their lines and retry with backoff;
 // the buffer is bounded (50,000 lines, about 50 minutes of RBN) so a long
 // Supabase outage cannot exhaust memory.
 
-import type { RelayLine } from "./functions.ts";
+import type { InboundLine } from "./functions.ts";
 
 export interface ForwarderOptions {
   /** `signal` aborts when drain's deadline passes. */
-  push: (lines: RelayLine[], signal: AbortSignal) => Promise<unknown>;
+  push: (lines: InboundLine[], signal: AbortSignal) => Promise<unknown>;
   now?: () => number;
   maxBatch?: number;
   flushMs?: number;
@@ -33,7 +33,7 @@ function consoleLog(message: string): void {
 
 export class Forwarder {
   readonly #opts: Required<ForwarderOptions>;
-  #buffer: RelayLine[] = [];
+  #buffer: InboundLine[] = [];
   #oldestAt: number | null = null;
   #lastPushAt: number;
   #retryMs = 0;
@@ -67,7 +67,7 @@ export class Forwarder {
     return this.#buffer.length;
   }
 
-  add(line: RelayLine): void {
+  add(line: InboundLine): void {
     if (this.#buffer.length === 0) {
       this.#oldestAt = this.#opts.now();
     }
@@ -159,7 +159,7 @@ export class Forwarder {
   }
 
   /** #send, then clear the push in flight whether it succeeded or not. */
-  async #sendThenClear(batch: RelayLine[]): Promise<boolean> {
+  async #sendThenClear(batch: InboundLine[]): Promise<boolean> {
     try {
       return await this.#send(batch);
     } finally {
@@ -167,7 +167,7 @@ export class Forwarder {
     }
   }
 
-  async #send(batch: RelayLine[]): Promise<boolean> {
+  async #send(batch: InboundLine[]): Promise<boolean> {
     try {
       await this.#opts.push(batch, this.#stop.signal);
       // Overflow during the push already removed some of this batch from the front.

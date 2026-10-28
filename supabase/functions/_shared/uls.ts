@@ -1,5 +1,5 @@
 // FCC Universal Licensing System amateur records (l_amat.zip), parsed into the
-// rows load-licenses stages. The relay streams the zip and calls these; the
+// rows load-licenses stages. The inbound worker streams the zip and calls these; the
 // join into callsign_licenses is SQL (apply_license_loads), never TypeScript.
 //
 // Each .dat file is pipe-delimited, one record per CRLF line, the record type
@@ -14,7 +14,7 @@
 // Only these fields leave the parser. EN also carries street address, city,
 // ZIP, PO box, phone, email and FRN; none of them is read.
 //
-// The imports are errors.ts, which imports nothing, and zod, which the relay (which loads
+// The imports are errors.ts, which imports nothing, and zod, which the inbound worker (which loads
 // this module) maps.
 
 import { z } from "zod";
@@ -214,7 +214,7 @@ export const MAX_ULS_RECORD = 64 * 1024;
  * Splits decoded .dat text into records. A record is a line that starts with
  * the file's record type; any other line continues the previous record (a
  * field with a line break in it), joined with a space. A line or record longer
- * than MAX_ULS_RECORD throws, so a malformed file fails the load (the relay
+ * than MAX_ULS_RECORD throws, so a malformed file fails the load (the inbound worker
  * abandons it) instead of growing a buffer toward the size of the file.
  */
 export class UlsRecords {
@@ -291,7 +291,7 @@ export interface LicenseLoad {
 }
 
 /**
- * fcc_license_load_status' jsonb, as db.ts reads it and as load-licenses hands it to the relay.
+ * fcc_license_load_status' jsonb, as db.ts reads it and as load-licenses hands it to the inbound worker.
  * RPC jsonb that can gain keys across deploys: loose.
  */
 export const licenseLoadSchema: z.ZodType<LicenseLoad> = z.looseObject({
@@ -304,7 +304,7 @@ export const licenseLoadSchema: z.ZodType<LicenseLoad> = z.looseObject({
 /** Rows staged per file. */
 export type UlsCounts = Record<UlsKind, number>;
 
-/** What the relay POSTs to load-licenses, one action per request. */
+/** What the inbound worker POSTs to load-licenses, one action per request. */
 export type LoadLicensesRequest =
   | { action: "status" }
   | { action: "begin"; version: string }

@@ -1,5 +1,5 @@
 // Reverse Beacon Network source adapter. RBN spots are pushed, not pulled: the
-// relay (relay/main.ts) holds the telnet stream at telnet.reversebeacon.net:7000
+// inbound (inbound/main.ts) holds the telnet stream at telnet.reversebeacon.net:7000
 // and POSTs every spot line to ingest-rbn. rbnSpotRow() turns each line into an
 // rbn_spots row; rbnAdapter() wraps the watched lines of a request so runIngest
 // can treat them like a fetched feed (see rbn_push.ts).
@@ -14,7 +14,7 @@
 //   DX de HA1VHF-#:144433.60  9A0BVH         CW    15 dB  15 WPM  DX      1455Z
 //
 // A line carries no date and no id. The date comes from received_at (see
-// spotTimeFromHhmm in relay_lines.ts) and source_spot_id is built from the time, skimmer,
+// spotTimeFromHhmm in inbound_lines.ts) and source_spot_id is built from the time, skimmer,
 // station and frequency.
 
 import { bandForFrequency } from "./bands.ts";
@@ -30,7 +30,7 @@ import {
   parseUtc,
 } from "./normalize.ts";
 import { modeFamily, resolveMode } from "./modes.ts";
-import { relayAdapter, relayLineSchema, spotTimeFromHhmm } from "./relay_lines.ts";
+import { inboundAdapter, inboundLineSchema, spotTimeFromHhmm } from "./inbound_lines.ts";
 import type { JsonObject, NormalizeResult, RbnSpotRow, SourceAdapter } from "./types.ts";
 import { parseWith } from "./validate.ts";
 
@@ -96,13 +96,13 @@ function rbnComment(parsed: RbnLine): string {
 }
 
 /**
- * The rbn_spots row for one relay item. No age cutoff: storage keeps late lines.
+ * The rbn_spots row for one inbound item. No age cutoff: storage keeps late lines.
  * Throws ValidationError when the item is malformed, the line is not a spot,
  * received_at is unusable or implausible against now, or a value would fail the
  * whole batch in Postgres.
  */
 export function rbnSpotRow(raw: JsonObject, now: Date): RbnSpotRow {
-  const item = parseWith(relayLineSchema, raw, "rbnSpotRow: relay line");
+  const item = parseWith(inboundLineSchema, raw, "rbnSpotRow: inbound line");
   const line = item.line;
   // jsonb rejects U+0000 and lone surrogates, so either would fail the whole batch in Postgres.
   if (line.includes("\u0000")) {
@@ -162,14 +162,14 @@ export function rbnSpotRow(raw: JsonObject, now: Date): RbnSpotRow {
   };
 }
 
-/** An adapter whose feed is one relay request body. */
+/** An adapter whose feed is one inbound request body. */
 export function rbnAdapter(body: unknown): SourceAdapter {
-  return relayAdapter("rbn", body, normalizeRbnSpot);
+  return inboundAdapter("rbn", body, normalizeRbnSpot);
 }
 
-/** Normalizes one relay item (a telnet line and when the relay received it). */
+/** Normalizes one inbound item (a telnet line and when the inbound worker received it). */
 async function normalizeRbnSpot(raw: JsonObject, now: Date): Promise<NormalizeResult> {
-  const item = parseWith(relayLineSchema, raw, "normalizeRbnSpot: relay line");
+  const item = parseWith(inboundLineSchema, raw, "normalizeRbnSpot: inbound line");
   const receivedAt = parseUtc(item.received_at);
   const parsed = parseRbnLine(item.line);
   if (parsed === null) {

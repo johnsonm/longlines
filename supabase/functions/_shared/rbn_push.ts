@@ -1,4 +1,4 @@
-// One relay batch for ingest-rbn. Every line goes to rbn_spots (the full
+// One inbound batch for ingest-rbn. Every line goes to rbn_spots (the full
 // record, kept for seven days and archived); only lines whose station a
 // subscription names (exactly or by base call, see watched_among) continue through runIngest into raw_spots, the spot_events queue and
 // the matcher, exactly as before the firehose.
@@ -6,7 +6,7 @@
 import { ValidationError } from "./errors.ts";
 import { recordFailureAndThrow, runIngest } from "./ingest.ts";
 import { rbnAdapter, rbnSpotRow } from "./rbn.ts";
-import { parseRelayBody, withoutNul } from "./relay_lines.ts";
+import { parseInboundBody, withoutNul } from "./inbound_lines.ts";
 import type {
   IngestDb,
   IngestSummary,
@@ -19,7 +19,7 @@ import type {
 
 export type RbnPushDb = IngestDb & WatchlistDb & RbnDb;
 
-/** A relay item that made an rbn_spots row, and that row. */
+/** An inbound item that made an rbn_spots row, and that row. */
 interface StoredLine {
   raw: JsonObject;
   row: RbnSpotRow;
@@ -37,7 +37,7 @@ export async function runRbnPush(
   let stored = 0;
 
   try {
-    items = parseRelayBody(body);
+    items = parseInboundBody(body);
     for (const raw of items) {
       try {
         lines.push({ raw, row: rbnSpotRow(raw, now) });

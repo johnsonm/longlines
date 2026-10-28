@@ -1,6 +1,6 @@
-// The weekly FCC license load. Every few hours the relay HEADs l_amat.zip;
+// The weekly FCC license load. Every few hours the inbound worker HEADs l_amat.zip;
 // when its Last-Modified is not yet loaded it streams HD.dat, EN.dat and
-// AM.dat out of the zip (relay/zip.ts), parses them with _shared/uls.ts and
+// AM.dat out of the zip (inbound/zip.ts), parses them with _shared/uls.ts and
 // pushes the rows in batches to the load-licenses Edge Function, which stages
 // them. pg_cron swaps a finished load into callsign_licenses within the hour.
 //

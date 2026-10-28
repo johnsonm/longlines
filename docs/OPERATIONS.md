@@ -16,8 +16,8 @@ select jsonb_pretty(health_snapshot('1h') -> 'checks');
 
 - The charts come from `health_samples`, written once a minute by the `health-sample` job. A gap in
   the charts means that job stopped.
-- Sender and relay rows read "No data" until the workers report in: the sender through
-  `record_sender_heartbeat`, the relay through the `relay-status` function, about once a minute
+- Sender and inbound rows read "No data" until the workers report in: the sender through
+  `record_sender_heartbeat`, the inbound worker through the `inbound-status` function, about once a minute
   each (`select * from worker_heartbeats order by received_at desc limit 10;`).
 - Disk percent is measured against `health_disk_limit_bytes()` (8 GB). Postgres can't see the
   plan's disk; when the disk grows, change that function in a new migration.
@@ -25,7 +25,7 @@ select jsonb_pretty(health_snapshot('1h') -> 'checks');
   `cron_http_requests`, and the sampler copies the status from `net._http_response`.
 
 Hosted, once: `supabase db push`, then `supabase functions deploy health` and
-`supabase functions deploy relay-status`.
+`supabase functions deploy inbound-status`.
 
 ## Health check
 
@@ -261,7 +261,7 @@ user's JWT claims, which is how the RLS assertions work.
 ## Delivery
 
 Outbound delivery (Discord, webhooks, web push) is the sender: a Deno process on Fly.io in
-`sender/` (app `longlines-sender`), the way the relay holds the inbound streams. It connects to
+`sender/` (app `longlines-sender`), the way the inbound worker holds the inbound streams. It connects to
 Postgres as the `delivery_sender` role through the Supavisor pooler, polls `claim_deliveries()`
 every few seconds and reports every outcome through its RPC allowlist. Every decision (what to
 claim, each destination's budget, throttles, expiry, health) is made in SQL; the sender only sends.
@@ -288,7 +288,7 @@ In this order, from the repository root:
    ```
 
    The sender POSTs to URLs users chose. `--network sender` gives the app its own 6PN with nothing
-   else on it, so the relay and any later app cannot be reached from it even if the URL safety
+   else on it, so the inbound worker and any later app cannot be reached from it even if the URL safety
    check were wrong; Fly's DNS at `fdaa::3` is the only private address it can see, and that one is
    refused. The network is fixed at creation; to change it, create a new app.
 
@@ -315,7 +315,7 @@ In this order, from the repository root:
    counts. `fly scale show` must report one.
 
 6. Bind Fly's GitHub integration with "Config path" `sender/fly.toml` and the working directory
-   left at the repository root ("Automatic deploys" under "Relay" below). From then on every merge
+   left at the repository root ("Automatic deploys" under "Inbound" below). From then on every merge
    to `main` deploys it.
 
 | Secret | Required | What it is |
@@ -470,7 +470,7 @@ on Fly; the sender refuses it with a non-local database host.
 
 Push sends are signed with a VAPID keypair held in two places: the sender's Fly secrets (real
 deliveries) and Edge Function env (`send-test` and `api`). It is the same pair in both, and in
-nothing else: not the web app, the relay or a migration. Without all three values, push deliveries
+nothing else: not the web app, the inbound worker or a migration. Without all three values, push deliveries
 fail with "Push isn't configured on the server." and Discord and webhooks carry on as normal.
 
 Once per project, generate a pair. The script prints three lines and writes nothing:
@@ -602,37 +602,84 @@ supabase gen types typescript --local > web/src/lib/database.types.ts
 
 The generated file is committed; CI type-checks the app against it.
 
-# Relay (RBN, DX Cluster, APRS-IS)
+# Inbound (RBN, DX Cluster, APRS-IS)
 
-The relay in `relay/` runs on Fly.io as app `longlines-relay`. It holds one session per feed:
+The inbound worker in `inbound/` runs on Fly.io as app `longlines-inbound`. It holds one session per feed:
 RBN (`ingest-rbn`), DX Cluster (`ingest-dxcluster`) and, once `APRS_LOGIN_CALL` is set, APRS-IS
 (`ingest-aprs`). Design notes are in `docs/ARCHITECTURE.md`
-("Streaming sources: the relay").
+("Streaming sources: the inbound worker").
 
 ## First deploy
 
 ```sh
 # 1. Database and function (Supabase side)
 supabase db push                                   # adds the rbn source, watchlist RPC, matcher guard
-openssl rand -hex 32                               # the relay secret; use it in both places below
-supabase secrets set LONGLINES_RELAY_SECRET=<secret>
+openssl rand -hex 32                               # the inbound secret; use it in both places below
+supabase secrets set LONGLINES_INBOUND_SECRET=<secret>
 supabase functions deploy ingest-rbn
 
-# 2. Relay (Fly side), from the repository root
-fly apps create longlines-relay                    # name must match app in relay/fly.toml
+# 2. Inbound (Fly side), from the repository root
+fly apps create longlines-inbound                    # name must match app in inbound/fly.toml
 fly secrets set \
   LONGLINES_FUNCTIONS_URL=https://<project-ref>.supabase.co/functions/v1 \
-  LONGLINES_RELAY_SECRET=<secret> \
-  RELAY_LOGIN_CALL=<callsign>
-fly deploy --config relay/fly.toml --ha=false      # --ha=false: one machine, not two
+  LONGLINES_INBOUND_SECRET=<secret> \
+  INBOUND_LOGIN_CALL=<callsign>
+fly deploy --config inbound/fly.toml --ha=false      # --ha=false: one machine, not two
 fly scale count 1                                  # exactly one machine: one telnet session
 ```
+
+## Cutover from `longlines-relay` (2026-10-28)
+
+The worker was called the relay until 2026-10-28 (`relay/`, app `longlines-relay`, secret
+`LONGLINES_RELAY_SECRET`, header `x-relay-secret`, function `relay-status`, RPC
+`record_relay_heartbeat`). The rename ships in one PR; the hosted side is by hand, in this order,
+because the renamed functions refuse the old header the moment they deploy:
+
+```sh
+# 1. Database: worker_heartbeats rows become 'inbound', record_inbound_heartbeat replaces
+#    record_relay_heartbeat, health_snapshot's check is `inbound`. The old relay's heartbeat
+#    fails from here until step 4; nothing else notices.
+supabase db push
+supabase functions deploy health            # reads the new payload keys (web deploy follows)
+
+# 2. The same secret under its new name, on both sides. Fly stages secrets for an app with
+#    no machines yet.
+supabase secrets set LONGLINES_INBOUND_SECRET=<current relay secret>
+fly apps create longlines-inbound
+fly secrets set -a longlines-inbound \
+  LONGLINES_FUNCTIONS_URL=https://<project-ref>.supabase.co/functions/v1 \
+  LONGLINES_INBOUND_SECRET=<current relay secret> \
+  INBOUND_LOGIN_CALL=<callsign> \
+  APRS_LOGIN_CALL=<call-SSID>               # plus DXCLUSTER_HOST/PORT, INBOUND_LICENSES, INBOUND_CATALOGS if the relay set them
+
+# 3. Stop the old worker, then deploy the functions that check the header and the new worker.
+#    Between these two the streams are down (about a minute); RBN and DX Cluster lines in
+#    that gap are not stored, which is the same as any redeploy.
+fly scale count 0 -a longlines-relay
+for f in ingest-rbn ingest-dxcluster ingest-aprs load-licenses load-references inbound-status; do
+  supabase functions deploy $f
+done
+fly deploy --config inbound/fly.toml --ha=false
+fly scale count 1 -a longlines-inbound
+
+# 4. Retire the old names once `fly logs -a longlines-inbound` shows "connected to" and
+#    /health's Inbound feeds check is Healthy.
+supabase functions delete relay-status
+supabase secrets unset LONGLINES_RELAY_SECRET
+fly apps destroy longlines-relay
+```
+
+Then, in the Fly dashboard, move the GitHub integration binding from `longlines-relay` to
+`longlines-inbound` with "Config path" `inbound/fly.toml` (see "Automatic deploys"); until that is
+done a merge to `main` deploys only the sender. `web/` carries the Health page's new keys, so
+deploy the web app (Vercel, on merge) with or after step 1; the old page shows "No data" for the
+inbound check until then.
 
 ## Automatic deploys
 
 Deploys on merge to `main` come from Fly's GitHub integration, set up in the Fly dashboard rather
-than in this repo. Each Fly app has its own binding: "Config path" is `relay/fly.toml` for
-`longlines-relay` and `sender/fly.toml` for `longlines-sender`, and the working directory is left
+than in this repo. Each Fly app has its own binding: "Config path" is `inbound/fly.toml` for
+`longlines-inbound` and `sender/fly.toml` for `longlines-sender`, and the working directory is left
 blank (the repository root) on both, because each Dockerfile copies
 `supabase/functions/_shared` from the context. flyctl resolves `[build] dockerfile` relative to
 the config file, so each `fly.toml` names just `Dockerfile`. Both apps deploy on every push to
@@ -641,14 +688,14 @@ the config file, so each `fly.toml` names just `Dockerfile`. Both apps deploy on
 When the integration was first connected, Fly's launcher opened a PR (#30) with its own generic
 `fly.toml`, `Dockerfile` and `example.ts`. That config ran a nonexistent `main.ts` as root, added a
 public HTTP service that auto-stops idle machines, and created two machines. Do not merge such a
-PR again; `relay/fly.toml` is the relay's real config.
+PR again; `inbound/fly.toml` is the inbound worker's real config.
 
 Two things to know about it:
 
 - It is not gated on CI. A merge to `main` deploys whether or not the PR's checks passed, so keep
   `main` protected by the CI checks.
 - Every deploy restarts the machine and opens a new session to RBN. If the integration deploys on
-  every push rather than only when `relay/` or `supabase/functions/_shared/*.ts` change, that is
+  every push rather than only when `inbound/` or `supabase/functions/_shared/*.ts` change, that is
   one reconnect per merge.
 
 It deploys only the two Fly apps. Migrations (`supabase db push`) and the Edge Functions
@@ -656,7 +703,7 @@ It deploys only the two Fly apps. Migrations (`supabase db push`) and the Edge F
 needs both sides ("A change that spans both sides" under "Delivery" has the order for the sender).
 After the first deploy, check `fly scale show` reports one machine.
 
-A deploy restarts the machine; the relay pushes what it has buffered before exiting.
+A deploy restarts the machine; the inbound worker pushes what it has buffered before exiting.
 
 ## Is it running?
 
@@ -670,7 +717,7 @@ select * from ingest_health where source = 'rbn';
 select count(*) from rbn_spots where spot_time > now() - interval '1 hour';  -- tens of thousands when RBN is busy
 ```
 
-`last_success_at` should never be more than about a minute old: the relay pushes a heartbeat
+`last_success_at` should never be more than about a minute old: the inbound worker pushes a heartbeat
 every 60 seconds even when no watched station was heard. `spots_last_hour` is zero unless a
 watched station was on the air.
 
@@ -682,7 +729,7 @@ watched station was on the air.
 2. A subscription callsign matches the reported call exactly or by base call: `W1AW` catches
    `W1AW/4`, but `W1AW/P` catches only `W1AW/P`.
 3. RBN hears CW and RTTY on port 7000 only. FT8/FT4 is not connected.
-4. Check `ingest_failures where source = 'rbn'` and the relay logs for `push failed`.
+4. Check `ingest_failures where source = 'rbn'` and the inbound worker logs for `push failed`.
 5. Check `rbn_spots` for the call: if it is there but not in `raw_spots`, the subscription does not
    watch it; if it is not there, RBN did not hear it.
 
@@ -700,23 +747,23 @@ rows`), keeps the day's archive as it is and records nothing; APRS-IS does the s
 still see the day as retired meanwhile (`rbn_day_retired`: some slice of the day is logged with
 more rows than the database holds), so a late line never lets a retired day be rolled up as whole.
 
-## Rotating the relay secret
+## Rotating the inbound secret
 
 Set the new value on both sides; spots buffered in between are retried and kept.
 
 ```sh
-supabase secrets set LONGLINES_RELAY_SECRET=<new>
-fly secrets set LONGLINES_RELAY_SECRET=<new>
+supabase secrets set LONGLINES_INBOUND_SECRET=<new>
+fly secrets set LONGLINES_INBOUND_SECRET=<new>
 ```
 
 ## Local run
 
-With `supabase start` and `supabase functions serve --env-file <file with LONGLINES_RELAY_SECRET>`:
+With `supabase start` and `supabase functions serve --env-file <file with LONGLINES_INBOUND_SECRET>`:
 
 ```sh
 LONGLINES_FUNCTIONS_URL=http://127.0.0.1:54321/functions/v1 \
-LONGLINES_RELAY_SECRET=<same value> RELAY_LOGIN_CALL=<callsign> \
-deno run --allow-net --allow-env relay/main.ts
+LONGLINES_INBOUND_SECRET=<same value> INBOUND_LOGIN_CALL=<callsign> \
+deno run --allow-net --allow-env inbound/main.ts
 ```
 
 This opens real connections to RBN and the DX Cluster node (and APRS-IS if `APRS_LOGIN_CALL` is
@@ -725,7 +772,7 @@ set); stop it when done. In Docker, use
 
 ## DX Cluster
 
-The second feed. It logs in to a DXSpider node with `RELAY_LOGIN_CALL` and forwards every human
+The second feed. It logs in to a DXSpider node with `INBOUND_LOGIN_CALL` and forwards every human
 spot line; skimmer lines a node relays are dropped. The default node is G1FEF-2,
 `dxc.hamserve.uk:7300`, which gives read access without registration. To use another node:
 
@@ -736,8 +783,8 @@ fly secrets unset DXCLUSTER_HOST DXCLUSTER_PORT                    # back to the
 
 First deploy, in this order: the migration (`supabase db push`, `20261012000020_dxcluster_source`),
 then `supabase functions deploy ingest-dxcluster` (the Supabase GitHub integration does not deploy
-a new function), then the relay. The relay uses the existing `LONGLINES_RELAY_SECRET`. If the
-relay goes first, its pushes fail with 404 until the function exists; the forwarder keeps the
+a new function), then the inbound worker. The inbound worker uses the existing `LONGLINES_INBOUND_SECRET`. If the
+inbound goes first, its pushes fail with 404 until the function exists; the forwarder keeps the
 lines and retries, so nothing is lost unless that lasts for hours.
 
 Is it running?
@@ -749,12 +796,12 @@ from raw_spots where source = 'dxcluster' order by spot_time desc limit 20;
 ```
 
 `last_success_at` advances every minute (the heartbeat). `spots_last_hour` is usually in the
-hundreds. Human spots can pause overnight, so the relay waits 15 minutes without data before it
+hundreds. Human spots can pause overnight, so the inbound worker waits 15 minutes without data before it
 reconnects, and `/healthz` marks the feed unhealthy after 20.
 
 A subscription receives DX Cluster spots only when its sources list DX Cluster; "any source" does
 not include it. If a DX spot is missing, check the subscription's sources first, then
-`ingest_failures where source = 'dxcluster'`, then the relay logs (`[dxcluster]`).
+`ingest_failures where source = 'dxcluster'`, then the inbound worker logs (`[dxcluster]`).
 
 ## APRS-IS
 
@@ -771,7 +818,7 @@ fly secrets unset APRS_LOGIN_CALL                         # turns the feed off a
 The login is receive-only (passcode -1) with no filter. Never add one: the full feed is the point.
 
 First deploy, in this order: merge (the Supabase GitHub integration applies
-`20261014000010_aprs_source` and Fly redeploys the relay with the feed still off), then
+`20261014000010_aprs_source` and Fly redeploys the inbound worker with the feed still off), then
 `supabase functions deploy ingest-aprs` (the integration does not deploy a new function), then
 `fly secrets set APRS_LOGIN_CALL=...`. Setting the secret before the function exists makes every
 push fail with 404; the forwarder keeps up to 150,000 lines (about 25 minutes) and retries.
@@ -787,10 +834,10 @@ where received_at > now() - interval '1 hour' group by 1 order by 2 desc;
 select hour_start, packets from aprs_packet_hours order by hour_start desc limit 24;
 ```
 
-`spots_last_hour` here counts packets: expect a few hundred thousand. The relay's ten-minute stats
-log (`[aprs] ... lines, ... spots, ... pushed, ... buffered, ... dropped`) gives the rate as the relay
+`spots_last_hour` here counts packets: expect a few hundred thousand. The inbound worker's ten-minute stats
+log (`[aprs] ... lines, ... spots, ... pushed, ... buffered, ... dropped`) gives the rate as the inbound worker
 sees it; `dropped` above 0 means Supabase was unreachable for longer than the buffer. APRS-IS sends
-a keepalive about every 20 s, so the relay reconnects after 2 minutes of silence and `/healthz`
+a keepalive about every 20 s, so the inbound worker reconnects after 2 minutes of silence and `/healthz`
 marks the feed unhealthy after 5.
 
 Size: about 300 bytes a packet with indexes, so roughly 2.5 GB a day at 100 packets a second. The
@@ -807,7 +854,7 @@ from pg_inherits i where i.inhparent = 'public.aprs_packets'::regclass;
 World Wide Flora & Fauna spots, polled from `https://spots.wwff.co/static/spots.json` by the
 `ingest-wwff` function. The `ingest-wwff` cron job calls it every minute (the feed is served with
 `max-age=60`), and spots land in `raw_spots` like POTA's, with the reference in `wwff_reference`
-and its name in `wwff_reference_name`. There is no relay side.
+and its name in `wwff_reference_name`. There is no inbound side.
 
 First deploy, in this order: merge (the Supabase GitHub integration applies
 `20261015001000_wwff_source`; the cron job then calls `ingest-wwff`, which answers 404 until the
@@ -847,7 +894,7 @@ days rolled up after the deploy; earlier days are never rolled up again.
 Worldwide Bunkers on the Air spots, polled from `https://api.wwbota.net/spots/` (the last hour)
 by the `ingest-wwbota` function every minute. Spots land in `raw_spots` like WWFF's, with every
 bunker the spot names in `wwbota_references` and the first bunker's name in
-`wwbota_reference_name`. There is no relay side.
+`wwbota_reference_name`. There is no inbound side.
 
 First deploy, in this order: merge (the Supabase GitHub integration applies
 `20261026001000_wwbota_source`; the cron job then calls `ingest-wwbota`, which answers 404 until
@@ -1131,7 +1178,7 @@ Slices archived before 2026-10-14 are still gzipped NDJSON in the old layout unt
 `read_json_auto('s3://<bucket>/rbn/2026/10/11/*.ndjson.gz')`.
 
 B2 keys belong on an operator's machine or in the `archive` function's secrets, never in the web
-app or the relay. Downloads are free up to three times the stored size a month; a full-history
+app or the inbound worker. Downloads are free up to three times the stored size a month; a full-history
 scan from outside B2 counts against that.
 
 # Countries (cty.dat)
@@ -1441,7 +1488,7 @@ How it works is in `docs/ARCHITECTURE.md` ("Licenses (FCC)").
 
 ## First deploy
 
-The relay deploys itself on merge, so the database and function go first. If the relay checks
+The inbound worker deploys itself on merge, so the database and function go first. If the inbound worker checks
 before they exist, it logs `[licenses] load failed` and tries again six hours later. Nothing
 breaks in the meantime.
 
@@ -1450,7 +1497,7 @@ supabase db push                          # 20261012000050_callsign_licenses
 supabase functions deploy load-licenses   # new function: the GitHub integration skips it
 ```
 
-The function uses the existing `LONGLINES_RELAY_SECRET`. The relay's first check runs five minutes
+The function uses the existing `LONGLINES_INBOUND_SECRET`. The inbound worker's first check runs five minutes
 after it starts; it downloads about 160 MB from the FCC and stages about 1.7M records per file in ~1,000
 requests, which takes several minutes. The unlogged staging tables hold a few hundred MB until
 the swap, or an abandoned load, empties them. The load
@@ -1465,13 +1512,13 @@ select * from callsign_licenses where callsign = 'KK4PWJ';
 ## Is it current?
 
 The newest load should be `applied` with a `version` from the last Sunday, and `applied_at` under
-about eight days old. Relay logs show each step with `[licenses]` (`fly logs`):
+about eight days old. Inbound logs show each step with `[licenses]` (`fly logs`):
 
 - `loading ... (<Last-Modified>)`, then one line per file with staged and skipped counts, then
   `load finished`.
 - `load failed: ...` names the download, parse or function error; the load is `failed` with the
   same text in `error`. It is retried twelve hours after it started. A load still `loading` long
-  after it started means the relay stopped mid-load (a deploy, a crash); the next `begin` clears it.
+  after it started means the inbound worker stopped mid-load (a deploy, a crash); the next `begin` clears it.
 
 A load stuck at `ready` past :50 means the cron job failed: `select * from cron.job_run_details
 where jobid = (select jobid from cron.job where jobname = 'apply-license-loads') order by start_time
@@ -1479,12 +1526,12 @@ desc limit 3;`. A `failed` load has the reason in `error`; the previous set stay
 
 ## Turning it off
 
-`fly secrets set RELAY_LICENSES=off` (restarts the machine) stops the relay loading licenses;
-`fly secrets unset RELAY_LICENSES` turns it back on. `RELAY_LICENSES` can also name another URL
+`fly secrets set INBOUND_LICENSES=off` (restarts the machine) stops the inbound worker loading licenses;
+`fly secrets unset INBOUND_LICENSES` turns it back on. `INBOUND_LICENSES` can also name another URL
 serving the same zip with Range support.
 
 A local run (functions URL on localhost) does not load licenses by default. To exercise the real
-load locally, serve `load-licenses` and set `RELAY_LICENSES=https://data.fcc.gov/download/pub/uls/complete/l_amat.zip`;
+load locally, serve `load-licenses` and set `INBOUND_LICENSES=https://data.fcc.gov/download/pub/uls/complete/l_amat.zip`;
 it downloads about 160 MB, so not routinely.
 
 # Reference catalog (POTA, SOTA, WWFF lists)
@@ -1493,7 +1540,7 @@ How it works is in `docs/ARCHITECTURE.md` ("Reference catalog").
 
 ## First deploy
 
-The relay deploys itself on merge, so the database and function go first. If the relay checks
+The inbound worker deploys itself on merge, so the database and function go first. If the inbound worker checks
 before they exist, it logs `[catalogs] check failed: ...` and tries again a day later. Nothing
 breaks in the meantime.
 
@@ -1502,7 +1549,7 @@ supabase db push                             # 20261026001100_reference_catalog
 supabase functions deploy load-references    # new function: the GitHub integration skips it
 ```
 
-The function uses the existing `LONGLINES_RELAY_SECRET`. The relay's first check runs fifteen
+The function uses the existing `LONGLINES_INBOUND_SECRET`. The inbound worker's first check runs fifteen
 minutes after it starts; it downloads about 60 MB (POTA 10 MB, SOTA and WWFF 25 MB each), one
 program at a time, and stages about 350,000 rows in ~180 requests of 2,000. Each load is applied
 at the next :55.
@@ -1517,19 +1564,19 @@ select reference_load_status();
 
 ## Is it current?
 
-Each program's last `applied` load should have `started_at` under about eight days old (the relay
+Each program's last `applied` load should have `started_at` under about eight days old (the inbound worker
 reloads a list a week after its last applied load started, once its `Last-Modified` is newer; it
-checks once a day). Relay logs show each step with `[catalogs]` (`fly logs`):
+checks once a day). Inbound logs show each step with `[catalogs]` (`fly logs`):
 
 - `<program>: loading <url> (<Last-Modified>)`, then `<program>: N staged, M skipped, finished`.
   A few skips are normal (WWFF repeats its header row partway down the file).
 - `<program>: load failed: ...` names the download, parse or function error; the load is
   `abandoned` with the same text in `error` and is retried twelve hours after it started. A load
-  still `staging` long after it started means the relay stopped mid-load (a deploy, a crash); the
+  still `staging` long after it started means the inbound worker stopped mid-load (a deploy, a crash); the
   next `begin` for that program abandons it.
 - `<program>: ... refused`: SQL refused the list as incomplete or below the floor (fewer than 90%
   of the program's current rows, or 10,000 on a first load). `error` says which. The old list
-  stays, and the relay never downloads that `Last-Modified` again; a newer file is loaded as
+  stays, and the inbound worker never downloads that `Last-Modified` again; a newer file is loaded as
   usual.
 
 While a program's newest load is refused, every `apply-reference-loads` run that swaps nothing
@@ -1545,12 +1592,12 @@ start_time desc limit 3;`.
 
 ## Turning it off
 
-`fly secrets set RELAY_CATALOGS=off` (restarts the machine) stops the relay loading the lists;
-`fly secrets unset RELAY_CATALOGS` turns it back on. Unlike `RELAY_LICENSES`, it cannot name
-another URL: the three URLs are `CATALOG_URLS` in `relay/config.ts`.
+`fly secrets set INBOUND_CATALOGS=off` (restarts the machine) stops the inbound worker loading the lists;
+`fly secrets unset INBOUND_CATALOGS` turns it back on. Unlike `INBOUND_LICENSES`, it cannot name
+another URL: the three URLs are `CATALOG_URLS` in `inbound/config.ts`.
 
 A local run (functions URL on localhost) does not load the lists by default. To exercise the real
-load locally, serve `load-references` and set `RELAY_CATALOGS=on`; it downloads about 60 MB, so not
+load locally, serve `load-references` and set `INBOUND_CATALOGS=on`; it downloads about 60 MB, so not
 routinely. `supabase/seed.sql` writes a small catalog for the seeded references directly, since
 it is far below the floor.
 
@@ -1563,14 +1610,14 @@ How they work is in `docs/ARCHITECTURE.md` ("Callsign profiles").
 `20261012000060_callsign_profile` (applied 2026-10-12) builds the `rbn_spots` base-callsign index
 one partition at a time, oldest first, then creates the parent index `ON ONLY` and attaches them.
 Each partition is locked against inserts from its build until the migration commits, so a late row
-for an older day (the relay buffers about 50 minutes, so just after 00:00 UTC it still sends
+for an older day (the inbound worker buffers about 50 minutes, so just after 00:00 UTC it still sends
 yesterday's) waits until the end. The `ON ONLY` create takes a SHARE lock on the parent, which holds
 up every RBN insert from then until commit; the attach loop after it only changes catalogs, so that
 window is short. Today's partition, built last, is the long wait. Locally, at hosted volume, each full day took about
 16 s, and an insert probe into today's partition every second never waited more than 19 ms while the
 older days built. Today's partition takes about 16 s at the end of a UTC day and a few seconds in the
 early hours, under the API's 8 s timeout that `ingest-rbn` pushes run into; a push that does time out
-is retried by the relay, which buffers about 50 minutes. Prefer the early UTC hours, after retention
+is retried by the inbound worker, which buffers about 50 minutes. Prefer the early UTC hours, after retention
 at 03:35 removes old days, and avoid :25, when the rollup job reads `rbn_spots`.
 
 The GitHub integration applies the migration on merge, so merge then, or push it first:
@@ -1594,8 +1641,8 @@ index) or deadlock with it. Avoid 03:35 UTC. A later migration that builds an in
 start with `lock table rbn_spots in share update exclusive mode`, which blocks partition creation,
 attachment and drops but not inserts.
 
-If a push timed out, the relay logs `push failed` and retries. A gap in RBN rows that outlasts the
-relay's buffer shows in `select date_trunc('minute', spot_time), count(*) from rbn_spots
+If a push timed out, the inbound worker logs `push failed` and retries. A gap in RBN rows that outlasts the
+inbound's buffer shows in `select date_trunc('minute', spot_time), count(*) from rbn_spots
 where spot_time > now() - interval '2 hours' group by 1 order by 1;`.
 
 ## Is it working?
@@ -1763,4 +1810,4 @@ call; 429 past 30 lookups a minute from one client, counted with callsign profil
 and reference pages; 500 `Reference search is unavailable right now.` when the RPC failed or its
 reply did not fit the schema (the function logs `reference-search:` with the error, never the
 query). Searches are not cached in the database; each one scans the catalog once (about 0.4 s for
-`us`). Until the relay's first reference list loads land, the search finds nothing.
+`us`). Until the inbound worker's first reference list loads land, the search finds nothing.

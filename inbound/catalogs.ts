@@ -1,5 +1,5 @@
 // The weekly reference list load (decision 2 of
-// docs/superpowers/specs/2026-10-26-reference-profiles-design.md). Once a day the relay HEADs
+// docs/superpowers/specs/2026-10-26-reference-profiles-design.md). Once a day the inbound worker HEADs
 // each program's list (POTA parks, SOTA summits, WWFF references); when the program's last
 // applied load began at least a week ago and the file's Last-Modified is newer, it streams the file,
 // parses it with _shared/reference_catalog.ts and pushes the rows in batches to the
@@ -196,7 +196,7 @@ function isAborted(signal: AbortSignal): boolean {
   return signal.aborted;
 }
 
-/** The file's Last-Modified from a HEAD, sent with the relay's User-Agent. */
+/** The file's Last-Modified from a HEAD, sent with the inbound worker's User-Agent. */
 export async function catalogVersion(
   url: string,
   options: CatalogImportOptions,

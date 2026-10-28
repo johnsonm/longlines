@@ -36,7 +36,7 @@ export async function isServiceRole(
   if (token === null || token === "") {
     return false;
   }
-  // Constant time, like the relay secret: the key is a long-lived credential.
+  // Constant time, like the inbound secret: the key is a long-lived credential.
   if (
     serviceRoleKey !== undefined && serviceRoleKey !== "" &&
     await secretsMatch(token, serviceRoleKey)

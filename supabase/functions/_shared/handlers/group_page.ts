@@ -21,7 +21,7 @@ import { DEFAULT_METHODS, json, preflightResponse } from "../cors.ts";
 import { ValidationError } from "../errors.ts";
 import type { JsonObject } from "../types.ts";
 import { parseWith } from "../validate.ts";
-import { lookupLimit, relayedPayloadSchema } from "./callsign_profile.ts";
+import { inboundedPayloadSchema, lookupLimit } from "./callsign_profile.ts";
 
 export const PAGE_PRIVATE = "private";
 export const GROUP_PAGE_UNAVAILABLE = "This page is unavailable right now.";
@@ -78,7 +78,7 @@ export async function handleGroupPage(req: Request, deps: GroupPageDeps): Promis
   let payload: JsonObject | null;
   try {
     payload = parseWith(
-      relayedPayloadSchema,
+      inboundedPayloadSchema,
       page.data,
       "handleGroupPage: public_group_statistics result",
     );

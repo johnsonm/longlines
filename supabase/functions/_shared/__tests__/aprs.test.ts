@@ -239,7 +239,7 @@ Deno.test(
 );
 
 Deno.test(
-  "runAprsPush records the relay's empty heartbeat as a success",
+  "runAprsPush records the inbound worker's empty heartbeat as a success",
   async function (): Promise<void> {
     const fake = fakeDb({});
     const db = fake.db;
@@ -274,11 +274,11 @@ Deno.test(
     await assertRejects(
       () => runAprsPush({ nope: 1 }, bad.db, new Date()),
       ValidationError,
-      "parseRelayBody: relay body: lines",
+      "parseInboundBody: inbound body: lines",
     );
     assertEquals(bad.calls.failure, [[
       "aprs",
-      'parseRelayBody: relay body: lines: Invalid input: expected array, received undefined; (root): Unrecognized key: "nope"',
+      'parseInboundBody: inbound body: lines: Invalid input: expected array, received undefined; (root): Unrecognized key: "nope"',
     ]]);
 
     const full = fakeDb({ storeFails: true });

@@ -70,7 +70,7 @@ Deno.test(
 );
 
 Deno.test(
-  "rbnAdapter.parseFeed returns the relay's lines and rejects bad shapes",
+  "rbnAdapter.parseFeed returns the inbound worker's lines and rejects bad shapes",
   function (): void {
     const adapter = rbnAdapter(null);
     const items = [item(line("DX de SM1HEV-#"), RECEIVED)];

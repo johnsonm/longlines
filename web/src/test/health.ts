@@ -12,7 +12,7 @@ export function healthChecks(over: Partial<HealthChecks> = {}): HealthChecks {
       status: "healthy",
       sources: [{ source: "pota", seconds: 12 }, { source: "sotawatch", seconds: 22 }, { source: "wwbota", seconds: 9 }, { source: "wwff", seconds: 5 }],
     },
-    relay: { status: "healthy", feeds: [{ source: "dxcluster", seconds: 41 }, { source: "rbn", seconds: 3 }], reconnects_24h: 0 },
+    inbound: { status: "healthy", feeds: [{ source: "dxcluster", seconds: 41 }, { source: "rbn", seconds: 3 }], reconnects_24h: 0 },
     match_queue: { status: "healthy", waiting: 9, oldest_seconds: 3 },
     delivery_queue: { status: "healthy", waiting: 12, oldest_ready_seconds: 4, throttled: 0 },
     sender: { status: "healthy", progress_seconds: 6, restarts_24h: 0, memory_bytes: 92 * 1024 * 1024 },
@@ -43,7 +43,7 @@ export function healthPayload(over: Partial<HealthPayload> = {}): HealthPayload 
       latency_p95: flat(36),
       spots: { pota: flat(80), sotawatch: flat(20), wwff: flat(10), wwbota: flat(0), dxcluster: flat(0) },
       sender_memory: flat(92 * 1024 * 1024),
-      relay_memory: flat(20 * 1024 * 1024),
+      inbound_memory: flat(20 * 1024 * 1024),
     },
     jobs: [
       {

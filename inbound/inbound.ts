@@ -1,12 +1,12 @@
-// The relay itself: one telnet (or TCP) session and forwarder per feed, the weekly
+// The inbound worker itself: one telnet (or TCP) session and forwarder per feed, the weekly
 // license load (licenses.ts), the weekly reference list load (catalogs.ts), the Health page heartbeat (status.ts) and the /healthz server. main.ts is the process shell around it (environment,
 // signals, exit code); everything here runs in tests against local servers.
 
 import { type CatalogImportLoop, referenceClient, runCatalogImports } from "./catalogs.ts";
-import type { RelayConfig } from "./config.ts";
+import type { InboundConfig } from "./config.ts";
 import type { Feed } from "./feeds.ts";
 import { Forwarder, type ForwarderOptions } from "./forwarder.ts";
-import { functionClient, FunctionPoster, type RelayLine } from "./functions.ts";
+import { functionClient, FunctionPoster, type InboundLine } from "./functions.ts";
 import { type FeedHealth, healthHandler } from "./health.ts";
 import { licenseClient, type LicenseImportLoop, runLicenseImports } from "./licenses.ts";
 import { runStatusLoop, type StatusLoop } from "./status.ts";
@@ -30,7 +30,7 @@ interface StartedFeed {
 
 function startFeed(
   feed: Feed,
-  config: RelayConfig,
+  config: InboundConfig,
   signal: AbortSignal,
   logLine: (message: string) => void,
 ): StartedFeed {
@@ -40,10 +40,10 @@ function startFeed(
   const client = functionClient({
     functionsUrl: config.functionsUrl,
     functionName: feed.functionName,
-    secret: config.relaySecret,
+    secret: config.inboundSecret,
     fetchFn: fetch,
   });
-  function push(batch: RelayLine[], pushSignal: AbortSignal): Promise<unknown> {
+  function push(batch: InboundLine[], pushSignal: AbortSignal): Promise<unknown> {
     return client.push(batch, pushSignal);
   }
   const forwarderOptions: ForwarderOptions = { push, log };
@@ -132,12 +132,12 @@ function logToConsole(message: string): void {
 }
 
 /** The Health page heartbeat's interval and memory figure (tests). */
-export interface RelayStatusOptions {
+export interface InboundStatusOptions {
   intervalMs?: number;
   rss?: () => number;
 }
 
-export interface RelayOptions {
+export interface InboundOptions {
   /** Health server bind address; 0.0.0.0 so Fly's health check can reach it. */
   hostname?: string;
   log?: (message: string) => void;
@@ -146,10 +146,10 @@ export interface RelayOptions {
   /** Overrides for the reference list load's timing, limits, clock and fetch (tests). */
   catalogs?: Partial<Omit<CatalogImportLoop, "urls" | "client" | "signal" | "log">>;
   /** The Health page heartbeat's interval and memory figure (tests). */
-  status?: RelayStatusOptions;
+  status?: InboundStatusOptions;
 }
 
-export interface Relay {
+export interface Inbound {
   /** Where /healthz listens (config.healthPort 0 picks a free port). */
   addr: Deno.NetAddr;
   /** Resolves once every feed has stopped. */
@@ -161,11 +161,11 @@ export interface Relay {
   shutdown(): Promise<void>;
 }
 
-export function startRelay(
-  config: RelayConfig,
+export function startInbound(
+  config: InboundConfig,
   feedList: readonly Feed[],
-  options: RelayOptions,
-): Relay {
+  options: InboundOptions,
+): Inbound {
   let log: (message: string) => void = logToConsole;
   if (options.log !== undefined) {
     log = options.log;
@@ -182,7 +182,7 @@ export function startRelay(
     const licensePoster = new FunctionPoster({
       functionsUrl: config.functionsUrl,
       functionName: "load-licenses",
-      secret: config.relaySecret,
+      secret: config.inboundSecret,
       fetchFn: fetch,
     });
     const loop: LicenseImportLoop = {
@@ -213,7 +213,7 @@ export function startRelay(
     const catalogPoster = new FunctionPoster({
       functionsUrl: config.functionsUrl,
       functionName: "load-references",
-      secret: config.relaySecret,
+      secret: config.inboundSecret,
       fetchFn: fetch,
     });
     const loop: CatalogImportLoop = {
@@ -244,8 +244,8 @@ export function startRelay(
 
   const statusPoster = new FunctionPoster({
     functionsUrl: config.functionsUrl,
-    functionName: "relay-status",
-    secret: config.relaySecret,
+    functionName: "inbound-status",
+    secret: config.inboundSecret,
     fetchFn: fetch,
   });
   const statusLoop: StatusLoop = {
@@ -267,13 +267,13 @@ export function startRelay(
     hostname = options.hostname;
   }
   function onListen(): void {
-    // Quiet: the relay logs its own start line below.
+    // Quiet: the inbound worker logs its own start line below.
   }
   const server = Deno.serve(
     { hostname, port: config.healthPort, onListen },
     healthHandler(feeds.map((f) => f.health), startedAt, STALE_MS, () => new Date()),
   );
-  log(`relay started: ${feedList.map((f) => `${f.id} ${f.host}:${String(f.port)}`).join(", ")}`);
+  log(`inbound started: ${feedList.map((f) => `${f.id} ${f.host}:${String(f.port)}`).join(", ")}`);
 
   async function allDone(): Promise<void> {
     const waits: Array<Promise<void>> = [];

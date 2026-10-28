@@ -1,8 +1,8 @@
 // HTTP shells shared by the ingest functions: run the orchestrator, return the
 // summary as JSON, or a 500 whose body and log line carry the error.
 //
-// Pushed sources (RBN, DX Cluster, APRS-IS) are invoked by the relay, which holds
-// only the relay secret, with POST batches of lines. Pulled sources (POTA,
+// Pushed sources (RBN, DX Cluster, APRS-IS) are invoked by the inbound worker, which holds
+// only the inbound secret, with POST batches of lines. Pulled sources (POTA,
 // SOTAwatch, WWFF, WWBOTA) are served by serve_ingest.ts, which checks for the service
 // role; keep that check out of this module, which the verify_jwt = false push
 // functions import.
@@ -20,7 +20,7 @@ import {
 import type { RbnPushDb } from "./rbn_push.ts";
 import type { IngestSummary, Source } from "./types.ts";
 
-const RELAY_SECRET_ENV = "LONGLINES_RELAY_SECRET";
+const INBOUND_SECRET_ENV = "LONGLINES_INBOUND_SECRET";
 
 function errorMessage(error: unknown): string {
   if (error instanceof Error) {
@@ -46,7 +46,7 @@ export async function respond(
 
 export interface PushDeps<D> {
   db: () => D;
-  /** The shared secret the relay sends in x-relay-secret; undefined when unset. */
+  /** The shared secret the inbound worker sends in x-inbound-secret; undefined when unset. */
   secret: () => string | undefined;
 }
 
@@ -58,11 +58,11 @@ export function pushIngestHandler<D>(
   async function handler(req: Request): Promise<Response> {
     const expected = deps.secret();
     if (expected === undefined || expected === "") {
-      const message = `missing environment variable ${RELAY_SECRET_ENV}`;
+      const message = `missing environment variable ${INBOUND_SECRET_ENV}`;
       console.error(`ingest-${source}: ${message}`);
       return Response.json({ source, error: message }, { status: 500 });
     }
-    let provided = req.headers.get("x-relay-secret");
+    let provided = req.headers.get("x-inbound-secret");
     if (provided === null) {
       provided = "";
     }
@@ -75,7 +75,7 @@ export function pushIngestHandler<D>(
       try {
         body = await req.json();
       } catch (error) {
-        // Bad JSON is the relay's fault; anything else (a broken stream) is ours.
+        // Bad JSON is the inbound worker's fault; anything else (a broken stream) is ours.
         if (error instanceof SyntaxError) {
           return Response.json({ source, error: "request body is not JSON" }, { status: 400 });
         }
@@ -110,7 +110,7 @@ export function servePush<D>(
 ): void {
   const push = pushIngestHandler(source, run, {
     db: () => makeDb(createServiceClient()),
-    secret: () => Deno.env.get(RELAY_SECRET_ENV),
+    secret: () => Deno.env.get(INBOUND_SECRET_ENV),
   });
   async function handler(req: Request): Promise<Response> {
     return await push(req);

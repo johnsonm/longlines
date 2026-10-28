@@ -96,7 +96,7 @@ Deno.test("CsvRecords refuses a file that ends inside quotes or a record that ne
       empty,
     );
   }
-  // Across chunks too, as the relay feeds a download.
+  // Across chunks too, as the inbound feeds a download.
   const commas = new CsvRecords("x.csv");
   function pushChunks(): void {
     for (let i = 0; i < 4; i++) {

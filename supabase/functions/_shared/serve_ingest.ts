@@ -4,7 +4,7 @@
 // verify_jwt also lets the public anon key and signed-in users through.
 //
 // This lives apart from serve.ts because it imports isServiceRole, which trusts
-// a JWT's role claim unverified; the relay's push functions run with
+// a JWT's role claim unverified; the inbound worker's push functions run with
 // verify_jwt = false and import serve.ts, so they must never reach it
 // (function_config.test.ts checks).
 

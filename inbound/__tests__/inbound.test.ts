@@ -1,8 +1,8 @@
 import { assertEquals } from "@std/assert";
-import type { RelayConfig } from "../config.ts";
+import type { InboundConfig } from "../config.ts";
 import { aprsFeed, dxclusterFeed, type Feed, RBN_FEED } from "../feeds.ts";
-import type { RelayLine } from "../functions.ts";
-import { startRelay } from "../relay.ts";
+import type { InboundLine } from "../functions.ts";
+import { startInbound } from "../inbound.ts";
 
 function enc(s: string): Uint8Array {
   return new TextEncoder().encode(s);
@@ -74,7 +74,7 @@ function fakeTelnet(lines: string[]) {
         try {
           c.close();
         } catch {
-          // The relay closed its end first.
+          // The inbound worker closed its end first.
         }
       }
       await served;
@@ -82,19 +82,19 @@ function fakeTelnet(lines: string[]) {
   };
 }
 
-/** Stand-in for the ingest Edge Functions and relay-status: records each push and answers 200. */
+/** Stand-in for the ingest Edge Functions and inbound-status: records each push and answers 200. */
 function fakeFunctions() {
-  const pushes: { path: string; secret: string | null; lines: RelayLine[] }[] = [];
+  const pushes: { path: string; secret: string | null; lines: InboundLine[] }[] = [];
   const statuses: { secret: string | null; body: Record<string, unknown> }[] = [];
   async function handler(req: Request): Promise<Response> {
-    if (new URL(req.url).pathname.endsWith("/relay-status")) {
-      statuses.push({ secret: req.headers.get("x-relay-secret"), body: await req.json() });
+    if (new URL(req.url).pathname.endsWith("/inbound-status")) {
+      statuses.push({ secret: req.headers.get("x-inbound-secret"), body: await req.json() });
       return Response.json({ ok: true });
     }
-    const body = await req.json() as { lines: RelayLine[] };
+    const body = await req.json() as { lines: InboundLine[] };
     pushes.push({
       path: new URL(req.url).pathname,
-      secret: req.headers.get("x-relay-secret"),
+      secret: req.headers.get("x-inbound-secret"),
       lines: body.lines,
     });
     return Response.json({ ok: true });
@@ -114,26 +114,26 @@ async function waitFor(what: string, check: () => boolean | Promise<boolean>): P
 }
 
 Deno.test(
-  "startRelay forwards spot lines, serves /healthz and flushes on shutdown",
+  "startInbound forwards spot lines, serves /healthz and flushes on shutdown",
   async function (): Promise<void> {
     const telnet = fakeTelnet(["Hello, N0CALL! Connected.", SPOT_1, "Local users: 586", SPOT_2]);
     const functions = fakeFunctions();
     const feed = localFeed(RBN_FEED, telnet.port);
-    const config: RelayConfig = {
+    const config: InboundConfig = {
       functionsUrl: functions.url,
-      relaySecret: "s3cret",
+      inboundSecret: "s3cret",
       loginCall: "N0CALL",
       healthPort: 0,
       licenseZipUrl: null,
       catalogUrls: null,
     };
     const logs: string[] = [];
-    const relay = startRelay(config, [feed], {
+    const inbound = startInbound(config, [feed], {
       hostname: "127.0.0.1",
       log: (m) => logs.push(m),
     });
     async function health() {
-      const res = await fetch(`http://127.0.0.1:${relay.addr.port}/healthz`);
+      const res = await fetch(`http://127.0.0.1:${inbound.addr.port}/healthz`);
       return { status: res.status, body: await res.json() };
     }
 
@@ -147,7 +147,7 @@ Deno.test(
     assertEquals(h.body.feeds[0].connected, true);
     assertEquals(h.body.feeds[0].connects, 1);
 
-    // The Health page heartbeat goes out at start, with the relay secret.
+    // The Health page heartbeat goes out at start, with the inbound secret.
     await waitFor("the status", () => functions.statuses.length >= 1);
     assertEquals(functions.statuses[0]!.secret, "s3cret");
     assertEquals(functions.statuses[0]!.body.reconnects, 0);
@@ -156,8 +156,8 @@ Deno.test(
     ]);
 
     // Shutdown pushes the buffered spots before closing; a second call does not push again.
-    await Promise.all([relay.shutdown(), relay.shutdown()]);
-    await relay.done;
+    await Promise.all([inbound.shutdown(), inbound.shutdown()]);
+    await inbound.done;
     await telnet.close();
     await functions.server.shutdown();
 
@@ -172,21 +172,21 @@ Deno.test(
       functions.pushes[1]!.lines.every((l) => !Number.isNaN(Date.parse(l.received_at))),
       true,
     );
-    assertEquals(logs[0], `relay started: rbn 127.0.0.1:${telnet.port}`);
+    assertEquals(logs[0], `inbound started: rbn 127.0.0.1:${telnet.port}`);
     assertEquals(logs.filter((m) => m === "shutting down").length, 1);
     assertEquals(logs.includes(`[rbn] connected to 127.0.0.1:${telnet.port}`), true);
   },
 );
 
 Deno.test(
-  "startRelay shutdown with nothing buffered skips the final push",
+  "startInbound shutdown with nothing buffered skips the final push",
   async function (): Promise<void> {
     const telnet = fakeTelnet([]);
     const functions = fakeFunctions();
-    const relay = startRelay(
+    const inbound = startInbound(
       {
         functionsUrl: functions.url,
-        relaySecret: "s",
+        inboundSecret: "s",
         loginCall: "N0CALL",
         healthPort: 0,
         licenseZipUrl: null,
@@ -197,8 +197,8 @@ Deno.test(
     );
     await waitFor("the heartbeat", () => functions.pushes.length === 1);
     await waitFor("the login", () => telnet.logins.length === 1);
-    await relay.shutdown();
-    await relay.done;
+    await inbound.shutdown();
+    await inbound.done;
     await telnet.close();
     await functions.server.shutdown();
     assertEquals(functions.pushes.map((p) => p.lines), [[]]);
@@ -206,7 +206,7 @@ Deno.test(
 );
 
 Deno.test(
-  "startRelay runs the DX Cluster feed with its own idle timeout and forwards only human spots",
+  "startInbound runs the DX Cluster feed with its own idle timeout and forwards only human spots",
   async function (): Promise<void> {
     const human =
       "DX de HA7UL:      7146.0  HA7UL/P      CROTA HU-BCS-003               1316Z\u0007\u0007";
@@ -214,10 +214,10 @@ Deno.test(
     const functions = fakeFunctions();
     const feed = localFeed(dxclusterFeed(() => undefined), telnet.port);
     feed.idleMs = 300;
-    const relay = startRelay(
+    const inbound = startInbound(
       {
         functionsUrl: functions.url,
-        relaySecret: "s",
+        inboundSecret: "s",
         loginCall: "N0CALL",
         healthPort: 0,
         licenseZipUrl: null,
@@ -227,14 +227,14 @@ Deno.test(
       { hostname: "127.0.0.1", log: noop },
     );
     async function health() {
-      return (await (await fetch(`http://127.0.0.1:${relay.addr.port}/healthz`)).json()).feeds[0];
+      return (await (await fetch(`http://127.0.0.1:${inbound.addr.port}/healthz`)).json()).feeds[0];
     }
 
     await waitFor("the human spot", async () => (await health()).buffered === 1);
     // The server stays silent after its lines, so the 300 ms idle timeout drops the session.
     await waitFor("the idle disconnect", async () => (await health()).connected === false);
-    await relay.shutdown();
-    await relay.done;
+    await inbound.shutdown();
+    await inbound.done;
     await telnet.close();
     await functions.server.shutdown();
 
@@ -248,7 +248,7 @@ Deno.test(
 );
 
 Deno.test(
-  "startRelay holds the APRS-IS feed: logs in after the banner and forwards packets, not comments",
+  "startInbound holds the APRS-IS feed: logs in after the banner and forwards packets, not comments",
   async function (): Promise<void> {
     const listener = Deno.listen({ hostname: "127.0.0.1", port: 0 });
     const logins: string[] = [];
@@ -278,10 +278,10 @@ Deno.test(
       return undefined;
     }
     const feed = localFeed(aprsFeed(env)!, listener.addr.port);
-    const relay = startRelay(
+    const inbound = startInbound(
       {
         functionsUrl: functions.url,
-        relaySecret: "s",
+        inboundSecret: "s",
         loginCall: "RELAYCALL",
         healthPort: 0,
         licenseZipUrl: null,
@@ -291,24 +291,24 @@ Deno.test(
       { hostname: "127.0.0.1", log: noop },
     );
     async function health() {
-      return (await (await fetch(`http://127.0.0.1:${relay.addr.port}/healthz`)).json()).feeds[0];
+      return (await (await fetch(`http://127.0.0.1:${inbound.addr.port}/healthz`)).json()).feeds[0];
     }
 
     await waitFor("the packet", async () => (await health()).buffered === 1);
-    await relay.shutdown();
-    await relay.done;
+    await inbound.shutdown();
+    await inbound.done;
     listener.close();
     for (const c of held) {
       try {
         c.close();
       } catch {
-        // The relay closed its end first.
+        // The inbound worker closed its end first.
       }
     }
     await served;
     await functions.server.shutdown();
 
-    // The feed's own call, not RELAY_LOGIN_CALL, and no filter command.
+    // The feed's own call, not INBOUND_LOGIN_CALL, and no filter command.
     assertEquals(logins, ["user N0CALL-LL pass -1 vers LongLines 0.1\r\n"]);
     assertEquals(functions.pushes.map((p) => p.path), [
       "/functions/v1/ingest-aprs",

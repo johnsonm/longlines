@@ -71,7 +71,7 @@ export interface NormalizedSpot {
 }
 
 /**
- * One row for rbn_spots, every RBN spot the relay forwards. Keys match the
+ * One row for rbn_spots, every RBN spot the inbound worker forwards. Keys match the
  * columns so the batch can be passed straight to the ingest_rbn_spots RPC.
  */
 export interface RbnSpotRow {
@@ -91,7 +91,7 @@ export interface RbnSpotRow {
 }
 
 /**
- * One row for aprs_packets, every APRS-IS packet the relay forwards. Keys match
+ * One row for aprs_packets, every APRS-IS packet the inbound worker forwards. Keys match
  * the columns so the batch can be passed straight to the ingest_aprs_packets RPC.
  */
 export interface AprsPacketRow {
@@ -293,7 +293,7 @@ export interface LicenseDb {
   stageRows(load: number, kind: UlsKind, rows: UlsRow[]): Promise<number>;
   /** Marks the load ready for apply_license_loads; throws when the staged counts differ. */
   finishLoad(load: number, counts: UlsCounts): Promise<void>;
-  /** Fails a load the relay gave up on and empties staging. */
+  /** Fails a load the inbound worker gave up on and empties staging. */
   abandonLoad(load: number, error: string): Promise<void>;
 }
 
@@ -310,6 +310,6 @@ export interface ReferenceDb {
   stageRows(load: number, rows: ReferenceCatalogRow[]): Promise<number>;
   /** Ends staging: finished, or refused when incomplete or below the floor. */
   finishLoad(load: number, rows: number): Promise<ReferenceFinishState>;
-  /** Abandons a load the relay gave up on and deletes its staged rows. */
+  /** Abandons a load the inbound worker gave up on and deletes its staged rows. */
   abandonLoad(load: number, error: string): Promise<void>;
 }

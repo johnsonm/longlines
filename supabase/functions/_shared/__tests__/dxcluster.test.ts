@@ -102,7 +102,7 @@ Deno.test("parseDxLine rejects skimmer spots and non-spot broadcasts", function 
 });
 
 Deno.test(
-  "dxclusterAdapter.parseFeed and fetchSpots pass the relay body through",
+  "dxclusterAdapter.parseFeed and fetchSpots pass the inbound worker body through",
   async function (): Promise<void> {
     const body = { lines: [item(line("DX de HA7UL"), RECEIVED)] };
     const adapter = dxclusterAdapter(body);

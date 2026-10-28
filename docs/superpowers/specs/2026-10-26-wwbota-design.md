@@ -54,7 +54,7 @@ like POTA and WWFF; a conditional request would gain nothing at this size (one t
 ## Shape
 
 The flow is pg_cron → `ingest-wwbota` → `runIngest` → `ingest_spots` → `raw_spots`, the same as
-WWFF. There is no relay change and no firehose table.
+WWFF. There is no inbound change and no firehose table.
 
 ### Adapter (`_shared/wwbota.ts`)
 

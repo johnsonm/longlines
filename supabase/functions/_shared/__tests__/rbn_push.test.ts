@@ -159,7 +159,7 @@ Deno.test(
     await assertRejects(
       () => runRbnPush({ nope: true }, db, NOW),
       ValidationError,
-      "parseRelayBody: relay body: lines",
+      "parseInboundBody: inbound body: lines",
     );
     assertEquals(calls.failure.length, 1);
     assertEquals(calls.stored, []);

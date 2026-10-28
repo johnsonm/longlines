@@ -25,7 +25,7 @@ import {
   shouldLoad,
 } from "../catalogs.ts";
 import type { CatalogUrls } from "../config.ts";
-import { startRelay } from "../relay.ts";
+import { startInbound } from "../inbound.ts";
 
 const NOW = new Date("2026-10-26T12:00:00Z");
 const VERSION = "Mon, 26 Oct 2026 07:15:20 GMT";
@@ -438,7 +438,7 @@ Deno.test("importCatalog stages a list in batches, retries a failed batch and fi
       "Acadia National Park",
       "FN54vh",
     ]);
-    // The relay's User-Agent on the GET.
+    // The inbound worker's User-Agent on the GET.
     assertEquals(served.requests.map((r) => r.method), ["GET"]);
     assertEquals(
       served.requests.every((r) => r.userAgent!.startsWith("LongLines/")),
@@ -594,7 +594,7 @@ function never(_input: string | URL | Request, init: RequestInit | undefined): P
   });
 }
 
-Deno.test("importCatalog stops when the relay shuts down or the headers never come", async function (): Promise<
+Deno.test("importCatalog stops when the inbound worker shuts down or the headers never come", async function (): Promise<
   void
 > {
   const served = serveCatalogs({});
@@ -821,7 +821,7 @@ Deno.test("runCatalogImports throws a failed check that is not an Error", async 
   assertEquals(logs, []);
 });
 
-Deno.test("the relay loads the reference lists through load-references with its secret", async function (): Promise<
+Deno.test("the inbound worker loads the reference lists through load-references with its secret", async function (): Promise<
   void
 > {
   const served = serveCatalogs({});
@@ -829,12 +829,12 @@ Deno.test("the relay loads the reference lists through load-references with its 
   const totals = new Map<number, number>();
   let nextLoad = 3;
   async function handler(req: Request): Promise<Response> {
-    // The Health page heartbeat (relay/status.ts) posts here too.
-    if (new URL(req.url).pathname.endsWith("/relay-status")) {
+    // The Health page heartbeat (inbound/status.ts) posts here too.
+    if (new URL(req.url).pathname.endsWith("/inbound-status")) {
       return Response.json({ ok: true });
     }
     const body = await req.json() as LoadReferencesRequest;
-    requests.push({ secret: req.headers.get("x-relay-secret"), body });
+    requests.push({ secret: req.headers.get("x-inbound-secret"), body });
     switch (body.action) {
       case "status":
         return Response.json({ status: emptyStatus() });
@@ -858,10 +858,10 @@ Deno.test("the relay loads the reference lists through load-references with its 
     onListen() {},
   }, handler);
   const logs: string[] = [];
-  const relay = startRelay(
+  const inbound = startInbound(
     {
       functionsUrl: `http://127.0.0.1:${functions.addr.port}/functions/v1`,
-      relaySecret: "s",
+      inboundSecret: "s",
       loginCall: "N0CALL",
       healthPort: 0,
       licenseZipUrl: null,
@@ -909,8 +909,8 @@ Deno.test("the relay loads the reference lists through load-references with its 
       true,
     );
   } finally {
-    await relay.shutdown();
-    await relay.done;
+    await inbound.shutdown();
+    await inbound.done;
     await functions.shutdown();
     await served.server.shutdown();
   }

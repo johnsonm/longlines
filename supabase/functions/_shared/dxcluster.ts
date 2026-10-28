@@ -1,10 +1,10 @@
-// DX Cluster source adapter. Like RBN, spots are pushed: the relay holds a
-// telnet session to a DXSpider node (relay/feeds.ts) and POSTs every human spot
+// DX Cluster source adapter. Like RBN, spots are pushed: the inbound worker holds a
+// telnet session to a DXSpider node (inbound/feeds.ts) and POSTs every human spot
 // line to ingest-dxcluster. Unlike RBN there is no firehose table: human spots
 // are a few thousand an hour at most, so every one goes through runIngest into
 // raw_spots.
 //
-// Request body: see relay_lines.ts.
+// Request body: see inbound_lines.ts.
 //
 // Telnet spot line (DXSpider; columns are space-padded, the comment is cut at
 // 30 characters, the line ends in two BEL characters, and nodes with
@@ -26,7 +26,7 @@ import { runIngest } from "./ingest.ts";
 import { iotaReference } from "./iota.ts";
 import { modeFamily, resolveDxMode } from "./modes.ts";
 import { cleanCallsign, isTooOld, parseKhz, parseUtc } from "./normalize.ts";
-import { relayAdapter, relayLineSchema, spotTimeFromHhmm } from "./relay_lines.ts";
+import { inboundAdapter, inboundLineSchema, spotTimeFromHhmm } from "./inbound_lines.ts";
 import type {
   IngestDb,
   IngestSummary,
@@ -96,14 +96,14 @@ function group(m: RegExpExecArray, i: number): string {
   return text;
 }
 
-/** An adapter whose feed is one relay request body. */
+/** An adapter whose feed is one inbound request body. */
 export function dxclusterAdapter(body: unknown): SourceAdapter {
-  return relayAdapter("dxcluster", body, normalizeDxSpot);
+  return inboundAdapter("dxcluster", body, normalizeDxSpot);
 }
 
-/** Normalizes one relay item (a telnet line and when the relay received it). */
+/** Normalizes one inbound item (a telnet line and when the inbound worker received it). */
 async function normalizeDxSpot(raw: JsonObject, now: Date): Promise<NormalizeResult> {
-  const item = parseWith(relayLineSchema, raw, "normalizeDxSpot: relay line");
+  const item = parseWith(inboundLineSchema, raw, "normalizeDxSpot: inbound line");
   const receivedAt = parseUtc(item.received_at);
   const parsed = parseDxLine(item.line);
   if (parsed === null) {
@@ -159,7 +159,7 @@ async function normalizeDxSpot(raw: JsonObject, now: Date): Promise<NormalizeRes
   };
 }
 
-/** One relay batch for ingest-dxcluster. An empty batch still records the heartbeat. */
+/** One inbound batch for ingest-dxcluster. An empty batch still records the heartbeat. */
 export function runDxclusterPush(
   body: unknown,
   db: IngestDb,

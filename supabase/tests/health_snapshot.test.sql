@@ -28,10 +28,10 @@ delete from raw_spots;
 select set_eq($$ select jsonb_object_keys(public.health_snapshot('24h')) $$,
   array['range', 'start', 'bucket_seconds', 'checks', 'limits', 'series', 'jobs'], 'payload keys');
 select set_eq($$ select jsonb_object_keys(pg_temp.checks()) $$,
-  array['pulled', 'relay', 'match_queue', 'delivery_queue', 'sender', 'database', 'jobs', 'archive'], 'check keys');
+  array['pulled', 'inbound', 'match_queue', 'delivery_queue', 'sender', 'database', 'jobs', 'archive'], 'check keys');
 select set_eq($$ select jsonb_object_keys(public.health_snapshot('24h') -> 'series') $$,
   array['match_waiting', 'delivery_waiting', 'oldest_ready_seconds', 'connections', 'db_bytes', 'failed', 'expired',
-        'latency_p50', 'latency_p95', 'spots', 'sender_memory', 'relay_memory'], 'series keys');
+        'latency_p50', 'latency_p95', 'spots', 'sender_memory', 'inbound_memory'], 'series keys');
 select set_eq($$ select jsonb_object_keys(public.health_snapshot('24h') -> 'series' -> 'spots') $$,
   array['pota', 'sotawatch', 'wwff', 'wwbota', 'dxcluster'], 'spots series: the five sources that are not firehoses');
 select results_eq(
@@ -61,29 +61,29 @@ select is(pg_temp.checks() -> 'pulled' ->> 'status', 'delayed', 'pulled: delayed
 update ingest_state set last_success_at = null where source = 'wwff';
 select is(pg_temp.checks() -> 'pulled' ->> 'status', 'delayed', 'pulled: delayed when a source never succeeded');
 
--- Relay feeds: the relay's own list; Delayed after 3 minutes without a push.
+-- Inbound feeds: the inbound worker's own list; Delayed after 3 minutes without a push.
 update ingest_state set last_success_at = pg_temp.ago(30) where source in ('rbn', 'dxcluster');
 update ingest_state set last_success_at = null where source = 'aprs';
 insert into worker_heartbeats (worker, received_at, started_at, rss_bytes, reconnects, feeds) values
   -- A process started before the window: only its reconnects inside it count (7 - 6).
-  ('relay', pg_temp.ago(25 * 3600), pg_temp.ago(30 * 3600), 1, 5, '[]'),
-  ('relay', pg_temp.ago(23 * 3600), pg_temp.ago(30 * 3600), 1, 6, '[]'),
-  ('relay', pg_temp.ago(20 * 3600), pg_temp.ago(30 * 3600), 1, 7, '[]'),
+  ('inbound', pg_temp.ago(25 * 3600), pg_temp.ago(30 * 3600), 1, 5, '[]'),
+  ('inbound', pg_temp.ago(23 * 3600), pg_temp.ago(30 * 3600), 1, 6, '[]'),
+  ('inbound', pg_temp.ago(20 * 3600), pg_temp.ago(30 * 3600), 1, 7, '[]'),
   -- One started inside it: all of them (2).
-  ('relay', pg_temp.ago(9 * 3600), pg_temp.ago(10 * 3600), 1, 0, '[]'),
-  ('relay', pg_temp.ago(60), pg_temp.ago(10 * 3600), 20000000, 2,
+  ('inbound', pg_temp.ago(9 * 3600), pg_temp.ago(10 * 3600), 1, 0, '[]'),
+  ('inbound', pg_temp.ago(60), pg_temp.ago(10 * 3600), 20000000, 2,
    '[{"id": "dxcluster", "connected": true}, {"id": "rbn", "connected": true}]');
-select is(pg_temp.checks() -> 'relay',
+select is(pg_temp.checks() -> 'inbound',
   '{"status": "healthy", "reconnects_24h": 3,
     "feeds": [{"source": "dxcluster", "seconds": 30}, {"source": "rbn", "seconds": 30}]}'::jsonb,
-  'relay: the heartbeat''s feeds, and reconnects inside 24 hours');
+  'inbound: the heartbeat''s feeds, and reconnects inside 24 hours');
 update ingest_state set last_success_at = pg_temp.ago(181) where source = 'dxcluster';
-select is(pg_temp.checks() -> 'relay' ->> 'status', 'delayed', 'relay: delayed after 180 seconds without a push');
--- Without a recent heartbeat: the relay sources that succeeded in 7 days.
-update worker_heartbeats set received_at = received_at - interval '11 minutes' where worker = 'relay';
+select is(pg_temp.checks() -> 'inbound' ->> 'status', 'delayed', 'inbound: delayed after 180 seconds without a push');
+-- Without a recent heartbeat: the inbound sources that succeeded in 7 days.
+update worker_heartbeats set received_at = received_at - interval '11 minutes' where worker = 'inbound';
 update ingest_state set last_success_at = pg_temp.ago(8 * 86400) where source = 'dxcluster';
-select is(pg_temp.checks() -> 'relay' -> 'feeds', '[{"source": "rbn", "seconds": 30}]'::jsonb,
-  'relay: with no heartbeat in 10 minutes, the sources heard from in 7 days');
+select is(pg_temp.checks() -> 'inbound' -> 'feeds', '[{"source": "rbn", "seconds": 30}]'::jsonb,
+  'inbound: with no heartbeat in 10 minutes, the sources heard from in 7 days');
 
 -- Match queue: Delayed when the oldest waits over 2 minutes.
 insert into pgmq.q_spot_events (message, enqueued_at, vt) values ('{}', pg_temp.ago(100), now());
@@ -260,13 +260,13 @@ select is((select array_agg(rss_bytes) from worker_heartbeats where worker = 'se
   'a second sender heartbeat within 30 seconds is dropped');
 select throws_ok($$ select public.record_sender_heartbeat(null, now(), 1) $$, '22023', null,
   'a sender heartbeat needs a start time');
-select public.record_relay_heartbeat(pg_temp.ago(60), 5000, 2,
+select public.record_inbound_heartbeat(pg_temp.ago(60), 5000, 2,
   '[{"id": "rbn", "connected": true}, {"id": "bogus", "connected": true}, {"id": "aprs"}]');
-select is((select feeds from worker_heartbeats where worker = 'relay'),
+select is((select feeds from worker_heartbeats where worker = 'inbound'),
   '[{"id": "aprs", "connected": false}, {"id": "rbn", "connected": true}]'::jsonb,
-  'relay feeds keep only known ids');
-select throws_ok($$ select public.record_relay_heartbeat(now(), 1, 0, '{}') $$, '22023', null,
-  'relay feeds must be an array');
+  'inbound feeds keep only known ids');
+select throws_ok($$ select public.record_inbound_heartbeat(now(), 1, 0, '{}') $$, '22023', null,
+  'inbound feeds must be an array');
 
 -- The cache serves a range for 30 seconds.
 select is((select public.cached_health('1h') ->> 'generated_at'), (select public.cached_health('1h') ->> 'generated_at'),
@@ -279,7 +279,7 @@ select ok(not has_function_privilege('anon', 'public.cached_health(text)', 'exec
           and has_function_privilege('service_role', 'public.cached_health(text)', 'execute'),
   'cached_health is service_role only');
 select ok(has_function_privilege('delivery_sender', 'public.record_sender_heartbeat(timestamptz, timestamptz, bigint)', 'execute')
-          and not has_function_privilege('delivery_sender', 'public.record_relay_heartbeat(timestamptz, bigint, int, jsonb)', 'execute'),
+          and not has_function_privilege('delivery_sender', 'public.record_inbound_heartbeat(timestamptz, bigint, int, jsonb)', 'execute'),
   'the sender role may record its own heartbeat only');
 
 select * from finish();

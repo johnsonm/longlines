@@ -1,6 +1,6 @@
-// The relay's heartbeat for the Health page (relay/status.ts), once a minute
-// with the relay secret: when the process started, its RSS, its reconnects
-// since then and each feed's connection. One record_relay_heartbeat call; SQL
+// The inbound worker's heartbeat for the Health page (inbound/status.ts), once a minute
+// with the inbound secret: when the process started, its RSS, its reconnects
+// since then and each feed's connection. One record_inbound_heartbeat call; SQL
 // keeps at most one row per 30 seconds and only known feed ids.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -8,22 +8,22 @@ import { z } from "zod";
 import { secretsMatch } from "../auth.ts";
 
 /** One feed's connection in a heartbeat. */
-export interface RelayFeedStatus {
+export interface InboundFeedStatus {
   id: string;
   connected: boolean;
 }
 
-export interface RelayStatus {
+export interface InboundStatus {
   started_at: string;
   rss_bytes: number;
   reconnects: number;
-  feeds: RelayFeedStatus[];
+  feeds: InboundFeedStatus[];
 }
 
-export interface RelayStatusDeps {
-  /** LONGLINES_RELAY_SECRET; undefined when unset. */
+export interface InboundStatusDeps {
+  /** LONGLINES_INBOUND_SECRET; undefined when unset. */
   secret: string | undefined;
-  /** Service-role client for record_relay_heartbeat(). */
+  /** Service-role client for record_inbound_heartbeat(). */
   db: () => SupabaseClient;
 }
 
@@ -38,26 +38,26 @@ function countSchema(message: string): z.ZodType<number> {
   return z.number({ error: message }).int({ error: message }).min(0, { error: message });
 }
 
-// One feed of our relay's heartbeat (relay/status.ts): strict.
-const relayFeedStatusSchema: z.ZodType<RelayFeedStatus> = z.strictObject({
+// One feed of our inbound's heartbeat (inbound/status.ts): strict.
+const inboundFeedStatusSchema: z.ZodType<InboundFeedStatus> = z.strictObject({
   id: z.string({ error: FEED_MESSAGE }),
   connected: z.boolean({ error: FEED_MESSAGE }),
 }, { error: FEED_MESSAGE });
 
-// Our relay's heartbeat body (statusBody in relay/status.ts): strict. Each part's message is the
+// Our inbound's heartbeat body (statusBody in inbound/status.ts): strict. Each part's message is the
 // one the handler answers, and the first issue is the first part in this order that is wrong.
-const relayStatusSchema: z.ZodType<RelayStatus> = z.strictObject({
+const inboundStatusSchema: z.ZodType<InboundStatus> = z.strictObject({
   started_at: z.string({ error: "started_at must be a time" })
     .refine((text) => !Number.isNaN(Date.parse(text)), { error: "started_at must be a time" }),
   rss_bytes: countSchema(COUNTS_MESSAGE),
   reconnects: countSchema(COUNTS_MESSAGE),
-  feeds: z.array(relayFeedStatusSchema, { error: FEEDS_MESSAGE })
+  feeds: z.array(inboundFeedStatusSchema, { error: FEEDS_MESSAGE })
     .max(MAX_FEEDS, { error: FEEDS_MESSAGE }),
 }, { error: "body must be a JSON object with only started_at, rss_bytes, reconnects and feeds" });
 
 /** The heartbeat, or a message saying what is wrong with it. */
-export function parseRelayStatus(body: unknown): RelayStatus | string {
-  const result = relayStatusSchema.safeParse(body);
+export function parseInboundStatus(body: unknown): InboundStatus | string {
+  const result = inboundStatusSchema.safeParse(body);
   if (result.success) {
     return result.data;
   }
@@ -73,12 +73,15 @@ function firstIssue(error: z.ZodError): string {
   return issue.message;
 }
 
-export async function handleRelayStatus(req: Request, deps: RelayStatusDeps): Promise<Response> {
+export async function handleInboundStatus(
+  req: Request,
+  deps: InboundStatusDeps,
+): Promise<Response> {
   if (deps.secret === undefined || deps.secret === "") {
-    console.error("relay-status: missing environment variable LONGLINES_RELAY_SECRET");
-    return Response.json({ error: "relay secret is not configured" }, { status: 500 });
+    console.error("inbound-status: missing environment variable LONGLINES_INBOUND_SECRET");
+    return Response.json({ error: "inbound secret is not configured" }, { status: 500 });
   }
-  let header = req.headers.get("x-relay-secret");
+  let header = req.headers.get("x-inbound-secret");
   if (header === null) {
     header = "";
   }
@@ -93,7 +96,7 @@ export async function handleRelayStatus(req: Request, deps: RelayStatusDeps): Pr
   try {
     body = await req.json();
   } catch (error) {
-    // Bad JSON is the relay's fault; anything else (a broken stream) is ours.
+    // Bad JSON is the inbound worker's fault; anything else (a broken stream) is ours.
     if (error instanceof SyntaxError) {
       return Response.json({ error: "request body is not JSON" }, { status: 400 });
     }
@@ -101,15 +104,15 @@ export async function handleRelayStatus(req: Request, deps: RelayStatusDeps): Pr
     if (error instanceof Error) {
       message = error.message;
     }
-    console.error(`relay-status: reading the request body failed: ${message}`);
+    console.error(`inbound-status: reading the request body failed: ${message}`);
     return Response.json({ error: message }, { status: 500 });
   }
-  const status = parseRelayStatus(body);
+  const status = parseInboundStatus(body);
   if (typeof status === "string") {
     return Response.json({ error: status }, { status: 400 });
   }
 
-  const result = await deps.db().rpc("record_relay_heartbeat", {
+  const result = await deps.db().rpc("record_inbound_heartbeat", {
     p_started_at: status.started_at,
     p_rss_bytes: status.rss_bytes,
     p_reconnects: status.reconnects,
@@ -117,7 +120,7 @@ export async function handleRelayStatus(req: Request, deps: RelayStatusDeps): Pr
   });
   const error = result.error;
   if (error !== null) {
-    console.error(`relay-status: ${error.message}`);
+    console.error(`inbound-status: ${error.message}`);
     return Response.json({ error: error.message }, { status: 500 });
   }
   return Response.json({ ok: true });

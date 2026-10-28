@@ -1,5 +1,5 @@
 # Fly.io app for the outbound sender (sender/). Each Fly app's config lives in
-# its own folder (relay/fly.toml, sender/fly.toml); Fly's GitHub integration for
+# its own folder (inbound/fly.toml, sender/fly.toml); Fly's GitHub integration for
 # this app has "Config path" set to sender/fly.toml and the working directory
 # left at the repository root, so the build context is the root and the image
 # gets supabase/functions/_shared. To deploy by hand from the root:
@@ -9,7 +9,7 @@
 # claim is a serial consumer whose marks land before its next claim; a second
 # machine would send duplicates, throttle destinations without coordination
 # and split the counts. The app's own network (--network sender at creation)
-# keeps the relay and anything else off its 6PN.
+# keeps the inbound worker and anything else off its 6PN.
 #
 # Secrets (fly secrets set -a longlines-sender ...): SENDER_DATABASE_URL (the
 # delivery_sender role through the Supavisor pooler, session mode, port 5432)

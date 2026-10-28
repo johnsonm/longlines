@@ -1,11 +1,11 @@
-// Fails when line coverage of the Edge Functions, of the relay or of the sender
+// Fails when line coverage of the Edge Functions, of the inbound worker or of the sender
 // drops below the threshold. Each is checked on its own so one cannot carry
 // another.
 //
 // `deno coverage` only reports modules a test loaded, so a source file no test
 // imports would silently vanish from the total. This also fails when any
 // module is missing from the report, except the process entrypoints
-// (Deno.serve shells, relay/main.ts and sender/main.ts) and type-only files.
+// (Deno.serve shells, inbound/main.ts and sender/main.ts) and type-only files.
 //
 // Usage: deno run --allow-read scripts/check-coverage.ts <lcov.info> <min line %>
 
@@ -40,8 +40,8 @@ const ROOTS = [
     total: emptyTotals(),
   },
   {
-    name: "Relay",
-    dir: new URL("../relay/", import.meta.url).pathname,
+    name: "Inbound",
+    dir: new URL("../inbound/", import.meta.url).pathname,
     skip: [/^__tests__\//, /^main\.ts$/],
     total: emptyTotals(),
   },

@@ -1,10 +1,10 @@
-// The relay's calls to its Edge Functions: push a batch of lines, or POST any
+// The inbound worker's calls to its Edge Functions: push a batch of lines, or POST any
 // JSON body (the license load).
 
 import { FunctionCallError, ValidationError } from "../supabase/functions/_shared/errors.ts";
 import { userAgent } from "../supabase/functions/_shared/http.ts";
 
-export interface RelayLine {
+export interface InboundLine {
   line: string;
   /** ISO 8601 UTC; the adapter dates the spot's HHMMZ stamp from this. */
   received_at: string;
@@ -12,7 +12,7 @@ export interface RelayLine {
 
 export interface FunctionClient {
   /** `signal` aborts the request early (shutdown's drain deadline). */
-  push(lines: RelayLine[], signal: AbortSignal | undefined): Promise<unknown>;
+  push(lines: InboundLine[], signal: AbortSignal | undefined): Promise<unknown>;
 }
 
 const TIMEOUT_MS = 15_000;
@@ -25,7 +25,7 @@ export interface FunctionPosterConfig {
 }
 
 /**
- * POSTs JSON bodies to one Edge Function with the relay secret: the parsed reply, a
+ * POSTs JSON bodies to one Edge Function with the inbound secret: the parsed reply, a
  * FunctionCallError for non-2xx, or a ValidationError for a reply that is not JSON. Each request
  * aborts after TIMEOUT_MS, or sooner when `signal` aborts. Callers validate the reply they read.
  */
@@ -54,7 +54,7 @@ export class FunctionPoster {
       method: "POST",
       headers: {
         "User-Agent": userAgent(),
-        "x-relay-secret": this.secret,
+        "x-inbound-secret": this.secret,
         "Content-Type": "application/json",
       },
       body: JSON.stringify(body),
@@ -91,6 +91,6 @@ function parseReply(text: string, functionName: string): unknown {
 export function functionClient(config: FunctionPosterConfig): FunctionClient {
   const poster = new FunctionPoster(config);
   return {
-    push: (lines: RelayLine[], signal: AbortSignal | undefined) => poster.post({ lines }, signal),
+    push: (lines: InboundLine[], signal: AbortSignal | undefined) => poster.post({ lines }, signal),
   };
 }

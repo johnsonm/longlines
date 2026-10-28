@@ -165,4 +165,4 @@ CTEs, for the catalog's rates only. Not a Stats peer.
 1. Merge. The migration applies; the `import-iota` cron job 404s until step 2.
 2. `supabase functions deploy import-iota`, then redeploy the functions whose shared code changed
    (`ingest-dxcluster`, `archive`, `api`, `send-test`, `convert-archive`). Run `import-iota` once.
-3. The relay ships on merge but does not change.
+3. The inbound worker ships on merge but does not change.

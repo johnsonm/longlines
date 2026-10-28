@@ -32,7 +32,7 @@
 
 ## Review Focus
 
-1. A late relay batch for yesterday lands after the 00:05 rollup: the 01:05 refresh must re-roll the day, and stations, igates and types must grow with no duplicate rows (Task 1 re-roll test, Task 2 late-packet test).
+1. A late inbound batch for yesterday lands after the 00:05 rollup: the 01:05 refresh must re-roll the day, and stations, igates and types must grow with no duplicate rows (Task 1 re-roll test, Task 2 late-packet test).
 2. The same operator under several SSIDs or in lower case (`K4ABC-9`, `K4ABC-7`, `k4abc-5`) must count as one station (Task 1 stations test).
 3. A packet with no igate (no q-construct) must not add a null igate (Task 1 igates test, Task 2 igates count).
 4. The SQL list of packet types drifting from `aprs_packets`' check constraint would silently drop a type from the chart (Task 2 `set_eq` against the constraint).
@@ -296,7 +296,7 @@ revoke all on function public.rollup_aprs_day(date) from public, anon, authentic
 
 -- As in 20261014000010, plus the Stats guard: an archived day is dropped only
 -- once aprs_rollup_days shows it rolled up at least an hour after it ended
--- (the refresh re-rolls anything earlier, for late relay batches). Without
+-- (the refresh re-rolls anything earlier, for late inbound batches). Without
 -- that it stays until the next night.
 create or replace function public.maintain_aprs_packets()
 returns void
@@ -643,7 +643,7 @@ Expected: `{"types": [...14 zero entries...], "igates": 0, "packets": 0, "statio
 
 - [ ] **Step 5: Update the docs**
 
-`CLAUDE.md`, Relay rules, the APRS-IS bullet: replace "never send them to `raw_spots`, matching, `spot_stream` or the rollups." with "never send them to `raw_spots`, matching, `spot_stream` or the callsign rollups. The Stats refresh rolls them up per day (`rollup_aprs_day` into `aprs_daily_*`), and `maintain_aprs_packets` keeps a day until that rollup is final."
+`CLAUDE.md`, Inbound rules, the APRS-IS bullet: replace "never send them to `raw_spots`, matching, `spot_stream` or the rollups." with "never send them to `raw_spots`, matching, `spot_stream` or the callsign rollups. The Stats refresh rolls them up per day (`rollup_aprs_day` into `aprs_daily_*`), and `maintain_aprs_packets` keeps a day until that rollup is final."
 
 `CLAUDE.md`, Phase 3 stats rules, after the sentence ending "never from `rbn_spots` directly: the refresh runs hourly and the firehose is ~1.5M rows a day.": add "APRS figures come from `aprs_packet_hours` and the `aprs_daily_*` tables, never `aprs_packets`."
 

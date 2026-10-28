@@ -81,7 +81,7 @@ select is((reference_load_status() -> 'pota' -> 'applied') - 'applied_at' - 'sta
   '{"version": "Mon, 26 Oct 2026 04:00:00 GMT", "rows": 10000}'::jsonb, 'status reports the applied load');
 select is((reference_load_status() #>> '{pota,applied,started_at}')::timestamptz,
   (select started_at from reference_catalog_loads where id = (select id from loads where name = 'pota2')),
-  'and when it started, which the relay measures the week from');
+  'and when it started, which the inbound worker measures the week from');
 select is(reference_load_status() #>> '{pota,newest,state}', 'applied', 'the newest load is the applied one');
 select lives_ok($$select apply_reference_loads()$$,
   'apply is a no-op once the newest load is applied (an older refusal does not count)');
@@ -118,10 +118,10 @@ select is((select state from reference_catalog_loads where id = (select id from 
   'applied', 'begin leaves other programs'' loads alone');
 
 select stage_reference_rows((select id from loads where name = 'wwff3'), pg_temp.ref_rows('kff-', 1, 5));
-select lives_ok($$select abandon_reference_load((select id from loads where name = 'wwff3'), 'relay stopping')$$,
-  'the relay abandons a load');
+select lives_ok($$select abandon_reference_load((select id from loads where name = 'wwff3'), 'inbound stopping')$$,
+  'the inbound worker abandons a load');
 select is((select (state, error)::text from reference_catalog_loads where id = (select id from loads where name = 'wwff3')),
-  '(abandoned,"relay stopping")', 'with its reason');
+  '(abandoned,"inbound stopping")', 'with its reason');
 select is((select count(*) from reference_catalog_stage), 0::bigint, 'abandon deletes the staged rows');
 select abandon_reference_load((select id from loads where name = 'wwff2'), 'again');
 select is((select error from reference_catalog_loads where id = (select id from loads where name = 'wwff2')),
@@ -132,9 +132,9 @@ select is((select error from reference_catalog_loads where id = (select id from 
 insert into loads values ('pota3', begin_reference_load('pota', 'p3'));
 select stage_reference_rows((select id from loads where name = 'pota3'), pg_temp.ref_rows('us-', 1, 9500));
 select is(finish_reference_load((select id from loads where name = 'pota3'), 9600), 'refused',
-  'a stage short of what the relay sent is refused');
+  'a stage short of what the inbound worker sent is refused');
 select is((select error from reference_catalog_loads where id = (select id from loads where name = 'pota3')),
-  'incomplete: staged 9500 rows but the relay sent 9600', 'as incomplete');
+  'incomplete: staged 9500 rows but the inbound worker sent 9600', 'as incomplete');
 
 insert into loads values ('pota4', begin_reference_load('pota', 'p4'));
 select stage_reference_rows((select id from loads where name = 'pota4'), pg_temp.ref_rows('us-', 1, 8999));

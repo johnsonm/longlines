@@ -53,13 +53,13 @@ Brad decided on 2026-10-26:
    in SQL and is shown upper case. SOTA's `/` stays a path separator (the route is
    `/ref/:program/*`, as `/call/*` takes portable calls). The page is public (`PublicRoute`).
    `iota` and `bota` can be added as programs later without a new route.
-2. **The programs' lists are imported weekly, by the relay.** The three files are 10 to 25 MB
+2. **The programs' lists are imported weekly, by the inbound worker.** The three files are 10 to 25 MB
    (POTA `https://pota.app/all_parks_ext.csv` 9.8 MB, SOTA
    `https://storage.sota.org.uk/summitslist.csv` 25 MB, WWFF
    `https://wwff.co/wwff-data/wwff_directory.csv` 25 MB, measured 2026-10-26), too much to parse
-   inside one Edge Function request. They load the way the FCC licenses do: the relay streams a
+   inside one Edge Function request. They load the way the FCC licenses do: the inbound worker streams a
    file, parses it with a pure module under `_shared`, and posts batches to a push function that
-   stages them; a pg_cron job swaps a complete stage in. *(The relay is the one process that
+   stages them; a pg_cron job swaps a complete stage in. *(The inbound worker is the one process that
    already makes long downloads; a new process is not worth it for three weekly files.)*
 3. **A truncated list never replaces a good one.** A stage is swapped in only when it is complete
    and holds at least 90% of the rows the current list has for that program (and at least 10,000
@@ -159,18 +159,18 @@ Brad decided on 2026-10-26:
   times, and the error of a refused or abandoned load), modeled on the license staging tables
   (`20261012000050_callsign_licenses.sql`). States: `staging` (taking batches), `finished` (complete
   and over the floor, waiting for the swap), `applied`, `refused` (decision 3) and `abandoned`
-  (the relay gave up, or a newer load or a newer finished load superseded it).
+  (the inbound worker gave up, or a newer load or a newer finished load superseded it).
 - Called only by `load-references`, service role only:
   `reference_load_status()` (per program, the last applied load with its version, start, apply
-  time and rows, and the newest load; the relay decides from it whether to download),
+  time and rows, and the newest load; the inbound worker decides from it whether to download),
   `begin_reference_load(program, version)` (abandons the program's open staging loads),
   `stage_reference_rows(load_id, rows jsonb)` (returns the load's running total, so a retried
   batch counts once), `finish_reference_load(load_id, rows)` and
   `abandon_reference_load(load_id, error)`.
 - Decision 3 lives in `finish_reference_load`: it answers `refused` when the staged count differs
-  from what the relay sent (a lost batch) or is under `reference_load_floor(program)` (90% of the
+  from what the inbound worker sent (a lost batch) or is under `reference_load_floor(program)` (90% of the
   program's current rows, 10,000 on a first load), and commits the refusal (it does not raise),
-  deleting the staged rows; otherwise `finished`. The relay never downloads a refused version
+  deleting the staged rows; otherwise `finished`. The inbound worker never downloads a refused version
   again; a newer file is loaded as usual.
 - `apply_reference_loads()`: pg_cron hourly (`apply-reference-loads`, :55). Per program, in its
   own subtransaction, it swaps the newest finished load in (set-based: one delete and one insert,
@@ -311,8 +311,8 @@ Brad decided on 2026-10-26:
 
 ## Edge functions
 
-- `load-references` (PR 2): POST from the relay only, `verify_jwt = false`, checks
-  `x-relay-secret` as `load-licenses` does, never imports `isServiceRole`. It validates each batch
+- `load-references` (PR 2): POST from the inbound worker only, `verify_jwt = false`, checks
+  `x-inbound-secret` as `load-licenses` does, never imports `isServiceRole`. It validates each batch
   with Zod and calls the staging RPCs.
 - `reference-profile` (PR 4): GET `?program=&reference=`, `verify_jwt = false`, never imports
   `isServiceRole`. It shares the callsign profile's rate limit (`lookupLimit`) and payload schema
@@ -329,9 +329,9 @@ Brad decided on 2026-10-26:
   database call; a failed RPC or a reply outside the schema is a 500 "Reference search is
   unavailable right now."; `Cache-Control: public, max-age=300` on a 200.)*
 
-## Relay
+## Inbound
 
-`relay/catalogs.ts` (PR 2), started from `relay/relay.ts` beside the license load. Once a day it
+`inbound/catalogs.ts` (PR 2), started from `inbound/inbound.ts` beside the license load. Once a day it
 asks each file's `Last-Modified` (a HEAD with User-Agent); when a program's last applied load
 began seven days ago (its start, not its apply time, which the hourly swap delays past the seventh
 daily check) and the file is newer, it streams the file, parses rows with
@@ -387,8 +387,8 @@ files from a local server, as the license tests do.
 
 1. **Spec** (`reference-profiles-spec`): this file.
 2. **Catalog** (`reference-catalog`): migration, `_shared/reference_catalog.ts` with fixtures,
-   `load-references`, `relay/catalogs.ts`. Deploy: `supabase db push`, deploy `load-references`;
-   the relay ships on merge, and the first loads land within a day.
+   `load-references`, `inbound/catalogs.ts`. Deploy: `supabase db push`, deploy `load-references`;
+   the inbound worker ships on merge, and the first loads land within a day.
 3. **Rollup** (`reference-days`): migration, pgTAP. Deploy: `db push`. Hosted `raw_spots` is about
    562,000 rows / 342 MB (`supabase inspect db table-stats`, 2026-10-26), so the migration's plain
    `create index if not exists` builds in seconds inside the push. The fill then works through

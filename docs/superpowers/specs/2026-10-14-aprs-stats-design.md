@@ -162,7 +162,7 @@ renders zeros, as it does for RBN (`NO_APRS`, `d.aprs ?? 0`), until the next hou
 
 ## Docs
 
-- `CLAUDE.md`, Relay rules: APRS packets still never reach `raw_spots`, matching or `spot_stream`,
+- `CLAUDE.md`, Inbound rules: APRS packets still never reach `raw_spots`, matching or `spot_stream`,
   but the Stats refresh rolls them up (`aprs_daily_*`, from `aprs_packets` and
   `aprs_packet_hours`). Phase 3 stats rules: APRS figures come from those tables, never
   `aprs_packets` directly, and retention waits for the rollup.

@@ -1,10 +1,10 @@
-// APRS-IS source. The relay holds the full feed (port 10152, every packet the
+// APRS-IS source. The inbound worker holds the full feed (port 10152, every packet the
 // network carries, no filter) and POSTs every packet line to ingest-aprs, which
 // stores all of them in aprs_packets: kept about two days in the database and
 // archived to Storage. Packets are not spots: nothing goes to raw_spots, the
 // matcher or the rollups.
 //
-// Request body: see relay_lines.ts.
+// Request body: see inbound_lines.ts.
 //
 // Packet line (TNC2 format, as APRS-IS sends it):
 //   N0CALL-9>APDR16,WIDE1-1,qAR,W1ABC-10:=4237.14N/07120.83W[/A=000164
@@ -25,7 +25,7 @@ import {
   parseUtc,
 } from "./normalize.ts";
 import { recordFailureAndThrow } from "./ingest.ts";
-import { parseRelayBody, relayLineSchema, withoutNul } from "./relay_lines.ts";
+import { inboundLineSchema, parseInboundBody, withoutNul } from "./inbound_lines.ts";
 import type {
   AprsDb,
   AprsPacketRow,
@@ -163,12 +163,12 @@ export function aprsPacketType(info: string): AprsPacketType {
 }
 
 /**
- * The aprs_packets row for one relay item. Throws ValidationError when the item
+ * The aprs_packets row for one inbound item. Throws ValidationError when the item
  * is malformed, the line is not a packet, received_at is unusable or implausible
  * against now, or a value would fail the whole batch in Postgres.
  */
 export function aprsPacketRow(raw: JsonObject, now: Date): AprsPacketRow {
-  const item = parseWith(relayLineSchema, raw, "aprsPacketRow: relay line");
+  const item = parseWith(inboundLineSchema, raw, "aprsPacketRow: inbound line");
   const line = item.line;
   // jsonb rejects U+0000 and lone surrogates, so either would fail the whole batch in Postgres.
   if (line.includes("\u0000")) {
@@ -211,8 +211,8 @@ export type AprsPushDb =
   & Pick<IngestDb, "recordSpotFailures" | "recordSuccess" | "recordFailure">;
 
 /**
- * One relay batch: every packet into aprs_packets, unparseable lines into
- * ingest_failures, and ingest_state updated. An empty batch is the relay's
+ * One inbound batch: every packet into aprs_packets, unparseable lines into
+ * ingest_failures, and ingest_state updated. An empty batch is the inbound worker's
  * heartbeat and still records success.
  */
 export async function runAprsPush(
@@ -226,7 +226,7 @@ export async function runAprsPush(
   let fetched: number;
   let stored = 0;
   try {
-    const items = parseRelayBody(body);
+    const items = parseInboundBody(body);
     fetched = items.length;
     for (const raw of items) {
       try {

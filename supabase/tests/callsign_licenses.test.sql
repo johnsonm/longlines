@@ -64,7 +64,7 @@ select throws_like($$select fcc_license_load_rows(-1, 'HD', '[]')$$,
 
 select throws_like(
   $$select fcc_license_load_finish((select max(id) from license_loads), '{"HD":4,"EN":3,"AM":4}')$$,
-  '%staged {"AM": 4, "EN": 3, "HD": 5} but the relay sent%', 'finish refuses a count mismatch');
+  '%staged {"AM": 4, "EN": 3, "HD": 5} but the inbound worker sent%', 'finish refuses a count mismatch');
 select is((select status from license_loads), 'loading', 'a refused finish leaves the load loading');
 
 -- Nothing is applied before finish.
@@ -111,13 +111,13 @@ select fcc_license_load_begin('week after');
 select is((select array_agg(status order by id)::text from license_loads),
   '{applied,failed,failed,loading}', 'begin supersedes an unfinished load');
 
--- The relay abandons a load: it fails with the reason and staging empties.
+-- The inbound worker abandons a load: it fails with the reason and staging empties.
 select fcc_license_load_rows((select max(id) from license_loads), 'HD',
   '[{"usi":9,"callsign":"K1NEWS","status":"Active"}]');
 select lives_ok($$select fcc_license_load_abandon((select max(id) from license_loads),
   'EN.dat has 3 records, expected at least 500000')$$, 'a load can be abandoned');
 select is((select (status, error)::text from license_loads where id = (select max(id) from license_loads)),
-  '(failed,"EN.dat has 3 records, expected at least 500000")', 'it fails with the relay''s reason');
+  '(failed,"EN.dat has 3 records, expected at least 500000")', 'it fails with the inbound worker''s reason');
 select is((select count(*) from fcc_uls_hd), 0::bigint, 'abandon empties staging');
 select fcc_license_load_begin('later');
 select fcc_license_load_rows((select max(id) from license_loads), 'HD',

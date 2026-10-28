@@ -20,20 +20,20 @@ ones you ask for to Discord, a webhook or your phone, usually within a minute.
 
 ```
 POTA / SOTAwatch / WWFF / WWBOTA ──► Edge Functions (pg_cron) ──┐
-RBN / DX Cluster / APRS-IS ──► relay (Fly.io) ──────────────────┴─► Postgres: store, match
+RBN / DX Cluster / APRS-IS ──► inbound (Fly.io) ──────────────────┴─► Postgres: store, match
                                                               │
                                      sender (Fly.io) ◄────────┘──► Discord / webhooks / push
 ```
 
 Almost everything is Supabase: Postgres does the scheduling, queuing and matching, and Deno Edge
-Functions pull the feeds. Two small Deno processes run on Fly.io: `relay/` holds the streaming
+Functions pull the feeds. Two small Deno processes run on Fly.io: `inbound/` holds the streaming
 feeds and `sender/` delivers.
 
 | Path | What it is |
 | --- | --- |
 | `supabase/migrations/` | Schema, RPCs, queues and cron jobs |
 | `supabase/functions/` | Edge Functions; the logic is in `_shared/` |
-| `relay/`, `sender/` | The two Fly.io processes |
+| `inbound/`, `sender/` | The two Fly.io processes |
 | `web/` | Vite, React and MUI web app |
 | `docs/` | Architecture, operations, webhooks and API |
 
@@ -53,7 +53,7 @@ and so on).
 
 ## Linting the Deno code
 
-The Deno code (`supabase/functions`, `relay/`, `sender/`, `scripts/`) is also checked by strict
+The Deno code (`supabase/functions`, `inbound/`, `sender/`, `scripts/`) is also checked by strict
 typescript-eslint, from the root `package.json`. The rules and the areas still pending are in
 `eslint.config.ts`; the conventions are
 [docs/superpowers/specs/2026-10-22-strict-eslint-conventions.md](docs/superpowers/specs/2026-10-22-strict-eslint-conventions.md).
@@ -79,11 +79,11 @@ Why each dev dependency is there (JSON cannot hold comments):
 | `jiti` | Lets ESLint load `eslint.config.ts`, a TypeScript config. |
 | `@types/node` | Deno's timers (`setTimeout`, `clearTimeout`) come from its bundled Node types, which `deno types` leaves out of `deno.d.ts`. |
 | `@supabase/supabase-js`, `hyparquet`, `hyparquet-writer`, `postgres` | Types for the npm packages the code imports, at the versions in `deno.lock`. |
-| `zod` | Validates external data (feeds, request bodies, RPC replies) through `_shared/validate.ts`, in place of hand-written checks and `as` casts. It is also a runtime dependency: every function's, the relay's and the sender's `deno.json` map it. |
+| `zod` | Validates external data (feeds, request bodies, RPC replies) through `_shared/validate.ts`, in place of hand-written checks and `as` casts. It is also a runtime dependency: every function's, the inbound worker's and the sender's `deno.json` map it. |
 | `@std/assert`, `@std/yaml` | Types for the JSR packages the tests import, from npm.jsr.io (`.npmrc`), at `deno.lock`'s versions. |
 
 Deno itself never reads `node_modules` (`"nodeModulesDir": "none"` in `deno.json`), and the
-function bundles and the relay and sender images do not include any of this (zod aside, which
+function bundles and the inbound worker and sender images do not include any of this (zod aside, which
 they load through their own `deno.json`).
 
 ## More
