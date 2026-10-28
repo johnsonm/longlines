@@ -59,7 +59,7 @@ Deno.test(
 Deno.test(
   "cleanSotaSpotter returns null for an RBNHole spot whose comment names no skimmer",
   function (): void {
-    // RBNHOLE is the relay bot, not a station; storing it would count it as a chaser.
+    // RBNHOLE is the inbound worker bot, not a station; storing it would count it as a chaser.
     assertEquals(cleanSotaSpotter("RBNHOLE", "something else"), null);
     assertEquals(cleanSotaSpotter("rbnhole", ""), null);
   },

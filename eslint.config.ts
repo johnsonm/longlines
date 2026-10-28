@@ -1,4 +1,4 @@
-// Plain, explicit, Go-style TypeScript for the Deno code (Edge Functions, relay, sender, scripts).
+// Plain, explicit, Go-style TypeScript for the Deno code (Edge Functions, inbound, sender, scripts).
 import tseslint from "typescript-eslint";
 
 // Part 1's bans, plus Part 2's explicit parameters.
@@ -51,7 +51,7 @@ const zodSyntax = [
   },
 ];
 
-const deno = ["supabase/functions/**/*.ts", "relay/**/*.ts", "sender/**/*.ts", "scripts/**/*.ts"];
+const deno = ["supabase/functions/**/*.ts", "inbound/**/*.ts", "sender/**/*.ts", "scripts/**/*.ts"];
 
 export default tseslint.config(
   { ignores: ["deno.d.ts", "node_modules/", "web/"] },

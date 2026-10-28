@@ -8,7 +8,7 @@ at the end; read it before doing anything.
 ## Goal
 
 Move all outbound delivery (Discord, webhooks, web push) off the `deliver` Edge Function onto a
-Deno process on Fly.io, the way `relay/` holds the inbound streams. The sender only sends. Every
+Deno process on Fly.io, the way `inbound/` holds the inbound streams. The sender only sends. Every
 decision stays in Postgres: claiming, outcomes, destination health, throttling and, later, disable
 decisions. Phase 1 is relocation plus the one change relocation forces (a rate-aware claim, so a
 process that polls every few seconds cannot multiply today's per-run caps). Phase 2 (per-event
@@ -18,7 +18,7 @@ separately after Phase 1 ships; nothing in Phase 1 may design it out (section 10
 Why: every `deliver` run is an Edge Function invocation (the cron every minute, ~43k a month, plus
 one kick from `match_pending_spots` per ingest run that created deliveries). The goal is that
 delivery volume stops scaling invocations so growth cannot push the project past the Pro quota of
-2M a month; going slightly over is acceptable. The relay's three 10 s feeds (~777k a month) are
+2M a month; going slightly over is acceptable. The inbound worker's three 10 s feeds (~777k a month) are
 untouched. Latency within about a minute of the spot is fine.
 
 Labels: **[DECIDED]** Brad stated or confirmed it; **[SUGGESTED]** proposed, not confirmed;
@@ -29,7 +29,7 @@ or one env variable, never hardcoded in the loop.
 
 - **[DECIDED]** Access: option A, a restricted Postgres role `delivery_sender` through the
   Supavisor shared pooler in session mode (port 5432, IPv4, supports LISTEN), postgres.js with
-  `max: 2`, int8 parsed to Number. Not Edge Functions behind the relay secret (every poll and mark
+  `max: 2`, int8 parsed to Number. Not Edge Functions behind the inbound secret (every poll and mark
   would be an invocation), not PostgREST with a minted JWT, not a public kick URL.
 - **[DECIDED]** The sender is dumb and payload-agnostic; policy lives in Postgres.
 - **[DECIDED]** Exactly one sender machine until a per-destination lease exists. With one serial
@@ -182,7 +182,7 @@ destination and its summary branch is unreachable; webhooks are effectively unca
 
 ## 3. The sender process (sessions 3 and 4)
 
-`sender/` mirrors `relay/`: `main.ts` (process shell only), `config.ts`, `db.ts`, `sender.ts`,
+`sender/` mirrors `inbound/`: `main.ts` (process shell only), `config.ts`, `db.ts`, `sender.ts`,
 `health.ts`, `__tests__/`.
 
 - **Loop body** (session 3): `supabase/functions/_shared/delivery/run.ts`,
@@ -198,7 +198,7 @@ destination and its summary branch is unreachable; webhooks are effectively unca
   `delay_deliveries`; `sendWebhook` returns `retryAfterSeconds` on 429. The Edge handler becomes
   auth + a supabase-js adapter + `runDeliveryBatch` until session 6.
 - **Process** (session 4): `startSender(config, deps, options)` returning `{ addr, done, shutdown }`
-  like `startRelay`. One serial loop: claim, `runDeliveryBatch`, sleep `SENDER_POLL_MS` or re-claim
+  like `startInbound`. One serial loop: claim, `runDeliveryBatch`, sleep `SENDER_POLL_MS` or re-claim
   immediately after a full batch. `delivery_queue_stats()` every `SENDER_STATS_MS` (60 s).
   `shutdown()` stops claiming, awaits the in-flight cycle, closes the pool and the health server.
 - **Exit 1 means**: (a) invalid config or a pool that cannot open at start; (b) the watchdog: no
@@ -215,7 +215,7 @@ destination and its summary branch is unreachable; webhooks are effectively unca
   (120000), `SENDER_STATS_MS` (60000), `LONGLINES_VAPID_PUBLIC_KEY` / `_PRIVATE_KEY` / `_SUBJECT`
   via `vapidKeysFromEnv`, `LONGLINES_ALLOW_INSECURE_DESTINATIONS` (honoured only for a local DB
   host), `LONGLINES_USER_AGENT_URL`. The Dockerfile `--allow-env` list is enforced by a test copied
-  from `relay/__tests__/modules.test.ts`.
+  from `inbound/__tests__/modules.test.ts`.
 - Memory: 200 rows per cycle is small; the Phase 2 retry buffer is what needs the memory-aware
   bound under `--max-old-space-size=160`.
 - Cycle-level head-of-line: each cycle waits for its slowest destination before acking and
@@ -290,7 +290,7 @@ Discord and push hosts allowlisted. Changes:
 
 ## 8. Fly app, build, gates, CI, docs (sessions 4 and 5)
 
-- `sender/Dockerfile`: copy of `relay/Dockerfile` with `sender/`; `deno cache --no-config sender/main.ts`
+- `sender/Dockerfile`: copy of `inbound/Dockerfile` with `sender/`; `deno cache --no-config sender/main.ts`
   (fetches `npm:postgres` at build); `--allow-net`, exact `--allow-env` list,
   `--v8-flags=--max-old-space-size=160`. `.dockerignore` gains `!sender/` and `sender/__tests__/`.
 - `sender/fly.toml`: `app = "longlines-sender"`, `primary_region = "iad"`,
@@ -599,7 +599,7 @@ notes for the next session. Earlier entries are never edited.
   so overload resolution never depends on what postgres.js infers. (4) `idle_timeout` is 60 s so
   the second pool connection does not hold a pooler slot while unused. (5) The per-cycle log line
   is the `DeliveryBatchResult` JSON only for cycles that claimed something or hit an error; an
-  empty 5 s poll logs nothing. Verification: `deno task fmt/lint/check/coverage` (Edge 98.0%, Relay
+  empty 5 s poll logs nothing. Verification: `deno task fmt/lint/check/coverage` (Edge 98.0%, Inbound
   99.1%, Sender 96.7%, no unloaded module), `supabase db reset` then pgTAP (1168 assertions), db
   lint, smoke test and `db.test.ts` against the stack, web lint/test/build;
   `docker build -f sender/Dockerfile .` and the image against `host.docker.internal:54322` served
@@ -630,11 +630,11 @@ notes for the next session. Earlier entries are never edited.
   dockerfile` relative to the config file's directory (the root `fly.toml` only appeared to use a
   root-relative path because it was at the root), so `sender/fly.toml` now says
   `dockerfile = "Dockerfile"`. Brad then asked for one `fly.toml` per app folder, so the root
-  `fly.toml` moved to `relay/fly.toml` with the same change, and README, CLAUDE.md's Commands
+  `fly.toml` moved to `inbound/fly.toml` with the same change, and README, CLAUDE.md's Commands
   block, OPERATIONS and the Dockerfile and `main.ts` comments say so; each app's dashboard binding
   sets "Config path" to its own file with the working directory left at the repository root, so
-  both images keep copying `supabase/functions/_shared`. Hand step with the merge: set the relay
-  app's Config path to `relay/fly.toml` first, then merge, so the deploy the merge triggers finds
+  both images keep copying `supabase/functions/_shared`. Hand step with the merge: set the inbound worker
+  app's Config path to `inbound/fly.toml` first, then merge, so the deploy the merge triggers finds
   the file. Brad set only `SENDER_DATABASE_URL` on the sender app; the VAPID triple waits until
   push is set up (no keys have ever been generated, so there is no pair to match), and the sender
   runs without it. Session 5's docs pass should keep the per-folder layout.
@@ -660,7 +660,7 @@ notes for the next session. Earlier entries are never edited.
   on where VAPID lives, the coverage roots). The status line reads "Phase 1 cut over". Deviations:
   (1) the migration runs `cron.unschedule(jobid)` from a lookup in `cron.job` rather than
   `cron.unschedule('deliver')`, which raises when the job is missing. (2) The docs were not run
-  through `deno fmt`: the fmt task covers `supabase/functions scripts relay sender deno.json`
+  through `deno fmt`: the fmt task covers `supabase/functions scripts inbound sender deno.json`
   only, and none of the six docs is fmt-clean today, so a pass would have rewritten them
   wholesale; the new prose is hand-wrapped at 100 columns. (3) The WWFF first-deploy note in
   OPERATIONS keeps its `supabase functions deploy deliver` line as history, annotated. flyctl is not
@@ -674,7 +674,7 @@ notes for the next session. Earlier entries are never edited.
   on main while this PR was open and CI failed on the duplicate key in `schema_migrations`, so it
   is 20261015001200 and main is merged in. Three sender restarts in that log window were deploys
   from merges to main (#199, #201, #202), not sender exits: both Fly apps deploy on every push to
-  main whichever folder changed. Verification: `deno task fmt/lint/check/coverage` (Edge 98.0%, Relay 99.1%, Sender
+  main whichever folder changed. Verification: `deno task fmt/lint/check/coverage` (Edge 98.0%, Inbound 99.1%, Sender
   96.7%, no unloaded module); `supabase db reset` (`cron.job` lists fourteen jobs, no `deliver`),
   pgTAP 1170 assertions pass (a run started straight after the reset's container restart failed
   `deliveries_rpc` and `rbn_spots` transiently; two reruns were clean), the smoke test, db lint
@@ -724,7 +724,7 @@ notes for the next session. Earlier entries are never edited.
   is a follow-up of its own. (3) `delivery_run.test.ts` keeps its assertion that the loop never
   calls `delay_deliveries`, and `sender/__tests__/db.test.ts` keeps the name as its example of a
   function outside the allowlist; both are strings, not calls. Verification: `deno task
-  fmt/lint/check/coverage` (Edge 98.0%, Relay 99.1%, Sender 96.7%, no unloaded module);
+  fmt/lint/check/coverage` (Edge 98.0%, Inbound 99.1%, Sender 96.7%, no unloaded module);
   `supabase db reset` (the cleanup migration applies; `pg_proc` has neither function; `cron.job`
   has no `deliver`); pgTAP 1172 assertions across 32 files; the smoke test; db lint unchanged
   (two pre-existing `v_reset` warnings); web lint, 537 Vitest cases with coverage, `npm run

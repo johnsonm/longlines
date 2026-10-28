@@ -264,7 +264,7 @@ Example spots are static objects in the `WEBHOOKS.md` shape, using the mock's va
 | --- | --- | --- |
 | Catalog alert "High volume sources require a callsign filter" | Dropped | The detail pages' volume alerts say it per source |
 | RBN "about 4,600 spots a day … or Long Lines will not let you save it" | Live per-day figure; the matching and save rules as they are | `spot_matches` and `subscriptions_rbn_needs_callsign` |
-| RBN "CW and digital signals", modes "CW, RTTY, PSK" | "CW and RTTY" | The relay reads port 7000 (CW and RTTY) |
+| RBN "CW and digital signals", modes "CW, RTTY, PSK" | "CW and RTTY" | The inbound worker reads port 7000 (CW and RTTY) |
 | RBN "It is a firehose, so RBN spots are not shown on the band map." | Dropped | No band map yet |
 | POTA "shows them on the band map, on profiles and in Stats", "Band map (middle lane)" | Band map dropped | No band map yet |
 | "Connection filters: … State, County, Grid square, Skimmer …" | "Subscription filters:" with the real fields | Those filters don't exist |
@@ -299,7 +299,7 @@ Three PRs, each safe to merge alone (Brad prefers several smaller PRs): the `dx`
 (`source-catalog`), the pure catalog data, status and rates modules (`source-catalog-data`), and the
 two pages with the CLAUDE.md rules (`source-catalog-pages`); the plan's "Branches and PRs" has the
 details. The migration is applied to the hosted project by the GitHub integration on merge, and the
-web deploys through Vercel. Nothing changes in `relay/` or the Edge
+web deploys through Vercel. Nothing changes in `inbound/` or the Edge
 Functions.
 
 CLAUDE.md gains a short "Source catalog rules" section: catalog copy lives in `sources.ts` and

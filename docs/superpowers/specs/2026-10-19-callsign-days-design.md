@@ -23,7 +23,7 @@ exactly once through the `callsign_rollup_days` marker, assigns spots by their o
 The hosted project has run it since 2026-10-12.
 
 This design does not build a second roll-up. It maps the request onto what exists, names the gaps
-and closes them with the smallest change that touches neither ingestion, the relay nor the sender.
+and closes them with the smallest change that touches neither ingestion, the inbound worker nor the sender.
 
 ### Requirement by requirement
 
@@ -33,11 +33,11 @@ and closes them with the smallest change that touches neither ingestion, the rel
 | 2 | Right place per source | All four sources (and WWFF) are already rows in Postgres; the roll-up is SQL over stored rows. See "Where aggregation happens". | None |
 | 3 | Idempotent | Marker row first, `on conflict do nothing`, whole day in one transaction; a second call returns null. pgTAP covers it. | None |
 | 4 | No double counting from polls | `raw_spots` is unique on `(source, source_spot_id, content_hash)`; a re-poll inserts nothing. An upstream *edit* of a spot (new hash) is a new row, as on the Stats page. | None (documented limit) |
-| 5 | UTC day by spot time | `spot_time` bounds; a day is rolled up two hours after it ends (`last_rollup_day()`), covering the relay's ~50 min buffer. A spot arriving later than that is not counted. | None (documented limit) |
+| 5 | UTC day by spot time | `spot_time` bounds; a day is rolled up two hours after it ends (`last_rollup_day()`), covering the inbound worker's ~50 min buffer. A spot arriving later than that is not counted. | None (documented limit) |
 | 6 | Status tracking, no silent loss | Only "done" was recorded (`callsign_rollup_days`). A failure was a Postgres `raise warning`; `cron.job_run_details` showed success. RBN retention gave up waiting at 14 days and retired the day with only a warning. | **A**: closed by `callsign_rollup_failures` and `callsign_rollup_status` |
 | 7 | Callsign normalisation | `base_callsign()` drops /P, /M, /MM, /AM, /QRP, /QRPP, /R, single digits and SSIDs; raw spelling kept in `callsign_variants`. | None |
 | 8 | Mode and band normalisation | Modes are canonicalised at ingest in `_shared/modes.ts` (lowercase, hyphens and spaces stripped, comment hints, DX Cluster usb/lsb to ssb); bands from `_shared/bands.ts`. But the roll-up kept only `mode_bucket` (CW / SSB / FT8-FT4 / FM / Other), coarser than "which modes". | **B**: closed by `callsign_days.modes` |
-| 9 | Multiple instances | The relay never aggregates; the marker insert serialises concurrent roll-ups (the second caller blocks on the unique index, then sees the conflict and returns null). | None |
+| 9 | Multiple instances | The inbound worker never aggregates; the marker insert serialises concurrent roll-ups (the second caller blocks on the unique index, then sees the conflict and returns null). | None |
 | 10 | Kept indefinitely | `compact_callsign_rollups()` folds `callsign_activity` and `callsign_reach` day rows into month rows after 35 days, so "every day X was active" was unanswerable past 35 days. Nothing compacted yet (first day 2026-10-11, first fold 2026-11-15). | **C**: closed by `callsign_days`, never compacted |
 | Q | Backfill beyond retention | Every source is archived as Parquet to B2 (10-minute RBN slices, hourly for the rest) and logged in `archive_log`; `raw_spots` is never pruned. No in-database loader exists. | **D**: documented procedure, not code |
 
@@ -68,12 +68,12 @@ and closes them with the smallest change that touches neither ingestion, the rel
 
 ## Where aggregation happens
 
-In SQL, for every source; the relay does not aggregate.
+In SQL, for every source; the inbound worker does not aggregate.
 
-- The relay's job is holding telnet sessions and forwarding lines; CLAUDE.md forbids parsing
+- The inbound worker's job is holding telnet sessions and forwarding lines; CLAUDE.md forbids parsing
   spots there, and every RBN and DX Cluster line is already a row in Postgres, so aggregating in
-  the relay would be a second, divergent copy of the same data.
-- The forwarder retries failed batches (`relay/forwarder.ts`); in-flight counters would need
+  the inbound worker would be a second, divergent copy of the same data.
+- The forwarder retries failed batches (`inbound/forwarder.ts`); in-flight counters would need
   per-batch idempotency keys to avoid double counting, which the database's unique constraints
   already give rows.
 - A roll-up computed from stored rows is "whole day or none" and can be checked against the
@@ -302,7 +302,7 @@ client-callable or unpinned).
 ## Documented limits
 
 - A spot that arrives more than two hours after its UTC day ends is not counted, by the roll-up or
-  by `callsign_days`. The relay buffers about 50 minutes; the archive uses the same two-hour lag.
+  by `callsign_days`. The inbound worker buffers about 50 minutes; the archive uses the same two-hour lag.
 - An upstream edit of a spot (same `source_spot_id`, new `content_hash`) is a new `raw_spots` row
   and counts again, as it does everywhere else.
 - A retired day's RBN row filled from `callsign_activity` has only `cw` among its modes (see
@@ -365,5 +365,5 @@ client-callable or unpinned).
 - `CLAUDE.md` "Callsign rollup rules": `callsign_days` is day grain forever and never compacted,
   stores canonical modes that readers group; failures go through `callsign_rollup_failures`;
   compaction waits for `days_filled_at`; `backfill_callsign_rollups`' return shape stays.
-- `web/src/lib/database.types.ts` regenerated; nothing in `relay/`, `sender/`,
+- `web/src/lib/database.types.ts` regenerated; nothing in `inbound/`, `sender/`,
   `supabase/functions/` or `web/src` otherwise.

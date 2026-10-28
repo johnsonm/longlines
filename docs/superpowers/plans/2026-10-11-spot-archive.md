@@ -27,7 +27,7 @@
 
 1. A slice whose upload fails must not be logged, and the next run must retry it, while other sources still progress in the same run (Task 2 "an upload failure leaves the slice unlogged").
 2. A contest-rate backlog must not blow the CPU budget: the run stops starting slices at 60,000 rows (Task 2 "stops starting new slices at the row budget").
-3. Rows arriving for a slice after it was archived (relay flushing after an outage, or a late default-partition move) must be re-archived before their day is dropped (Task 5 "a mismatched slice keeps the partition and loses its log row").
+3. Rows arriving for a slice after it was archived (inbound flushing after an outage, or a late default-partition move) must be re-archived before their day is dropped (Task 5 "a mismatched slice keeps the partition and loses its log row").
 4. A day whose rows sit in `rbn_spots_default` (no partition) is retired by deleting those rows, not by dropping a partition (Task 5 "default-partition rows of an archived day are deleted").
 5. Slice boundaries are half-open `[start, end)`: a spot at exactly 10:10:00 belongs to the 10:10 slice, never to both (Task 1 "a spot on the boundary is in exactly one slice").
 
@@ -581,7 +581,7 @@ import type { ArchiveDb, ArchiveSlice, ArchiveStore, Source } from "./types.ts";
 
 /** POTA and SOTAwatch first: they are tiny, so an RBN backlog never starves them. */
 export const ARCHIVE_ORDER: readonly Source[] = ["pota", "sotawatch", "rbn"];
-/** Only slices that ended this long ago are archived, so late relay batches land first. */
+/** Only slices that ended this long ago are archived, so late inbound batches land first. */
 export const LAG_MS = 2 * 60 * 60 * 1000;
 /** A run starts no new slice once it has archived this many rows. */
 export const MAX_ROWS_PER_RUN = 60_000;
@@ -1211,9 +1211,9 @@ git commit -m "Retire rbn_spots days only once every slice is archived with matc
 In `serve.test.ts`: delete the tests "pushIngestHandler GET returns the watchlist for its source" and "pushIngestHandler GET reports a watchlist failure as a 500"; in `pushHandler` drop the `watchlist` override and the `watched` array (return `{ handler, bodies }`; `pushDb` becomes `db`); in "fails closed when the secret is not configured" change the request method to `"POST"` with body `"{}"`; and add:
 
 ```ts
-Deno.test("pushIngestHandler refuses GET now that the relay no longer reads a watchlist", async () => {
+Deno.test("pushIngestHandler refuses GET now that the inbound worker no longer reads a watchlist", async () => {
   const { handler } = pushHandler();
-  assertEquals((await handler(relayRequest("GET", SECRET))).status, 405);
+  assertEquals((await handler(inboundRequest("GET", SECRET))).status, 405);
 });
 ```
 
@@ -1224,7 +1224,7 @@ Expected: FAIL (GET still answers 200).
 
 - [ ] **Step 3: Remove the GET branch**
 
-In `serve.ts`: delete the `if (req.method === "GET") { ... }` block; change `PushDeps<D extends WatchlistDb>` and `pushIngestHandler<D extends WatchlistDb>` to `PushDeps<D>` and `pushIngestHandler<D>`; drop `WatchlistDb` from the type import; change the header's last sentence to "Pushed sources (RBN) are invoked by the relay, which holds only the relay secret, with POST batches of lines."
+In `serve.ts`: delete the `if (req.method === "GET") { ... }` block; change `PushDeps<D extends WatchlistDb>` and `pushIngestHandler<D extends WatchlistDb>` to `PushDeps<D>` and `pushIngestHandler<D>`; drop `WatchlistDb` from the type import; change the header's last sentence to "Pushed sources (RBN) are invoked by the inbound worker, which holds only the inbound secret, with POST batches of lines."
 
 - [ ] **Step 4: Run all Deno checks, then commit**
 
@@ -1232,7 +1232,7 @@ Run: `deno task fmt && deno task lint && deno task check && deno task test` → 
 
 ```bash
 git add supabase/functions/_shared/serve.ts supabase/functions/_shared/__tests__/serve.test.ts
-git commit -m "ingest-rbn: drop the watchlist GET the relay no longer calls"
+git commit -m "ingest-rbn: drop the watchlist GET the inbound worker no longer calls"
 ```
 
 ---
@@ -1250,7 +1250,7 @@ Expected: clean; `git diff --stat web/src/lib/database.types.ts` shows `archive_
 
 - [ ] **Step 2: Update the docs**
 
-- `docs/ARCHITECTURE.md`, section "Streaming sources: the relay": replace "until that archive and retention work lands, nothing is dropped." with "`maintain_rbn_spots()` drops a day once every 10-minute slice is archived with a matching count (see "The spot archive")." Add a new top-level section after it:
+- `docs/ARCHITECTURE.md`, section "Streaming sources: the inbound worker": replace "until that archive and retention work lands, nothing is dropped." with "`maintain_rbn_spots()` drops a day once every 10-minute slice is archived with a matching count (see "The spot archive")." Add a new top-level section after it:
 
   "# The spot archive" with: every spot of every source is written to the private `archive` bucket as gzipped NDJSON by the `archive` Edge Function, which pg_cron calls every 10 minutes with the service-role key; slice length comes from `archive_slice_minutes` (RBN 10 minutes, POTA and SOTAwatch an hour) and objects are `<source>/YYYY/MM/DD/HHMM.ndjson.gz`; Postgres decides which slices are due (`archive_pending_slices`, two hours after they end) and builds their NDJSON (`archive_ndjson`), so the function only gzips and uploads (measured at ~0.3 s CPU for a full RBN hour against the 2 s limit); a run stops starting slices at 60,000 rows; a slice is logged in `archive_log` only after its upload succeeds and empty slices are logged with `row_count = 0`; retention (`retire_rbn_day`) drops an RBN day older than seven only when all 144 slices are logged with the database's count and clears the log rows of mismatched slices so they are re-archived; POTA and SOTAwatch are never deleted from `raw_spots`. The NDJSON fields per source as in the spec.
 
@@ -1265,9 +1265,9 @@ Expected: clean; `git diff --stat web/src/lib/database.types.ts` shows `archive_
                    endpoint '<project-ref>.supabase.co/storage/v1/s3', region '<region>', url_style 'path');
     select spot_type, count(*) from read_json_auto('s3://archive/rbn/2026/10/11/*.ndjson.gz') group by 1;
     ```
-    with a note that S3 keys are created under Storage settings and grant access to every bucket, so they belong on an operator's machine, never in the app or the relay.
+    with a note that S3 keys are created under Storage settings and grant access to every bucket, so they belong on an operator's machine, never in the app or the inbound worker.
 - `README.md`: in the "Streaming sources" paragraph replace "(partitioned by day; a rolling seven days with older days archived to Storage once the archive work lands, nothing is dropped until then)" with "(partitioned by day; seven days stay in the database)", and after the "Deliver." paragraph add a paragraph: "**Archive.** Every spot from every source is also written to a private Storage bucket as gzipped NDJSON, ten-minute files for RBN and hourly for POTA and SOTAwatch, by the `archive` function every 10 minutes. Files are readable directly by DuckDB, pandas or Spark. RBN days are dropped from the database only after their archive matches." Add `archive` to the function deploy loop in "Deploying to a hosted project".
-- `CLAUDE.md`: add an "## Archive rules" section: slice length lives only in `archive_slice_minutes`; NDJSON is built in SQL (`archive_ndjson`), never in TypeScript; a slice is logged only after its upload succeeds; nothing is deleted from `rbn_spots` unless `retire_rbn_day` finds every slice logged with a matching count; `raw_spots` is never pruned by the archive; S3 keys never go in the app or relay. In "Relay rules", remove "`GET` still returns the watchlist" wording if present, and in the ARCHITECTURE push bullet remove the sentence about `GET` returning the watchlist.
+- `CLAUDE.md`: add an "## Archive rules" section: slice length lives only in `archive_slice_minutes`; NDJSON is built in SQL (`archive_ndjson`), never in TypeScript; a slice is logged only after its upload succeeds; nothing is deleted from `rbn_spots` unless `retire_rbn_day` finds every slice logged with a matching count; `raw_spots` is never pruned by the archive; S3 keys never go in the app or inbound. In "Inbound rules", remove "`GET` still returns the watchlist" wording if present, and in the ARCHITECTURE push bullet remove the sentence about `GET` returning the watchlist.
 
 - [ ] **Step 3: End-to-end against the local stack**
 

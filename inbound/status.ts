@@ -1,5 +1,5 @@
-// The relay's heartbeat for the Health page: every STATUS_MS (first at start),
-// POST relay-status with the process start time, its RSS, its reconnects since
+// The inbound worker's heartbeat for the Health page: every STATUS_MS (first at start),
+// POST inbound-status with the process start time, its RSS, its reconnects since
 // start and each feed's connection. The feeds' own pushes already say when each
 // last delivered; this says the process is alive, how big it is and how often
 // it has had to reconnect. Best effort: a failed post is logged and the next
@@ -15,17 +15,17 @@ export interface StatusFeed {
 }
 
 /** One feed's connection in the heartbeat. */
-export interface RelayStatusFeed {
+export interface InboundStatusFeed {
   id: string;
   connected: boolean;
 }
 
-/** The relay-status request body (the handler's strict schema in handlers/relay_status.ts). */
-export interface RelayStatusBody {
+/** The inbound-status request body (the handler's strict schema in handlers/inbound_status.ts). */
+export interface InboundStatusBody {
   started_at: string;
   rss_bytes: number;
   reconnects: number;
-  feeds: RelayStatusFeed[];
+  feeds: InboundStatusFeed[];
 }
 
 /** Every connect after a feed's first is a reconnect. */
@@ -33,7 +33,7 @@ export function statusBody(
   feeds: readonly StatusFeed[],
   startedAt: Date,
   rss: number,
-): RelayStatusBody {
+): InboundStatusBody {
   let reconnects = 0;
   for (const f of feeds) {
     reconnects = reconnects + Math.max(f.status.connects - 1, 0);

@@ -68,7 +68,7 @@ describe("HealthPage", () => {
     expect(rows.map((r) => r.textContent)).toEqual([
       "CheckStatusNowRule",
       "Pulled sourcesPOTA, SOTAwatch, WWFF, WWBOTAHealthyLast success 22 s agoDelayed after 3 min without a success",
-      "Relay feedsRBN, DX Cluster, APRS-ISHealthyLast push 41 s ago · 0 reconnects in 24 hDelayed after 3 min without a push",
+      "Inbound feedsRBN, DX Cluster, APRS-ISHealthyLast push 41 s ago · 0 reconnects in 24 hDelayed after 3 min without a push",
       "Match queuespot_eventsHealthy9 waiting · oldest 3 sDelayed when the oldest waits over 2 min",
       "Delivery queuedeliveries_queueHealthy12 waiting · oldest ready 4 sDelayed when the oldest ready waits over 2 min",
       "SenderFly.io, longlines-senderHealthyLast progress 6 s ago · 0 restarts in 24 hFailing after 2 min without progress",
@@ -82,7 +82,7 @@ describe("HealthPage", () => {
     const checks = healthChecks({
       delivery_queue: { status: "delayed", waiting: 184, oldest_ready_seconds: 240, throttled: 3 },
       sender: { status: "failing", progress_seconds: 600, restarts_24h: 1, memory_bytes: null },
-      relay: { status: "unknown", feeds: [], reconnects_24h: null },
+      inbound: { status: "unknown", feeds: [], reconnects_24h: null },
     });
     vi.mocked(useHealth).mockReturnValue({ payload: healthPayload({ checks }), loading: false, error: null, refresh });
     renderPage(<HealthPage />);
@@ -91,7 +91,7 @@ describe("HealthPage", () => {
     expect(alert).toHaveClass("MuiAlert-colorError");
     expect(screen.getAllByText("Delayed").length).toBe(1);
     expect(screen.getAllByText("Failing").length).toBe(1);
-    expect(screen.getAllByText("No data").length).toBe(3); // the relay chip and Now, and the memory figure
+    expect(screen.getAllByText("No data").length).toBe(3); // the inbound worker chip and Now, and the memory figure
   });
 
   it("draws the charts with their limits and figures", () => {
@@ -123,7 +123,7 @@ describe("HealthPage", () => {
     expect(within(chart("Database connections")).getByText("38 of 60")).toBeInTheDocument();
     expect(within(chart("Database connections")).getByTestId("limit")).toHaveTextContent("Limit of 60 at 60");
     expect(within(chart("Worker memory")).getByText("Sender 92 MB")).toBeInTheDocument();
-    expect(within(chart("Worker memory")).getByText("Relay: 20 MB|")).toBeInTheDocument();
+    expect(within(chart("Worker memory")).getByText("Inbound: 20 MB|")).toBeInTheDocument();
     expect(within(chart("Worker memory")).getByTestId("limit")).toHaveTextContent("Machine limit at 256");
     // The first bucket, 12:30Z, in local time on both the tick and the tooltip.
     expect(within(chart("Match queue")).getByText(/^tick \d\d:\d\d; tooltip \d\d:\d\d$/)).toBeInTheDocument();

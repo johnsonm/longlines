@@ -16,7 +16,7 @@
     "zod": "4.6.7"
   },
   "scripts": {
-    "lint": "eslint --max-warnings 0 --no-inline-config supabase/functions relay sender scripts",
-    "typecheck": "deno check supabase/functions/*/index.ts relay/main.ts sender/main.ts scripts/*.ts"
+    "lint": "eslint --max-warnings 0 --no-inline-config supabase/functions inbound sender scripts",
+    "typecheck": "deno check supabase/functions/*/index.ts inbound/main.ts sender/main.ts scripts/*.ts"
   }
 }

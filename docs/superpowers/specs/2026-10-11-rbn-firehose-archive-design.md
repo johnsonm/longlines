@@ -16,7 +16,7 @@ it.
 
 Success means:
 
-- Every RBN spot the relay receives is stored, apart from gaps while the relay reconnects.
+- Every RBN spot the inbound worker receives is stored, apart from gaps while the inbound worker reconnects.
 - Every spot from every source reaches the archive, and the archive never misses rows the
   database had.
 - `rbn_spots` stays near seven days (~2.5 GB) on the Pro plan's 8 GB disk.
@@ -38,7 +38,7 @@ Success means:
 
 - Partitioning or pruning `raw_spots`.
 - Parquet files, an analytics UI, or RBN on the Stats page.
-- RBN port 7001 (FT8/FT4), DX Cluster or PSK Reporter. The relay's feed list makes these later
+- RBN port 7001 (FT8/FT4), DX Cluster or PSK Reporter. The inbound worker's feed list makes these later
   additions.
 - Reading archives from inside Postgres.
 
@@ -52,7 +52,7 @@ Every RBN spot, `partition by range (spot_time)`, one partition per UTC day name
 | Column | Type | Notes |
 | --- | --- | --- |
 | `spot_time` | timestamptz not null | From the line's `HHMMZ` and `received_at` (`spotTimeFromHhmm`). |
-| `received_at` | timestamptz not null | When the relay read the line. |
+| `received_at` | timestamptz not null | When the inbound worker read the line. |
 | `ingested_at` | timestamptz not null default now() | |
 | `spotter` | text not null | Skimmer without `-#`. |
 | `callsign` | text not null | |
@@ -98,9 +98,9 @@ web app.
 
 ## Ingest path
 
-### Relay
+### Inbound
 
-- Forwards every line `parseRbnLine` accepts; banners and prompts are still dropped. The relay no
+- Forwards every line `parseRbnLine` accepts; banners and prompts are still dropped. The inbound worker no
   longer reads the watchlist: `watchlist.ts` and the GET call are removed, and `Feed.callsignOf`
   becomes `Feed.isSpot`.
 - `Forwarder`: `maxBatch` 1,000 (the function's existing `MAX_LINES`), `flushMs` 10 s,
@@ -120,8 +120,8 @@ web app.
 4. `IngestSummary` gains `stored` (rows inserted into `rbn_spots`); `ingest_state` is recorded as
    now.
 
-`ingest-rbn` GET (the watchlist) stays for compatibility with a relay that has not been
-redeployed yet, and is removed once the relay no longer calls it.
+`ingest-rbn` GET (the watchlist) stays for compatibility with an inbound worker that has not been
+redeployed yet, and is removed once the inbound worker no longer calls it.
 
 ## Archive job
 
@@ -135,7 +135,7 @@ An Edge Function `archive`, `verify_jwt = true`, called by pg_cron at `10 * * * 
 For each source in `rbn`, `pota`, `sotawatch`: hours whose end is at least two hours before now
 and that have no `archive_log` row, oldest first, starting from the source's earliest stored
 `spot_time`. At most 3 hours per source per run, so a backlog after downtime clears over several
-runs. The two-hour lag covers batches the relay flushes after an outage of up to ~50 minutes.
+runs. The two-hour lag covers batches the inbound worker flushes after an outage of up to ~50 minutes.
 
 ### Building a file
 
@@ -185,11 +185,11 @@ with the two-hour lag this is not expected in practice, so no automatic recount 
   finished hours waiting.
 - `docs/OPERATIONS.md`: checking the archive, re-archiving an hour (delete its `archive_log` row),
   reading archives with DuckDB over Storage's S3 endpoint, and the expected `rbn_spots` size.
-- Relay logs and `/healthz`: `dropped`.
+- Inbound logs and `/healthz`: `dropped`.
 
 ## Testing
 
-- Deno, relay: forwards every spot line; no watchlist; batch, flush, heartbeat and buffer sizes;
+- Deno, inbound: forwards every spot line; no watchlist; batch, flush, heartbeat and buffer sizes;
   `dropped` reported.
 - Deno, `ingest-rbn`: every parsed line goes to `ingest_rbn_spots`; only watched lines go through
   `runIngest`; unparseable lines go to `ingest_failures`; `stored` in the summary.
@@ -208,13 +208,13 @@ with the two-hour lag this is not expected in practice, so no automatic recount 
 Two PRs:
 
 1. **Full ingest.** `rbn_spots`, `ingest_rbn_spots`, partition creation (step 1 of
-   `maintain_rbn_spots` only), `ingest-rbn` storing every line, and the relay forwarding every
+   `maintain_rbn_spots` only), `ingest-rbn` storing every line, and the inbound worker forwarding every
    line. Nothing is dropped yet; the database grows ~350 MB a day until PR 2 lands.
 2. **Archive and retention.** The bucket, `archive_log`, `archive_ndjson`, the `archive` function
    and its cron job, `archive_status`, and steps 2 and 3 of `maintain_rbn_spots`.
 
-Deploy order for each: migrations and Edge Functions first, then the relay. The new `ingest-rbn`
-accepts the current relay's watched-only batches, so the order is safe in between.
+Deploy order for each: migrations and Edge Functions first, then the inbound worker. The new `ingest-rbn`
+accepts the current inbound's watched-only batches, so the order is safe in between.
 
 ## Amendment after measurement (2026-10-11, before PR 2)
 
@@ -242,4 +242,4 @@ close on slower hosted hardware. So:
   it has archived 60,000 rows, so a normal run does one RBN slice and a backlog clears about six
   times faster than real time. The two-hour lag is unchanged.
 - **Retention** compares counts per 10-minute RBN slice instead of per hour.
-- **`ingest-rbn` GET** is removed in PR 2: the relay deployed with PR 1 no longer calls it.
+- **`ingest-rbn` GET** is removed in PR 2: the inbound worker deployed with PR 1 no longer calls it.

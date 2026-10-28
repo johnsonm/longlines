@@ -439,7 +439,7 @@ select ok((select id from stats_snapshots order by generated_at desc, id desc li
 select is((select count(*) from stats_snapshots where payload ? 'dummy'), 44::bigint, 'the six oldest dummy rows were deleted');
 
 -- Day 5 was rolled up long after it ended, so a row added now is not picked up. Day 6 looks rolled up
--- five minutes after it ended, inside the relay's buffer time, so it is rolled up again.
+-- five minutes after it ended, inside the inbound worker's buffer time, so it is rolled up again.
 insert into rbn_spots (spot_time, received_at, spotter, callsign, frequency_khz, band, mode, mode_family, snr, speed, speed_unit, spot_type, line)
 values (pg_temp.at_utc(5, 12), now(), 'VE7CC', 'LATE1', 14025.0, '20m', 'cw', 'cw', 10, 25, 'WPM', 'CQ', 'line'),
        (pg_temp.at_utc(6, 23), now(), 'VE7CC', 'LATE2', 14025.0, '20m', 'cw', 'cw', 10, 25, 'WPM', 'CQ', 'line');
@@ -487,7 +487,7 @@ select is((select count(*) from rbn_rollup_hours), 2::bigint, 'each complete hou
 select is((select count(*) from rbn_hourly), 170::bigint, 'today''s hours join the rolled-up days in rbn_hourly');
 
 -- Late rows. Hour 00 looks counted two hours after it ended, so it is final; hour 01 looks counted ten
--- minutes after it ended, inside the relay's buffer time, so it is counted again.
+-- minutes after it ended, inside the inbound worker's buffer time, so it is counted again.
 insert into rbn_spots (spot_time, received_at, spotter, callsign, frequency_khz, band, mode, mode_family, snr, speed, speed_unit, spot_type, line)
 values (pg_temp.at_utc(7, 0) + interval '20 minutes', now(), 'VE7CC', 'LATE3', 14025.0, '20m', 'cw', 'cw', 10, 25, 'WPM', 'CQ', 'line'),
        (pg_temp.at_utc(7, 1) + interval '30 minutes', now(), 'VE7CC', 'LATE4', 14025.0, '20m', 'cw', 'cw', 10, 25, 'WPM', 'CQ', 'line');

@@ -1,12 +1,12 @@
-// Relay configuration from the environment (Fly secrets in production).
+// Inbound configuration from the environment (Fly secrets in production).
 
 import { ConfigError } from "../supabase/functions/_shared/errors.ts";
 import type { ReferenceProgram } from "../supabase/functions/_shared/reference_catalog.ts";
 
-/** The FCC's weekly full amateur license file (relay/licenses.ts). */
+/** The FCC's weekly full amateur license file (inbound/licenses.ts). */
 export const FCC_AMATEUR_ZIP = "https://data.fcc.gov/download/pub/uls/complete/l_amat.zip";
 
-/** Each program's official reference list (relay/catalogs.ts). */
+/** Each program's official reference list (inbound/catalogs.ts). */
 export type CatalogUrls = Readonly<Record<ReferenceProgram, string>>;
 
 /** The programs' published lists, checked 2026-10-26. */
@@ -16,17 +16,17 @@ export const CATALOG_URLS: CatalogUrls = {
   wwff: "https://wwff.co/wwff-data/wwff_directory.csv",
 };
 
-export interface RelayConfig {
+export interface InboundConfig {
   /** Supabase functions base URL, e.g. https://<ref>.supabase.co/functions/v1 */
   functionsUrl: string;
-  /** Sent as x-relay-secret; matches LONGLINES_RELAY_SECRET on the functions side. */
-  relaySecret: string;
+  /** Sent as x-inbound-secret; matches LONGLINES_INBOUND_SECRET on the functions side. */
+  inboundSecret: string;
   /** Callsign used to log in to the telnet servers. */
   loginCall: string;
   healthPort: number;
-  /** Zip the weekly license load reads (relay/licenses.ts); null when it is off. */
+  /** Zip the weekly license load reads (inbound/licenses.ts); null when it is off. */
   licenseZipUrl: string | null;
-  /** The lists the weekly reference load reads (relay/catalogs.ts); null when it is off. */
+  /** The lists the weekly reference load reads (inbound/catalogs.ts); null when it is off. */
   catalogUrls: CatalogUrls | null;
 }
 
@@ -61,9 +61,9 @@ export function portNumber(value: string, name: string): number {
 }
 
 /**
- * RELAY_LICENSES: "off", another URL (a local copy), or unset for the FCC file.
- * Unset with local functions means off, so a local relay run does not
- * download 160 MB from the FCC unless asked to (RELAY_LICENSES=<FCC URL>).
+ * INBOUND_LICENSES: "off", another URL (a local copy), or unset for the FCC file.
+ * Unset with local functions means off, so a local inbound worker run does not
+ * download 160 MB from the FCC unless asked to (INBOUND_LICENSES=<FCC URL>).
  */
 function licenseZipUrl(value: string | undefined, localFunctions: boolean): string | null {
   const v = trimmed(value);
@@ -77,11 +77,11 @@ function licenseZipUrl(value: string | undefined, localFunctions: boolean): stri
     return null;
   }
   if (!URL.canParse(v)) {
-    throw new ConfigError("RELAY_LICENSES must be off or a URL", { cause: undefined });
+    throw new ConfigError("INBOUND_LICENSES must be off or a URL", { cause: undefined });
   }
   const url = new URL(v);
   if (url.protocol !== "https:" && !(url.protocol === "http:" && isLocalHost(url.hostname))) {
-    throw new ConfigError("RELAY_LICENSES must use https outside local development", {
+    throw new ConfigError("INBOUND_LICENSES must use https outside local development", {
       cause: undefined,
     });
   }
@@ -89,8 +89,8 @@ function licenseZipUrl(value: string | undefined, localFunctions: boolean): stri
 }
 
 /**
- * RELAY_CATALOGS: "off", "on", or unset for on. Unset with local functions means off, so a local
- * relay run does not download 60 MB of lists unless asked to (RELAY_CATALOGS=on).
+ * INBOUND_CATALOGS: "off", "on", or unset for on. Unset with local functions means off, so a local
+ * inbound run does not download 60 MB of lists unless asked to (INBOUND_CATALOGS=on).
  */
 function catalogUrls(value: string | undefined, localFunctions: boolean): CatalogUrls | null {
   const v = trimmed(value).toLowerCase();
@@ -106,10 +106,10 @@ function catalogUrls(value: string | undefined, localFunctions: boolean): Catalo
   if (v === "on") {
     return CATALOG_URLS;
   }
-  throw new ConfigError("RELAY_CATALOGS must be on or off", { cause: undefined });
+  throw new ConfigError("INBOUND_CATALOGS must be on or off", { cause: undefined });
 }
 
-export function loadConfig(env: (name: string) => string | undefined): RelayConfig {
+export function loadConfig(env: (name: string) => string | undefined): InboundConfig {
   const functionsUrl = required(env, "LONGLINES_FUNCTIONS_URL").replace(/\/+$/, "");
   if (!URL.canParse(functionsUrl)) {
     throw new ConfigError("LONGLINES_FUNCTIONS_URL must be a URL", { cause: undefined });
@@ -121,17 +121,17 @@ export function loadConfig(env: (name: string) => string | undefined): RelayConf
       cause: undefined,
     });
   }
-  let healthPort = env("RELAY_HEALTH_PORT");
+  let healthPort = env("INBOUND_HEALTH_PORT");
   if (healthPort === undefined) {
     healthPort = "8080";
   }
-  const port = portNumber(healthPort, "RELAY_HEALTH_PORT");
+  const port = portNumber(healthPort, "INBOUND_HEALTH_PORT");
   return {
     functionsUrl,
-    relaySecret: required(env, "LONGLINES_RELAY_SECRET"),
-    loginCall: required(env, "RELAY_LOGIN_CALL").toUpperCase(),
+    inboundSecret: required(env, "LONGLINES_INBOUND_SECRET"),
+    loginCall: required(env, "INBOUND_LOGIN_CALL").toUpperCase(),
     healthPort: port,
-    licenseZipUrl: licenseZipUrl(env("RELAY_LICENSES"), local),
-    catalogUrls: catalogUrls(env("RELAY_CATALOGS"), local),
+    licenseZipUrl: licenseZipUrl(env("INBOUND_LICENSES"), local),
+    catalogUrls: catalogUrls(env("INBOUND_CATALOGS"), local),
   };
 }

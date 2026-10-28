@@ -46,7 +46,7 @@ Deno.test(
     function post(body: unknown): Promise<unknown> {
       calls += 1;
       if (calls === 2) {
-        return Promise.reject(new Error("POST relay-status: HTTP 404 not found"));
+        return Promise.reject(new Error("POST inbound-status: HTTP 404 not found"));
       }
       posted.push(body);
       return Promise.resolve({ ok: true });
@@ -70,7 +70,7 @@ Deno.test(
     assertEquals(calls, 3);
     assertEquals(posted.length, 2);
     assertEquals(slept, [STATUS_MS, STATUS_MS, STATUS_MS]);
-    assertEquals(logs, ["[status] POST relay-status: HTTP 404 not found"]);
+    assertEquals(logs, ["[status] POST inbound-status: HTTP 404 not found"]);
   },
 );
 

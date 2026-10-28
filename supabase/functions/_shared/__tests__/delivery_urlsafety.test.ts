@@ -149,7 +149,7 @@ Deno.test(
     for (
       const url of [
         "https://api.internal/spots",
-        "https://longlines-relay.internal/spots",
+        "https://longlines-inbound.internal/spots",
         "https://api.flycast/spots",
         "https://printer.local/spots",
         "https://box.localdomain/spots",

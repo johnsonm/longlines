@@ -1724,7 +1724,7 @@ Spec: `docs/superpowers/specs/2026-10-14-source-catalog-design.md`. Copy differs
 
 <the gate results from Step 2 with real counts, and what Step 3 checked in the browser>
 
-No migration; nothing changes in `relay/` or the Edge Functions.
+No migration; nothing changes in `inbound/` or the Edge Functions.
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 EOF

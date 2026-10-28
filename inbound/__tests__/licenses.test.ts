@@ -15,7 +15,7 @@ import {
   runLicenseImports,
   shouldImport,
 } from "../licenses.ts";
-import { startRelay } from "../relay.ts";
+import { startInbound } from "../inbound.ts";
 import { openHttpZip, STREAM_HEADER_TIMEOUT_MS } from "../zip.ts";
 import { buildZip, serveZip } from "./zip_server.ts";
 
@@ -420,7 +420,7 @@ Deno.test(
 );
 
 Deno.test(
-  "importLicenses stops when the download stalls or the relay shuts down",
+  "importLicenses stops when the download stalls or the inbound worker shuts down",
   async function (): Promise<void> {
     const zip = await ZIP;
     const stalled = serveZip(zip, { stallAfter: 10 });
@@ -534,7 +534,7 @@ Deno.test(
 );
 
 Deno.test(
-  "the relay loads licenses through load-licenses with its secret",
+  "the inbound worker loads licenses through load-licenses with its secret",
   async function (): Promise<void> {
     const served = serveZip(await ZIP, {});
     const url = served.url;
@@ -542,12 +542,12 @@ Deno.test(
     const requests: { secret: string | null; body: LoadLicensesRequest }[] = [];
     const totals = { HD: 0, EN: 0, AM: 0 };
     async function handler(req: Request): Promise<Response> {
-      // The Health page heartbeat (relay/status.ts) posts here too.
-      if (new URL(req.url).pathname.endsWith("/relay-status")) {
+      // The Health page heartbeat (inbound/status.ts) posts here too.
+      if (new URL(req.url).pathname.endsWith("/inbound-status")) {
         return Response.json({ ok: true });
       }
       const body = await req.json() as LoadLicensesRequest;
-      requests.push({ secret: req.headers.get("x-relay-secret"), body });
+      requests.push({ secret: req.headers.get("x-inbound-secret"), body });
       switch (body.action) {
         case "status":
           return Response.json({ load: null });
@@ -562,10 +562,10 @@ Deno.test(
     }
     const functions = Deno.serve({ hostname: "127.0.0.1", port: 0, onListen() {} }, handler);
     const logs: string[] = [];
-    const relay = startRelay(
+    const inbound = startInbound(
       {
         functionsUrl: `http://127.0.0.1:${functions.addr.port}/functions/v1`,
-        relaySecret: "s",
+        inboundSecret: "s",
         loginCall: "N0CALL",
         healthPort: 0,
         licenseZipUrl: url,
@@ -600,8 +600,8 @@ Deno.test(
       });
       assertEquals(logs.some((m) => m.startsWith("[licenses] load finished")), true);
     } finally {
-      await relay.shutdown();
-      await relay.done;
+      await inbound.shutdown();
+      await inbound.done;
       await functions.shutdown();
       await server.shutdown();
     }

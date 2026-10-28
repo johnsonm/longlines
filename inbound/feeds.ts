@@ -1,4 +1,4 @@
-// The streams the relay holds open. Each feed is one telnet (or plain TCP)
+// The streams the inbound worker holds open. Each feed is one telnet (or plain TCP)
 // connection whose spot lines are all pushed to one Edge Function. Adding a
 // stream (RBN FT8 on 7001, say) is a new entry here plus a source adapter in
 // supabase/functions/_shared.
@@ -21,11 +21,11 @@ export interface Feed {
   isSpot(line: string): boolean;
   /** Reconnect after this long without data (runTelnet's default, 5 minutes, when unset). */
   idleMs?: number;
-  /** /healthz reports the feed unhealthy after this long without data (relay default when unset). */
+  /** /healthz reports the feed unhealthy after this long without data (inbound default when unset). */
   staleMs?: number;
   /** Telnet framing; false for a plain TCP line feed in UTF-8 (runTelnet's default, true, when unset). */
   telnet?: boolean;
-  /** Login call for this feed instead of RELAY_LOGIN_CALL. */
+  /** Login call for this feed instead of INBOUND_LOGIN_CALL. */
   loginCall?: string;
   /** The line sent at the prompt, from the login call (the call itself when unset). */
   loginLine?: (call: string) => string;

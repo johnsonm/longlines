@@ -1749,6 +1749,9 @@ isOneToOne: true
 "record_health_sample":
 { Args: Record<PropertyKey, never>; Returns: undefined
                            },
+"record_inbound_heartbeat":
+{ Args: { "p_feeds": Json,"p_reconnects": number,"p_rss_bytes": number,"p_started_at": string }; Returns: undefined
+                           },
 "record_ingest_failure":
 { Args: { "p_error": string,"p_source": string }; Returns: undefined
                            },
@@ -1760,9 +1763,6 @@ isOneToOne: true
                            },
 "record_push_results":
 { Args: { "p_errors": Json,"p_ok": (string)[] }; Returns: undefined
-                           },
-"record_relay_heartbeat":
-{ Args: { "p_feeds": Json,"p_reconnects": number,"p_rss_bytes": number,"p_started_at": string }; Returns: undefined
                            },
 "record_send_test":
 { Args: { "p_destination_id": string,"p_user_id": string }; Returns: boolean

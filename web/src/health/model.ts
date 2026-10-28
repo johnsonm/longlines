@@ -12,7 +12,7 @@ export const RANGES: { id: HealthRange; label: string }[] = [
 /** Table order, which is also the banner's. */
 export const CHECKS: { id: CheckId; name: string; caption?: string; rule: string; title: string; delayedTitle?: string }[] = [
   { id: "pulled", name: "Pulled sources", caption: "POTA, SOTAwatch, WWFF, WWBOTA", rule: "Delayed after 3 min without a success", title: "Pulled sources are behind" },
-  { id: "relay", name: "Relay feeds", caption: "RBN, DX Cluster, APRS-IS", rule: "Delayed after 3 min without a push", title: "A relay feed is behind" },
+  { id: "inbound", name: "Inbound feeds", caption: "RBN, DX Cluster, APRS-IS", rule: "Delayed after 3 min without a push", title: "An inbound feed is behind" },
   { id: "match_queue", name: "Match queue", caption: "spot_events", rule: "Delayed when the oldest waits over 2 min", title: "Matching is behind" },
   { id: "delivery_queue", name: "Delivery queue", caption: "deliveries_queue", rule: "Delayed when the oldest ready waits over 2 min", title: "Outbound is slower than usual" },
   { id: "sender", name: "Sender", caption: "Fly.io, longlines-sender", rule: "Failing after 2 min without progress", title: "The sender has stopped" },
@@ -89,8 +89,8 @@ export function checkNow(id: CheckId, checks: HealthChecks): string {
   switch (id) {
     case "pulled":
       return oldest(checks.pulled.sources, "success");
-    case "relay": {
-      const { feeds, reconnects_24h } = checks.relay;
+    case "inbound": {
+      const { feeds, reconnects_24h } = checks.inbound;
       if (feeds.length === 0) return "No data";
       const last = oldest(feeds, "push");
       return reconnects_24h === null ? last : `${last} · ${plural(reconnects_24h, "reconnect")} in 24 h`;

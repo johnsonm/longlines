@@ -1,12 +1,12 @@
-// Long Lines stream relay. Holds one connection per feed and pushes every spot
+// Long Lines inbound worker. Holds one connection per feed and pushes every spot
 // line to the feed's Edge Function, which stores all of them (and, for RBN and
-// DX Cluster, alerts on watched callsigns). Runs on Fly.io (relay/fly.toml);
-// docs/OPERATIONS.md has the deploy steps. The relay itself is relay.ts; this
+// DX Cluster, alerts on watched callsigns). Runs on Fly.io (inbound/fly.toml);
+// docs/OPERATIONS.md has the deploy steps. The inbound worker itself is inbound.ts; this
 // file is only the process shell.
 
 import { loadConfig } from "./config.ts";
 import { aprsFeed, dxclusterFeed, type Feed, RBN_FEED } from "./feeds.ts";
-import { startRelay } from "./relay.ts";
+import { startInbound } from "./inbound.ts";
 
 function env(name: string): string | undefined {
   return Deno.env.get(name);
@@ -22,16 +22,16 @@ function defaultFeeds(): Feed[] {
   return feeds;
 }
 
-/** Run the relay until SIGINT/SIGTERM. `feedList` is overridable for local end-to-end runs. */
+/** Run the inbound worker until SIGINT/SIGTERM. `feedList` is overridable for local end-to-end runs. */
 export async function main(
   feedList: readonly Feed[],
 ): Promise<void> {
-  const relay = startRelay(loadConfig(env), feedList, {});
+  const inbound = startInbound(loadConfig(env), feedList, {});
 
   // Fly sends SIGINT (the default kill_signal) on deploy and restart. Push what
   // is buffered before exiting so a deploy does not lose spots.
   async function shutdown(): Promise<void> {
-    await relay.shutdown();
+    await inbound.shutdown();
     Deno.exit(0);
   }
   function onSignal(): void {
@@ -40,7 +40,7 @@ export async function main(
   Deno.addSignalListener("SIGINT", onSignal);
   Deno.addSignalListener("SIGTERM", onSignal);
 
-  await relay.done;
+  await inbound.done;
 }
 
 function exitOnFailure(error: unknown): void {
@@ -50,7 +50,7 @@ function exitOnFailure(error: unknown): void {
   } else {
     message = String(error);
   }
-  console.error(`relay failed: ${message}`);
+  console.error(`inbound failed: ${message}`);
   // Exit non-zero so Fly restarts the machine.
   Deno.exit(1);
 }

@@ -11,12 +11,12 @@ import {
 } from "../reference_catalog.ts";
 import { fakeSupabase, type FakeSupabaseOptions } from "./fake_supabase.ts";
 
-const SECRET = "relay-secret";
+const SECRET = "inbound-secret";
 
 function post(body: unknown, secret: string | null, method: string): Request {
   const init: RequestInit = { method, headers: {} };
   if (secret !== null) {
-    init.headers = { "x-relay-secret": secret };
+    init.headers = { "x-inbound-secret": secret };
   }
   if (method === "POST") {
     if (typeof body === "string") {
@@ -35,7 +35,11 @@ function brokenPost(secret: string): Request {
       controller.error(new Error("connection reset"));
     },
   });
-  return new Request("http://x/", { method: "POST", headers: { "x-relay-secret": secret }, body });
+  return new Request("http://x/", {
+    method: "POST",
+    headers: { "x-inbound-secret": secret },
+    body,
+  });
 }
 
 function setup(rpc: FakeSupabaseOptions["rpc"]) {
@@ -91,7 +95,7 @@ const STATUS = {
 };
 
 Deno.test(
-  "handleLoadReferences refuses a missing or wrong relay secret",
+  "handleLoadReferences refuses a missing or wrong inbound secret",
   async function (): Promise<void> {
     const s = setup({});
     for (const secret of [null, "wrong"]) {
@@ -149,7 +153,7 @@ Deno.test("handleLoadReferences maps each action to its RPC", async function ():
     { state: "refused" },
     { ok: true },
   ]);
-  // Each reply is what the relay reads it as.
+  // Each reply is what the inbound worker reads it as.
   const schemas = [
     referenceStatusReplySchema,
     referenceBeginReplySchema,
@@ -246,7 +250,7 @@ Deno.test("parseLoadReferencesRequest rejects malformed requests", function (): 
       { action: "finish", load: "1", rows: 1 },
       { action: "abandon", load: 1 },
       { action: "abandon", load: -1, error: "x" },
-      // Strict: the relay sends exactly these keys, so any other is refused.
+      // Strict: the inbound worker sends exactly these keys, so any other is refused.
       { action: "status", extra: 1 },
       { action: "finish", load: 1, rows: 1, counts: {} },
       { action: "rows", load: 1, rows: [withRow("extra", 1)] },

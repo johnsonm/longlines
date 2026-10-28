@@ -127,7 +127,7 @@ begin
   assert (select continent from public.cty_lookup('SM1HEV-#')) = 'EU',
     'cty_lookup should place SM1HEV in Europe';
 
-  -- Reference lists: the hourly swap is scheduled, and the relay's status names every program.
+  -- Reference lists: the hourly swap is scheduled, and the inbound worker's status names every program.
   assert exists (select 1 from cron.job where jobname = 'apply-reference-loads' and schedule = '55 * * * *'),
     'apply-reference-loads should run hourly at :55';
   assert (select array_agg(k order by k) from jsonb_object_keys(public.reference_load_status()) as k)

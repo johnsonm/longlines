@@ -38,14 +38,14 @@ function withValues(
 
 const BASE = {
   LONGLINES_FUNCTIONS_URL: "https://abc.supabase.co/functions/v1/",
-  LONGLINES_RELAY_SECRET: "s3cret",
-  RELAY_LOGIN_CALL: "kk4pwj",
+  LONGLINES_INBOUND_SECRET: "s3cret",
+  INBOUND_LOGIN_CALL: "kk4pwj",
 };
 
 Deno.test("loadConfig reads the environment and normalises values", function (): void {
   assertEquals(loadConfig(env(BASE)), {
     functionsUrl: "https://abc.supabase.co/functions/v1",
-    relaySecret: "s3cret",
+    inboundSecret: "s3cret",
     loginCall: "KK4PWJ",
     healthPort: 8080,
     licenseZipUrl: FCC_AMATEUR_ZIP,
@@ -55,9 +55,9 @@ Deno.test("loadConfig reads the environment and normalises values", function ():
 
 Deno.test("loadConfig rejects missing values, plain http off localhost and bad ports", function (): void {
   assertThrows(
-    () => loadConfig(env(withValues(BASE, { LONGLINES_RELAY_SECRET: " " }))),
+    () => loadConfig(env(withValues(BASE, { LONGLINES_INBOUND_SECRET: " " }))),
     ConfigError,
-    "LONGLINES_RELAY_SECRET",
+    "LONGLINES_INBOUND_SECRET",
   );
   assertThrows(
     () => loadConfig(env(withValues(BASE, { LONGLINES_FUNCTIONS_URL: "http://abc.supabase.co" }))),
@@ -70,9 +70,9 @@ Deno.test("loadConfig rejects missing values, plain http off localhost and bad p
     "LONGLINES_FUNCTIONS_URL must be a URL",
   );
   assertThrows(
-    () => loadConfig(env(withValues(BASE, { RELAY_HEALTH_PORT: "x" }))),
+    () => loadConfig(env(withValues(BASE, { INBOUND_HEALTH_PORT: "x" }))),
     ConfigError,
-    "RELAY_HEALTH_PORT",
+    "INBOUND_HEALTH_PORT",
   );
   assertEquals(
     loadConfig(
@@ -84,59 +84,63 @@ Deno.test("loadConfig rejects missing values, plain http off localhost and bad p
 });
 
 Deno.test("loadConfig turns the license load off, off locally, or points it at another file", function (): void {
-  assertEquals(loadConfig(env(withValues(BASE, { RELAY_LICENSES: " OFF " }))).licenseZipUrl, null);
-  // Local functions: off unless RELAY_LICENSES asks for a file.
+  assertEquals(
+    loadConfig(env(withValues(BASE, { INBOUND_LICENSES: " OFF " }))).licenseZipUrl,
+    null,
+  );
+  // Local functions: off unless INBOUND_LICENSES asks for a file.
   const local = withValues(BASE, {
     LONGLINES_FUNCTIONS_URL: "http://127.0.0.1:54321/functions/v1",
   });
   assertEquals(loadConfig(env(local)).licenseZipUrl, null);
   assertEquals(
-    loadConfig(env(withValues(local, { RELAY_LICENSES: FCC_AMATEUR_ZIP }))).licenseZipUrl,
+    loadConfig(env(withValues(local, { INBOUND_LICENSES: FCC_AMATEUR_ZIP }))).licenseZipUrl,
     FCC_AMATEUR_ZIP,
   );
   assertEquals(
-    loadConfig(env(withValues(BASE, { RELAY_LICENSES: "http://127.0.0.1:8000/l_amat" })))
+    loadConfig(env(withValues(BASE, { INBOUND_LICENSES: "http://127.0.0.1:8000/l_amat" })))
       .licenseZipUrl,
     "http://127.0.0.1:8000/l_amat",
   );
   assertThrows(
-    () => loadConfig(env(withValues(BASE, { RELAY_LICENSES: "http://mirror.example.org/l_amat" }))),
+    () =>
+      loadConfig(env(withValues(BASE, { INBOUND_LICENSES: "http://mirror.example.org/l_amat" }))),
     Error,
     "https",
   );
   assertThrows(
-    () => loadConfig(env(withValues(BASE, { RELAY_LICENSES: "no" }))),
+    () => loadConfig(env(withValues(BASE, { INBOUND_LICENSES: "no" }))),
     ConfigError,
-    "RELAY_LICENSES must be off or a URL",
+    "INBOUND_LICENSES must be off or a URL",
   );
 });
 
 Deno.test("loadConfig turns the reference list load on or off, off locally", function (): void {
-  assertEquals(loadConfig(env(withValues(BASE, { RELAY_CATALOGS: " OFF " }))).catalogUrls, null);
+  assertEquals(loadConfig(env(withValues(BASE, { INBOUND_CATALOGS: " OFF " }))).catalogUrls, null);
   assertEquals(
-    loadConfig(env(withValues(BASE, { RELAY_CATALOGS: "on" }))).catalogUrls,
+    loadConfig(env(withValues(BASE, { INBOUND_CATALOGS: "on" }))).catalogUrls,
     CATALOG_URLS,
   );
-  // Local functions: off unless RELAY_CATALOGS asks for the lists.
+  // Local functions: off unless INBOUND_CATALOGS asks for the lists.
   const local = withValues(BASE, {
     LONGLINES_FUNCTIONS_URL: "http://127.0.0.1:54321/functions/v1",
   });
   assertEquals(loadConfig(env(local)).catalogUrls, null);
   assertEquals(
-    loadConfig(env(withValues(local, { RELAY_CATALOGS: "on" }))).catalogUrls,
+    loadConfig(env(withValues(local, { INBOUND_CATALOGS: "on" }))).catalogUrls,
     CATALOG_URLS,
   );
   assertThrows(
-    () => loadConfig(env(withValues(BASE, { RELAY_CATALOGS: "yes" }))),
+    () => loadConfig(env(withValues(BASE, { INBOUND_CATALOGS: "yes" }))),
     ConfigError,
-    "RELAY_CATALOGS must be on or off",
+    "INBOUND_CATALOGS must be on or off",
   );
   for (const url of Object.values(CATALOG_URLS)) {
     assertEquals(url.startsWith("https://"), true, url);
   }
 });
 
-Deno.test("the Docker image allows every environment variable the relay reads", function (): void {
+Deno.test("the Docker image allows every environment variable the inbound worker reads", function (): void {
   const read = new Set<string>(["LONGLINES_USER_AGENT_URL"]); // read by userAgent() in _shared/http.ts
   function recorder(name: string) {
     read.add(name);
@@ -273,7 +277,7 @@ Deno.test("functionClient POSTs a batch as JSON", async function (): Promise<voi
   const req = f.requests[0]!;
   assertEquals([req.method, req.url], ["POST", "https://x/ingest-rbn"]);
   assertEquals(req.headers.get("content-type"), "application/json");
-  assertEquals(req.headers.get("x-relay-secret"), "s");
+  assertEquals(req.headers.get("x-inbound-secret"), "s");
   const userAgent = req.headers.get("user-agent");
   assertEquals(userAgent !== null && userAgent.startsWith("LongLines/"), true);
   assertEquals(await req.json(), { lines });

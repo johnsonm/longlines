@@ -22,7 +22,7 @@ describe("checkNow", () => {
   it("words every check as the canvas does", () => {
     expect(now()).toEqual({
       pulled: "Last success 22 s ago",
-      relay: "Last push 41 s ago · 0 reconnects in 24 h",
+      inbound: "Last push 41 s ago · 0 reconnects in 24 h",
       match_queue: "9 waiting · oldest 3 s",
       delivery_queue: "12 waiting · oldest ready 4 s",
       sender: "Last progress 6 s ago · 0 restarts in 24 h",
@@ -35,7 +35,7 @@ describe("checkNow", () => {
   it("names sources that never reported, and leaves out what is unknown", () => {
     expect(now({
       pulled: { status: "delayed", sources: [{ source: "pota", seconds: 1 }, { source: "wwff", seconds: null }] },
-      relay: { status: "healthy", feeds: [{ source: "aprs", seconds: null }], reconnects_24h: null },
+      inbound: { status: "healthy", feeds: [{ source: "aprs", seconds: null }], reconnects_24h: null },
       match_queue: { status: "healthy", waiting: 0, oldest_seconds: null },
       delivery_queue: { status: "delayed", waiting: 1234, oldest_ready_seconds: null, throttled: 1 },
       sender: { status: "unknown", progress_seconds: null, restarts_24h: null, memory_bytes: null },
@@ -43,7 +43,7 @@ describe("checkNow", () => {
       archive: { status: "delayed", seconds: null },
     })).toMatchObject({
       pulled: "No success yet from WWFF",
-      relay: "No push yet from APRS-IS",
+      inbound: "No push yet from APRS-IS",
       match_queue: "0 waiting",
       delivery_queue: "1,234 waiting · 1 destination throttled",
       sender: "No data",
@@ -52,14 +52,14 @@ describe("checkNow", () => {
     });
   });
 
-  it("says No data when the relay has no feeds, and drops unknown restarts and reconnects", () => {
+  it("says No data when the inbound worker has no feeds, and drops unknown restarts and reconnects", () => {
     expect(now({
-      relay: { status: "unknown", feeds: [], reconnects_24h: null },
+      inbound: { status: "unknown", feeds: [], reconnects_24h: null },
       sender: { status: "healthy", progress_seconds: 5, restarts_24h: null, memory_bytes: 1 },
-    })).toMatchObject({ relay: "No data", sender: "Last progress 5 s ago" });
-    expect(now({ relay: { status: "healthy", feeds: [{ source: "rbn", seconds: 200 }], reconnects_24h: null } }).relay)
+    })).toMatchObject({ inbound: "No data", sender: "Last progress 5 s ago" });
+    expect(now({ inbound: { status: "healthy", feeds: [{ source: "rbn", seconds: 200 }], reconnects_24h: null } }).inbound)
       .toBe("Last push 3 min ago");
-    expect(now({ relay: { status: "healthy", feeds: [{ source: "rbn", seconds: 1 }], reconnects_24h: 1 } }).relay)
+    expect(now({ inbound: { status: "healthy", feeds: [{ source: "rbn", seconds: 1 }], reconnects_24h: 1 } }).inbound)
       .toBe("Last push 1 s ago · 1 reconnect in 24 h");
   });
 });

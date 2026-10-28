@@ -264,7 +264,7 @@ every successful ingest and on a one-minute cron as a safety net.
 ## Delivery: the sender
 
 Outbound delivery is `sender/`, a Deno process on one Fly.io machine (app `longlines-sender`,
-shared-cpu-1x, 256 MB), the counterpart of the relay. Until 2026-10-15 it was a `deliver` Edge
+shared-cpu-1x, 256 MB), the counterpart of the inbound worker. Until 2026-10-15 it was a `deliver` Edge
 Function, called by cron every minute and kicked over pg_net after every ingest run that created
 deliveries: every run was an invocation, so delivery volume scaled the project's invocation
 count, while a process that polls costs nothing per poll. That function, its cron job and its
@@ -373,7 +373,7 @@ the Phase 2 plan, is `docs/superpowers/specs/2026-10-15-outbound-sender-design.m
   local), the VAPID triple (`LONGLINES_VAPID_*`, the same pair the Edge Functions hold), and the
   knobs `SENDER_POLL_MS` (5 s), `SENDER_CONCURRENCY`, `SENDER_STALE_MS`, `SENDER_STATS_MS` and
   `SENDER_HEALTH_PORT`. The Dockerfile's `--allow-env` names every variable the sender reads and
-  a test fails when it reads one the image does not allow, as for the relay.
+  a test fails when it reads one the image does not allow, as for the inbound worker.
   `LONGLINES_ALLOW_INSECURE_DESTINATIONS` is honoured only with a local database host.
 
 `send-test` reuses the same formatting and sending code for one labeled test spot, from an Edge
@@ -604,7 +604,7 @@ yet. `rollup_rbn_hours(from, to)` counts a range of hours into `rbn_hourly` thro
 replaces its 24 rows and the hour markers are deleted.
 
 The refresh rolls up every window day missing from `rbn_rollup_days`, and once more any day rolled
-up within an hour of its end, since the relay can hold up to about 50 minutes of lines while
+up within an hour of its end, since the inbound worker can hold up to about 50 minutes of lines while
 `ingest-rbn` is unreachable. Today's hours follow the same rule through `rbn_rollup_hours`. Rows arriving later than that are not counted. Rollups older than
 the window are deleted; the archive keeps every spot.
 
@@ -635,11 +635,11 @@ it skips a day while no cty.dat is loaded. The web joins alpha-2 to the atlas's 
 The payload's TypeScript shape is `StatsPayload` in `web/src/stats/types.ts`; the pgTAP suite
 `supabase/tests/stats_snapshot.test.sql` pins both the shape and the numbers.
 
-# Streaming sources: the relay
+# Streaming sources: the inbound worker
 
 ```mermaid
 flowchart LR
-  RBN[telnet.reversebeacon.net:7000] -- "one telnet session" --> R[relay on Fly.io]
+  RBN[telnet.reversebeacon.net:7000] -- "one telnet session" --> R[inbound on Fly.io]
   DXC[DXSpider node, dxc.hamserve.uk:7300] -- "one telnet session" --> R
   R -- "POST every line, batches every 10 s, heartbeat every 60 s" --> F[ingest-rbn]
   F -- "rpc ingest_rbn_spots" --> RS[(rbn_spots)]
@@ -654,16 +654,16 @@ flowchart LR
 
 The Reverse Beacon Network only offers a persistent telnet stream. Edge Functions cannot hold one,
 and reconnecting every couple of minutes is not acceptable to RBN, so one small process outside
-Supabase holds it: `relay/`, a Deno program on a single Fly.io machine (shared-cpu-1x, 256 MB; it
+Supabase holds it: `inbound/`, a Deno program on a single Fly.io machine (shared-cpu-1x, 256 MB; it
 uses about 20 MB). Issue #13 records the options that were weighed first.
 
 - **Push instead of pull.** `ingest-rbn` runs `runRbnPush` (`_shared/rbn_push.ts`) on each
   batch: it stores every line, then passes the watched ones to the same orchestrator as the pulled
   sources, with `rbnAdapter(body)` wrapping them so `fetchSpots()` returns them; `runIngest` is
-  unchanged. The relay never sees a Supabase key: it sends a shared secret in `x-relay-secret`,
-  and the function (with `verify_jwt = false`) compares it with `LONGLINES_RELAY_SECRET` in
+  unchanged. The inbound worker never sees a Supabase key: it sends a shared secret in `x-inbound-secret`,
+  and the function (with `verify_jwt = false`) compares it with `LONGLINES_INBOUND_SECRET` in
   constant time. Only `POST` is accepted.
-- **Everything is stored; watched callsigns are alerted.** The relay forwards every spot line.
+- **Everything is stored; watched callsigns are alerted.** The inbound worker forwards every spot line.
   `ingest-rbn` writes each batch to `rbn_spots` (one RPC, `ingest_rbn_spots`), a table
   partitioned by UTC day that keeps seven days in the database; `maintain_rbn_spots()` drops a day
   once every 10-minute slice is archived with a matching count and the callsign rollups have
@@ -676,11 +676,11 @@ uses about 20 MB). Issue #13 records the options that were weighed first.
   the generated web types do not include. Rows for a day without a partition land in
   `partitions.rbn_spots_default`; `create_rbn_spots_partition` moves them in when it creates that
   day.
-- **One parser.** The relay drops non-spot lines with `parseRbnLine` from `_shared/rbn.ts`, the
-  same function `ingest-rbn` uses, so the relay and the stored spot cannot disagree about what a
+- **One parser.** The inbound worker drops non-spot lines with `parseRbnLine` from `_shared/rbn.ts`, the
+  same function `ingest-rbn` uses, so the inbound worker and the stored spot cannot disagree about what a
   line is.
 - **Dates and ids.** A telnet line has only `HHMMZ`. The adapter takes the instant with that time
-  of day closest to the relay's `received_at`. `source_spot_id` is
+  of day closest to the inbound worker's `received_at`. `source_spot_id` is
   `spot_time|spotter|callsign|frequency`; the hash field order is `spot_time, spotter, callsign,
   frequency, mode, snr, speed, type` and must not change.
 - **Matching guard.** `spot_matches` lets an RBN spot match only subscriptions that name
@@ -688,22 +688,22 @@ uses about 20 MB). Issue #13 records the options that were weighed first.
   rejects a subscription limited to RBN with no callsigns, since it could never match.
 - **Politeness and health.** One connection per feed, reconnect backoff from 30 s (the floor) to
   15 minutes with jitter, reset after a session that lasted five minutes. No data for five minutes
-  counts as a dead connection. The relay pushes at least once a minute, even an empty batch, so
+  counts as a dead connection. The inbound worker pushes at least once a minute, even an empty batch, so
   `ingest_state.last_success_at` shows whether it is alive; the Sources page treats RBN as delayed
   after three minutes without one. `:8080/healthz` reports per-feed status for `fly checks list`.
-- **More feeds.** `relay/feeds.ts` is a list. A new telnet stream (RBN FT8 on 7001, say) is a new
+- **More feeds.** `inbound/feeds.ts` is a list. A new telnet stream (RBN FT8 on 7001, say) is a new
   entry plus a source adapter and an `ingest-<source>` function built with `servePush`.
-  `_shared/relay_lines.ts` holds what the pushed sources share: the request body and the `HHMMZ`
+  `_shared/inbound_lines.ts` holds what the pushed sources share: the request body and the `HHMMZ`
   dating.
-- **Not only telnet.** The relay also runs the weekly FCC license load and the weekly POTA, SOTA
+- **Not only telnet.** The inbound worker also runs the weekly FCC license load and the weekly POTA, SOTA
   and WWFF reference list load, because the files are too big for an Edge Function (see
   "Licenses (FCC)" and "Reference catalog").
 
 ## DX Cluster
 
 The second feed is a DXSpider node, by default G1FEF-2 (`dxc.hamserve.uk:7300`, overridable with
-`DXCLUSTER_HOST`/`DXCLUSTER_PORT`), which allows read access without registration. The relay logs
-in with `RELAY_LOGIN_CALL` and forwards every line `parseDxLine` (`_shared/dxcluster.ts`) accepts.
+`DXCLUSTER_HOST`/`DXCLUSTER_PORT`), which allows read access without registration. The inbound worker logs
+in with `INBOUND_LOGIN_CALL` and forwards every line `parseDxLine` (`_shared/dxcluster.ts`) accepts.
 
 - **Straight to raw_spots.** Human spots are a few hundred an hour (a capture on 2026-10-12 saw
   about seven a minute), so there is no firehose table: `ingest-dxcluster` runs `runIngest` over
@@ -722,8 +722,8 @@ in with `RELAY_LOGIN_CALL` and forwards every line `parseDxLine` (`_shared/dxclu
   that a node relays are dropped; RBN covers them. So are `WWV`, `WCY` and `To ALL` broadcasts.
   DXSpider ends each spot line with two BEL characters, which the parser strips. The time is the
   last `HHMMZ` on the line; a locator, state or zones a node appends after it are ignored.
-- **Relay image.** The Dockerfile's `--allow-env` names every variable the relay reads, including
-  `DXCLUSTER_HOST`/`DXCLUSTER_PORT`; a test fails when the relay reads one the image does not allow.
+- **Inbound image.** The Dockerfile's `--allow-env` names every variable the inbound worker reads, including
+  `DXCLUSTER_HOST`/`DXCLUSTER_PORT`; a test fails when the inbound worker reads one the image does not allow.
 - **Ids.** As with RBN, the line has only `HHMMZ`; `source_spot_id` is
   `spot_time|spotter|callsign|frequency`, and the hash covers the comment too, so a re-spot with a
   new comment in the same minute is stored.
@@ -738,10 +738,10 @@ feed is deliberate; never add a filter to the login. It runs at roughly 50-150 p
 4-13 million a day.
 
 - **Off until configured.** `aprsFeed` returns no feed until `APRS_LOGIN_CALL` is set. APRS-IS
-  drops an older connection that logs in with the same call-SSID, so the relay's login must be one
+  drops an older connection that logs in with the same call-SSID, so the inbound worker's login must be one
   no other client uses (`aprsLoginCall` checks the shape: at most nine characters).
-- **Plain TCP.** APRS-IS is not telnet: `TcpLineDecoder` (`relay/telnet.ts`) decodes UTF-8 and has
-  no IAC handling. There is no prompt; the server sends a `# aprsc ...` banner line, and the relay
+- **Plain TCP.** APRS-IS is not telnet: `TcpLineDecoder` (`inbound/telnet.ts`) decodes UTF-8 and has
+  no IAC handling. There is no prompt; the server sends a `# aprsc ...` banner line, and the inbound worker
   answers with `user <call> pass -1 vers LongLines 0.1` (passcode -1 is receive-only). Servers send a
   `#` keepalive about every 20 s, so the feed reconnects after 2 minutes of silence and `/healthz`
   marks it unhealthy after 5. The forwarder buffers up to 150,000 lines (about 25 minutes).
@@ -772,7 +772,7 @@ World Wide Flora & Fauna is a POTA-like award program for nature reserves, each 
 reference such as `KFF-5268` (spec `docs/superpowers/specs/2026-10-15-wwff-design.md`). It is a
 pulled source: pg_cron calls `ingest-wwff` once a minute, which fetches
 `https://spots.wwff.co/static/spots.json` (the latest spot per activator over about a day) and
-runs it through `runIngest` into `raw_spots`, exactly like POTA. There is no relay change and no
+runs it through `runIngest` into `raw_spots`, exactly like POTA. There is no inbound change and no
 firehose table.
 
 - **Adapter.** `_shared/wwff.ts`. `source_spot_id` is the upstream `id`; `spot_time` is Unix
@@ -795,7 +795,7 @@ Worldwide Bunkers on the Air is an award program for portable operation from bun
 identified by a reference such as `B/G-2114` (`B/<scheme>-<four digits>`; spec
 `docs/superpowers/specs/2026-10-26-wwbota-design.md`). It is a pulled source like WWFF: pg_cron
 calls `ingest-wwbota` once a minute, which fetches `https://api.wwbota.net/spots/` (the spots of
-the last hour) and runs it through `runIngest` into `raw_spots`. There is no relay change and no
+the last hour) and runs it through `runIngest` into `raw_spots`. There is no inbound change and no
 firehose table.
 
 - **Adapter.** `_shared/wwbota.ts`. The public spot has no id, so `source_spot_id` is `time` as
@@ -1029,7 +1029,7 @@ rollups keep per-station counts and breakdowns forever, never per-spotter rows (
   (`days_filled_at`) and its `reference_days` rows (`references_filled_at`). Right after the
   marker, in the same transaction, the day's `callsign_rollup_failures` row is deleted.
 - **Limits.** A day is rolled up from two hours after it ends (`last_rollup_day()`), covering the
-  relay's ~50 min buffer; a spot that arrives after that is not counted anywhere. An upstream edit
+  inbound's ~50 min buffer; a spot that arrives after that is not counted anywhere. An upstream edit
   of a spot (same `source_spot_id`, new `content_hash`) is a new `raw_spots` row and counts again,
   as on the Stats page; a re-poll of an unchanged spot inserts nothing.
 - **Whole days or none.** A day is refused, and retried on the next run, while no cty.dat is
@@ -1107,7 +1107,7 @@ rollups keep per-station counts and breakdowns forever, never per-spotter rows (
 
 ```mermaid
 flowchart LR
-  R[relay, every 6 h] -- "HEAD, then Range GETs" --> Z[[data.fcc.gov l_amat.zip]]
+  R[inbound, every 6 h] -- "HEAD, then Range GETs" --> Z[[data.fcc.gov l_amat.zip]]
   R -- "status, begin, rows x ~1,000, finish" --> F[load-licenses function]
   F -- "fcc_license_load_* RPCs" --> S[(fcc_uls_hd, fcc_uls_en, fcc_uls_am, license_loads)]
   C[pg_cron :50 hourly] -- "apply_license_loads()" --> S
@@ -1120,32 +1120,32 @@ registries can load into it later; FCC is the only loader for now.
 
 - **Where it runs.** The FCC publishes the full amateur file, `l_amat.zip`, every Sunday: about
   200 MB, of which the three files used are 160 MB compressed and 525 MB inflated, about 1.7M
-  records each. An Edge Function cannot stream that within its limits, so the relay does
-  (`relay/licenses.ts`). Every six hours it HEADs the file. A relay whose functions URL is local
-  does not load licenses unless `RELAY_LICENSES` names a file. When the `Last-Modified` is not already
+  records each. An Edge Function cannot stream that within its limits, so the inbound worker does
+  (`inbound/licenses.ts`). Every six hours it HEADs the file. An inbound worker whose functions URL is local
+  does not load licenses unless `INBOUND_LICENSES` names a file. When the `Last-Modified` is not already
   ready or applied (`fcc_license_load_status`), it loads it; a load that did not finish is retried
   after twelve hours, so a load that keeps failing downloads the file twice a day at most.
-- **Streaming.** `relay/zip.ts` reads the zip's central directory from its tail, then fetches only
+- **Streaming.** `inbound/zip.ts` reads the zip's central directory from its tail, then fetches only
   `HD.dat`, `EN.dat` and `AM.dat` with Range requests and inflates them with
   `DecompressionStream`. Every range carries `If-Range` with the strong ETag HEAD saw (else its `Last-Modified`;
   a weak-only validator is refused), and each body must match its `Content-Range` and each entry its
   CRC-32, so a
   file the FCC replaces mid-load comes back as a 200, which is refused, rather than as a mix of
   two weeks' bytes. Memory stays flat (a full run against the real file parsed all three in
-  13 s before network time and stayed under the relay's 160 MB heap); an inflated size that differs from the directory's is
+  13 s before network time and stayed under the inbound worker's 160 MB heap); an inflated size that differs from the directory's is
   an error, which catches a truncated download.
 - **Parsing.** `_shared/uls.ts` turns records into rows: HD gives call, status and dates, EN the
   licensee's name and state, AM the operator class. Codes become labels (`Amateur Extra`,
   `Active`). A field with a line break in it is joined back onto its record. Nothing else leaves
   the parser: no street address, city, ZIP, PO box, phone, email or FRN. The staging tables have no
   columns for them either, and `jsonb_to_recordset` drops any such key.
-- **Staging.** The files are not sorted by system identifier, so the relay cannot join them in
-  memory. It pushes 5,000 rows per request to `load-licenses` (relay secret, `verify_jwt =
+- **Staging.** The files are not sorted by system identifier, so the inbound worker cannot join them in
+  memory. It pushes 5,000 rows per request to `load-licenses` (inbound secret, `verify_jwt =
   false`), which stages them in unlogged tables keyed by system identifier. A retried batch is
   skipped by `on conflict do nothing`. Each `rows` call answers the file's running total, kept in
   `license_loads.counts` in the same transaction, so a batch retried after a lost reply is not
   counted twice or lost. `finish` compares those totals with the tables and marks the load
-  `ready`. Fewer than 500,000 records in any file is refused first. When the relay gives up (a
+  `ready`. Fewer than 500,000 records in any file is refused first. When the inbound worker gives up (a
   short file, a batch that keeps failing, a shutdown) it calls `abandon`, which fails the load
   with the reason and empties staging at once.
 - **The swap.** Replacing about 1.5M rows takes longer than the API's 8 s statement timeout, so the
@@ -1164,7 +1164,7 @@ registries can load into it later; FCC is the only loader for now.
 
 ```mermaid
 flowchart LR
-  R[relay, daily check] -- "HEAD, then GET when due" --> P[[pota.app, sota.org.uk, wwff.co lists]]
+  R[inbound, daily check] -- "HEAD, then GET when due" --> P[[pota.app, sota.org.uk, wwff.co lists]]
   R -- "status, begin, rows x 2,000, finish" --> F[load-references function]
   F -- "*_reference_load(s) RPCs" --> S[(reference_catalog_stage, reference_catalog_loads)]
   C[pg_cron :55 hourly] -- "apply_reference_loads()" --> S
@@ -1179,14 +1179,14 @@ and points, and the valid dates. No raw upstream row is kept.
 
 - **Where it runs.** The three lists are 10 to 25 MB of CSV (POTA `all_parks_ext.csv`, SOTA
   `summitslist.csv`, WWFF `wwff_directory.csv`), too much to parse in one Edge Function request,
-  so the relay loads them (`relay/catalogs.ts`), the way it loads the FCC licenses. Once a day it
+  so the inbound worker loads them (`inbound/catalogs.ts`), the way it loads the FCC licenses. Once a day it
   HEADs each list with its User-Agent. A program's list is downloaded when its last applied load
   began at least seven days ago (its start, not `applied_at`, which the hourly swap puts after the
   seventh daily check) and the file's `Last-Modified` is newer (`reference_load_status`);
   POTA's file changes daily, so the week is what keeps it to one download per program a week. One
   program at a time, so at most one download is open. A version whose newest load was refused,
   finished or applied is never downloaded again, and a load that did not finish is retried after
-  twelve hours. A relay whose functions URL is local loads nothing unless `RELAY_CATALOGS=on`.
+  twelve hours. An inbound worker whose functions URL is local loads nothing unless `INBOUND_CATALOGS=on`.
 - **Parsing.** `_shared/reference_catalog.ts` is a streaming CSV reader with no dependency and the
   per-program column mapping (spec "Schema > Catalog"). Columns are found by header name, never
   position; SOTA's title line before its header is skipped. An empty value or `-` is null,
@@ -1200,16 +1200,16 @@ and points, and the valid dates. No raw upstream row is kept.
   `stage_reference_rows` takes cty.dat's entity for the row's `dxcc` prefix (`cty_lookup` once per
   distinct plain prefix in the batch; `AN`, WWFF's Antarctica, is looked up as `CE9`) and the
   directory's `country` only when that finds none. The parser passes `dxcc`; it is not stored.
-- **Staging.** The relay posts 2,000 rows per request to `load-references` (relay secret,
+- **Staging.** The inbound worker posts 2,000 rows per request to `load-references` (inbound secret,
   `verify_jwt = false`; the function accepts up to 5,000). `begin_reference_load` abandons the
   program's open loads. `stage_reference_rows` skips a reference already staged in the load and
   answers the load's running total, kept on the load row in the same transaction, so a batch
-  retried after a lost reply is neither counted twice nor lost; the relay passes the last total to
-  `finish_reference_load`. When the relay gives up (a failed batch, a short read, a shutdown) it
+  retried after a lost reply is neither counted twice nor lost; the inbound worker passes the last total to
+  `finish_reference_load`. When the inbound worker gives up (a failed batch, a short read, a shutdown) it
   calls `abandon`, which deletes the staged rows at once. The stage is a logged table, unlike the
   license staging, so a crash between finish and apply does not empty it.
 - **A truncated list never replaces a good one.** `finish_reference_load` refuses a load whose
-  stage differs from the relay's count or holds fewer rows than `reference_load_floor(program)`:
+  stage differs from the inbound worker's count or holds fewer rows than `reference_load_floor(program)`:
   90% of the program's current rows, or 10,000 on a first load. The refusal is committed by that
   call (it does not raise) and its staged rows go.
 - **The swap.** `apply_reference_loads()` runs from pg_cron at :55. Per program, in its own
@@ -1220,7 +1220,7 @@ and points, and the valid dates. No raw upstream row is kept.
   neither swaps nor refuses anything while some program's newest load is refused, it raises, so
   `/health`'s Scheduled jobs card shows the job failing until a good load lands. A run that refused
   a load itself commits instead: raising would roll that refusal back and leave the load
-  `finished`, which the relay waits on, for as long as the other program stays refused.
+  `finished`, which the inbound worker waits on, for as long as the other program stays refused.
 - **Access.** Service-role only: the three tables (RLS on, no policies) and every RPC. Clients
   read the catalog only through the reference profile ("Reference profiles").
 

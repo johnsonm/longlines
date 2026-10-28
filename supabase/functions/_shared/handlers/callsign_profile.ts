@@ -42,7 +42,7 @@ const lookupCountSchema: z.ZodType<number> = z.number();
  * A cached profile or group page (cached_callsign_profile, public_group_statistics): the payload
  * object relayed as built, passed through rather than copied, or null when there is none.
  */
-export const relayedPayloadSchema: z.ZodType<JsonObject | null> = jsonObjectSchema.nullable();
+export const inboundedPayloadSchema: z.ZodType<JsonObject | null> = jsonObjectSchema.nullable();
 
 export interface ProfileDeps {
   /** Service-role client for the rate-limit and profile RPCs. */
@@ -315,7 +315,7 @@ export async function handleProfile(req: Request, deps: ProfileDeps): Promise<Re
   let payload: JsonObject | null;
   try {
     payload = parseWith(
-      relayedPayloadSchema,
+      inboundedPayloadSchema,
       profile.data,
       "handleProfile: cached_callsign_profile result",
     );

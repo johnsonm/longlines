@@ -3,12 +3,12 @@
 Date: 2026-10-22. Status: **complete** (the wrap-up PR, 2026-10-26, was the last step). Part 1 (style, enforced by ESLint) lands as one tooling
 PR (0b) and one PR per area; Part 2 (Zod at every external boundary and a strict error style)
 follows the same areas. Brad merges them one at a time: 0a runtime config, 0b tooling, Part 1
-ingest, archive, handlers, delivery, relay, sender, then Part 2 setup, surface, the same six
+ingest, archive, handlers, delivery, inbound, sender, then Part 2 setup, surface, the same six
 areas, and a wrap-up. Each PR's chat stays inside its own files.
 
-The aim is plain, explicit, Go-style TypeScript in `supabase/functions`, `relay/`, `sender/` and
+The aim is plain, explicit, Go-style TypeScript in `supabase/functions`, `inbound/`, `sender/` and
 `scripts/`. The rules are in `eslint.config.ts`; CLAUDE.md's "TypeScript (supabase/functions,
-relay, sender, scripts)" section is the short version.
+inbound, sender, scripts)" section is the short version.
 
 ## Rules for every area PR
 
@@ -54,7 +54,7 @@ Dependencies are module-level constants.
 ### Imports
 
 Use bare names, each mapped in the root `deno.json` and in every `deno.json` that ships the
-module: the function's own, `relay/deno.json` or `sender/deno.json`.
+module: the function's own, `inbound/deno.json` or `sender/deno.json`.
 
 ### Lint configuration
 
@@ -70,18 +70,18 @@ Add a short comment above anything non-obvious and match the surrounding density
 
 - `npx eslint --max-warnings 0 --no-inline-config <owned paths>` reports 0 errors.
 - `npm run typecheck`, `deno task check`, `deno task lint`,
-  `deno fmt --check supabase/functions scripts relay sender deno.json` and `deno task test` pass.
+  `deno fmt --check supabase/functions scripts inbound sender deno.json` and `deno task test` pass.
 - `deno task coverage` stays at or above 80% at the end.
 
 Commit each group.
 
-### Formatting relay/ and sender/ on their own
+### Formatting inbound/ and sender/ on their own
 
-`relay/deno.json` and `sender/deno.json` hold only an import map (`app_config.test.ts` enforces
-it), so `deno fmt relay` or `deno fmt sender/db.ts` picks up the nearest config and formats at
+`inbound/deno.json` and `sender/deno.json` hold only an import map (`app_config.test.ts` enforces
+it), so `deno fmt inbound` or `deno fmt sender/db.ts` picks up the nearest config and formats at
 width 80, not 100. The CI command passes because `supabase/functions` comes first. When
-formatting only relay or sender files, pass the root config:
-`deno fmt --config deno.json relay sender`.
+formatting only inbound or sender files, pass the root config:
+`deno fmt --config deno.json inbound sender`.
 
 ## The config
 
@@ -106,7 +106,7 @@ formatting only relay or sender files, pass the root config:
   `no-confusing-void-expression`.
 
 The tests glob matches exactly the three test directories: all 68 files under
-`supabase/functions/_shared/__tests__/` (55), `relay/__tests__/` (8) and `sender/__tests__/` (5),
+`supabase/functions/_shared/__tests__/` (55), `inbound/__tests__/` (8) and `sender/__tests__/` (5),
 helpers included (`fake_supabase.ts`, `zip_server.ts`, `construct_client.ts`), and none of the
 other 91. `supabase/functions/send-test/index.ts` and `supabase/functions/_shared/handlers/test_delivery.ts`
 are source and get the full rules. No other test-looking path exists in the four directories
@@ -119,25 +119,25 @@ by matching each file against the globs).
 
 | Area | Files | A merge auto-deploys | Edge Functions expected to be affected |
 | --- | --- | --- | --- |
-| ingest | 34 | relay (it loads most of these modules), sender (`_shared/hmac.ts`) | all 19, since every function loads `_shared/db.ts` |
-| archive | 12 | relay (`_shared/uls.ts`) | all 19 through `cty.ts` and `uls.ts`; archive, convert-archive and import-cty have the most at stake |
+| ingest | 34 | inbound (it loads most of these modules), sender (`_shared/hmac.ts`) | all 19, since every function loads `_shared/db.ts` |
+| archive | 12 | inbound (`_shared/uls.ts`) | all 19 through `cty.ts` and `uls.ts`; archive, convert-archive and import-cty have the most at stake |
 | handlers | 67 | nothing | all 19 (every entrypoint and its handler) |
 | delivery | 15 | sender | api, send-test |
-| relay | 19 | relay | none |
+| inbound | 19 | inbound | none |
 | sender | 10 | sender | none |
 | scripts | 2 | nothing | none (fixed in the tooling PR, never pending) |
 
 The 19 functions are api, archive, band-map, callsign-profile, convert-archive, delete-account,
 group-page, health, import-cty, ingest-aprs, ingest-dxcluster, ingest-pota, ingest-rbn,
-ingest-sotawatch, ingest-wwff, load-licenses, relay-status, send-test and sign-in. Work out the
+ingest-sotawatch, ingest-wwff, load-licenses, inbound-status, send-test and sign-in. Work out the
 real list for a PR with `deno info --json --config supabase/functions/<fn>/deno.json
 supabase/functions/<fn>/index.ts` and the changed files.
 
 Globs:
 
-- **ingest**: `_shared/{pota,sotawatch,wwff,dxcluster,rbn,rbn_push,aprs,relay_lines,ingest,normalize,modes,bands,hash,strip_nul,types,db,http,hmac}.ts`
+- **ingest**: `_shared/{pota,sotawatch,wwff,dxcluster,rbn,rbn_push,aprs,inbound_lines,ingest,normalize,modes,bands,hash,strip_nul,types,db,http,hmac}.ts`
   and their tests in `_shared/__tests__/` (`aprs`, `bands`, `db`, `dxcluster`, `hash`, `http`,
-  `ingest`, `modes`, `normalize`, `pota`, `rbn`, `rbn_push`, `relay_lines`, `sotawatch`,
+  `ingest`, `modes`, `normalize`, `pota`, `rbn`, `rbn_push`, `inbound_lines`, `sotawatch`,
   `strip_nul`, `wwff`).
 - **archive**: `_shared/{archive,archive_convert,archive_store,s3,cty,uls}.ts` and their tests.
 - **handlers**: `_shared/handlers/*.ts`, `_shared/api/*.ts`, `supabase/functions/*/index.ts`,
@@ -146,7 +146,7 @@ Globs:
   `profile_lock_db`, `serve`, `serve_ingest`, `signin`, `timing`, plus the helper
   `fake_supabase.ts`.
 - **delivery**: `_shared/delivery/*.ts` and the tests `delivery_*`, `pinned_http`, `webpush`.
-- **relay**: `relay/*.ts`, `relay/__tests__/*.ts`.
+- **inbound**: `inbound/*.ts`, `inbound/__tests__/*.ts`.
 - **sender**: `sender/*.ts`, `sender/__tests__/*.ts`.
 
 New files later setup PRs add (`errors.ts`, `validate.ts` and their tests) are outside every area
@@ -165,7 +165,7 @@ By area:
 | archive | 165 | 186 | 253 | 351 | 418 |
 | handlers | 317 | 498 | 615 | 815 | 932 |
 | delivery | 312 | 534 | 641 | 846 | 953 |
-| relay | 245 | 289 | 431 | 534 | 676 |
+| inbound | 245 | 289 | 431 | 534 | 676 |
 | sender | 147 | 154 | 216 | 301 | 363 |
 | scripts | 24 | 0 | 0 | 24 | 24 |
 | **Total** | 1,436 | 2,029 | 2,588 | 3,465 | 4,024 |
@@ -225,7 +225,7 @@ The `as` cast did not error (deferred). With the five `no-unsafe-*` rules and
 ## Setup deviations
 
 - **`--no-error-on-unmatched-pattern` in `npm run lint`.** While every file under
-  `supabase/functions`, `relay` or `sender` is pending, ESLint stops with "all of the files
+  `supabase/functions`, `inbound` or `sender` is pending, ESLint stops with "all of the files
   matching the glob pattern are ignored". The Part 2 setup PR dropped it, `pendingStyle` being
   gone.
 - **`@types/node` and `"types": ["node"]` in `tsconfig.json`.** Deno takes `setTimeout` and
@@ -240,7 +240,7 @@ The `as` cast did not error (deferred). With the five `no-unsafe-*` rules and
 - **`tsc -p .`** reports nothing from `deno.d.ts`. It reports 8 errors, all in
   `_shared/__tests__/profile_lock_db.test.ts`, which imports `npm:postgres@3.4.9` instead of the
   bare `postgres` the root `deno.json` already maps. The handlers PR should change that import.
-- **The fmt width for relay/ and sender/** is not fixed (see "Formatting relay/ and sender/ on
+- **The fmt width for inbound/ and sender/** is not fixed (see "Formatting inbound/ and sender/ on
   their own"): this PR does not touch either app, and their `deno.json` may hold only an import
   map.
 
@@ -319,7 +319,7 @@ Boundaries are the only places with `catch`:
 - request handlers (`_shared/handlers/*`, `serve.ts`, `serve_ingest.ts`, entrypoints);
 - per-item isolation that CLAUDE.md requires: `runIngest` per spot into `ingest_failures`,
   `runDeliveryBatch` per destination into mark/throttle, archive per slice;
-- process loops: relay connect and forward loops, sender cycle, watchdog, best-effort heartbeats
+- process loops: inbound connect and forward loops, sender cycle, watchdog, best-effort heartbeats
   (CLAUDE.md: "logged, never retried");
 - shutdown paths.
 
@@ -344,7 +344,7 @@ included, and in function types and interface methods too (`FunctionClient.push`
 `StatusLoop.post`, `SqlClient.end`), which the selector does not reach. Callers pass every
 argument: the old default where there was one, `undefined` where the parameter was optional.
 Options objects keep their optional fields; a caller with none passes `{}`. One client became a
-class: the relay's `FunctionPoster` (`relay/functions.ts`). Every `create*` factory stayed a
+class: the inbound worker's `FunctionPoster` (`inbound/functions.ts`). Every `create*` factory stayed a
 factory.
 
 ### Unknown shapes
@@ -366,7 +366,7 @@ By area:
 | archive | 31 | 8 | 39 |
 | handlers | 65 | 44 | 109 |
 | delivery | 51 | 12 | 63 |
-| relay | 54 | 11 | 65 |
+| inbound | 54 | 11 | 65 |
 | sender | 30 | 8 | 38 |
 | **Total** | 261 | 90 | 351 |
 
@@ -387,17 +387,17 @@ Default and optional parameters by file (default, optional), 147 in 69 files:
 
 | File | Default | Optional |
 | --- | ---: | ---: |
-| `relay/__tests__/forwarder.test.ts` | 1 | 0 |
-| `relay/__tests__/licenses.test.ts` | 3 | 0 |
-| `relay/__tests__/modules.test.ts` | 1 | 2 |
-| `relay/__tests__/zip.test.ts` | 0 | 1 |
-| `relay/__tests__/zip_server.ts` | 2 | 1 |
-| `relay/functions.ts` | 2 | 2 |
-| `relay/health.ts` | 1 | 0 |
-| `relay/main.ts` | 1 | 0 |
-| `relay/relay.ts` | 1 | 0 |
-| `relay/telnet.ts` | 1 | 0 |
-| `relay/zip.ts` | 3 | 1 |
+| `inbound/__tests__/forwarder.test.ts` | 1 | 0 |
+| `inbound/__tests__/licenses.test.ts` | 3 | 0 |
+| `inbound/__tests__/modules.test.ts` | 1 | 2 |
+| `inbound/__tests__/zip.test.ts` | 0 | 1 |
+| `inbound/__tests__/zip_server.ts` | 2 | 1 |
+| `inbound/functions.ts` | 2 | 2 |
+| `inbound/health.ts` | 1 | 0 |
+| `inbound/main.ts` | 1 | 0 |
+| `inbound/inbound.ts` | 1 | 0 |
+| `inbound/telnet.ts` | 1 | 0 |
+| `inbound/zip.ts` | 3 | 1 |
 | `sender/__tests__/db.test.ts` | 1 | 1 |
 | `sender/__tests__/sender.test.ts` | 6 | 0 |
 | `sender/config.ts` | 0 | 1 |
@@ -425,7 +425,7 @@ Default and optional parameters by file (default, optional), 147 in 69 files:
 | `_shared/__tests__/handlers_health.test.ts` | 1 | 0 |
 | `_shared/__tests__/handlers_import_cty.test.ts` | 0 | 1 |
 | `_shared/__tests__/handlers_load_licenses.test.ts` | 3 | 0 |
-| `_shared/__tests__/handlers_relay_status.test.ts` | 4 | 0 |
+| `_shared/__tests__/handlers_inbound_status.test.ts` | 4 | 0 |
 | `_shared/__tests__/handlers_sign_in.test.ts` | 4 | 0 |
 | `_shared/__tests__/handlers_test_delivery.test.ts` | 3 | 0 |
 | `_shared/__tests__/ingest.test.ts` | 2 | 0 |
@@ -479,7 +479,7 @@ on `JSON.parse`'s result, and `z.looseObject(...)` and `z.strictObject(...)` (li
 ```
 
 (plus two `no-unused-vars` and a `no-unnecessary-type-assertion` from the canary itself). The
-same file under `relay/`, a pending area, reported only those three.
+same file under `inbound/`, a pending area, reported only those three.
 
 A second canary threw our classes inside a catch. `throw new ValidationError("...", { cause:
 caught, where: "..." })` passed; the same without `cause` reported `missingCause`, and
@@ -490,10 +490,10 @@ deleted.
 ### Setup deviations
 
 - **zod is mapped as `npm:zod@4.6.7`, not `npm:zod@4`.** 4.6.7 is what Deno resolves for
-  `npm:zod@4`. `app_config.test.ts` requires the relay's and the sender's mappings to equal the
+  `npm:zod@4`. `app_config.test.ts` requires the inbound worker's and the sender's mappings to equal the
   root's and to be exact versions (the images have no `deno.lock`), so the root and every
   function's `deno.json` use the exact version too.
-- **The relay's and the sender's `deno.json` map zod before either loads it**, so the Part 2
+- **The inbound worker's and the sender's `deno.json` map zod before either loads it**, so the Part 2
   areas can import it without touching the app configs.
 - **`preserve-caught-error` takes `errorClassNames`** (see "Canary").
 
@@ -503,13 +503,13 @@ The last PR of the effort (2026-10-26). `zodPending` was already gone (the Part 
 `npm run lint` reported 0 before and after.
 
 - **One shared class.** `TimeoutError` joined `errors.ts`: the sender's `withTimeout` had its own,
-  and the relay threw `LicenseImportError` and `ZipError` for the same thing (a download with no
+  and the inbound worker threw `LicenseImportError` and `ZipError` for the same thing (a download with no
   data, a range request with no headers in time). `LicenseImportError` now means only an abort and
   `ZipError` only a zip that cannot be read. The other module-local classes each mean something no
   other does and stay where they are, all with errors.ts's `(message, { cause })` constructor.
 - **One schema per producer.** send-test reads the test RPCs with the claim's schemas
   (`delivery/types.ts`), so a webhook header whose Vault value no longer decrypts is skipped in a
-  test as in a delivery; db.ts and the relay read `fcc_license_load_status` with
+  test as in a delivery; db.ts and the inbound worker read `fcc_license_load_status` with
   `licenseLoadSchema` (`uls.ts`).
 - **`preserve-caught-error`** names every error class in the code.
 - **Left as they are, on purpose:** hand-thrown `ValidationError` messages do not repeat `where`

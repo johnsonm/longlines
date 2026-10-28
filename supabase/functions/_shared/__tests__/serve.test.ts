@@ -22,9 +22,9 @@ const db: IngestDb = {
   matchPendingSpots: () => Promise.resolve(0),
 };
 
-// Push handler (relay -> ingest-rbn).
+// Push handler (inbound -> ingest-rbn).
 
-const SECRET = "relay-secret";
+const SECRET = "inbound-secret";
 
 function pushHandler(
   overrides: { secret?: string },
@@ -54,22 +54,22 @@ function pushHandler(
   return { handler, bodies };
 }
 
-function relayRequest(method: string, secret: string | null, body: string | undefined): Request {
+function inboundRequest(method: string, secret: string | null, body: string | undefined): Request {
   const headers = new Headers();
   if (secret !== null) {
-    headers.set("x-relay-secret", secret);
+    headers.set("x-inbound-secret", secret);
   }
   return new Request("http://x/", { method, headers, body });
 }
 
 Deno.test(
-  "pushIngestHandler rejects a missing or wrong relay secret",
+  "pushIngestHandler rejects a missing or wrong inbound secret",
   async function (): Promise<void> {
     const pushed = pushHandler({});
     const handler = pushed.handler;
     const bodies = pushed.bodies;
-    for (const secret of [null, "", "relay-secreT", "relay-secret2"]) {
-      const res = await handler(relayRequest("POST", secret, "{}"));
+    for (const secret of [null, "", "inbound-secreT", "inbound-secret2"]) {
+      const res = await handler(inboundRequest("POST", secret, "{}"));
       assertEquals(res.status, 401);
       assertEquals(await res.json(), { source: "rbn", error: "unauthorized" });
     }
@@ -81,9 +81,9 @@ Deno.test(
   "pushIngestHandler fails closed when the secret is not configured",
   async function (): Promise<void> {
     const handler = pushHandler({ secret: undefined }).handler;
-    const res = await handler(relayRequest("POST", "", "{}"));
+    const res = await handler(inboundRequest("POST", "", "{}"));
     assertEquals(res.status, 500);
-    assertEquals((await res.json()).error, "missing environment variable LONGLINES_RELAY_SECRET");
+    assertEquals((await res.json()).error, "missing environment variable LONGLINES_INBOUND_SECRET");
   },
 );
 
@@ -93,7 +93,7 @@ Deno.test(
     const pushed = pushHandler({});
     const handler = pushed.handler;
     const bodies = pushed.bodies;
-    const res = await handler(relayRequest("POST", SECRET, JSON.stringify({ lines: [] })));
+    const res = await handler(inboundRequest("POST", SECRET, JSON.stringify({ lines: [] })));
     assertEquals(res.status, 200);
     assertEquals((await res.json()).source, "rbn");
     assertEquals(bodies, [{ lines: [] }]);
@@ -106,7 +106,7 @@ Deno.test(
     const pushed = pushHandler({});
     const handler = pushed.handler;
     const bodies = pushed.bodies;
-    const res = await handler(relayRequest("POST", SECRET, "not json"));
+    const res = await handler(inboundRequest("POST", SECRET, "not json"));
     assertEquals(res.status, 400);
     assertEquals(bodies, []);
   },
@@ -123,7 +123,7 @@ Deno.test(
     });
     const req = new Request("http://x/", {
       method: "POST",
-      headers: { "x-relay-secret": SECRET },
+      headers: { "x-inbound-secret": SECRET },
       body: broken,
     });
     const res = await pushed.handler(req);
@@ -135,7 +135,7 @@ Deno.test(
 
 Deno.test("pushIngestHandler refuses other methods", async function (): Promise<void> {
   const handler = pushHandler({}).handler;
-  assertEquals((await handler(relayRequest("DELETE", SECRET, undefined))).status, 405);
+  assertEquals((await handler(inboundRequest("DELETE", SECRET, undefined))).status, 405);
 });
 
 Deno.test(
@@ -145,17 +145,17 @@ Deno.test(
       db: () => db,
       secret: () => SECRET,
     });
-    const res = await handler(relayRequest("POST", SECRET, JSON.stringify({ lines: [] })));
+    const res = await handler(inboundRequest("POST", SECRET, JSON.stringify({ lines: [] })));
     assertEquals(res.status, 500);
     assertEquals(await res.json(), { source: "rbn", error: "disk full" });
   },
 );
 
 Deno.test(
-  "pushIngestHandler refuses GET now that the relay no longer reads a watchlist",
+  "pushIngestHandler refuses GET now that the inbound worker no longer reads a watchlist",
   async function (): Promise<void> {
     const handler = pushHandler({}).handler;
-    assertEquals((await handler(relayRequest("GET", SECRET, undefined))).status, 405);
+    assertEquals((await handler(inboundRequest("GET", SECRET, undefined))).status, 405);
   },
 );
 

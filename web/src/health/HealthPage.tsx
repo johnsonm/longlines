@@ -349,7 +349,7 @@ function Charts({ payload }: { payload: HealthPayload }) {
               unit="MB"
               lines={[
                 { label: "Sender", data: memory(series.sender_memory), color: text },
-                { label: "Relay", data: memory(series.relay_memory), color: muted },
+                { label: "Inbound", data: memory(series.inbound_memory), color: muted },
               ]}
               limit={{ value: mb(limits.worker_memory_bytes), label: "Machine limit" }}
             />

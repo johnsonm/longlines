@@ -1,4 +1,4 @@
-// The reference list load, called by the relay (relay/catalogs.ts) with the relay secret, one
+// The reference list load, called by the inbound worker (inbound/catalogs.ts) with the inbound secret, one
 // action per POST: status, begin, rows (repeated), then finish or abandon. Each is one RPC of
 // 20261026001100; pg_cron's apply_reference_loads swaps a finished load into reference_catalog.
 // A database error answers 500 with its message.
@@ -19,7 +19,7 @@ import {
 import { type JsonObject, jsonObjectSchema, type ReferenceDb } from "../types.ts";
 
 export interface LoadReferencesDeps {
-  /** LONGLINES_RELAY_SECRET; undefined when unset. */
+  /** LONGLINES_INBOUND_SECRET; undefined when unset. */
   secret: string | undefined;
   db: () => ReferenceDb;
 }
@@ -34,7 +34,7 @@ const nullableNumber = z.number().nullable();
 const nullableInteger = z.number().int().nullable();
 const nullableDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable();
 
-// The staging rows our relay builds (ReferenceCatalogParser in reference_catalog.ts): strict.
+// The staging rows our inbound builds (ReferenceCatalogParser in reference_catalog.ts): strict.
 // stage_reference_rows reads them with jsonb_to_recordset.
 const rowSchema: z.ZodType<ReferenceCatalogRow> = z.strictObject({
   reference: z.string().min(1).max(64),
@@ -59,7 +59,7 @@ const ROWS_COUNT_MESSAGE = `rows needs 1 to ${String(MAX_REFERENCE_ROWS_PER_REQU
 const FINISH_MESSAGE = "finish needs a load and the rows staged";
 const ABANDON_MESSAGE = "abandon needs a load and an error";
 
-// Our relay's requests (referenceClient in relay/catalogs.ts): strict, one schema per action. Each
+// Our inbound's requests (referenceClient in inbound/catalogs.ts): strict, one schema per action. Each
 // part's message is the one the handler answers. Not annotated: a member of the discriminated
 // union below must keep its literal action.
 const statusRequestSchema = z.strictObject({ action: z.literal("status") });
@@ -180,10 +180,10 @@ export async function handleLoadReferences(
   deps: LoadReferencesDeps,
 ): Promise<Response> {
   if (deps.secret === undefined || deps.secret === "") {
-    console.error("load-references: missing environment variable LONGLINES_RELAY_SECRET");
-    return Response.json({ error: "relay secret is not configured" }, { status: 500 });
+    console.error("load-references: missing environment variable LONGLINES_INBOUND_SECRET");
+    return Response.json({ error: "inbound secret is not configured" }, { status: 500 });
   }
-  let header = req.headers.get("x-relay-secret");
+  let header = req.headers.get("x-inbound-secret");
   if (header === null) {
     header = "";
   }
@@ -198,7 +198,7 @@ export async function handleLoadReferences(
   try {
     body = await req.json();
   } catch (error) {
-    // Bad JSON is the relay's fault; anything else (a broken stream) is ours.
+    // Bad JSON is the inbound worker's fault; anything else (a broken stream) is ours.
     if (error instanceof SyntaxError) {
       return Response.json({ error: "request body is not JSON" }, { status: 400 });
     }

@@ -22,7 +22,7 @@
   "include": [
     "deno.d.ts",
     "supabase/functions/**/*.ts",
-    "relay/**/*.ts",
+    "inbound/**/*.ts",
     "sender/**/*.ts",
     "scripts/**/*.ts"
   ]

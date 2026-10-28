@@ -1,10 +1,10 @@
 import { assertEquals } from "@std/assert";
 import { Forwarder } from "../forwarder.ts";
-import type { RelayLine } from "../functions.ts";
+import type { InboundLine } from "../functions.ts";
 
 function setup(options: { fail?: () => boolean; maxBuffer?: number }) {
   let t = 1_000_000;
-  const pushes: RelayLine[][] = [];
+  const pushes: InboundLine[][] = [];
   const logs: string[] = [];
   let release: (() => void) | null = null;
   let hold = false;
@@ -12,7 +12,7 @@ function setup(options: { fail?: () => boolean; maxBuffer?: number }) {
   if (options.maxBuffer !== undefined) {
     maxBuffer = options.maxBuffer;
   }
-  async function push(lines: RelayLine[]): Promise<void> {
+  async function push(lines: InboundLine[]): Promise<void> {
     if (hold) {
       await new Promise<void>((r) => release = r);
     }
@@ -44,7 +44,7 @@ function setup(options: { fail?: () => boolean; maxBuffer?: number }) {
   };
 }
 
-function line(n: number): RelayLine {
+function line(n: number): InboundLine {
   return { line: `L${n}`, received_at: "2026-10-11T00:00:00Z" };
 }
 
@@ -152,8 +152,8 @@ Deno.test(
 Deno.test(
   "Forwarder defaults: batches of 1,000 and a 50,000-line buffer",
   async function (): Promise<void> {
-    const pushes: RelayLine[][] = [];
-    function push(lines: RelayLine[]): Promise<void> {
+    const pushes: InboundLine[][] = [];
+    function push(lines: InboundLine[]): Promise<void> {
       pushes.push(lines);
       return Promise.resolve();
     }
@@ -222,8 +222,8 @@ Deno.test(
 Deno.test(
   "Forwarder.drain empties a buffer larger than one batch",
   async function (): Promise<void> {
-    const pushes: RelayLine[][] = [];
-    function push(lines: RelayLine[]): Promise<void> {
+    const pushes: InboundLine[][] = [];
+    function push(lines: InboundLine[]): Promise<void> {
       pushes.push(lines);
       return Promise.resolve();
     }
@@ -254,7 +254,7 @@ Deno.test(
     const signals: AbortSignal[] = [];
     const logs: string[] = [];
     // Never settles on its own, as if the function hung; it does not watch the signal either.
-    function push(_lines: RelayLine[], signal: AbortSignal): Promise<void> {
+    function push(_lines: InboundLine[], signal: AbortSignal): Promise<void> {
       signals.push(signal);
       return new Promise(noop);
     }

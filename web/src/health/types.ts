@@ -7,7 +7,7 @@ export type HealthRange = "1h" | "24h" | "7d";
 /** Every status is decided in SQL; `unknown` means nothing has reported yet. */
 export type HealthStatus = "healthy" | "delayed" | "failing" | "unknown";
 
-/** Seconds since a source last succeeded (pulled) or the relay last pushed it; null if never. */
+/** Seconds since a source last succeeded (pulled) or the inbound worker last pushed it; null if never. */
 export interface SourceAge {
   source: string;
   seconds: number | null;
@@ -15,7 +15,7 @@ export interface SourceAge {
 
 export interface HealthChecks {
   pulled: { status: HealthStatus; sources: SourceAge[] };
-  relay: { status: HealthStatus; feeds: SourceAge[]; reconnects_24h: number | null };
+  inbound: { status: HealthStatus; feeds: SourceAge[]; reconnects_24h: number | null };
   match_queue: { status: HealthStatus; waiting: number; oldest_seconds: number | null };
   delivery_queue: { status: HealthStatus; waiting: number; oldest_ready_seconds: number | null; throttled: number };
   sender: { status: HealthStatus; progress_seconds: number | null; restarts_24h: number | null; memory_bytes: number | null };
@@ -82,7 +82,7 @@ export interface HealthPayload {
     latency_p95: Series;
     spots: { pota: Series; sotawatch: Series; wwff: Series; wwbota: Series; dxcluster: Series };
     sender_memory: Series;
-    relay_memory: Series;
+    inbound_memory: Series;
   };
   jobs: HealthJob[];
 }

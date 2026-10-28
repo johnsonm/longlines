@@ -11,7 +11,7 @@ marked in Copy. The canvas's figures are mock data.
 ## Purpose
 
 There is no single place to see whether Long Lines is keeping up. Today an operator runs the
-queries in `docs/OPERATIONS.md` one by one, opens `fly logs` for the sender and the relay, and reads
+queries in `docs/OPERATIONS.md` one by one, opens `fly logs` for the sender and the inbound worker, and reads
 `cron.job_run_details` and `net._http_response` by hand.
 
 `/health` is a public, read-only page that answers "is anything stuck or behind?" at a glance:
@@ -26,8 +26,8 @@ It diagnoses nothing. When something is behind, the operator goes to Supabase or
 ## Decisions
 
 1. **Both workers report in.** The sender calls a new heartbeat RPC every `SENDER_STATS_MS`
-   (60 s). The relay posts to a new `relay-status` function every 60 s. Each heartbeat carries the
-   process start time and its RSS; the sender adds its last progress time, the relay its feeds and
+   (60 s). The inbound worker posts to a new `inbound-status` function every 60 s. Each heartbeat carries the
+   process start time and its RSS; the sender adds its last progress time, the inbound worker its feeds and
    reconnect count. Restarts are counted from distinct start times. *Decided by Brad 2026-10-21.*
 2. **Disk is measured against a knob.** `health_disk_limit_bytes()` returns 8 GB (Supabase Pro's
    included disk). Postgres can't see the plan's limit. Change the knob in a migration when the disk
@@ -68,8 +68,8 @@ It diagnoses nothing. When something is behind, the operator goes to Supabase or
 10. **Rules are SQL's.** Every status is decided in `health_snapshot`; the web words it. The rule
     text on the page is copy and has to match the SQL; `health_snapshot.test.sql` pins each
     threshold.
-11. **Relay feeds come from the relay.** The feeds checked are the latest relay heartbeat's (APRS-IS
-    is off until `APRS_LOGIN_CALL` is set). With no heartbeat in 10 minutes, they are the relay
+11. **Inbound feeds come from the inbound worker.** The feeds checked are the latest inbound heartbeat's (APRS-IS
+    is off until `APRS_LOGIN_CALL` is set). With no heartbeat in 10 minutes, they are the inbound worker
     sources with a success in the last 7 days.
 12. **Before the workers report, their rows say "No data".** The sender row, restarts, reconnects
     and memory are `unknown`/null until the workers report in (they ship to Fly when PR 1 merges, the
@@ -80,7 +80,7 @@ It diagnoses nothing. When something is behind, the operator goes to Supabase or
 | Check | Figures | Rule |
 | --- | --- | --- |
 | `pulled` (POTA, SOTAwatch, WWFF) | seconds since each source's `last_success_at` | Delayed when any is over 180 s or never |
-| `relay` (RBN, DX Cluster, APRS-IS) | seconds since each feed's `last_success_at` (the relay's 60 s heartbeat push), reconnects in 24 h | Delayed when any is over 180 s or never |
+| `inbound` (RBN, DX Cluster, APRS-IS) | seconds since each feed's `last_success_at` (the inbound worker's 60 s heartbeat push), reconnects in 24 h | Delayed when any is over 180 s or never |
 | `match_queue` | `spot_events` length and oldest age (`pgmq.metrics`) | Delayed when the oldest is over 120 s |
 | `delivery_queue` | `deliveries_queue` length, oldest ready (decision 4), destinations throttled now | Delayed when oldest ready is over 120 s |
 | `sender` | seconds since last progress, restarts in 24 h | Failing when over 120 s; unknown with no heartbeat |
@@ -96,8 +96,8 @@ A job run failed when cron says so, or, for a `cron_call_function` job, when its
 - `health_samples` (`sampled_at` primary key, `match_waiting`, `match_oldest_seconds`,
   `delivery_waiting`, `delivery_oldest_ready_seconds`, `throttled_destinations`, `db_connections`,
   `db_bytes`, `spots_total jsonb`).
-- `worker_heartbeats` (`id`, `worker` in `sender`/`relay`, `received_at`, `started_at`,
-  `rss_bytes`, `last_progress_at` (sender), `reconnects` (relay), `feeds jsonb` (relay)), indexed
+- `worker_heartbeats` (`id`, `worker` in `sender`/`inbound`, `received_at`, `started_at`,
+  `rss_bytes`, `last_progress_at` (sender), `reconnects` (inbound), `feeds jsonb` (inbound)), indexed
   `(worker, received_at desc)`.
 - `cron_http_requests` (`request_id` primary key, `job`, `sent_at`, `status_code`, `timed_out`,
   `answered_at`), indexed `(job, sent_at desc)`.
@@ -115,8 +115,8 @@ Functions, all `security definer` with pinned `search_path`, none granted to cli
   every minute.
 - `record_sender_heartbeat(p_started_at, p_last_progress_at, p_rss_bytes)`: granted to
   `delivery_sender` (allowlist, `sender_role.test.sql`).
-- `record_relay_heartbeat(p_started_at, p_rss_bytes, p_reconnects, p_feeds)`: service role, called
-  by `relay-status`.
+- `record_inbound_heartbeat(p_started_at, p_rss_bytes, p_reconnects, p_feeds)`: service role, called
+  by `inbound-status`.
 - `health_snapshot(p_range)` builds the payload; `cached_health(p_range)` serves it.
 
 The payload is `HealthPayload` in `web/src/health/types.ts`, pinned by
@@ -126,15 +126,15 @@ The payload is `HealthPayload` in `web/src/health/types.ts`, pinned by
 
 - `health`: as `band-map`. GET only, `range` defaults to `24h`, any other value is a 400.
   `Cache-Control: public, max-age=15`.
-- `relay-status`: POST with `x-relay-secret`, `verify_jwt = false`, never imports
+- `inbound-status`: POST with `x-inbound-secret`, `verify_jwt = false`, never imports
   `isServiceRole`. Body `{started_at, rss_bytes, reconnects, feeds: [{id, connected}]}`, checked in
-  TypeScript for shape, then `record_relay_heartbeat`.
+  TypeScript for shape, then `record_inbound_heartbeat`.
 
 ## Workers
 
 - Sender: `statsLoop` calls `record_sender_heartbeat` after `delivery_queue_stats`, with
   `Deno.memoryUsage().rss`. A failure is logged, never retried or counted as progress.
-- Relay: a status loop posts to `relay-status` every 60 s, first at start. Reconnects are
+- Inbound: a status loop posts to `inbound-status` every 60 s, first at start. Reconnects are
   `sum(connects - 1)` over feeds that have connected. A failure is logged.
 
 Both are best effort, so they can ship before or after the migration is hosted. The sender's RPC
@@ -152,8 +152,8 @@ is in the same PR as its grant and `sender_role.test.sql`, as the sender rules r
 
 ## PR order
 
-1. Spec, migration, pgTAP, `health` and `relay-status`, the sender and relay heartbeats,
-   `OPERATIONS.md`. The sender and relay ship to Fly on merge; hosted, `supabase db push` and deploy
+1. Spec, migration, pgTAP, `health` and `inbound-status`, the sender and inbound heartbeats,
+   `OPERATIONS.md`. The sender and inbound ship to Fly on merge; hosted, `supabase db push` and deploy
    both functions.
 2. The web page and generated types.
 
@@ -170,8 +170,8 @@ From the canvas, word for word except where marked.
   scheduled jobs. Times are local."
 - Range: "1 hour", "24 hours", "7 days". "Updated HH:MM:SS", "Refresh" (signed in only, *amended
   2026-10-21*: everyone else relies on the once-a-minute refresh).
-- Banner titles *(the canvas has one example)*: Pulled sources "Pulled sources are behind", Relay
-  "A relay feed is behind", Match queue "Matching is behind", Delivery queue "Outbound is slower
+- Banner titles *(the canvas has one example)*: Pulled sources "Pulled sources are behind", Inbound
+  "An inbound feed is behind", Match queue "Matching is behind", Delivery queue "Outbound is slower
   than usual", Sender "The sender has stopped", Database "The database is nearly full", Scheduled
   jobs "A scheduled job keeps failing", Archive "The archive is behind". Body: the check's Now text.
   More than one: the first in table order, and "N checks need attention." after the body.
@@ -180,7 +180,7 @@ From the canvas, word for word except where marked.
   for one failed run is "Last run failed" *(added)*.
 - Rows (name, caption, rule):
   - "Pulled sources", "POTA, SOTAwatch, WWFF", "Delayed after 3 min without a success"
-  - "Relay feeds", "RBN, DX Cluster, APRS-IS", "Delayed after 3 min without a push"
+  - "Inbound feeds", "RBN, DX Cluster, APRS-IS", "Delayed after 3 min without a push"
   - "Match queue", "spot_events", "Delayed when the oldest waits over 2 min"
   - "Delivery queue", "deliveries_queue", "Delayed when the oldest ready waits over 2 min"
   - "Sender", "Fly.io, longlines-sender", "Failing after 2 min without progress"

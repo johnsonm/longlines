@@ -14,11 +14,11 @@
     "zod": "npm:zod@4.6.7"
   },
   "tasks": {
-    "test": "deno test -P supabase/functions/_shared/__tests__/ relay/__tests__/ sender/__tests__/",
-    "check": "deno check supabase/functions/*/index.ts relay/main.ts sender/main.ts",
-    "lint": "deno lint supabase/functions scripts relay sender",
-    "fmt": "deno fmt supabase/functions scripts relay sender deno.json",
-    "coverage": "rm -rf coverage && deno test -P --coverage=coverage supabase/functions/_shared/__tests__/ relay/__tests__/ sender/__tests__/ && deno coverage --exclude=__tests__ coverage && deno coverage --lcov --output=coverage/lcov.info --exclude=__tests__ coverage && deno run --allow-read scripts/check-coverage.ts coverage/lcov.info 80"
+    "test": "deno test -P supabase/functions/_shared/__tests__/ inbound/__tests__/ sender/__tests__/",
+    "check": "deno check supabase/functions/*/index.ts inbound/main.ts sender/main.ts",
+    "lint": "deno lint supabase/functions scripts inbound sender",
+    "fmt": "deno fmt supabase/functions scripts inbound sender deno.json",
+    "coverage": "rm -rf coverage && deno test -P --coverage=coverage supabase/functions/_shared/__tests__/ inbound/__tests__/ sender/__tests__/ && deno coverage --exclude=__tests__ coverage && deno coverage --lcov --output=coverage/lcov.info --exclude=__tests__ coverage && deno run --allow-read scripts/check-coverage.ts coverage/lcov.info 80"
   },
   "lint": {
     "exclude": [
@@ -59,8 +59,8 @@
         "supabase/config.toml",
         "supabase/migrations",
         "deno.json",
-        "relay/Dockerfile",
-        "relay/deno.json",
+        "inbound/Dockerfile",
+        "inbound/deno.json",
         "sender/Dockerfile",
         "sender/deno.json"
       ]

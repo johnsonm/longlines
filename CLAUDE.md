@@ -10,10 +10,10 @@ exclusions in `docs/ARCHITECTURE.md` and the original spec are deliberate. Do no
 UI, consumers, notifications, cross-source dedup, or new sources without being asked.
 
 Everything runs on Supabase: Postgres (pg_cron, pg_net, pgmq) plus Deno Edge Functions in
-strict TypeScript. The exceptions are two Deno processes on Fly.io: `relay/`, which holds the
-inbound telnet streams (see "Relay rules"), and `sender/`, which sends outbound deliveries (see
+strict TypeScript. The exceptions are two Deno processes on Fly.io: `inbound/`, which holds the
+inbound telnet streams (see "Inbound worker rules"), and `sender/`, which sends outbound deliveries (see
 "Sender rules"). No JavaScript files, no `any` without a justifying comment (the Deno code adds
-none: see "TypeScript (supabase/functions, relay, sender, scripts)"), no new runtime dependencies
+none: see "TypeScript (supabase/functions, inbound, sender, scripts)"), no new runtime dependencies
 without a comment saying why.
 
 ## Commands
@@ -54,9 +54,9 @@ supabase db push                       # hosted: apply migrations
 supabase functions deploy ingest-pota  # hosted: deploy one function
 psql "$DATABASE_URL" -f scripts/setup-sender-role.sql   # hosted, once: the sender role's password (edit the placeholder first)
 
-docker build -f relay/Dockerfile .     # relay image; build context is the repo root
+docker build -f inbound/Dockerfile .     # inbound image; build context is the repo root
 docker build -f sender/Dockerfile .    # sender image, likewise
-fly deploy --config relay/fly.toml --ha=false    # hosted relay by hand; normally Fly's GitHub integration (config path relay/fly.toml)
+fly deploy --config inbound/fly.toml --ha=false    # hosted inbound worker by hand; normally Fly's GitHub integration (config path inbound/fly.toml)
 fly deploy --config sender/fly.toml --ha=false   # hosted sender by hand, likewise (config path sender/fly.toml)
 ```
 
@@ -96,10 +96,10 @@ and typecheck (`npm run lint`, `npm run typecheck`), then
 `supabase db start` + `supabase db lint` + `scripts/smoke-test.sql` on a fresh Postgres.
 Migrations already applied to the hosted project must not be edited; add a new migration instead
 (see `20261005000009_*`). Fly's GitHub integration (configured in the Fly dashboard, one binding
-per app with its own `fly.toml`) deploys the relay and the sender on pushes to main; nothing else
+per app with its own `fly.toml`) deploys the inbound worker and the sender on pushes to main; nothing else
 deploys automatically.
 
-## TypeScript (supabase/functions, relay, sender, scripts)
+## TypeScript (supabase/functions, inbound, sender, scripts)
 
 The conventions are `docs/superpowers/specs/2026-10-22-strict-eslint-conventions.md`.
 
@@ -122,7 +122,7 @@ The conventions are `docs/superpowers/specs/2026-10-22-strict-eslint-conventions
 - A client that holds configuration is a factory returning an interface implementation or a class
   with private readonly fields built from one config interface. Inject `fetch`.
 - No default or optional parameters; pass `undefined` explicitly.
-- Import packages by bare name. Add new ones to the root `deno.json`, every function/relay/sender
+- Import packages by bare name. Add new ones to the root `deno.json`, every function/inbound/sender
   `deno.json` that loads them, and `npm i -D`.
 - Request handlers are named functions passed to `Deno.serve(handler);`.
 - The root `package.json` exists only for ESLint and `tsc`; `nodeModulesDir: "none"` keeps Deno
@@ -403,7 +403,7 @@ The delivery side (retries, pause, attempts, rendering, Vault) is in "Delivery r
 ## Testing
 
 - Both suites gate at 80% in CI. The Deno gate (`scripts/check-coverage.ts`) checks
-  `supabase/functions`, `relay/` and `sender/` separately and also lists any module no test
+  `supabase/functions`, `inbound/` and `sender/` separately and also lists any module no test
   imports, since `deno coverage` silently omits those.
 - Deno excludes modules whose names end in `test.ts` from coverage, so never name a source file
   `*_test.ts` (hence `handlers/test_delivery.ts` for the send-test function).
@@ -414,19 +414,19 @@ The delivery side (retries, pause, attempts, rendering, Vault) is in "Delivery r
   `test/media.ts` switches `useMediaQuery` to the phone layout. Pure `*.test.ts` files stay in node:
   jsdom applies Vite's browser file guard, which blocks `states.test.ts` reading the migrations.
 
-## Relay rules
+## Inbound worker rules
 
-- `relay/main.ts` is only the process shell (env, signals, exit code); behavior goes in
-  `relay/relay.ts`, which tests run against a local telnet server and a local functions server.
-- The image runs with `relay/deno.json` as `--config /deno.json`: an import map of exactly the
-  packages the relay loads (`zod`, mapped ahead of the Part 2 relay PR), at the root's exact
+- `inbound/main.ts` is only the process shell (env, signals, exit code); behavior goes in
+  `inbound/inbound.ts`, which tests run against a local telnet server and a local functions server.
+- The image runs with `inbound/deno.json` as `--config /deno.json`: an import map of exactly the
+  packages the inbound worker loads (`zod`, mapped ahead of the Part 2 inbound PR), at the root's exact
   versions (`app_config.test.ts`), nothing else.
-- `relay/` holds one telnet session per feed in `relay/feeds.ts` and pushes to an
+- `inbound/` holds one telnet session per feed in `inbound/feeds.ts` and pushes to an
   `ingest-<source>` function built with `servePush` in `_shared/serve.ts`. Parsing lives in the
-  source adapter under `_shared` (the relay imports `parseRbnLine`); never parse spots in `relay/`.
-- The relay holds only `LONGLINES_RELAY_SECRET`, never a Supabase key. Push functions have
-  `verify_jwt = false` and check `x-relay-secret` themselves.
-- The relay forwards every spot line. `ingest-rbn` stores all of them in `rbn_spots` (partitioned by
+  source adapter under `_shared` (the inbound worker imports `parseRbnLine`); never parse spots in `inbound/`.
+- The inbound worker holds only `LONGLINES_INBOUND_SECRET`, never a Supabase key. Push functions have
+  `verify_jwt = false` and check `x-inbound-secret` themselves.
+- The inbound worker forwards every spot line. `ingest-rbn` stores all of them in `rbn_spots` (partitioned by
   UTC day; partitions live in the `partitions` schema and come from `create_rbn_spots_partition`,
   never `create table ... partition of`) and runs `runIngest` only over watched callsigns. A
   migration that indexes `rbn_spots` partition by partition first takes
@@ -436,8 +436,8 @@ The delivery side (retries, pause, attempts, rendering, Vault) is in "Delivery r
   changes, and keep `watched_among` reading only positive callsign and group rules.
 - Be polite: exactly one machine (`fly scale count 1`), reconnect backoff never below 30 s, no
   tests that connect to RBN. Tests use the captured fixture or a local TCP server.
-- Merges to main deploy the relay through Fly's GitHub integration (set up in the Fly dashboard,
-  not in this repo); a merge that changes `relay/` or `_shared/*.ts` ships to production. Never run
+- Merges to main deploy the inbound worker through Fly's GitHub integration (set up in the Fly dashboard,
+  not in this repo); a merge that changes `inbound/` or `_shared/*.ts` ships to production. Never run
   `fly deploy` or `fly secrets set` yourself unless asked.
 - APRS-IS (`aprsFeed`, off until `APRS_LOGIN_CALL` is set) is the full feed on port 10152 with a
   receive-only login and no filter; never add one. It is plain TCP (`telnet: false`,
@@ -448,13 +448,13 @@ The delivery side (retries, pause, attempts, rendering, Vault) is in "Delivery r
   day in the Stats window until that rollup is final; older days drop without it. `raw_spots`' source check
   leaves `aprs` out on purpose. Its archive runs in its own cron job (`archive-aprs`, body
   `{"sources": ["aprs"]}`); keep it out of `ARCHIVE_ORDER`.
-- The relay also runs the weekly FCC license load (`relay/licenses.ts`, `relay/zip.ts`): it reads
+- The inbound worker also runs the weekly FCC license load (`inbound/licenses.ts`, `inbound/zip.ts`): it reads
   `l_amat.zip` by HTTP Range and stages HD/EN/AM rows through `load-licenses`. Record parsing is
   `_shared/uls.ts`; the join and the swap into `callsign_licenses` are SQL
   (`apply_license_loads`, pg_cron), because the swap outlasts the API's 8 s statement timeout.
   Never stage or store ULS address, city, ZIP, PO box, phone, email or FRN fields. No test
-  downloads from the FCC; tests build a zip and serve it locally (`relay/__tests__/zip_server.ts`).
-- It also runs the weekly reference list load (`relay/catalogs.ts`, off with `RELAY_CATALOGS=off`):
+  downloads from the FCC; tests build a zip and serve it locally (`inbound/__tests__/zip_server.ts`).
+- It also runs the weekly reference list load (`inbound/catalogs.ts`, off with `INBOUND_CATALOGS=off`):
   one program at a time, a list is streamed when its applied load began a week ago and the file's
   `Last-Modified` is newer, parsed by `_shared/reference_catalog.ts` (columns by header name, never
   position) and staged through `load-references`; the 90% floor and the swap are SQL's
@@ -463,7 +463,7 @@ The delivery side (retries, pause, attempts, rendering, Vault) is in "Delivery r
 ## Sender rules
 
 - `sender/` is the outbound delivery process on Fly.io (app `longlines-sender`), the counterpart
-  of `relay/`. `sender/main.ts` is only the process shell; behavior goes in `sender/sender.ts`,
+  of `inbound/`. `sender/main.ts` is only the process shell; behavior goes in `sender/sender.ts`,
   `sender/db.ts` (the only module that imports postgres.js) and the shared loop
   `_shared/delivery/run.ts`, which tests run with fakes and a local `Deno.serve` receiver.
 - The image runs with `sender/deno.json` as `--config /deno.json`: an import map of exactly the
@@ -526,7 +526,7 @@ The delivery side (retries, pause, attempts, rendering, Vault) is in "Delivery r
   than the database is retired, and its late rows are deleted, never archived again.
 - The archive bucket is Backblaze B2, reached only through `_shared/s3.ts` (SigV4, no dependency)
   from the `archive` function, configured by the `LONGLINES_ARCHIVE_S3_*` secrets. Its key is
-  restricted to the bucket with `writeFiles` only; B2 keys never go in the web app, the relay or
+  restricted to the bucket with `writeFiles` only; B2 keys never go in the web app, the inbound worker or
   any other function. Locally the stack's Storage S3 endpoint stands in, so keep one code path.
 - `convert-archive` (issue #174) is a one-off, run by hand: it rewrites the pre-Parquet
   `.ndjson.gz` slices through `encodeParquet` and `objectPath`, and deletes an NDJSON object only
@@ -807,7 +807,7 @@ page" canvas); its Copy section is the copy source for `/health`.
   the largest), because deliveries go newest first under a budget. `health_oldest_ready_seconds`
   repeats `claim_deliveries`' `ready` predicate; change them together.
 - The workers report in once a minute, best effort: the sender through `record_sender_heartbeat`
-  (in its allowlist), the relay by POSTing `relay-status` with its secret (`relay/status.ts`).
+  (in its allowlist), the inbound worker by POSTing `inbound-status` with its secret (`inbound/status.ts`).
   `worker_heartbeats` keeps at most one row per worker per 30 seconds. A failed heartbeat is
   logged, never retried and never counts as sender progress.
 
@@ -930,7 +930,7 @@ screens and for notification text.
   bundle.
 - The VAPID pair lives in two places and nowhere else: Edge Function env (`LONGLINES_VAPID_*`, for
   `send-test` and `api`) and the sender's Fly secrets (real deliveries), the same pair in both.
-  Never in the web app, the relay or a migration. The public key is the one new `define` entry in
+  Never in the web app, the inbound worker or a migration. The public key is the one new `define` entry in
   `web/vite.config.ts` (`VITE_VAPID_PUBLIC_KEY`); never widen `envPrefix`.
 - A gone subscription (404/410) is pruned, not counted as a failure; a 429 delays like any other
   rate limit. Zero deliverable devices is a failure, so a push destination nobody can receive goes

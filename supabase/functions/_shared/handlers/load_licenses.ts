@@ -1,4 +1,4 @@
-// The FCC license load, called by the relay (relay/licenses.ts) with the relay
+// The FCC license load, called by the inbound worker (inbound/licenses.ts) with the inbound worker
 // secret, one action per POST: status, begin, rows (repeated), then finish or
 // abandon. Each is
 // one fcc_license_load_* RPC; pg_cron's apply_license_loads swaps a finished
@@ -20,7 +20,7 @@ import {
 } from "../uls.ts";
 
 export interface LoadLicensesDeps {
-  /** LONGLINES_RELAY_SECRET; undefined when unset. */
+  /** LONGLINES_INBOUND_SECRET; undefined when unset. */
   secret: string | undefined;
   db: () => LicenseDb;
 }
@@ -32,7 +32,7 @@ function countSchema(message: string): z.ZodType<number> {
 
 const nullableText = z.string().nullable();
 
-// The staging rows our relay builds (parseUlsRecord in uls.ts): strict, one schema per file.
+// The staging rows our inbound builds (parseUlsRecord in uls.ts): strict, one schema per file.
 // fcc_license_load_rows reads them with jsonb_to_recordset.
 const hdRowSchema: z.ZodType<HdRow> = z.strictObject({
   usi: z.number(),
@@ -71,7 +71,7 @@ interface RowsEnvelope {
   rows: JsonObject[];
 }
 
-// Our relay's requests (licenseClient in relay/licenses.ts): strict, one schema per action. Each
+// Our inbound's requests (licenseClient in inbound/licenses.ts): strict, one schema per action. Each
 // part's message is the one the handler answers.
 const statusRequestSchema = z.strictObject({ action: z.literal("status") });
 const beginRequestSchema = z.strictObject({
@@ -171,10 +171,10 @@ async function run(request: LoadLicensesRequest, db: LicenseDb): Promise<unknown
 
 export async function handleLoadLicenses(req: Request, deps: LoadLicensesDeps): Promise<Response> {
   if (deps.secret === undefined || deps.secret === "") {
-    console.error("load-licenses: missing environment variable LONGLINES_RELAY_SECRET");
-    return Response.json({ error: "relay secret is not configured" }, { status: 500 });
+    console.error("load-licenses: missing environment variable LONGLINES_INBOUND_SECRET");
+    return Response.json({ error: "inbound secret is not configured" }, { status: 500 });
   }
-  let header = req.headers.get("x-relay-secret");
+  let header = req.headers.get("x-inbound-secret");
   if (header === null) {
     header = "";
   }
@@ -189,7 +189,7 @@ export async function handleLoadLicenses(req: Request, deps: LoadLicensesDeps): 
   try {
     body = await req.json();
   } catch (error) {
-    // Bad JSON is the relay's fault; anything else (a broken stream) is ours.
+    // Bad JSON is the inbound worker's fault; anything else (a broken stream) is ours.
     if (error instanceof SyntaxError) {
       return Response.json({ error: "request body is not JSON" }, { status: 400 });
     }

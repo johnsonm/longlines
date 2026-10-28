@@ -1,4 +1,4 @@
-// Shared by the pushed sources (RBN, DX Cluster): the relay request body, the
+// Shared by the pushed sources (RBN, DX Cluster): the inbound request body, the
 // adapter shell around it, and the "HHMMZ" time stamp that telnet spot lines
 // carry instead of a date.
 //
@@ -19,47 +19,47 @@ export { withoutNul };
 const MAX_LINES = 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-/** A relay request body, as relay/functions.ts posts it. Each item is validated on its own. */
-export interface RelayBody {
+/** An inbound request body, as inbound/functions.ts posts it. Each item is validated on its own. */
+export interface InboundBody {
   lines: JsonObject[];
 }
 
-/** One line of a relay request body (RelayLine in relay/functions.ts). */
-export interface RelayLineItem {
+/** One line of an inbound request body (InboundLine in inbound/functions.ts). */
+export interface InboundLineItem {
   line: string;
   /** ISO 8601 UTC; parseUtc checks it. */
   received_at: string;
 }
 
-// Our relay's request body: strict. The items are only objects here, so one bad
-// item fails alone, in the adapter that parses it with relayLineSchema.
-const relayBodySchema: z.ZodType<RelayBody> = z.strictObject({
+// Our inbound's request body: strict. The items are only objects here, so one bad
+// item fails alone, in the adapter that parses it with inboundLineSchema.
+const inboundBodySchema: z.ZodType<InboundBody> = z.strictObject({
   lines: z.array(jsonObjectSchema).max(
     MAX_LINES,
-    `a relay batch holds at most ${String(MAX_LINES)} lines`,
+    `an inbound worker batch holds at most ${String(MAX_LINES)} lines`,
   ),
 });
 
-/** One relay item: strict, since our relay sends exactly these two keys. */
-export const relayLineSchema: z.ZodType<RelayLineItem> = z.strictObject({
+/** One inbound item: strict, since our inbound sends exactly these two keys. */
+export const inboundLineSchema: z.ZodType<InboundLineItem> = z.strictObject({
   line: requiredTextSchema,
   received_at: requiredTextSchema,
 });
 
 /**
- * Validates a relay request body and returns its items in order, as received.
+ * Validates an inbound request body and returns its items in order, as received.
  * Throws ValidationError on a bad shape.
  */
-export function parseRelayBody(body: unknown): JsonObject[] {
-  return parseWith(relayBodySchema, body, "parseRelayBody: relay body").lines;
+export function parseInboundBody(body: unknown): JsonObject[] {
+  return parseWith(inboundBodySchema, body, "parseInboundBody: inbound body").lines;
 }
 
 /**
- * An adapter whose feed is one relay request body, so runIngest can treat a
+ * An adapter whose feed is one inbound request body, so runIngest can treat a
  * push like a fetched feed. Items lose any NUL before normalize sees them, which
  * keeps raw_payload and ingest_failures rows storable.
  */
-export function relayAdapter(
+export function inboundAdapter(
   source: Source,
   body: unknown,
   normalize: (raw: JsonObject, now: Date) => Promise<NormalizeResult>,
@@ -67,7 +67,7 @@ export function relayAdapter(
   return {
     source,
     fetchSpots: () => Promise.resolve(body),
-    parseFeed: (feed) => parseRelayBody(feed).map(withoutNul),
+    parseFeed: (feed) => parseInboundBody(feed).map(withoutNul),
     normalize,
   };
 }

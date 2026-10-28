@@ -3,12 +3,12 @@ import { createLicenseDb } from "../db.ts";
 import { handleLoadLicenses, parseLoadRequest } from "../handlers/load_licenses.ts";
 import { fakeSupabase, type FakeSupabaseOptions } from "./fake_supabase.ts";
 
-const SECRET = "relay-secret";
+const SECRET = "inbound-secret";
 
 function post(body: unknown, secret: string | null, method: string): Request {
   const init: RequestInit = { method, headers: {} };
   if (secret !== null) {
-    init.headers = { "x-relay-secret": secret };
+    init.headers = { "x-inbound-secret": secret };
   }
   if (method === "POST") {
     if (typeof body === "string") {
@@ -27,7 +27,11 @@ function brokenPost(secret: string): Request {
       controller.error(new Error("connection reset"));
     },
   });
-  return new Request("http://x/", { method: "POST", headers: { "x-relay-secret": secret }, body });
+  return new Request("http://x/", {
+    method: "POST",
+    headers: { "x-inbound-secret": secret },
+    body,
+  });
 }
 
 function setup(rpc: FakeSupabaseOptions["rpc"]) {
@@ -44,7 +48,7 @@ async function rejectWith(reason: unknown): Promise<never> {
 }
 
 Deno.test(
-  "handleLoadLicenses refuses a missing or wrong relay secret",
+  "handleLoadLicenses refuses a missing or wrong inbound secret",
   async function (): Promise<void> {
     const s = setup({});
     for (const secret of [null, "wrong"]) {
@@ -116,7 +120,7 @@ Deno.test(
   "handleLoadLicenses answers 500 with the database error",
   async function (): Promise<void> {
     const deps = setup({
-      fcc_license_load_finish: { error: { message: "staged {} but the relay sent {}" } },
+      fcc_license_load_finish: { error: { message: "staged {} but the inbound worker sent {}" } },
     }).deps;
     const res = await handleLoadLicenses(
       post({ action: "finish", load: 1, counts: { HD: 0, EN: 0, AM: 0 } }, SECRET, "POST"),
@@ -125,7 +129,7 @@ Deno.test(
     assertEquals(res.status, 500);
     assertEquals(
       (await res.json()).error,
-      "fcc_license_load_finish failed: staged {} but the relay sent {}",
+      "fcc_license_load_finish failed: staged {} but the inbound worker sent {}",
     );
   },
 );
@@ -166,7 +170,7 @@ Deno.test("parseLoadRequest rejects malformed requests", function (): void {
       { action: "finish", load: "1", counts: { HD: 1, EN: 1, AM: 1 } },
       { action: "abandon", load: 1 },
       { action: "abandon", load: -1, error: "x" },
-      // Strict: the relay sends exactly these keys, so any other is refused.
+      // Strict: the inbound worker sends exactly these keys, so any other is refused.
       { action: "status", extra: 1 },
       { action: "finish", load: 1, counts: { HD: 1, EN: 2, AM: 3, X: 4 } },
       { action: "rows", load: 1, kind: "AM", rows: [{ usi: 1, operator_class: "General", x: 1 }] },

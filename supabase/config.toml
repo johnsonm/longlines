@@ -464,32 +464,32 @@ verify_jwt = false
 [functions.api]
 verify_jwt = false
 
-# ingest-rbn is called by the relay on Fly.io, which holds the relay secret but
-# no Supabase key. It checks x-relay-secret itself (_shared/serve.ts).
+# ingest-rbn is called by the inbound worker on Fly.io, which holds the inbound secret but
+# no Supabase key. It checks x-inbound-secret itself (_shared/serve.ts).
 [functions.ingest-rbn]
 verify_jwt = false
 
-# ingest-dxcluster is called by the same relay with the same secret.
+# ingest-dxcluster is called by the same inbound worker with the same secret.
 [functions.ingest-dxcluster]
 verify_jwt = false
 
-# ingest-aprs is called by the same relay with the same secret.
+# ingest-aprs is called by the same inbound worker with the same secret.
 [functions.ingest-aprs]
 verify_jwt = false
 
-# load-licenses is called by the same relay with the same secret for the weekly
+# load-licenses is called by the same inbound worker with the same secret for the weekly
 # FCC license load (_shared/handlers/load_licenses.ts).
 [functions.load-licenses]
 verify_jwt = false
 
-# load-references is called by the same relay with the same secret for the weekly
+# load-references is called by the same inbound worker with the same secret for the weekly
 # POTA, SOTA and WWFF reference list loads (_shared/handlers/load_references.ts).
 [functions.load-references]
 verify_jwt = false
 
-# relay-status is the same relay's once-a-minute heartbeat for the Health page,
-# with the same secret (_shared/handlers/relay_status.ts).
-[functions.relay-status]
+# inbound-status is the same inbound worker's once-a-minute heartbeat for the Health page,
+# with the same secret (_shared/handlers/inbound_status.ts).
+[functions.inbound-status]
 verify_jwt = false
 
 # archive, import-cty and import-iota are called by pg_cron with the legacy service-role JWT.

@@ -31,7 +31,7 @@ export const ARCHIVE_ORDER: readonly Source[] = [
 ];
 /** Every source a request may name. */
 export const ARCHIVE_SOURCES: readonly Source[] = ARCHIVE_ORDER.concat(["aprs"]);
-/** Only slices that ended this long ago are archived, so late relay batches land first. */
+/** Only slices that ended this long ago are archived, so late inbound batches land first. */
 export const LAG_MS = 2 * 60 * 60 * 1000;
 /** A run starts no new slice once it has archived this many rows. */
 export const MAX_ROWS_PER_RUN = 60_000;

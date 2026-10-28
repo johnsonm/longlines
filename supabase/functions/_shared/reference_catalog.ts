@@ -1,5 +1,5 @@
 // The programs' reference lists (POTA parks, SOTA summits, WWFF references), parsed into the
-// rows load-references stages. The relay streams each file (relay/catalogs.ts) and calls these;
+// rows load-references stages. The inbound worker streams each file (inbound/catalogs.ts) and calls these;
 // the swap into reference_catalog is SQL (apply_reference_loads), never TypeScript.
 //
 // Each file is CSV with a header row (SOTA's has a title line before it). Columns are found by
@@ -8,10 +8,10 @@
 // (docs/superpowers/specs/2026-10-26-reference-profiles-design.md, "Catalog").
 //
 // The CSV reader is hand-written (RFC 4180 plus a BOM and bare LF line ends) rather than a
-// dependency: the relay's import map is exactly the packages it loads, and the reader is a small
+// dependency: the inbound worker's import map is exactly the packages it loads, and the reader is a small
 // state machine that has to stream anyway.
 //
-// The imports are errors.ts, which imports nothing, and zod, which the relay (which loads this
+// The imports are errors.ts, which imports nothing, and zod, which the inbound worker (which loads this
 // module) maps.
 
 import { z } from "zod";
@@ -71,7 +71,7 @@ type CsvState = "start" | "plain" | "quoted" | "quote";
  * Lenient where the files are: a quote inside an unquoted field, or text after a closing quote,
  * is kept as text. Blank lines are dropped. A record longer than MAX_CSV_RECORD (each separator
  * counts, so a run of empty fields is bounded too), or a file that ends inside quotes, throws, so
- * a malformed file fails the load (the relay abandons it) instead of growing a buffer toward the
+ * a malformed file fails the load (the inbound worker abandons it) instead of growing a buffer toward the
  * size of the file.
  */
 export class CsvRecords {
@@ -601,7 +601,7 @@ export function catalogFile(program: ReferenceProgram): string {
 export const MAX_LINES_BEFORE_HEADER = 5;
 
 /**
- * Maps one record to a row, given the header's column positions. Exported for tests; the relay
+ * Maps one record to a row, given the header's column positions. Exported for tests; the inbound worker
  * uses ReferenceCatalogParser.
  */
 export function mapCatalogRecord(
@@ -705,7 +705,7 @@ export class ReferenceCatalogParser {
 export interface AppliedReferenceLoad {
   /** The file's Last-Modified header. */
   version: string;
-  /** When its load began: the relay measures the week from it (relay/catalogs.ts shouldLoad). */
+  /** When its load began: the inbound worker measures the week from it (inbound/catalogs.ts shouldLoad). */
   started_at: string;
   applied_at: string;
   rows: number;
@@ -750,7 +750,7 @@ const programLoadStatusSchema: z.ZodType<ProgramLoadStatus> = z.looseObject({
   }).nullable(),
 });
 
-/** reference_load_status' jsonb, as db.ts reads it and as load-references hands it to the relay. */
+/** reference_load_status' jsonb, as db.ts reads it and as load-references hands it to the inbound worker. */
 export const referenceLoadStatusSchema: z.ZodType<ReferenceLoadStatus> = z.looseObject({
   pota: programLoadStatusSchema,
   sota: programLoadStatusSchema,
@@ -765,7 +765,7 @@ export const referenceFinishStateSchema: z.ZodType<ReferenceFinishState> = z.enu
   "refused",
 ]);
 
-/** What the relay POSTs to load-references, one action per request. */
+/** What the inbound worker POSTs to load-references, one action per request. */
 export type LoadReferencesRequest =
   | { action: "status" }
   | { action: "begin"; program: ReferenceProgram; version: string }
@@ -779,8 +779,8 @@ export type LoadReferencesRequest =
  */
 export const MAX_REFERENCE_ROWS_PER_REQUEST = 5_000;
 
-// The replies load-references sends (_shared/handlers/load_references.ts), read by the relay
-// (relay/catalogs.ts). Our own function's replies, so strict; the status inside the status reply
+// The replies load-references sends (_shared/handlers/load_references.ts), read by the inbound worker
+// (inbound/catalogs.ts). Our own function's replies, so strict; the status inside the status reply
 // is reference_load_status' jsonb, read with the schema db.ts reads it with (loose).
 
 /** status: every program's loads. */

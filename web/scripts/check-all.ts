@@ -70,7 +70,7 @@ const steps: Step[] = [
     group: "deno",
     name: "fmt --check",
     cmd: "deno",
-    args: ["fmt", "--check", "supabase/functions", "scripts", "relay", "sender", "deno.json"],
+    args: ["fmt", "--check", "supabase/functions", "scripts", "inbound", "sender", "deno.json"],
     cwd: repoRoot,
   },
   { group: "deno", name: "lint", cmd: "deno", args: ["task", "lint"], cwd: repoRoot },
