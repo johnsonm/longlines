@@ -26,6 +26,12 @@ describe("sourceStatus", () => {
   it("is planned for a planned source whatever the health", () => {
     expect(sourceStatus(planned, [])).toBe("planned");
   });
+  it("never calls logged contacts delayed: they arrive when someone logs", () => {
+    const logged = findLiveSource("logged")!;
+    expect(logged.pollSeconds).toBeNull();
+    expect(sourceStatus(logged, [health("logged", 86_400)])).toBe("connected");
+    expect(sourceStatus(logged, [])).toBe("connected");
+  });
   it("takes a carried source's health from its carrier", () => {
     const iota = findLiveSource("iota")!;
     expect(healthId(iota)).toBe("dxcluster");

@@ -48,7 +48,7 @@ export function RecentSpotsCard({ source, prefs, health }: { source: SourceInfo;
         {spots === null ? (!error && <LinearProgress />) : <SpotsTable spots={spots} dense prefs={prefs} />}
         {health && (
           <Typography variant="caption" color="text.secondary">
-            {`Last fetch ${relativeAge(age)}, ${source.interval}`}
+            {source.pollSeconds === null ? `Last contact ${relativeAge(age)}` : `Last fetch ${relativeAge(age)}, ${source.interval}`}
           </Typography>
         )}
       </Stack>

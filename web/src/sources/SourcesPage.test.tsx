@@ -34,7 +34,7 @@ describe("SourcesPage", () => {
     expect(screen.getByText("Where spots come from. Pick a source to see what it sends and what you can do with it.")).toBeInTheDocument();
     // The high volume alert lives only on RBN's and APRS-IS's detail pages.
     expect(screen.queryByText(/callsign filter/)).not.toBeInTheDocument();
-    expect(tiles()).toEqual(["Parks on the Air", "SOTA", "Reverse Beacon Network", "DX Cluster", "APRS-IS", "WWFF", "WWBOTA", "IOTA"]);
+    expect(tiles()).toEqual(["Parks on the Air", "SOTA", "Reverse Beacon Network", "DX Cluster", "APRS-IS", "WWFF", "WWBOTA", "IOTA", "Logged contacts"]);
     expect(await screen.findByText("Delayed")).toBeInTheDocument(); // SOTA: 600 s > 3 × 30 s
   });
 
@@ -56,6 +56,7 @@ describe("SourcesPage", () => {
     expect(screen.getByRole("link", { name: /WWFF/ })).toHaveAttribute("href", "/sources/wwff");
     expect(screen.getByRole("link", { name: /WWBOTA/ })).toHaveAttribute("href", "/sources/wwbota");
     expect(screen.getByRole("link", { name: /IOTA/ })).toHaveAttribute("href", "/sources/iota");
+    expect(screen.getByRole("link", { name: /Logged contacts/ })).toHaveAttribute("href", "/sources/logged");
   });
 
   it("filters by search, trimming and ignoring case", async () => {
@@ -72,12 +73,12 @@ describe("SourcesPage", () => {
     // No source is planned, so there is no "Not yet available" filter.
     expect(screen.queryByRole("button", { name: "Not yet available" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Connected" }));
-    expect(tiles()).toHaveLength(8);
+    expect(tiles()).toHaveLength(9);
     await user.type(screen.getByLabelText("Search sources"), "zzz");
     expect(screen.getByText("No sources match.")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "All" }));
     await user.clear(screen.getByLabelText("Search sources"));
-    expect(tiles()).toHaveLength(8);
+    expect(tiles()).toHaveLength(9);
   });
 
   it("still shows the catalog when ingest health fails", async () => {
@@ -92,13 +93,13 @@ describe("SourcesPage", () => {
     vi.mocked(useStats).mockReturnValue({ stats: null, loading: false, error: null });
     renderPage(<SourcesPage />);
     expect(screen.queryByText(/spots\//)).not.toBeInTheDocument();
-    expect(tiles()).toHaveLength(8);
+    expect(tiles()).toHaveLength(9);
   });
 
   it("stacks tiles on a phone", () => {
     setMobile(true);
     renderPage(<SourcesPage />);
     expect(screen.getByRole("heading", { level: 1, name: "Sources" })).toBeInTheDocument();
-    expect(within(screen.getByTestId("source-grid")).getAllByRole("heading", { level: 2 })).toHaveLength(8);
+    expect(within(screen.getByTestId("source-grid")).getAllByRole("heading", { level: 2 })).toHaveLength(9);
   });
 });
