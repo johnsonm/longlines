@@ -307,6 +307,36 @@ The design is `docs/superpowers/specs/2026-10-28-logged-contacts-design.md`; the
 - Logged contacts are opt-in (`source_matches`), not a Stats peer (only `daily[].logged` and
   `hourly[].logged`), and stay off the band map.
 
+## Relay app rules
+
+The wire contract is `docs/contract.md` in `sonyccd/longlines-relay` (v1): every path, body, status,
+error code, the token format and the scopes are its, and it wins over this file on wire details.
+"Relay" here is Long Lines Relay, the desktop app; the Fly worker is "inbound".
+
+- `relay-api` (`_shared/handlers/relay_api.ts`) only routes, checks shapes and maps errors:
+  `POST /v1/device/start`, `POST /v1/device/token`, `GET /v1/me`, `POST /v1/contacts`, anything
+  else 404 `not_found` (including `GET /v1/spots`, reserved for phase 2). It keeps
+  `verify_jwt = false` and never imports `isServiceRole`. Production reaches it through the
+  `/relay/v1/:path*` rewrite on `api.longlines.io`, which stays ahead of the `/v1` rule.
+- The server keeps accepting v1 after a v2 ships: request schemas are loose (deployed relays lag),
+  and no v1 route may gain a new item status, reason or error code.
+- Pairing policy is SQL's (`20261028000400_relay_pairing.sql`): codes (`new_relay_user_code`,
+  `relay_user_code` reads a typed one), the 10-minute life, `slow_down` (one second of jitter
+  allowed), the token handed out once by `poll_relay_pairing`, the callsign rule and the
+  10-relay cap in `answer_relay_pairing`, and the 120-a-minute contact window
+  (`record_relay_contacts`). Only `lookup_relay_pairing` and `answer_relay_pairing` are client RPCs.
+- Relay tokens are `relay_tokens`, never `api_tokens`, and never reach `api_call`. Only the
+  SHA-256 is stored (`token_hash` never granted); the plaintext leaves only from
+  `poll_relay_pairing`. `scopes` holds `contacts:write` only; `spots:read` joins both check
+  constraints in phase 2, and a route refuses a token without its scope (403
+  `insufficient_scope`). Revoking is the owner's delete (RLS), from the API tokens page's
+  "Long Lines Relay" card.
+- Per-client limits reuse the profile's keying (`countClientRequest`, `rateLimitKey`) in
+  relay-api's own buckets (`relay-start`, `relay-poll`, `relay`), so pairing never spends a
+  visitor's profile lookups. Device codes, tokens and contacts are never logged.
+- `/relay/approve` (signed in; `/relay` redirects to it with its query) takes its copy from Brad's
+  relay canvas, page 2 (RelayApprove, RelayApproved, RelayWeb*); a typed code goes to SQL as typed.
+
 ## IOTA rules
 
 The design is `docs/superpowers/specs/2026-10-27-iota-design.md`.

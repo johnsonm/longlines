@@ -8,8 +8,9 @@ Long Lines Relay (`sonyccd/longlines-relay`) is a desktop app that catches the c
 logging software already sends (N1MM Logger+ format) and posts each logged contact to Long Lines
 as a spot, so an operator's own side of a contact sits next to what POTA, RBN and the cluster
 heard. This change is the server's first half: a new source, `logged`, a reversible retraction
-marker on `raw_spots`, and the RPC that applies a batch of contacts. Pairing, relay tokens and
-the `relay-api` function that calls the RPC come in the next change.
+marker on `raw_spots`, and the RPC that applies a batch of contacts. The second change adds
+pairing, relay tokens, the `relay-api` function that calls the RPC, the approval page and the
+tokens card ("Pairing and relay tokens" below).
 
 The wire contract (routes, bodies, statuses, freshness constants, the callsign check) is
 `docs/contract.md` in the relay repo. It wins on wire details; this document wins on schema.
@@ -83,8 +84,45 @@ Pure, for the `relay-api` handler:
 - `loggedApplyItems`, `loggedResultsSchema` (the RPC's reply) and `mergeLoggedResults`, which puts
   the module's own answers and the RPC's back in input order.
 
+## Pairing and relay tokens (second change)
+
+Migration `20261028000400_relay_pairing.sql`; function `relay-api`
+(`_shared/handlers/relay_api.ts`); web `/relay/approve` (`web/src/relay/`) and the "Long Lines
+Relay" card on API tokens (`web/src/tokens/RelayTokensCard.tsx`); pgTAP
+`supabase/tests/relay_pairing.test.sql`.
+
+- `relay_pairings` (service role only): the device code's SHA-256, the user code, status
+  (`pending`, `approved`, `denied`, `claimed`, `expired`), who answered, the device name and
+  version, `scopes`, a 10-minute `expires_at`, `last_polled_at` and `interval_seconds` (5).
+- `relay_tokens`: owner, `token_hash` (never granted), a 13-character prefix, device name and
+  version, `scopes` (`contacts:write` only, by check constraint), created and last used, and the
+  one-minute contact window. Owners select (without the hash and the window) and delete their own.
+- RPCs: `start_relay_pairing`, `poll_relay_pairing`, `authenticate_relay_token`,
+  `record_relay_contacts`, `relay_account` (service role); `lookup_relay_pairing` and
+  `answer_relay_pairing` (signed in); `prune_relay_pairings` from the hourly
+  `prune_callsign_lookups`.
+- `relay-api` follows the contract to the letter: the four v1 routes, 404 `not_found` for
+  anything else, RFC 8628 error bodies on `device/token`, 401 `bad_token`, 403
+  `insufficient_scope`, 429 `rate_limited` with `Retry-After`, 400 `invalid_request` with a
+  `message`, every response `Cache-Control: no-store`.
+
+### Decisions made here, for Brad to confirm
+
+| Question | Decision |
+| --- | --- |
+| `verification_uri` | `https://longlines.io/relay/approve`, as the contract says (the brief suggested `/relay`). `/relay` redirects to `/relay/approve` with its query, so both work and a typed code goes to the same page. |
+| Codes as typed | Upper-cased, spaces and hyphens dropped, O read as 0 and I and L as 1 (Crockford). |
+| What the approval page tells apart | `pending`; `expired` for any code that is past its 10 minutes or already answered or claimed, by anyone (whose it was is never told); `unknown`. |
+| `slow_down` | A poll less than `interval - 1` seconds after the previous one, so network jitter on a relay that waits exactly 5 s is not punished. A too-early poll still counts as the last poll. |
+| An approved pairing past its 10 minutes | Polls `expired_token`; the user saw "Relay connected" but the relay never claimed it, which a relay that stops polling at `expires_in` cannot hit. |
+| Relay cap | 10 per account, counting approvals not yet claimed, checked at Allow (the relay never sees it; the page shows the error). |
+| Allow without a callsign | Refused in SQL ("Add your callsign to your account first."); the web's profile gate makes it unreachable from the page. |
+| Per-client limits | Every route, in its own buckets of `lookup_rate_limits`: `device/start` 5 a minute, `device/token` 60, `me` and `contacts` 120. Not the profile budget, so approving a relay never costs lookups. |
+| Contact window | Fixed UTC minutes; a refused request counts nothing (the contract allows either). |
+| Device name and version | Stored on the pairing and the token, shown on the tokens card. The approval page follows the mockup and does not show the device name. |
+| Token prefix | 13 characters (`ll_relay_` and four), shown on the card like the API tokens' 12. |
+
 ## Not in this change
 
-Pairing, relay tokens, the `relay-api` function and its rate limit, the approval page and the
-tokens card (the next change); a Worked list on profiles; recalling a delivery already sent;
+A Worked list on profiles; recalling a delivery already sent;
 re-rolling a day after a retraction.
