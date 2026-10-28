@@ -1,5 +1,5 @@
 export type Volume = "standard" | "high";
-export type StatsKey = "pota" | "sota" | "wwff" | "wwbota" | "iota" | "rbn" | "dx" | "aprs";
+export type StatsKey = "pota" | "sota" | "wwff" | "wwbota" | "iota" | "logged" | "rbn" | "dx" | "aprs";
 export type MarkColor = "primary" | "secondary" | "warning" | "success" | "error" | "default";
 
 /**
@@ -25,6 +25,7 @@ export interface SourceInfo {
   full: string;
   status: "live" | "planned";
   interval: string;
+  /** Null for a source that is not polled (logged contacts arrive when someone logs), so it is never delayed. */
   pollSeconds: number | null;
   desc: string;
   /** False for a feed that is stored but never matched (APRS-IS): no subscription option, no recent-spots tab. */
@@ -281,6 +282,35 @@ export const SOURCES: SourceInfo[] = [
     example: {
       id: 58161602, time: "2026-10-14T14:36:10Z", callsign: "HF0POL", frequency_khz: 14025, mode: "cw", band: "20m",
       source: "dxcluster", reference: "AN-010", place_name: "South Shetland Islands", spotter: "K1ABC",
+    },
+  },
+  {
+    id: "logged", name: "Logged contacts", full: "Long Lines Relay", status: "live", interval: "as they are logged", pollSeconds: null, desc: "Contacts operators log, posted by Long Lines Relay", alerts: true,
+    volume: "standard", title: "Logged contacts", tagline: "Contacts operators log, posted from their logging software as they log them.",
+    mark: "LC", markColor: "secondary", statsKey: "logged", site: null, via: null,
+    runBy: { operator: "Long Lines operators, through Long Lines Relay", feed: "Contacts posted from logging software as they are logged", modes: "Any, as logged" },
+    about: [
+      "Long Lines Relay is a desktop app that catches the contacts your logging software broadcasts and posts each one to Long Lines as a spot. The operator who logged the contact is the spotter, and the station worked is the callsign.",
+      "Long Lines stores every logged contact and shows them on profiles. A contact edited in the logger replaces its spot, and a deleted one is taken down. Only connections that pick Logged contacts get them.",
+    ],
+    showsUp: [
+      "Callsign profile: last heard, activity",
+      "Connection filters: Bands, Modes, Callsigns, Callsign groups",
+    ],
+    schema: deliveredSchema("logged", {
+      callsign: { description: "Callsign of the station worked, as logged." },
+      spotter: { description: "Callsign of the operator who logged the contact, as logged." },
+      mode: { description: "Operating mode as logged, lower case." },
+      time: { description: "When the contact was logged: ISO 8601 in UTC, whole seconds. Or Unix seconds." },
+      reference: noValue("logged contact"),
+      place_name: noValue("logged contact"),
+      state: noValue("logged contact"),
+      url: noValue("logged contact"),
+      comment: noValue("logged contact"),
+    }),
+    example: {
+      id: 58161655, time: "2026-10-14T14:37:00Z", callsign: "W1AW", frequency_khz: 14025, mode: "cw", band: "20m",
+      source: "logged", spotter: "KK4PWJ",
     },
   },
 ];

@@ -251,6 +251,7 @@ Deno.test(
       "dxcluster",
       "wwff",
       "wwbota",
+      "logged",
       "rbn",
     ]);
   },

@@ -1,4 +1,4 @@
--- Preview seed data: a synthetic week of POTA, SOTAwatch, WWFF, WWBOTA, IOTA and RBN spots so the
+-- Preview seed data: a synthetic week of POTA, SOTAwatch, WWFF, WWBOTA, IOTA, logged contact and RBN spots so the
 -- Stats page (and the Sources and recent-spot views) have something to show on
 -- a Supabase preview branch or a fresh local stack, where no ingest runs.
 --
@@ -271,6 +271,29 @@ from seed_days d,
                      (array['ssb', 'cw', 'ssb', 'ft8'])[1 + g % 4] as mode,
                      (array['20m', '40m', '17m', '15m'])[1 + (g + d.d + 7) % 4] as band) as x,
      lateral (select d.day_start + make_interval(secs => ((8 + g) * 3600 + g * 97)::int) as spot_time) as t
+where t.spot_time < now() - interval '5 minutes';
+
+-- Logged contacts ---------------------------------------------------------------
+
+-- Three made-up stations posting their own logs, about 25 contacts a day each, in the evening
+-- UTC: spotter is the station call as logged, callsign the worked call. One in twelve was
+-- edited in the logger, so its first spot is retracted and a second carries the change. These
+-- are spots only: logged_contacts (the per-account index apply_logged_contacts keeps) stays
+-- empty, so the pgTAP suites that clear raw_spots still can.
+insert into raw_spots (source, source_spot_id, content_hash, spot_time, callsign, spotter, frequency_khz, band, mode, mode_family,
+                       comment, raw_payload, retracted_at)
+select 'logged', 'seed-user-' || x.op || '|seed-logged-' || d.d || '-' || g, md5('seed-logged-' || d.d || '-' || g || '-' || v.n),
+       t.spot_time, x.worked, x.mycall, pg_temp.freq(x.band, x.mode, g + v.n), x.band, x.mode, pg_temp.family(x.mode), '',
+       '{"seed": true}', case when v.n = 1 and g % 12 = 0 then t.spot_time + interval '2 minutes' end
+from seed_days d,
+     lateral generate_series(1, 75) as g,
+     lateral (select 1 + g % 3 as op,
+                     (array['KK4PWS', 'W4LGS', 'N1MMS'])[1 + g % 3] || case when g % 7 = 0 then '/P' else '' end as mycall,
+                     pg_temp.seed_call(pg_temp.skewed(2000, 1.2, g + d.d), array['K', 'W', 'N', 'VE', 'G', 'DL']) as worked,
+                     (array['cw', 'cw', 'ssb', 'ft8', 'ft4'])[1 + g % 5] as mode,
+                     (array['40m', '20m', '20m', '15m', '80m', '17m'])[1 + (g + d.d + 7) % 6] as band) as x,
+     lateral generate_series(1, case when g % 12 = 0 then 2 else 1 end) as v(n),
+     lateral (select d.day_start + make_interval(secs => ((18 + g % 6) * 3600 + g * 41)::int) as spot_time) as t
 where t.spot_time < now() - interval '5 minutes';
 
 -- Reference lists ---------------------------------------------------------------

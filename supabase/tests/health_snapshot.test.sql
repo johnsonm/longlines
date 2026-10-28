@@ -1,5 +1,5 @@
 -- pgTAP: the Health page (20261021000100_health, 20261021000200_health_storage,
--- 20261021000400_job_timings). Pins the payload shape
+-- 20261021000400_job_timings; logged contacts stay out from 20261028000300). Pins the payload shape
 -- (HealthPayload in web/src/health/types.ts), every check's threshold (the
 -- page's rule copy), the per-destination oldest ready delivery, job outcomes
 -- from cron_http_requests, job run statistics and the unusual rules, the series buckets, the sampler, heartbeats, the
@@ -7,7 +7,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(53);
+select plan(54);
 
 create function pg_temp.checks() returns jsonb
 language sql as $$ select public.health_snapshot('1h') -> 'checks' $$;
@@ -56,6 +56,9 @@ select is(pg_temp.checks() -> 'pulled' -> 'sources',
   '[{"source": "pota", "seconds": 60}, {"source": "sotawatch", "seconds": 60}, {"source": "wwbota", "seconds": 60},
     {"source": "wwff", "seconds": 60}]'::jsonb,
   'pulled: seconds since each success');
+update ingest_state set last_success_at = pg_temp.ago(86400) where source = 'logged';
+select is(pg_temp.checks() -> 'pulled' ->> 'status', 'healthy',
+  'pulled: logged contacts arrive when someone logs, so a quiet day is not a delay');
 update ingest_state set last_success_at = pg_temp.ago(181) where source = 'wwff';
 select is(pg_temp.checks() -> 'pulled' ->> 'status', 'delayed', 'pulled: delayed after 180 seconds');
 update ingest_state set last_success_at = null where source = 'wwff';

@@ -938,6 +938,42 @@ spot is missing, check the connection's sources first, then
 `ingest_failures where source = 'wwbota'` (a spot that names no bunker is recorded there).
 Profiles credit an n-fer to its first bunker only.
 
+# Logged contacts
+
+Contacts operators log, posted by Long Lines Relay through the `relay-api` function (a later
+PR) into `raw_spots` with source `logged`, through `apply_logged_contacts`. There is no cron job
+and no inbound side, and they are not on `/health`: a quiet day is normal.
+
+First deploy: merge (the Supabase GitHub integration applies `20261028000300_logged_contacts_source`),
+then redeploy every function that bundles the changed `_shared` code (`Source`, the archive
+columns and run order, the delivery labels):
+
+```sh
+supabase functions deploy archive    # logged in the run order, its Parquet files gain retracted_at
+supabase functions deploy api send-test convert-archive
+```
+
+Is it working?
+
+```sql
+select * from ingest_health where source = 'logged';
+select spot_time, spotter, callsign, frequency_khz, mode, retracted_at
+from raw_spots where source = 'logged' order by spot_time desc limit 20;
+select state, count(*) from logged_contacts group by state;
+select * from archive_status where source = 'logged';
+```
+
+`last_success_at` is the last request applied, not a poll. A row with `retracted_at` set was
+edited or deleted in the logger: it stays in `raw_spots` and the archive, and every reader leaves
+it out. A spot sent before its retraction is not recalled. The archive writes a slice two hours
+after it ends, so a contact deleted later is in the file with `retracted_at` null; `raw_spots`
+has the truth. To take one contact down by hand, set `retracted_at` on its spot, and `state = 'retracted'`
+with `retracted_at` on its `logged_contacts` row (a check keeps the two columns in step).
+
+A connection receives logged contacts only when its sources list Logged contacts. If one is
+missing, check the connection's sources, then the account's callsign: an upsert whose mycall is
+another station's is rejected (`mycall_mismatch`) and stored nowhere.
+
 # IOTA
 
 IOTA references are read out of DX Cluster comments (`raw_spots.iota_reference`), and the island

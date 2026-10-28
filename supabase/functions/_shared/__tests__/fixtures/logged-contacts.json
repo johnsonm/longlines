@@ -1,0 +1,43 @@
+{
+  "relay_version": "0.1.0",
+  "contacts": [
+    {
+      "external_id": "4f0d1c2b3a5e4d6f8a9b0c1d2e3f4a5b",
+      "op": "upsert",
+      "mycall": "KK4PWJ",
+      "call": "W1AW",
+      "frequency_hz": 14025000,
+      "band": "20m",
+      "mode": "CW",
+      "timestamp_utc": "2026-10-28T21:14:00Z",
+      "logger_app": "N1MM"
+    },
+    {
+      "external_id": "a7e1b9c0d2f34e5a8b6c7d8e9f0a1b2c",
+      "op": "upsert",
+      "mycall": "KK4PWJ/P",
+      "call": "N4AB",
+      "frequency_hz": 7185500,
+      "band": "40m",
+      "mode": "LSB",
+      "timestamp_utc": "2026-10-28T21:10:30Z",
+      "logger_app": "N1MM"
+    },
+    {
+      "external_id": "0b9c8d7e6f5a4b3c2d1e0f9a8b7c6d5e",
+      "op": "delete",
+      "timestamp_utc": "2026-10-28T20:31:00Z"
+    },
+    {
+      "external_id": "f79e495bd37010e153bd2da07fd4eb22a248faa643887dffdd1d33e918e1c91c",
+      "op": "upsert",
+      "mycall": "K4XYZ",
+      "call": "VE3ABC",
+      "frequency_hz": 21074000,
+      "band": "15m",
+      "mode": "FT8",
+      "timestamp_utc": "2026-10-28T21:15:45Z",
+      "logger_app": null
+    }
+  ]
+}

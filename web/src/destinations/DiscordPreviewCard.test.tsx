@@ -107,7 +107,7 @@ describe("DiscordPreviewCard", () => {
 
   it("previews the chosen recent spot", async () => {
     const { user } = render({ settings: { style: "plain" } });
-    await waitFor(() => expect(loadRecentSpots).toHaveBeenCalledTimes(5));
+    await waitFor(() => expect(loadRecentSpots).toHaveBeenCalledTimes(6));
     await user.click(screen.getByRole("combobox", { name: "Preview with this spot" }));
     await waitFor(() => expect(screen.getAllByRole("option")).toHaveLength(4));
     expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual([

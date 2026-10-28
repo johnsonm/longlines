@@ -679,7 +679,7 @@ components:
 
     Source:
       type: string
-      enum: [pota, sotawatch, wwff, wwbota, rbn, dxcluster]
+      enum: [pota, sotawatch, wwff, wwbota, rbn, dxcluster, logged]
 
     PushField:
       type: string
@@ -911,7 +911,8 @@ components:
           items: { $ref: "#/components/schemas/Source" }
           description: |
             Empty means any. A DX Cluster spot only matches a connection that lists
-            `dxcluster`, a WWFF spot one that lists `wwff`, and a WWBOTA spot one that lists `wwbota`.
+            `dxcluster`, a WWFF spot one that lists `wwff`, a WWBOTA spot one that lists `wwbota`,
+            and a logged contact (posted by Long Lines Relay) one that lists `logged`.
         rules: { $ref: "#/components/schemas/Rules" }
         quiet_minutes:
           type: [integer, "null"]

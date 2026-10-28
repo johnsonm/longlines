@@ -77,8 +77,8 @@ describe("PushPreviewCard", () => {
 
   it("offers the newest recent spots across sources and previews the chosen one", async () => {
     const { user } = render({ settings: { show_field_names: true, body_separator: "comma", title_fields: ["callsign"] } });
-    await waitFor(() => expect(loadRecentSpots).toHaveBeenCalledTimes(5));
-    expect(vi.mocked(loadRecentSpots).mock.calls.map((c) => c[0])).toEqual(["pota", "sotawatch", "dxcluster", "wwff", "wwbota"]);
+    await waitFor(() => expect(loadRecentSpots).toHaveBeenCalledTimes(6));
+    expect(vi.mocked(loadRecentSpots).mock.calls.map((c) => c[0])).toEqual(["pota", "sotawatch", "dxcluster", "wwff", "wwbota", "logged"]);
     await user.click(screen.getByRole("combobox", { name: "Preview with this spot" }));
     await waitFor(() => expect(screen.getAllByRole("option")).toHaveLength(5));
     expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual([

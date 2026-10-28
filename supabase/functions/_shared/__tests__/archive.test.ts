@@ -151,26 +151,41 @@ Deno.test("objectPath names APRS-IS slices by their five-minute start", function
 Deno.test("ARCHIVE_SCHEMAS matches the columns archive_columns returns", function (): void {
   const sql = Deno.readTextFileSync(
     new URL(
-      "../../../migrations/20261027001000_iota.sql",
+      "../../../migrations/20261028000300_logged_contacts_source.sql",
       import.meta.url,
     ),
   );
-  // Each branch's json_build_object, in order: rbn, aprs, then the raw_spots sources.
+  // Each branch's json_build_object, in order: rbn, aprs, the raw_spots sources, then logged.
   const branches = Array.from(sql.matchAll(/json_build_object\(([\s\S]*?)\) end/g)).map((m) =>
     Array.from(m[1]!.matchAll(/^\s*'(\w+)', json_agg/gm)).map((c) => c[1])
   );
-  assertEquals(branches, [columnNames("rbn"), columnNames("aprs"), columnNames("pota")]);
+  assertEquals(branches, [
+    columnNames("rbn"),
+    columnNames("aprs"),
+    columnNames("pota"),
+    columnNames("logged"),
+  ]);
   assertEquals(columnNames("sotawatch"), columnNames("pota"));
   assertEquals(columnNames("dxcluster"), columnNames("pota"));
   assertEquals(columnNames("wwff"), columnNames("pota"));
   assertEquals(columnNames("wwbota"), columnNames("pota"));
+  assertEquals(columnNames("logged"), columnNames("pota").concat(["retracted_at"]));
 });
 
 Deno.test(
   "encodeParquet round-trips every source's columns in row order",
   async function (): Promise<void> {
     for (
-      const source of ["rbn", "aprs", "pota", "sotawatch", "dxcluster", "wwff", "wwbota"] as const
+      const source of [
+        "rbn",
+        "aprs",
+        "pota",
+        "sotawatch",
+        "dxcluster",
+        "wwff",
+        "wwbota",
+        "logged",
+      ] as const
     ) {
       const columns = columnsFor(source, 3, "2026-10-11T14:10:00Z");
       const rows = await readParquet(encodeParquet(source, columns, 3));
@@ -303,6 +318,7 @@ Deno.test(
       ["dxcluster", cutoff],
       ["wwff", cutoff],
       ["wwbota", cutoff],
+      ["logged", cutoff],
       ["rbn", cutoff],
     ]);
   },

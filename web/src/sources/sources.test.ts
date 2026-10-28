@@ -98,8 +98,17 @@ describe("SOURCES catalog fields", () => {
     expect(findLiveSource("wwff")?.statsKey).toBe("wwff");
     expect(findLiveSource("wwbota")?.statsKey).toBe("wwbota");
     expect(findLiveSource("iota")?.statsKey).toBe("iota");
+    expect(findLiveSource("logged")?.statsKey).toBe("logged");
     expect(findLiveSource("nope")).toBeUndefined();
     expect(findLiveSource(undefined)).toBeUndefined();
+  });
+
+  it("words a logged contact's spotter and callsign as the two ends of the contact", () => {
+    const field = (name: string) => findLiveSource("logged")!.schema!.find((f) => f.name === name)!.description;
+    expect(field("spotter")).toBe("Callsign of the operator who logged the contact, as logged.");
+    expect(field("callsign")).toBe("Callsign of the station worked, as logged.");
+    expect(field("reference")).toBe("No value on logged contact spots, so the key is left out.");
+    expect(LIVE_SOURCES.map((s) => s.id)).toContain("logged");
   });
 
   it("carries IOTA on DX Cluster and offers both as connection sources", () => {

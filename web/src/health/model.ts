@@ -53,6 +53,7 @@ const SOURCE_NAMES: Record<string, string> = {
   sotawatch: "SOTAwatch",
   wwff: "WWFF",
   wwbota: "WWBOTA",
+  logged: "Logged contacts",
   rbn: "RBN",
   dxcluster: "DX Cluster",
   aprs: "APRS-IS",

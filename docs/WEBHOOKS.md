@@ -115,7 +115,7 @@ not the name.
 | Frequency | `frequency_khz`, `frequency_mhz`, `frequency_hz` | `frequencyKhz`, `frequencyMhz`, `frequencyHz` | see below | number | never |
 | Mode | `mode` | `mode` | lower case: `cw`, `ssb`, `ft8` | string | the spot has no mode |
 | Band | `band` | `band` | `20m`, `2m`, `70cm` | string | outside every band |
-| Source | `source` | `source` | `pota`, `sotawatch`, `wwff`, `wwbota`, `dxcluster` or `rbn` | string | never |
+| Source | `source` | `source` | `pota`, `sotawatch`, `wwff`, `wwbota`, `dxcluster`, `rbn` or `logged` (a contact posted by Long Lines Relay: `spotter` is the operator who logged it, `callsign` the station worked) | string | never |
 | Reference | `reference` | `reference` | POTA park (`US-2763`), SOTA summit (`W4C/CM-001`), WWFF reference (`KFF-5268`), WWBOTA bunkers, comma separated (`B/EA-0103, B/EA-0104`), or the IOTA reference a DX Cluster spot's comment names (`EU-005`) | string | RBN, or a DX Cluster spot without an island |
 | Place name | `place_name` | `placeName` | POTA park name, WWFF reference name, the first WWBOTA bunker's name, or the IOTA group's name (`Great Britain`) | string | SOTA, RBN, a DX Cluster spot without an island, or no name |
 | State | `state` | `state` | the POTA location after the dash (`US-NC` is `NC`), several joined by `/` (`NC/VA`) | string | not POTA, or no location |

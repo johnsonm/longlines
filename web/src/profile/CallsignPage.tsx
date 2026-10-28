@@ -83,6 +83,7 @@ function Invalid({ callsign, message }: { callsign: string; message: string }) {
 // Each source keeps one color across the page, matching Stats where they overlap.
 const SOURCE_COLORS: Record<string, "primary" | "secondary" | "warning" | "info" | "success" | "error"> = {
   pota: "primary", sotawatch: "secondary", rbn: "warning", dxcluster: "info", wwff: "success", wwbota: "error",
+  logged: "secondary",
 };
 
 function Header({ profile, signedIn }: { profile: CallsignProfile; signedIn: boolean }) {

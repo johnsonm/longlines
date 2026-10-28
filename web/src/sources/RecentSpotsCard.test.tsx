@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { appValue, wrap } from "../test/render";
-import { loadRecentSpots, type RecentSpot } from "../lib/api";
+import { loadRecentSpots, type IngestHealth, type RecentSpot } from "../lib/api";
 import { RecentSpotsCard } from "./RecentSpotsCard";
 import { findLiveSource, type SourceInfo } from "./sources";
 
@@ -40,6 +40,18 @@ describe("RecentSpotsCard", () => {
     expect(screen.getByText("W2RBN")).toBeInTheDocument();
     expect(loadRecentSpots).toHaveBeenNthCalledWith(1, "pota");
     expect(loadRecentSpots).toHaveBeenNthCalledWith(2, "rbn");
+  });
+
+  it("says when the last fetch was, or for logged contacts the last contact", async () => {
+    vi.mocked(loadRecentSpots).mockResolvedValue([]);
+    const withHealth = (s: SourceInfo) =>
+      wrap(<MemoryRouter><RecentSpotsCard source={s} prefs={UTC}
+        health={[{ source: s.id, seconds_since_last_success: 120 } as IngestHealth]} /></MemoryRouter>, appValue());
+    const { unmount } = render(withHealth(source("pota")));
+    expect(await screen.findByText("Last fetch 2m ago, every 60s")).toBeInTheDocument();
+    unmount();
+    render(withHealth(source("logged")));
+    expect(await screen.findByText("Last contact 2m ago")).toBeInTheDocument();
   });
 
   it("ignores a failure from a request a newer one replaced", async () => {

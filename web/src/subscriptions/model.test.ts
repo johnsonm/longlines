@@ -137,6 +137,7 @@ describe("rows and rules", () => {
     expect(fieldsFor(["wwbota"])).toContain("reference");
     expect(fieldsFor([])).toContain("reference");
     expect(fieldsFor(["rbn"])).toEqual(["callsign", "group", "band", "mode", "frequency"]);
+    expect(fieldsFor(["logged"])).toEqual(["callsign", "group", "band", "mode", "frequency"]);
   });
 
   it("offers the island rule only on DX Cluster, whose spots carry IOTA references", () => {

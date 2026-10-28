@@ -27,6 +27,7 @@ export const ARCHIVE_ORDER: readonly Source[] = [
   "dxcluster",
   "wwff",
   "wwbota",
+  "logged",
   "rbn",
 ];
 /** Every source a request may name. */
@@ -112,7 +113,7 @@ type ColumnType = "timestamp" | "string" | "json" | "double" | "int32";
 
 /**
  * The columns of each source's Parquet files, in file order, and their types.
- * The names mirror archive_columns (20261014000400); a test compares the two.
+ * The names mirror archive_columns (20261028000300); a test compares the two.
  */
 export const ARCHIVE_SCHEMAS: Readonly<
   Record<Source, ReadonlyArray<readonly [string, ColumnType]>>
@@ -147,6 +148,8 @@ export const ARCHIVE_SCHEMAS: Readonly<
   dxcluster: SPOT_COLUMNS,
   wwff: SPOT_COLUMNS,
   wwbota: SPOT_COLUMNS,
+  /** A retraction after the slice is archived is not in the file; raw_spots keeps it. */
+  logged: SPOT_COLUMNS.concat([["retracted_at", "timestamp"]]),
 };
 
 function two(n: number): string {

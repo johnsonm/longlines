@@ -843,6 +843,35 @@ tag on DX Cluster spots, not a source: a spot is stored once, as `dxcluster`.
   rates; `list_recent_spots('iota')` returns DX Cluster spots that name an island. The catalog's
   IOTA entry has `via: "dxcluster"`: never a connection source, its health is DX Cluster's.
 
+# Logged contacts
+
+Long Lines Relay (`sonyccd/longlines-relay`) is a desktop app that catches the contact broadcasts
+a logging program sends (N1MM Logger+ format) and posts each logged contact (spec
+`docs/superpowers/specs/2026-10-28-logged-contacts-design.md`; the wire contract is
+`docs/contract.md` in the relay repo). It is a source, `logged`, with no cron job and no inbound
+side: contacts arrive when someone logs.
+
+- **Shape.** `_shared/logged.ts` checks one item of a request (invalid, `clock_skew` more than five
+  minutes ahead, `too_old` for an upsert more than 30 minutes old) and builds the spot: `spotter`
+  is mycall as logged, `callsign` the worked call, the band from the frequency, the mode through
+  `resolveMode`, `source_spot_id` `<user id>|<external id>`, the hash over mycall, call,
+  frequency, band, mode and time.
+- **Applying.** `apply_logged_contacts(user, items)` applies a request in order, in one
+  transaction, keyed by `logged_contacts (user_id, external_id)`: created, unchanged, updated,
+  retracted, unknown, or rejected for an upsert whose mycall's base call is not the account
+  callsign's (`mycall_mismatch`). It stores through `ingest_spots`, so the matcher picks the spot
+  up as usual.
+- **Retraction.** `raw_spots` stays append-only. An edit retracts the old spot and stores a new
+  one; a delete retracts the spot. `raw_spots.retracted_at` is the marker, set and cleared only by
+  `apply_logged_contacts`; content a contact had before revives its own retracted row. Every
+  reader leaves a retracted row out: `spot_stream` (so profiles, rollups and group statistics),
+  `recent_spots`, `preview_subscription`, callsign groups' on-air check, `match_pending_spots`
+  and the Stats counts. A delivery made before the retraction is not recalled; a day already
+  rolled up keeps its counts.
+- **Elsewhere.** Opt-in matching like WWFF and WWBOTA (`source_matches`); "Logged contacts" in
+  push, Discord and webhooks; archived hourly with a `retracted_at` column; Stats has only
+  `daily[].logged` / `hourly[].logged`; not on `/health` and never delayed in the catalog.
+
 # The spot archive
 
 ```mermaid

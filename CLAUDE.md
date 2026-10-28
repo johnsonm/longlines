@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this is
 
 Long Lines ingests ham radio spots from POTA, SOTAwatch, WWFF, WWBOTA, DX Cluster and the Reverse Beacon
-Network (plus APRS-IS packets) into Supabase. Phase 1 was ingest-to-storage only; the scope
+Network (plus APRS-IS packets, and the contacts operators log, posted by Long Lines Relay) into Supabase. Phase 1 was ingest-to-storage only; the scope
 exclusions in `docs/ARCHITECTURE.md` and the original spec are deliberate. Do not add auth, RLS,
 UI, consumers, notifications, cross-source dedup, or new sources without being asked.
 
@@ -193,9 +193,9 @@ The conventions are `docs/superpowers/specs/2026-10-22-strict-eslint-conventions
 - A subscription is live only while `enabled` and linked to at least one destination. Saving with
   none is allowed; `match_pending_spots` and `watched_among` both skip it, and `enabled` is kept
   so it starts once a destination is added. Keep that check in both if either changes.
-- DX Cluster, WWFF and WWBOTA spots match only subscriptions whose `sources` lists `dxcluster` /
-  `wwff` / `wwbota`; an empty sources list ("any source") includes none of them (WWFF and WWBOTA
-  overlap POTA heavily and there is no cross-source dedup). The rule lives in `source_matches`. An RBN spot passes only an AND group of
+- DX Cluster, WWFF, WWBOTA and logged spots match only subscriptions whose `sources` lists
+  `dxcluster` / `wwff` / `wwbota` / `logged`; an empty sources list ("any source") includes none of
+  them (WWFF and WWBOTA overlap POTA heavily and there is no cross-source dedup). The rule lives in `source_matches`. An RBN spot passes only an AND group of
   rules that names stations (a `callsign` or `group` rule with op `is`, `rules_name_stations`).
 - The loop is `_shared/delivery/run.ts` (`runDeliveryBatch` over a `DeliveryRpc`), run only by
   the sender. It talks to the database only through `claim_deliveries`,
@@ -278,6 +278,34 @@ The design is `docs/superpowers/specs/2026-10-26-wwbota-design.md`.
   `hourly[].wwbota` (optional keys, for the catalog's rates), from their own CTEs like `dx`. Do not
   add it to `in_window`, totals, bands, countries or top lists without being asked. It stays off
   the band map.
+
+## Logged contacts rules
+
+The design is `docs/superpowers/specs/2026-10-28-logged-contacts-design.md`; the wire contract is
+`docs/contract.md` in `sonyccd/longlines-relay` (it wins on wire details, the design on schema).
+
+- Long Lines Relay posts the contacts an operator logs; each becomes a `raw_spots` row with source
+  `logged` ("Logged contacts"): `spotter` is mycall as logged, `callsign` the worked call as
+  logged. There is no cron job and no inbound side; it is not on `/health` and never "Delayed" in
+  the catalog (`pollSeconds: null`, "Last contact").
+- `raw_spots` stays append-only. `raw_spots.retracted_at` is the only retraction, set and cleared
+  only by `apply_logged_contacts`; never delete a spot to retract it. Every reader of `raw_spots`
+  for spots leaves a retracted row out: `spot_stream`, `recent_spots`, `preview_subscription`,
+  `callsign_group_rows`, `match_pending_spots` and the Stats `logged` CTEs. A new reader that can
+  see `logged` rows adds `retracted_at is null` too.
+- `apply_logged_contacts(user, items)` (service role) is the only writer of `logged_contacts` and
+  of logged spots: it applies a request's items in order, stores through `ingest_spots`, revives a
+  retracted row whose content comes back (the dedup key would refuse a copy), and decides
+  `mycall_mismatch` with `base_callsign()`. Its statuses and reasons are the contract's; a new one
+  needs a v2.
+- `_shared/logged.ts` is the only TypeScript for a contact: the request and item schemas
+  (loose, since deployed relays lag), `invalid` / `clock_skew` / `too_old` with
+  `MAX_CLOCK_SKEW_MS` and `MAX_CONTACT_AGE_MS` (the contract's constants; change them only with
+  the relay), the spot and its hash (`mycall, call, frequency_hz, band, mode, timestamp_utc`, the
+  band derived from the frequency; changing it makes every resend look like an edit), and the
+  merge of results back into input order. Never work out a base call in TypeScript.
+- Logged contacts are opt-in (`source_matches`), not a Stats peer (only `daily[].logged` and
+  `hourly[].logged`), and stay off the band map.
 
 ## IOTA rules
 
@@ -520,8 +548,8 @@ The delivery side (retries, pause, attempts, rendering, Vault) is in "Delivery r
 ## Archive rules
 
 - Slice length lives only in `archive_slice_minutes(source)` (APRS-IS 5 minutes, RBN 10; POTA,
-  SOTAwatch, DX Cluster, WWFF and WWBOTA 60). `ARCHIVE_ORDER` is pota, sotawatch, dxcluster, wwff,
-  wwbota, rbn.
+  SOTAwatch, DX Cluster, WWFF, WWBOTA and logged 60). `ARCHIVE_ORDER` is pota, sotawatch, dxcluster,
+  wwff, wwbota, logged, rbn. Logged files carry `retracted_at` as well (their own branch).
   A slice's rows, columns and order are chosen in SQL (`archive_columns`, column arrays), never in
   TypeScript; the `archive` function only encodes Parquet, uploads and logs. One file per slice at
   `<source>/year=YYYY/month=MM/day=DD/HHMM.parquet`. A column change goes in `archive_columns` and

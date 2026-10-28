@@ -45,7 +45,7 @@ returns subscriptions language sql as $$
 $$;
 create or replace function pg_temp.spot(p_source text, p_call text, p_band text, p_mode text, p_ref text, p_loc text, p_summit text, p_family text default null)
 returns raw_spots language sql as $$
-  select (0, p_source, 'x', 'x', now(), now(), p_call, null, 14062, p_band, p_mode, '', p_ref, null, p_loc, p_summit, '{}'::jsonb, p_family, public.base_callsign(p_call), null, null, null, null, null, null)::raw_spots;
+  select (0, p_source, 'x', 'x', now(), now(), p_call, null, 14062, p_band, p_mode, '', p_ref, null, p_loc, p_summit, '{}'::jsonb, p_family, public.base_callsign(p_call), null, null, null, null, null, null, null)::raw_spots;
 $$;
 
 -- spot_matches rules.
