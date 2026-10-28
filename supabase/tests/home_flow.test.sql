@@ -1,5 +1,5 @@
--- pgTAP: home_flow() (20261027001300_home_flow, 20261027001400_home_flow_sources), the
--- Home page's counts and each connection's sources. Pins the payload shape (HomeFlow in
+-- pgTAP: home_flow() (20261027001300_home_flow, 20261027001400_home_flow_sources, logged from
+-- 20261028000300), the Home page's counts and each connection's sources. Pins the payload shape (HomeFlow in
 -- web/src/home/types.ts), the 24-hour windows (matched by created_at, delivered by sent_at),
 -- distinct spots, the matcher's source rules, per-user isolation and access.
 begin;
@@ -25,7 +25,7 @@ select save_subscription(jsonb_build_object('name', 'Parks', 'sources', array['p
        save_subscription(jsonb_build_object('name', 'Either',
          'rules', '[[{"field":"callsign","op":"is","values":["KK4PWJ"]}], [{"field":"band","op":"is","values":["20m"]}]]'::jsonb,
          'destinations', '[]'::jsonb)) as either,
-       save_subscription(jsonb_build_object('name', 'Everything', 'sources', array['pota', 'sotawatch', 'wwff', 'wwbota', 'rbn', 'dxcluster'],
+       save_subscription(jsonb_build_object('name', 'Everything', 'sources', array['pota', 'sotawatch', 'wwff', 'wwbota', 'rbn', 'dxcluster', 'logged'],
          'rules', '[[{"field":"callsign","op":"is","values":["KK4PWJ"]}]]'::jsonb, 'destinations', '[]'::jsonb)) as everything;
 select pg_temp.as_user('22222222-2222-2222-2222-222222222222');
 create temp table dp as select * from create_destination('push', 'Phone', null);
@@ -97,7 +97,7 @@ select set_eq(
        ((select either from subs), 'pota'), ((select either from subs), 'sotawatch'), ((select either from subs), 'rbn')
      ) x(id, source)
      union all
-     select (select everything from subs), unnest(array['pota', 'sotawatch', 'wwff', 'wwbota', 'rbn', 'dxcluster']) $$,
+     select (select everything from subs), unnest(array['logged', 'pota', 'sotawatch', 'wwff', 'wwbota', 'rbn', 'dxcluster']) $$,
   'subscription_sources: every connection, traffic or not, with the sources the matcher lets through');
 select ok(not exists (
     select 1 from a, jsonb_array_elements(p -> 'subscription_sources') e

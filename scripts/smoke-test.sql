@@ -23,7 +23,7 @@ begin
 
   -- ingest_state is seeded.
   select count(*) into n from ingest_state;
-  assert n = 7, format('expected 7 ingest_state rows, found %s', n);
+  assert n = 8, format('expected 8 ingest_state rows, found %s', n);
 
   -- ingest_spots inserts, dedups and enqueues.
   select count(*) into first_pass from public.ingest_spots('[
@@ -71,7 +71,23 @@ begin
 
   -- Health view reads.
   select count(*) into n from ingest_health;
-  assert n = 7, 'ingest_health should have one row per source';
+  assert n = 8, 'ingest_health should have one row per source';
+
+  -- Logged contacts: apply_logged_contacts answers per item. An account without a profile can
+  -- post nothing, and a delete of a contact never sent is unknown (and both change nothing).
+  assert public.apply_logged_contacts('00000000-0000-0000-0000-00000000005e', jsonb_build_array(
+           jsonb_build_object('op', 'upsert', 'external_id', 'smoke', 'logger_app', null, 'relay_version', '0.1.0',
+             'spot', jsonb_build_object('source', 'logged',
+               'source_spot_id', '00000000-0000-0000-0000-00000000005e|smoke', 'content_hash', 'g',
+               'spot_time', now(), 'callsign', 'W1AW', 'spotter', 'SM0KE', 'frequency_khz', 14025, 'band', '20m',
+               'mode', 'cw', 'mode_family', 'cw', 'comment', '', 'raw_payload', '{}'::jsonb)),
+           jsonb_build_object('op', 'delete', 'external_id', 'smoke', 'logger_app', null, 'relay_version', '0.1.0',
+             'spot', null)))
+         = '[{"external_id": "smoke", "status": "rejected", "reason": "mycall_mismatch"},
+             {"external_id": "smoke", "status": "unknown"}]'::jsonb,
+    'apply_logged_contacts should reject a contact from an account without a callsign';
+  assert not exists (select 1 from raw_spots where source = 'logged' and content_hash = 'g'),
+    'a rejected contact should store no spot';
 
   -- rbn_spots: the bulk RPC inserts (dedup is covered in rbn_spots.test.sql).
   assert public.ingest_rbn_spots(jsonb_build_array(jsonb_build_object(
