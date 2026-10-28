@@ -201,6 +201,25 @@ begin
     'group_stats_cache should have row level security on';
   assert public.public_group_statistics('zzzzzzzzzz', '30d') is null,
     'public_group_statistics should return null for an unknown code';
+
+  -- Long Lines Relay pairing: a pairing starts pending, keeps only its device code's hash, and an
+  -- unknown device code polls expired_token.
+  declare
+    v_start jsonb := public.start_relay_pairing('smoke', '0.0.0');
+  begin
+    assert v_start ->> 'verification_uri' = 'https://longlines.io/relay/approve'
+           and (v_start ->> 'expires_in')::int = 600,
+      'start_relay_pairing should answer the contract''s verification URI and ten minutes';
+    assert (select status from relay_pairings
+            where device_code_hash = encode(extensions.digest(v_start ->> 'device_code', 'sha256'), 'hex'))
+           = 'pending',
+      'a started pairing should be stored pending by its device code''s hash';
+  end;
+  assert public.poll_relay_pairing(repeat('0', 64)) ->> 'status' = 'expired_token',
+    'an unknown device code should poll expired_token';
+  assert (select relrowsecurity from pg_class where oid = 'public.relay_tokens'::regclass)
+         and (select relrowsecurity from pg_class where oid = 'public.relay_pairings'::regclass),
+    'relay_tokens and relay_pairings should have row level security on';
 end $$;
 
 -- anon must not be able to read the tables.
