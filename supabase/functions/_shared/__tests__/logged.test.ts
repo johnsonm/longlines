@@ -87,6 +87,12 @@ Deno.test("loggedRequestSchema refuses a request the contract answers with 400",
     { relay_version: VERSION, contacts: [{ external_id: "" }] },
     { relay_version: VERSION, contacts: [{ external_id: "x".repeat(257) }] },
     { relay_version: VERSION, contacts: [{ external_id: 7 }] },
+    // Contract section 1: no U+0000 and no unpaired surrogate in external_id or relay_version.
+    { relay_version: VERSION, contacts: [{ external_id: "a\u0000b" }] },
+    { relay_version: VERSION, contacts: [{ external_id: "a\ud800" }] },
+    { relay_version: "0.1\u0000", contacts: one },
+    // Lengths count code points (contract section 1), so 257 astral characters are too many.
+    { relay_version: VERSION, contacts: [{ external_id: "\u{1F4FB}".repeat(257) }] },
   ];
   for (const body of bad) {
     assertEquals(loggedRequestSchema.safeParse(body).success, false, JSON.stringify(body));
@@ -100,6 +106,14 @@ Deno.test("loggedRequestSchema refuses a request the contract answers with 400",
       .success,
     true,
     "a field the server does not know is ignored",
+  );
+  assertEquals(
+    loggedRequestSchema.safeParse({
+      relay_version: VERSION,
+      contacts: [{ external_id: "\u{1F4FB}".repeat(256) }],
+    }).success,
+    true,
+    "256 astral characters are 256 characters, not 512",
   );
 });
 
@@ -201,6 +215,10 @@ Deno.test("each content field changes the hash; logger_app and unknown fields do
   const extra = await spotOf(upsert({ later_field: { any: "shape" } }));
   assertEquals(extra.content_hash, base);
   assertEquals(extra.raw_payload["later_field"], { any: "shape" });
+  // A field the server does not know is never checked, so it cannot fail the batch in Postgres.
+  const unstorable = await spotOf(upsert({ later_field: "a\u0000b\ud800" }));
+  assertEquals(unstorable.content_hash, base);
+  assertEquals(unstorable.raw_payload["later_field"], "ab\ufffd");
 });
 
 Deno.test("logger_app absent or null is null", async function (): Promise<void> {
@@ -265,6 +283,18 @@ Deno.test("an item that breaks a rule of 6.1 is rejected as invalid, with its id
     upsert({ timestamp_utc: "2026-02-30T21:14:00Z" }),
     upsert({ timestamp_utc: "2026-10-28T25:14:00Z" }),
     upsert({ logger_app: "x".repeat(65) }),
+    // Contract sections 1 and 6.1: no control character or U+FEFF in a call, no U+0000 or
+    // unpaired surrogate in any string, and lengths in code points.
+    upsert({ call: "W1\u0000AW" }),
+    upsert({ call: "W1\u0001AW" }),
+    upsert({ call: "W1\u0085AW" }),
+    upsert({ call: "W1\uFEFFAW" }),
+    upsert({ mycall: "KK4PWJ\u00a0" + "P" }),
+    upsert({ mycall: "KK4PWJ\ud800" }),
+    upsert({ call: "\u{1F4FB}".repeat(65) }),
+    upsert({ mode: "C\u0000W" }),
+    upsert({ logger_app: "N1\u0000MM" }),
+    upsert({ logger_app: "\u{1F4FB}".repeat(65) }),
     { external_id: "d1", op: "delete" },
     { external_id: "d1", op: "delete", timestamp_utc: 1761686040 },
   ];

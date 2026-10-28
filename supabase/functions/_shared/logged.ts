@@ -16,6 +16,7 @@ import { ValidationError } from "./errors.ts";
 import { contentHash } from "./hash.ts";
 import { modeFamily, resolveMode } from "./modes.ts";
 import { assertStorableSpot } from "./normalize.ts";
+import { withoutNul } from "./strip_nul.ts";
 import { jsonObjectSchema } from "./types.ts";
 import type { JsonObject, NormalizedSpot } from "./types.ts";
 import { parseWith } from "./validate.ts";
@@ -109,7 +110,13 @@ export interface LoggedAnswered {
 
 export type LoggedOutcome = LoggedApply | LoggedAnswered;
 
-const NO_WHITESPACE_CALL = /^\S{1,64}$/;
+/**
+ * A call holds no whitespace or control character (contract 6.1): Unicode White_Space, U+FEFF and
+ * the Cc category. With the u flag, JavaScript's \s is White_Space without U+0085 plus U+FEFF, and
+ * \p{Cc} adds U+0085 back, so this is exactly the relay's check. Lengths are checked apart, in
+ * code points as the contract counts characters (as zod and Postgres' char_length do).
+ */
+const CALL_TEXT = /^[^\s\p{Cc}]+$/u;
 const TIMESTAMP_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
 
 /** `YYYY-MM-DDTHH:MM:SSZ` exactly, naming a real instant (no February 30th). */
@@ -124,17 +131,28 @@ function isTimestampUtc(value: string): boolean {
   return time.toISOString().replace(".000Z", "Z") === value;
 }
 
+/**
+ * Text Postgres can store: no U+0000 and no unpaired surrogate (contract section 1). Either one in
+ * apply_logged_contacts' jsonb would fail the whole batch, where the contract makes it the item's
+ * rejected / invalid (or, in external_id and relay_version, the request's 400).
+ */
+export function storableText(value: string): boolean {
+  return !value.includes("\u0000") && value.isWellFormed();
+}
+
 /** An item's id: 1 to 256 characters, exactly as sent (the client trims it). */
 export const loggedExternalIdSchema: z.ZodType<string> = z.string().min(1).max(
   MAX_EXTERNAL_ID_LENGTH,
-);
+).refine(storableText);
 
 const timestampUtcSchema: z.ZodType<string> = z.string().refine(isTimestampUtc, {
   error: "expected YYYY-MM-DDTHH:MM:SSZ",
 });
 
-/** A call as logged: trimmed and upper-cased, 1 to 64 characters, no whitespace. */
-const callSchema: z.ZodType<string> = z.string().trim().toUpperCase().regex(NO_WHITESPACE_CALL);
+/** A call as logged: trimmed and upper-cased, 1 to 64 characters, no whitespace or control. */
+const callSchema: z.ZodType<string> = z.string().trim().toUpperCase().min(1).max(64).regex(
+  CALL_TEXT,
+).refine(storableText);
 
 // The relay is our client, but deployed relays lag the server and the contract has the server
 // ignore fields it does not know (section 2), so items are loose, not strict. Not annotated: a
@@ -146,9 +164,9 @@ const upsertSchema = z.looseObject({
   call: callSchema,
   frequency_hz: z.number().int().min(1).max(MAX_FREQUENCY_HZ),
   band: z.string().max(16).nullable(),
-  mode: z.string().trim().toUpperCase().min(1).max(32),
+  mode: z.string().trim().toUpperCase().min(1).max(32).refine(storableText),
   timestamp_utc: timestampUtcSchema,
-  logger_app: z.string().max(64).nullable().optional(),
+  logger_app: z.string().max(64).refine(storableText).nullable().optional(),
 });
 const deleteSchema = z.looseObject({
   external_id: loggedExternalIdSchema,
@@ -171,7 +189,7 @@ const requestItemSchema: z.ZodType<LoggedRequestItem> = z.looseObject({
  * item is only checked for its external_id here; normalizeLoggedContact checks the rest.
  */
 export const loggedRequestSchema: z.ZodType<LoggedRequest> = z.looseObject({
-  relay_version: z.string().min(1).max(32),
+  relay_version: z.string().min(1).max(32).refine(storableText),
   contacts: z.array(requestItemSchema).min(1).max(MAX_CONTACTS_PER_REQUEST),
 });
 
@@ -278,8 +296,9 @@ export async function normalizeLoggedContact(
   if (contact.logger_app !== undefined) {
     loggerApp = contact.logger_app;
   }
-  // The item exactly as the relay sent it, for raw_payload.
-  const payload = parseWith(jsonObjectSchema, raw, "normalizeLoggedContact: item");
+  // The item as the relay sent it, for raw_payload. A field the server does not know is kept but
+  // never checked, so withoutNul makes it storable (it changes nothing else).
+  const payload = withoutNul(parseWith(jsonObjectSchema, raw, "normalizeLoggedContact: item"));
   return {
     kind: "apply",
     item: {

@@ -309,6 +309,7 @@ Deno.test("device/start refuses a body that breaks the contract with 400 invalid
     startWith("device_name", "   "),
     startWith("device_name", "x".repeat(65)),
     startWith("device_name", "PC\u0000"),
+    startWith("device_name", "PC\ud800"),
     startWith("client_version", ""),
     { client_name: "Long Lines Relay" },
     [],

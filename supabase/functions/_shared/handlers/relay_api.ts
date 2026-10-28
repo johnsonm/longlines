@@ -34,6 +34,7 @@ import {
   loggedResultsSchema,
   mergeLoggedResults,
   normalizeLoggedContact,
+  storableText,
 } from "../logged.ts";
 import { type JsonObject, jsonObjectSchema } from "../types.ts";
 import { parseWith } from "../validate.ts";
@@ -119,17 +120,12 @@ export interface RelayAccount {
   email: string;
 }
 
-/** Text that Postgres can store: no NUL. */
-function storable(value: string): boolean {
-  return !value.includes("\u0000");
-}
-
 // Request bodies are ours, but the contract has the server ignore fields it does not know
 // (section 2) because deployed relays lag the server, so they are loose.
 const deviceStartSchema: z.ZodType<DeviceStartRequest> = z.looseObject({
   client_name: z.literal(CLIENT_NAME),
-  client_version: z.string().min(1).max(32).refine(storable),
-  device_name: z.string().trim().min(1).max(64).refine(storable),
+  client_version: z.string().min(1).max(32).refine(storableText),
+  device_name: z.string().trim().min(1).max(64).refine(storableText),
 });
 
 const deviceTokenSchema: z.ZodType<DeviceTokenRequest> = z.looseObject({
