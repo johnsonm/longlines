@@ -32,6 +32,7 @@ import { LookupPage } from "./profile/LookupPage";
 import { CallsignPage } from "./profile/CallsignPage";
 import { ReferenceLookupPage } from "./references/ReferenceLookupPage";
 import { ReferencePage } from "./references/ReferencePage";
+import { ApprovePage } from "./relay/ApprovePage";
 import { loadDestinations, loadSubscriptions, signOut, type Destination, type SubscriptionWithLinks } from "./lib/api";
 import type { TimePrefs } from "./lib/time";
 import { pushCleanup } from "./pwa/push";
@@ -91,6 +92,8 @@ function Router() {
       <Route path="/g/:slug" element={<PublicRoute page="group-public" />} />
       <Route path="/account" element={<RequireAuth page="account" />} />
       <Route path="/api-tokens" element={<RequireAuth page="api-tokens" />} />
+      <Route path="/relay" element={<ToRelayApprove />} />
+      <Route path="/relay/approve" element={<RequireAuth page="relay-approve" />} />
       <Route path="*" element={<ToHome />} />
     </Routes>
   );
@@ -104,6 +107,12 @@ function ToHome() {
   const { sessionLoading } = useApp();
   if (sessionLoading) return <LinearProgress />;
   return <Navigate to="/home" replace />;
+}
+
+/** /relay is the short address the relay tells people to type; the page itself is /relay/approve, code and all. */
+function ToRelayApprove() {
+  const { search, hash } = useLocation();
+  return <Navigate to={`/relay/approve${search}${hash}`} replace />;
 }
 
 /** Subscriptions are now Connections: old /subscriptions bookmarks keep their id and query string. */
@@ -124,7 +133,7 @@ function PublicOnly({ children }: { children: ReactNode }) {
   return children;
 }
 
-type Page = "home" | "sources" | "source" | "band-map" | "subscriptions" | "subscription-new" | "subscription" | "groups" | "group" | "group-settings" | "destinations" | "destination-new" | "destination" | "stats" | "health" | "lookup" | "call" | "ref-lookup" | "ref" | "account" | "api-tokens" | "group-public";
+type Page = "home" | "sources" | "source" | "band-map" | "subscriptions" | "subscription-new" | "subscription" | "groups" | "group" | "group-settings" | "destinations" | "destination-new" | "destination" | "stats" | "health" | "lookup" | "call" | "ref-lookup" | "ref" | "account" | "api-tokens" | "group-public" | "relay-approve";
 type PublicPage = "band-map" | "stats" | "health" | "lookup" | "call" | "ref-lookup" | "ref" | "group-public";
 
 // Signed-out visitors read profiles in UTC.
@@ -311,6 +320,7 @@ function SignedIn({ page }: { page: Page }) {
       {page === "account" && <AccountPage profile={profile} />}
       {page === "api-tokens" && <ApiTokensPage />}
       {page === "group-public" && <PublicGroupRoute />}
+      {page === "relay-approve" && <ApprovePage />}
     </AppShell>
   );
 }

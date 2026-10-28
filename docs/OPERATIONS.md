@@ -940,8 +940,8 @@ Profiles credit an n-fer to its first bunker only.
 
 # Logged contacts
 
-Contacts operators log, posted by Long Lines Relay through the `relay-api` function (a later
-PR) into `raw_spots` with source `logged`, through `apply_logged_contacts`. There is no cron job
+Contacts operators log, posted by Long Lines Relay through the `relay-api` function ("Long
+Lines Relay" below) into `raw_spots` with source `logged`, through `apply_logged_contacts`. There is no cron job
 and no inbound side, and they are not on `/health`: a quiet day is normal.
 
 First deploy: merge (the Supabase GitHub integration applies `20261028000300_logged_contacts_source`),
@@ -973,6 +973,54 @@ with `retracted_at` on its `logged_contacts` row (a check keeps the two columns 
 A connection receives logged contacts only when its sources list Logged contacts. If one is
 missing, check the connection's sources, then the account's callsign: an upsert whose mycall is
 another station's is rejected (`mycall_mismatch`) and stored nowhere.
+
+# Long Lines Relay
+
+The desktop app (`sonyccd/longlines-relay`) signs in by pairing and posts logged contacts through
+the `relay-api` function, at `https://api.longlines.io/relay/v1/<path>` (a Vercel rewrite in
+`web/vercel.json`, host `api.longlines.io`, ahead of the management API's `/v1` rule). The wire
+contract is that repository's `docs/contract.md`. Pairing: the relay calls `device/start`, opens
+`https://longlines.io/relay/approve?code=XXXX-XXXX` (`verification_uri_complete`), and shows
+`longlines.io/relay` (`verification_uri`, which redirects there) for a code typed by hand; the signed-in user selects Allow, and the relay's `device/token` poll gets its token once.
+Tokens are listed and revoked on the API tokens page ("Long Lines Relay" card).
+
+First deploy: merge (the Supabase GitHub integration applies `20261028000400_relay_pairing`), then
+deploy the new function by hand (the integration does not deploy a new function), then the web
+(the Vercel rewrite and `/relay/approve` ship with it):
+
+```sh
+supabase functions deploy relay-api
+curl -s -X POST https://api.longlines.io/relay/v1/device/start \
+  -H 'Content-Type: application/json' \
+  -d '{"client_name":"Long Lines Relay","client_version":"0.0.0","device_name":"deploy check"}'
+# 200 with a device_code and a user_code; the pairing expires unused in 10 minutes
+```
+
+`relay-api` keeps `verify_jwt = false` (the relay sends a relay token, never a JWT) and reads
+`SUPABASE_SERVICE_ROLE_KEY` (the per-client limit's HMAC key) and `LONGLINES_CLIENT_IP_HEADER`
+like `callsign-profile`. Limits: `device/start` 5 a minute per client address, `device/token` 60
+per client address, `me` and `contacts` 120 requests a minute per token (all in
+`lookup_rate_limits`, apart from profile lookups), and 120 contacts a minute per token
+(`relay_contacts_per_minute()`). The authenticated routes are never limited per address: through
+the Vercel rewrite every relay can arrive from the same proxy address. The pairing routes still
+are, so through the rewrite pairings can share one address's budget. Check it once after the
+first deploy: send the `device/start` above six times from one network, then once from another (a
+phone off Wi-Fi). A 429 on the other network means the function sees the rewrite's address, not the
+relay's, so five sign-ins a minute is everyone's budget and anyone can use it up. Fixing that
+(reaching the function without the rewrite, or a proxy that passes the address in a way a direct
+caller cannot forge) is still an open decision.
+
+Is it working?
+
+```sql
+select status, count(*) from relay_pairings group by status;
+select device_name, client_version, created_at, last_used_at from relay_tokens order by created_at desc;
+```
+
+Pairings are pruned a day after they start, by the hourly `prune-callsign-lookups` job. A relay
+that keeps getting `bad_token` was revoked (or its account deleted); it signs out on its own. To
+revoke a relay by hand, delete its `relay_tokens` row. An account holds at most 10 relays
+(`relay_tokens_max()`), counting approvals not yet claimed.
 
 # IOTA
 

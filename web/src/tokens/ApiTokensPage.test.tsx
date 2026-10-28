@@ -11,6 +11,8 @@ vi.mock("../lib/api", () => ({
   createApiToken: vi.fn(),
   rotateApiToken: vi.fn(),
   deleteApiToken: vi.fn(),
+  loadRelayTokens: vi.fn(() => Promise.resolve([])),
+  deleteRelayToken: vi.fn(),
 }));
 
 const TOKEN: ApiToken = {

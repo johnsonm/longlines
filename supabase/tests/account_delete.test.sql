@@ -1,11 +1,11 @@
 -- pgTAP: deleting an auth user removes everything they own, even with a
 -- subscription still linked to a destination (the restrict FK must not block
--- the cascade), using a callsign group, holding an API token and a push destination with a device,
--- and with a group's statistics cached.
+-- the cascade), using a callsign group, holding an API token, a relay token and a push destination
+-- with a device, with a relay pairing answered, and with a group's statistics cached.
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(11);
+select plan(13);
 
 select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
 create temp table d as select * from create_destination('discord', 'A discord', 'https://discord.com/api/webhooks/1/a');
@@ -13,6 +13,15 @@ create temp table g as select save_callsign_group('{"name":"Club","callsigns":["
 select get_group_statistics((select id from g), '30d');
 select save_subscription(jsonb_build_object('name', 'all', 'rules', jsonb_build_array(jsonb_build_array(jsonb_build_object('field', 'group', 'op', 'is', 'values', jsonb_build_array((select id from g))))), 'destinations', array[(select id from d)]));
 select id from create_api_token('Sync', 'write', null);
+reset role;
+select start_relay_pairing('SHACK-PC', '0.1.0') ->> 'user_code' as code \gset relay_
+select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
+select answer_relay_pairing(:'relay_code', true);
+reset role;
+insert into relay_tokens (user_id, token_hash, token_prefix, device_name, client_version, scopes)
+values ('11111111-1111-1111-1111-111111111111', repeat('a', 64), 'll_relay_abcd', 'SHACK-PC', '0.1.0',
+        array['contacts:write']);
+select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
 select register_push_device('https://fcm.googleapis.com/fcm/send/a',
   'BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4', 'BTBZMqHH6r4Tts7J_aSIgg', 'Phone') as id \gset device_
 select save_push_destination(null, 'Phone alerts', true, null, array[:'device_id'::uuid]) as id \gset push_
@@ -26,6 +35,8 @@ select is((select count(*) from callsign_groups where user_id = '11111111-1111-1
 select is((select count(*) from callsign_group_members where group_id = (select id from g)), 0::bigint, 'group members removed');
 select is((select count(*) from group_stats_cache where group_id = (select id from g)), 0::bigint, 'group statistics removed');
 select is((select count(*) from api_tokens where user_id = '11111111-1111-1111-1111-111111111111'), 0::bigint, 'API tokens removed');
+select is((select count(*) from relay_tokens where user_id = '11111111-1111-1111-1111-111111111111'), 0::bigint, 'relay tokens removed');
+select is((select count(*) from relay_pairings where user_id = '11111111-1111-1111-1111-111111111111'), 0::bigint, 'relay pairings removed');
 select is((select count(*) from push_devices where user_id = '11111111-1111-1111-1111-111111111111'), 0::bigint, 'push devices removed');
 select is((select count(*) from push_destination_devices where destination_id = :'push_id'), 0::bigint, 'push destination members removed');
 select is((select count(*) from push_destination_settings where destination_id = :'push_id'), 0::bigint, 'push destination settings removed');

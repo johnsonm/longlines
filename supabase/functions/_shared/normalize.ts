@@ -193,11 +193,27 @@ export const MAX_REFERENCES = 50;
 const MAX_FUTURE_MS = 24 * 60 * 60 * 1000;
 const MIN_TIME_MS = Date.UTC(2000, 0, 1);
 
-/** Throws ValidationError when the text is longer than max characters. */
+const SURROGATE_PAIR = /[\uD800-\uDBFF][\uDC00-\uDFFF]/g;
+
+/** The text's length in code points: each surrogate pair counts once. */
+export function codePointLength(value: string): number {
+  const pairs = value.match(SURROGATE_PAIR);
+  if (pairs === null) {
+    return value.length;
+  }
+  return value.length - pairs.length;
+}
+
+/**
+ * Throws ValidationError when the text is longer than max characters. Characters are code points,
+ * as zod's length checks and Postgres' char_length count them (and the relay contract, section 1),
+ * so an astral character counts once, not as its two UTF-16 units.
+ */
 export function assertMaxLength(value: string, max: number, field: string): void {
-  if (value.length > max) {
+  const length = codePointLength(value);
+  if (length > max) {
     throw new ValidationError(
-      `${field} is ${String(value.length)} characters; the limit is ${String(max)}`,
+      `${field} is ${String(length)} characters; the limit is ${String(max)}`,
       { cause: undefined, where: `assertMaxLength: ${field}` },
     );
   }

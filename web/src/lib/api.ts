@@ -12,6 +12,7 @@ import type { CallsignGroup, GroupInput, NormalizedCallsigns } from "../groups/t
 import type { GroupPeriod, GroupSummary, OwnerGroupStatistics, PublicGroupStatistics } from "../groups/stats/types";
 import type { Rules } from "../subscriptions/model";
 import type { HomeFlow } from "../home/types";
+import type { RelayAnswer, RelayPairing } from "../relay/types";
 
 type Tables = Database["public"]["Tables"];
 type Views = Database["public"]["Views"];
@@ -43,9 +44,16 @@ export type IngestHealth = Database["public"]["Functions"]["list_ingest_health"]
 export type DestinationType = "discord" | "webhook" | "push";
 export type ApiToken = Omit<Tables["api_tokens"]["Row"], "token_hash">;
 export type ApiTokenScope = "read" | "write";
+/** A relay token as its owner reads it: never `token_hash` or the contact window. */
+export type RelayToken = Pick<
+  Tables["relay_tokens"]["Row"],
+  "id" | "user_id" | "token_prefix" | "device_name" | "client_version" | "scopes" | "created_at" | "last_used_at"
+>;
 
 export const DESTINATION_COLUMNS =
   "id, user_id, type, name, enabled, url_display, health, consecutive_failures, last_success_at, last_error, last_error_at, created_at, auto_disabled_at";
+
+export const RELAY_TOKEN_COLUMNS = "id, user_id, token_prefix, device_name, client_version, scopes, created_at, last_used_at";
 
 export const API_TOKEN_COLUMNS =
   "id, user_id, name, scope, token_prefix, lifetime_days, expires_at, created_at, rotated_at, last_used_at";
@@ -729,6 +737,37 @@ export async function rotateApiToken(id: string): Promise<string> {
 export async function deleteApiToken(id: string): Promise<void> {
   const { error } = await supabase.from("api_tokens").delete().eq("id", id);
   if (error) fail(error, "Couldn't delete the token.");
+}
+
+// ---- Long Lines Relay --------------------------------------------------------
+
+/** A relay's code as the approval page shows it (lookup_relay_pairing); the code may be typed in any form. */
+export async function lookupRelayPairing(code: string): Promise<RelayPairing> {
+  const { data, error } = await supabase.rpc("lookup_relay_pairing", { p_user_code: code });
+  if (error) fail(error, "Couldn't check the code.");
+  if (data === null) throw new ApiError("Couldn't check the code.");
+  // jsonb in the generated types; its shape is pinned by supabase/tests/relay_pairing.test.sql.
+  return data as unknown as RelayPairing;
+}
+
+/** Allow or Deny a relay's pairing (answer_relay_pairing). */
+export async function answerRelayPairing(code: string, approve: boolean): Promise<RelayAnswer> {
+  const { data, error } = await supabase.rpc("answer_relay_pairing", { p_user_code: code, p_approve: approve });
+  if (error) fail(error, "Couldn't answer the relay.");
+  if (data === null) throw new ApiError("Couldn't answer the relay.");
+  return data as unknown as RelayAnswer;
+}
+
+export async function loadRelayTokens(): Promise<RelayToken[]> {
+  const { data, error } = await supabase.from("relay_tokens").select(RELAY_TOKEN_COLUMNS).order("created_at");
+  if (error) fail(error, "Couldn't load your relays.");
+  return data;
+}
+
+/** Revokes a relay's token: the relay stops posting and signs out on its next request. */
+export async function deleteRelayToken(id: string): Promise<void> {
+  const { error } = await supabase.from("relay_tokens").delete().eq("id", id);
+  if (error) fail(error, "Couldn't disconnect the relay.");
 }
 
 // ---- Subscriptions ---------------------------------------------------------

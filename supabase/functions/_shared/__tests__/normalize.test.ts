@@ -175,6 +175,13 @@ Deno.test("assertMaxLength allows the limit and throws past it", function (): vo
     "callsign is 5",
   );
   assertEquals(error.where, "assertMaxLength: callsign");
+  // Code points, not UTF-16 units: four astral characters are four characters.
+  assertMaxLength("\u{1F4FB}".repeat(4), 4, "callsign");
+  assertThrows(
+    () => assertMaxLength("\u{1F4FB}".repeat(5), 4, "callsign"),
+    ValidationError,
+    "callsign is 5",
+  );
 });
 
 Deno.test(
