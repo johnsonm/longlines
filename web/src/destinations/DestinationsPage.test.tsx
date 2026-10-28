@@ -3,8 +3,8 @@ import { screen, waitFor, within } from "@testing-library/react";
 import { renderPage } from "../test/render";
 import { setMobile } from "../test/media";
 import {
-  deleteDestination, duplicateDestination, listDiscordDestinationSettings, listPushDevices, listWebhookDestinationSettings, sendTest,
-  type Destination, type PushDevice, type SubscriptionWithLinks,
+  deleteDestination, duplicateDestination, listDiscordDestinationSettings, listLocalClusterDestinationSettings, listPushDevices,
+  listWebhookDestinationSettings, sendTest, type Destination, type PushDevice, type SubscriptionWithLinks,
 } from "../lib/api";
 import { cardMeta } from "./cardMeta";
 import { DestinationsPage } from "./DestinationsPage";
@@ -13,6 +13,7 @@ vi.mock("../lib/api", () => ({
   deleteDestination: vi.fn(),
   duplicateDestination: vi.fn(),
   listDiscordDestinationSettings: vi.fn(),
+  listLocalClusterDestinationSettings: vi.fn(),
   listPushDevices: vi.fn(),
   listWebhookDestinationSettings: vi.fn(),
   sendTest: vi.fn(),
@@ -37,9 +38,13 @@ const sub = (id: string, destinations: string[]) => ({ id, destinations }) as Su
 const ago = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
 
 beforeEach(() => {
-  for (const fn of [deleteDestination, duplicateDestination, listDiscordDestinationSettings, listPushDevices, listWebhookDestinationSettings, sendTest]) {
+  for (const fn of [
+    deleteDestination, duplicateDestination, listDiscordDestinationSettings, listLocalClusterDestinationSettings, listPushDevices,
+    listWebhookDestinationSettings, sendTest,
+  ]) {
     vi.mocked(fn).mockReset();
   }
+  vi.mocked(listLocalClusterDestinationSettings).mockResolvedValue([]);
   vi.mocked(listPushDevices).mockResolvedValue([]);
   vi.mocked(listDiscordDestinationSettings).mockResolvedValue([]);
   vi.mocked(listWebhookDestinationSettings).mockResolvedValue([]);
@@ -75,6 +80,7 @@ describe("DestinationsPage", () => {
     expect(listPushDevices).not.toHaveBeenCalled();
     expect(listDiscordDestinationSettings).not.toHaveBeenCalled();
     expect(listWebhookDestinationSettings).not.toHaveBeenCalled();
+    expect(listLocalClusterDestinationSettings).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: "Add your first destination" }));
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
   });
@@ -150,6 +156,40 @@ describe("DestinationsPage", () => {
     expect(duplicateDestination).toHaveBeenCalledWith("w1");
     await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/destinations/w9"));
     expect(app.notify).toHaveBeenCalledWith("Duplicated Logger");
+  });
+
+  it("shows each Local DX cluster card's relay and Relay offline from one settings list, with no Send test", async () => {
+    vi.mocked(listLocalClusterDestinationSettings).mockResolvedValue([
+      { destination_id: "l1", relay_id: "r1", device_name: "Shack PC", platform: "windows", cluster_connected_at: ago(5), fields: ["reference"] },
+      { destination_id: "l2", relay_id: "r2", device_name: "Laptop", platform: "macos", cluster_connected_at: null, fields: [] },
+      { destination_id: "l3", relay_id: null, device_name: null, platform: null, cluster_connected_at: null, fields: ["reference"] },
+    ]);
+    const { user } = render([
+      dest("l1", { type: "local_cluster", name: "Shack bandmap", url_display: "Long Lines Relay" }),
+      dest("l2", { type: "local_cluster", name: "Portable", url_display: "Long Lines Relay" }),
+      dest("l3", { type: "local_cluster", name: "Revoked", url_display: "Long Lines Relay" }),
+      dest("w1", { name: "Logger" }),
+    ]);
+    expect(await screen.findByText("Local DX cluster · Shack PC")).toBeInTheDocument();
+    expect(screen.getByText("Local DX cluster · Laptop")).toBeInTheDocument();
+    // A revoked relay leaves the bare type, and is offline.
+    expect(screen.getByText("Local DX cluster")).toBeInTheDocument();
+    expect(screen.getAllByText("Relay offline")).toHaveLength(2);
+    expect(screen.getAllByText("Healthy")).toHaveLength(2);
+    expect(listLocalClusterDestinationSettings).toHaveBeenCalledTimes(1);
+    // The relay is not a URL, and only the webhook has Send test.
+    expect(screen.queryByText("Long Lines Relay")).not.toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Send test" })).toHaveLength(1);
+    await user.click(screen.getByRole("button", { name: "Edit Shack bandmap" }));
+    expect(screen.getByTestId("location")).toHaveTextContent("/destinations/l1");
+  });
+
+  it("keeps the type name when the Local DX cluster settings fail to load", async () => {
+    vi.mocked(listLocalClusterDestinationSettings).mockRejectedValue({});
+    const { app } = render([dest("l1", { type: "local_cluster", url_display: "Long Lines Relay" })]);
+    await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Couldn't load your Local DX cluster settings."));
+    expect(screen.getByText("Local DX cluster")).toBeInTheDocument();
+    expect(screen.getByText("Healthy")).toBeInTheDocument();
   });
 
   it("shows each Discord card's style and field count from one settings list", async () => {

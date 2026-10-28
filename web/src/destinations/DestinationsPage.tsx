@@ -4,8 +4,9 @@ import AddIcon from "@mui/icons-material/Add";
 import { useNavigate } from "react-router";
 import { PageTitle } from "../layout/PageTitle";
 import {
-  deleteDestination, duplicateDestination, listDiscordDestinationSettings, listPushDevices, listWebhookDestinationSettings, sendTest,
-  type Destination, type DiscordSettingsSummary, type PushDevice, type SubscriptionWithLinks, type WebhookSettingsSummary,
+  deleteDestination, duplicateDestination, listDiscordDestinationSettings, listLocalClusterDestinationSettings, listPushDevices,
+  listWebhookDestinationSettings, sendTest, type Destination, type DiscordSettingsSummary, type LocalClusterSettingsSummary, type PushDevice,
+  type SubscriptionWithLinks, type WebhookSettingsSummary,
 } from "../lib/api";
 import { currentEndpoint } from "../pwa/push";
 import { errorText, useNotify } from "../app/hooks";
@@ -97,9 +98,31 @@ export function DestinationsPage({ dests, subs, loading, reload }: Props) {
     };
   }, [webhookIds, notify]);
 
+  // And one for every Local DX cluster card's relay and its Relay offline chip.
+  const [clusters, setClusters] = useState<LocalClusterSettingsSummary[]>([]);
+  const clusterIds = useMemo(() => dests.filter((d) => d.type === "local_cluster").map((d) => d.id).join(","), [dests]);
+  useEffect(() => {
+    if (!clusterIds) {
+      setClusters([]);
+      return;
+    }
+    let active = true;
+    listLocalClusterDestinationSettings()
+      .then((list) => {
+        if (active) setClusters(list);
+      })
+      .catch((err: unknown) => {
+        if (active) notify(errorText(err, "Couldn't load your Local DX cluster settings."));
+      });
+    return () => {
+      active = false;
+    };
+  }, [clusterIds, notify]);
+
   const membersOf = (id: string) => devices.filter((d) => d.destination_ids.includes(id));
   const summaryOf = (id: string) => discord.find((s) => s.destination_id === id) ?? null;
   const webhookOf = (id: string) => webhooks.find((s) => s.destination_id === id) ?? null;
+  const clusterOf = (id: string) => clusters.find((s) => s.destination_id === id) ?? null;
 
   const openDialog = () => {
     setOpen(true);
@@ -181,6 +204,7 @@ export function DestinationsPage({ dests, subs, loading, reload }: Props) {
             <Grid key={d.id} size={{ xs: 12, md: 6 }}>
               <DestinationCard
                 dest={d} usedBy={usedBy(d.id)} devices={membersOf(d.id)} discord={summaryOf(d.id)} webhook={webhookOf(d.id)}
+                localCluster={clusterOf(d.id)}
                 busy={busyId === d.id} mobile={mobile}
                 onSendTest={() => test(d)}
                 onEdit={() => void navigate(`/destinations/${d.id}`)}

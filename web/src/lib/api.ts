@@ -41,19 +41,29 @@ export type Subscription = Row<"subscriptions">;
 export type SubscriptionLink = Tables["subscription_destinations"]["Row"];
 export type RecentSpot = Views["recent_spots"]["Row"];
 export type IngestHealth = Database["public"]["Functions"]["list_ingest_health"]["Returns"][number];
-export type DestinationType = "discord" | "webhook" | "push";
+export type DestinationType = "discord" | "webhook" | "push" | "local_cluster";
 export type ApiToken = Omit<Tables["api_tokens"]["Row"], "token_hash">;
 export type ApiTokenScope = "read" | "write";
 /** A relay token as its owner reads it: never `token_hash` or the contact window. */
 export type RelayToken = Pick<
   Tables["relay_tokens"]["Row"],
-  "id" | "user_id" | "token_prefix" | "device_name" | "client_version" | "scopes" | "created_at" | "last_used_at"
+  | "id"
+  | "user_id"
+  | "token_prefix"
+  | "device_name"
+  | "client_version"
+  | "scopes"
+  | "created_at"
+  | "last_used_at"
+  | "platform"
+  | "cluster_connected_at"
 >;
 
 export const DESTINATION_COLUMNS =
   "id, user_id, type, name, enabled, url_display, health, consecutive_failures, last_success_at, last_error, last_error_at, created_at, auto_disabled_at";
 
-export const RELAY_TOKEN_COLUMNS = "id, user_id, token_prefix, device_name, client_version, scopes, created_at, last_used_at";
+export const RELAY_TOKEN_COLUMNS =
+  "id, user_id, token_prefix, device_name, client_version, scopes, created_at, last_used_at, platform, cluster_connected_at";
 
 export const API_TOKEN_COLUMNS =
   "id, user_id, name, scope, token_prefix, lifetime_days, expires_at, created_at, rotated_at, last_used_at";
@@ -704,6 +714,99 @@ export async function previewWebhookRequest(
   if (error) fail(error, "Couldn't load the preview.");
   if (data === null || data === undefined) throw new ApiError("Couldn't load the preview.");
   return data;
+}
+
+// ---- Local DX cluster ------------------------------------------------------
+//
+// A Local DX cluster destination sends spots to one of the caller's paired
+// relays (relay_tokens), which serves them to logging software on that
+// computer. Its settings live in local_cluster_destination_settings, which
+// clients cannot read; these RPCs are the only way in. SQL renders the line.
+
+/** The fields a spot line's comment can carry after the mode, in local_cluster_fields()'s order. */
+export type LocalClusterField = "reference" | "source" | "comment";
+
+/** A Local DX cluster's settings as the RPCs take and return them: the relay, then the comment's fields in order. */
+export interface LocalClusterSettings {
+  /** The relay token the spots go to; null once that relay is revoked. */
+  relay_id: string | null;
+  fields: LocalClusterField[];
+}
+
+/** What the editor saves: without `id` it creates the destination, which needs a relay. */
+export interface LocalClusterDestinationInput {
+  id?: string;
+  name: string;
+  enabled: boolean;
+  settings: LocalClusterSettings;
+}
+
+/** What the editor loads (get_local_cluster_destination). */
+export interface LocalClusterDestination {
+  id: string;
+  name: string;
+  enabled: boolean;
+  url_display: string;
+  settings: LocalClusterSettings;
+}
+
+/** One row of list_local_cluster_destination_settings, for the list cards. The relay keys are null once it is revoked. */
+export interface LocalClusterSettingsSummary {
+  destination_id: string;
+  relay_id: string | null;
+  device_name: string | null;
+  platform: string | null;
+  /** Set while the relay's spots stream is open (set_cluster_stream). */
+  cluster_connected_at: string | null;
+  fields: LocalClusterField[];
+}
+
+/** The line SQL renders for some settings (preview_local_cluster_line), and its parts. */
+export interface LocalClusterPreview {
+  line: string;
+  spotter: string;
+  frequency_khz: number;
+  callsign: string;
+  comment: string;
+  /** HHMM, UTC. */
+  time_utc: string;
+}
+
+/** Creates (no id) or updates a Local DX cluster's name, enabled, relay and fields. Returns the id. */
+export async function saveLocalClusterDestination(input: LocalClusterDestinationInput): Promise<string> {
+  const settings: Json = { relay_id: input.settings.relay_id, fields: [...input.settings.fields] };
+  const { data, error } = await supabase.rpc("save_local_cluster_destination", withNulls<"save_local_cluster_destination">({
+    p_id: input.id ?? null, p_name: input.name, p_enabled: input.enabled, p_settings: settings,
+  }));
+  if (error) fail(error, "Couldn't save the destination.");
+  return data;
+}
+
+export async function getLocalClusterDestination(id: string): Promise<LocalClusterDestination> {
+  const { data, error } = await supabase.rpc("get_local_cluster_destination", { p_id: id });
+  if (error) fail(error, "Couldn't load the destination.");
+  // jsonb in the generated types; its shape is fixed by get_local_cluster_destination().
+  return data as unknown as LocalClusterDestination;
+}
+
+/** The relay and fields of each of the caller's Local DX cluster destinations. */
+export async function listLocalClusterDestinationSettings(): Promise<LocalClusterSettingsSummary[]> {
+  const { data, error } = await supabase.rpc("list_local_cluster_destination_settings");
+  if (error) fail(error, "Couldn't load destinations.");
+  // jsonb array in the generated types; its shape is fixed by list_local_cluster_destination_settings().
+  return (data ?? []) as unknown as LocalClusterSettingsSummary[];
+}
+
+/** The line SQL would send with `fields`, for the sample spot or raw_spots row `spotId`. */
+export async function previewLocalClusterLine(fields: LocalClusterField[], spotId: number | null): Promise<LocalClusterPreview> {
+  const p_settings: Json = { fields: [...fields] };
+  const { data, error } = await supabase.rpc("preview_local_cluster_line", {
+    p_settings, ...(spotId === null ? {} : { p_spot_id: spotId }),
+  });
+  if (error) fail(error, "Couldn't load the preview.");
+  if (!data) throw new ApiError("Couldn't load the preview.");
+  // jsonb in the generated types; its keys are fixed by preview_local_cluster_line().
+  return data as unknown as LocalClusterPreview;
 }
 
 // ---- API tokens ------------------------------------------------------------

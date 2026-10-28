@@ -51,6 +51,9 @@ vi.mock("./destinations/DestinationsPage", () => ({
 vi.mock("./destinations/PushDestinationPage", () => ({
   PushDestinationPage: ({ id, type }: { id?: string; type?: string | null }) => <p>push editor {id ?? "new"} {type ?? "none"}</p>,
 }));
+vi.mock("./destinations/LocalClusterDestinationPage", () => ({
+  LocalClusterDestinationPage: ({ id, type }: { id?: string; type?: string | null }) => <p>cluster editor {id ?? "new"} {type ?? "none"}</p>,
+}));
 vi.mock("./destinations/DiscordDestinationPage", () => ({
   DiscordDestinationPage: ({ id, type }: { id?: string; type?: string | null }) => <p>discord editor {id ?? "new"} {type ?? "none"}</p>,
 }));
@@ -385,9 +388,12 @@ describe("App routing", () => {
     ["/destinations/dc", "discord editor dc none"],
     ["/destinations/dw", "webhook editor dw none"],
     ["/destinations/dp", "push editor dp none"],
+    ["/destinations/new?type=local_cluster", "cluster editor new local_cluster"],
+    ["/destinations/dl", "cluster editor dl none"],
   ])("routes %s to the editor for its type", async (path, text) => {
     vi.mocked(loadDestinations).mockResolvedValue([
       DEST, { ...DEST, id: "dc", type: "discord" }, { ...DEST, id: "dp", type: "push" }, { ...DEST, id: "dw", type: "webhook" },
+      { ...DEST, id: "dl", type: "local_cluster" },
     ]);
     renderAt(path);
     expect(await screen.findByText(text)).toBeInTheDocument();

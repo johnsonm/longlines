@@ -118,7 +118,8 @@ paths:
         A webhook gets its `signing_secret` here, shown only once, and starts with the default
         payload and delivery settings. A new push destination has the default notification
         settings and no devices. The answer is a short form of the destination; get it to see
-        its settings.
+        its settings. A Local DX cluster is added only in the web app, which picks its relay
+        (400 "Add a Local DX cluster destination in the web app.").
       security:
         - apiToken: [write]
       requestBody:
@@ -748,11 +749,13 @@ components:
                  last_success_at, last_error, last_error_at, created_at]
       properties:
         id: { type: string, format: uuid }
-        type: { type: string, enum: [discord, webhook, push] }
+        type: { type: string, enum: [discord, webhook, push, local_cluster] }
         name: { type: string }
         url_display:
           type: string
-          description: A masked form of the URL; "Your devices" for push.
+          description: |
+            A masked form of the URL; "Your devices" for push, "Long Lines Relay" for a Local
+            DX cluster.
         enabled: { type: boolean }
         health: { type: string, enum: [ok, failing, paused] }
         consecutive_failures: { type: integer }
@@ -763,6 +766,7 @@ components:
         push: { $ref: "#/components/schemas/PushSettings" }
         discord: { $ref: "#/components/schemas/DiscordSettings" }
         webhook: { $ref: "#/components/schemas/WebhookSettings" }
+        local_cluster: { $ref: "#/components/schemas/LocalClusterSettings" }
       example:
         id: 4b0e…
         type: discord
@@ -853,6 +857,33 @@ components:
         show_field_names: false
         separator: dot
         batch_seconds: 0
+
+    LocalClusterField:
+      type: string
+      enum: [reference, source, comment]
+
+    LocalClusterSettings:
+      type: object
+      description: |
+        A Local DX cluster's relay and spot line as the web app's editor sets them. Each spot
+        goes to that relay, which serves it as a DX cluster line to logging software on its
+        computer; the line's comment is the mode, then these fields in order. Spots are dropped
+        while the relay is offline. The API can read and rename one, but cannot create one, give
+        it a URL or send it a test. Only on Local DX cluster destinations.
+      required: [relay_id, relay_name, fields]
+      properties:
+        relay_id:
+          type: [string, "null"]
+          format: uuid
+          description: The relay's id, or null once that relay was revoked.
+        relay_name:
+          type: [string, "null"]
+          description: The relay's device name, or null once it was revoked.
+        fields: { type: array, items: { $ref: "#/components/schemas/LocalClusterField" }, maxItems: 3 }
+      example:
+        relay_id: 5a0a0000-0000-4000-8000-0000000000aa
+        relay_name: SHACK-PC
+        fields: [reference]
 
     WebhookSettings:
       type: object

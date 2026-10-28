@@ -3,7 +3,7 @@ import { screen, waitFor } from "@testing-library/react";
 import { renderPage } from "../test/render";
 import { answerRelayPairing, lookupRelayPairing } from "../lib/api";
 import { ApprovePage } from "./ApprovePage";
-import { LOGGERS_URL } from "./model";
+import { LOGGERS_URL, SPOTS_READ_LINE } from "./model";
 
 vi.mock("../lib/api", () => ({
   lookupRelayPairing: vi.fn(),
@@ -37,6 +37,31 @@ describe("ApprovePage", () => {
     expect(screen.getByRole("link", { name: "API tokens" })).toHaveAttribute("href", "/api-tokens");
     // The address now carries the code as SQL normalized it.
     await waitFor(() => expect(screen.getByTestId("location")).toHaveAttribute("data-search", "?code=KQ7M-X4PD"));
+  });
+
+  it("says a v1 relay only posts contacts", async () => {
+    render();
+    expect(await screen.findByText("KQ7M-X4PD")).toBeInTheDocument();
+    expect(screen.queryByText(SPOTS_READ_LINE)).not.toBeInTheDocument();
+  });
+
+  it("adds the spots line when the relay asks for spots:read, and keeps it after a refused answer", async () => {
+    vi.mocked(lookupRelayPairing).mockResolvedValue({ ...PENDING, scopes: ["contacts:write", "spots:read"] });
+    vi.mocked(answerRelayPairing).mockRejectedValueOnce(new Error("Couldn't answer the relay."));
+    const { user } = render();
+    expect(await screen.findByText(SPOTS_READ_LINE)).toBeInTheDocument();
+    expect(screen.getByText("KK4PWJ").closest("p")).toHaveTextContent("Post contacts logged as KK4PWJ as spots");
+    expect(SPOTS_READ_LINE).toBe("Receive the spots that match your connections, for its local DX cluster");
+    await user.click(screen.getByRole("button", { name: "Allow" }));
+    expect(await screen.findByText("Couldn't answer the relay.")).toBeInTheDocument();
+    expect(screen.getByText(SPOTS_READ_LINE)).toBeInTheDocument();
+  });
+
+  it("leaves out the contacts line for a relay that only reads spots", async () => {
+    vi.mocked(lookupRelayPairing).mockResolvedValue({ ...PENDING, scopes: ["spots:read"] });
+    render();
+    expect(await screen.findByText(SPOTS_READ_LINE)).toBeInTheDocument();
+    expect(screen.queryByText(/Post contacts logged as/)).not.toBeInTheDocument();
   });
 
   it("connects the relay on Allow", async () => {
