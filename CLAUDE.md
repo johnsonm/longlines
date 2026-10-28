@@ -309,17 +309,23 @@ The design is `docs/superpowers/specs/2026-10-28-logged-contacts-design.md`; the
 
 ## Relay app rules
 
-The wire contract is `docs/contract.md` in `sonyccd/longlines-relay` (v1): every path, body, status,
+The wire contract is `docs/contract.md` in `sonyccd/longlines-relay` (v1 and v2): every path, body, status,
 error code, the token format and the scopes are its, and it wins over this file on wire details.
 "Relay" here is Long Lines Relay, the desktop app; the Fly worker is "inbound".
 
 - `relay-api` (`_shared/handlers/relay_api.ts`) only routes, checks shapes and maps errors:
-  `POST /v1/device/start`, `POST /v1/device/token`, `GET /v1/me`, `POST /v1/contacts`, anything
-  else 404 `not_found` (including `GET /v1/spots`, reserved for phase 2). It keeps
-  `verify_jwt = false` and never imports `isServiceRole`. Production reaches it through the
-  `/relay/v1/:path*` rewrite on `api.longlines.io`, which stays ahead of the `/v1` rule.
-- The server keeps accepting v1 after a v2 ships: request schemas are loose (deployed relays lag),
-  and no v1 route may gain a new item status, reason or error code.
+  `POST /device/start`, `POST /device/token`, `GET /me`, `POST /contacts` under both `/v1` and
+  `/v2`, anything else 404 `not_found` (including `GET /v1/spots` and `/v2/spots`: the stream is
+  the sender's). It keeps `verify_jwt = false` and never imports `isServiceRole`. Production
+  reaches it through the `/relay/v1/:path*` and `/relay/v2/:path*` rewrites on
+  `api.longlines.io`, which stay ahead of the `/v1` rule.
+- The server keeps accepting v1 now that v2 ships: request schemas are loose (deployed relays
+  lag), and no v1 route may gain a field, item status, reason or error code. v1 start calls the
+  two-argument `start_relay_pairing` (`contacts:write` alone) and v1 `me` the one-argument
+  `relay_account`; v2 start passes `p_scopes` (both when the relay names none) and `p_platform`,
+  and v2 `me` calls `relay_account(p_user_id, p_token_id)` and adds `spots_url` from
+  `LONGLINES_SPOTS_URL` (`resolveSpotsUrl`: https, or http on loopback; unset is the local
+  sender's `http://127.0.0.1:8081/v2/spots`).
 - Pairing policy is SQL's (`20261028000400_relay_pairing.sql`): codes (`new_relay_user_code`,
   `relay_user_code` reads a typed one), the 10-minute life, `slow_down` (one second of jitter
   allowed), the token handed out once by `poll_relay_pairing`, the callsign rule and the
@@ -327,8 +333,8 @@ error code, the token format and the scopes are its, and it wins over this file 
   (`record_relay_contacts`). Only `lookup_relay_pairing` and `answer_relay_pairing` are client RPCs.
 - Relay tokens are `relay_tokens`, never `api_tokens`, and never reach `api_call`. Only the
   SHA-256 is stored (`token_hash` never granted); the plaintext leaves only from
-  `poll_relay_pairing`. `scopes` holds `contacts:write` only; `spots:read` joins both check
-  constraints in phase 2, and a route refuses a token without its scope (403
+  `poll_relay_pairing`. `scopes` holds `contacts:write` and, from a v2 pairing, `spots:read`;
+  a token never gains a scope after pairing, and a route refuses a token without its scope (403
   `insufficient_scope`). Revoking is the owner's delete (RLS), from the API tokens page's
   "Long Lines Relay" card.
 - The pairing routes are limited per client address with the profile's keying

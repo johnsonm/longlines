@@ -868,6 +868,15 @@ side: contacts arrive when someone logs.
   `recent_spots`, `preview_subscription`, callsign groups' on-air check, `match_pending_spots`
   and the Stats counts. A delivery made before the retraction is not recalled; a day already
   rolled up keeps its counts.
+- **The relay API.** `relay-api` (`_shared/handlers/relay_api.ts`) serves the contract's v1 and
+  v2 side by side, the same four routes in each (`device/start`, `device/token`, `me`,
+  `contacts`), behind one Vercel rewrite per version on `api.longlines.io`. It only routes,
+  checks shapes and maps errors; pairing, token and contact policy are SQL's. v1 answers exactly
+  as in phase 1. v2 pairing passes the scopes asked for (`contacts:write`, `spots:read`; both by
+  default) and the platform to `start_relay_pairing`'s four-argument overload, and v2 `me` reads
+  `relay_account(user, token)` and adds `spots_url` (`LONGLINES_SPOTS_URL`, by default the local
+  sender's `http://127.0.0.1:8081/v2/spots`), the sender's spots stream, which is never under
+  this function.
 - **Elsewhere.** Opt-in matching like WWFF and WWBOTA (`source_matches`); "Logged contacts" in
   push, Discord and webhooks; archived hourly with a `retracted_at` column; Stats has only
   `daily[].logged` / `hourly[].logged`; not on `/health` and never delayed in the catalog.

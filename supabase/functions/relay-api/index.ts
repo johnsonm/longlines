@@ -15,6 +15,7 @@ async function handler(req: Request): Promise<Response> {
     db: createServiceClient,
     clientIpHeader: Deno.env.get("LONGLINES_CLIENT_IP_HEADER"),
     key,
+    spotsUrl: Deno.env.get("LONGLINES_SPOTS_URL"),
   }, new Date());
 }
 

@@ -1,5 +1,7 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 import {
+  DEFAULT_SPOTS_URL,
+  DEFAULT_V2_SCOPES,
   handleRelayApi,
   MAX_BODY_BYTES,
   MAX_POLLS_PER_MINUTE,
@@ -7,6 +9,7 @@ import {
   MAX_STARTS_PER_MINUTE,
   relayPath,
   relayRoute,
+  resolveSpotsUrl,
 } from "../handlers/relay_api.ts";
 import { hashApiToken } from "../api/token.ts";
 import { hmacKey, hmacSha256Hex } from "../hmac.ts";
@@ -27,6 +30,17 @@ const USER = "11111111-1111-1111-1111-111111111111";
 const TOKEN_ROW = { token_id: "t-1", user_id: USER, scopes: ["contacts:write"] };
 const READ_ONLY_ROW = { token_id: "t-1", user_id: USER, scopes: ["spots:read"] };
 const ACCOUNT = { callsign: "KK4PWJ", email: "operator@example.com" };
+const RELAY_ID = "3f6c2a9e-8b1d-4c7a-9e2f-5a0b1c2d3e4f";
+const BOTH_SCOPES = ["contacts:write", "spots:read"];
+const BOTH_ROW = { token_id: RELAY_ID, user_id: USER, scopes: BOTH_SCOPES };
+// relay_account(p_user_id, p_token_id)'s reply for BOTH_ROW (contract 5's v2 example).
+const ACCOUNT_V2 = {
+  callsign: "KK4PWJ",
+  email: "operator@example.com",
+  relay_id: RELAY_ID,
+  device_name: "SHACK-PC",
+  scopes: BOTH_SCOPES,
+};
 const START_REPLY = {
   device_code: "5c6f2b1e0f7a4c0f9e3b8d2a61c4e7f0b9a3d5e8c1f2a4b6",
   user_code: "WDJB-MJHT",
@@ -48,11 +62,21 @@ interface Run {
 }
 
 // key null runs without the HMAC key. Every RPC a request may reach answers as a healthy
-// database would unless options overrides it.
+// database would unless options overrides it. LONGLINES_SPOTS_URL is unset.
 async function run(
   req: Request,
   options: FakeSupabaseOptions,
   key: CryptoKey | null,
+): Promise<Run> {
+  return await runWithSpotsUrl(req, options, key, undefined);
+}
+
+// run, with LONGLINES_SPOTS_URL set to spotsUrl.
+async function runWithSpotsUrl(
+  req: Request,
+  options: FakeSupabaseOptions,
+  key: CryptoKey | null,
+  spotsUrl: string | undefined,
 ): Promise<Run> {
   const rpc: NonNullable<FakeSupabaseOptions["rpc"]> = {
     record_profile_lookup: { data: 1 },
@@ -72,7 +96,7 @@ async function run(
   }
   const res = await handleRelayApi(
     req,
-    { db: () => fake.client, clientIpHeader: undefined, key: hmac },
+    { db: () => fake.client, clientIpHeader: undefined, key: hmac, spotsUrl },
     NOW,
   );
   const body: unknown = await res.json();
@@ -93,6 +117,10 @@ function post(path: string, body: unknown, headers: Record<string, string>): Req
 
 function getMe(headers: Record<string, string>): Request {
   return new Request(`${BASE}/v1/me`, { headers });
+}
+
+function getMeV2(headers: Record<string, string>): Request {
+  return new Request(`${BASE}/v2/me`, { headers });
 }
 
 const AUTHED = { Authorization: `Bearer ${TOKEN}` };
@@ -143,6 +171,22 @@ function applyAnswering(statuses: Record<string, string>) {
   };
 }
 
+/** base with changes laid over it; a change to undefined removes that key. */
+function withFields(base: JsonObject, changes: Record<string, unknown>): JsonObject {
+  const out: JsonObject = {};
+  for (const entry of Object.entries(base)) {
+    if (!(entry[0] in changes)) {
+      out[entry[0]] = entry[1];
+    }
+  }
+  for (const entry of Object.entries(changes)) {
+    if (entry[1] !== undefined) {
+      out[entry[0]] = entry[1];
+    }
+  }
+  return out;
+}
+
 function errorOf(body: unknown): unknown {
   return (body as JsonObject)["error"];
 }
@@ -167,14 +211,23 @@ Deno.test("relayPath reads the path after the function's name, locally and hoste
   assertEquals(relayPath("/functions/v1/api/v1/me"), null);
 });
 
-Deno.test("relayRoute knows the four v1 routes and nothing else", function (): void {
-  assertEquals(relayRoute("POST", "/v1/device/start"), "device/start");
-  assertEquals(relayRoute("POST", "/v1/device/token"), "device/token");
-  assertEquals(relayRoute("GET", "/v1/me"), "me");
-  assertEquals(relayRoute("POST", "/v1/contacts"), "contacts");
-  assertEquals(relayRoute("GET", "/v1/contacts"), null);
-  assertEquals(relayRoute("GET", "/v1/spots"), null);
-  assertEquals(relayRoute("GET", "/v2/me"), null);
+Deno.test("relayRoute knows the same four routes in v1 and v2 and nothing else", function (): void {
+  for (const version of ["v1", "v2"] as const) {
+    assertEquals(relayRoute("POST", `/${version}/device/start`), {
+      version,
+      name: "device/start",
+    });
+    assertEquals(relayRoute("POST", `/${version}/device/token`), {
+      version,
+      name: "device/token",
+    });
+    assertEquals(relayRoute("GET", `/${version}/me`), { version, name: "me" });
+    assertEquals(relayRoute("POST", `/${version}/contacts`), { version, name: "contacts" });
+    assertEquals(relayRoute("GET", `/${version}/contacts`), null);
+    assertEquals(relayRoute("GET", `/${version}/spots`), null);
+  }
+  assertEquals(relayRoute("GET", "/v3/me"), null);
+  assertEquals(relayRoute("GET", "/me"), null);
 });
 
 Deno.test("unknown paths, methods and versions are 404 not_found before any database call", async function (): Promise<
@@ -183,9 +236,13 @@ Deno.test("unknown paths, methods and versions are 404 not_found before any data
   for (
     const req of [
       new Request(`${BASE}/v1/spots`),
-      new Request(`${BASE}/v2/me`, { headers: AUTHED }),
+      new Request(`${BASE}/v2/spots`, { headers: AUTHED }),
+      new Request(`${BASE}/v3/me`, { headers: AUTHED }),
+      new Request(`${BASE}/me`, { headers: AUTHED }),
       new Request(`${BASE}/v1/me`, { method: "POST" }),
+      new Request(`${BASE}/v2/me`, { method: "POST", headers: AUTHED }),
       new Request(`${BASE}/v1/contacts`, { method: "OPTIONS" }),
+      new Request(`${BASE}/v2/device/start`),
       new Request("http://127.0.0.1:54321/functions/v1/api/v1/me"),
     ]
   ) {
@@ -744,4 +801,388 @@ Deno.test("a matcher failure is logged and the batch still answers 200", async f
   assertEquals((results as unknown[]).length, 4);
   assertEquals(logged.length, 1);
   assertStringIncludes(String(logged[0]), "relay-api: matcher failed");
+});
+
+// ---- v1 stays as it was -------------------------------------------------------------
+
+Deno.test("v1 device/start ignores v2's scopes and platform and asks for contacts:write", async function (): Promise<
+  void
+> {
+  for (
+    const extra of [{ scopes: ["spots:read"], platform: "windows" }, {
+      scopes: 7,
+      platform: "beos",
+    }]
+  ) {
+    const body = withFields(START_BODY, extra);
+    const r = await run(post("/v1/device/start", body, {}), {
+      rpc: { start_relay_pairing: { data: START_REPLY } },
+    }, KEY);
+    assertEquals(r.res.status, 200, JSON.stringify(extra));
+    assertEquals(r.body, START_REPLY);
+    // The two-argument overload: contacts:write alone, no platform.
+    assertEquals(rpcArgs(r.calls, "start_relay_pairing"), {
+      p_device_name: "SHACK-PC",
+      p_client_version: "0.1.0",
+    });
+  }
+});
+
+Deno.test("v1 me answers callsign and email only, whatever else the account carries", async function (): Promise<
+  void
+> {
+  const r = await runWithSpotsUrl(
+    getMe(AUTHED),
+    {
+      rpc: {
+        authenticate_relay_token: { data: [BOTH_ROW] },
+        relay_account: { data: ACCOUNT_V2 },
+      },
+    },
+    KEY,
+    "https://spots.longlines.io/v2/spots",
+  );
+  assertEquals(r.res.status, 200);
+  assertEquals(r.body, ACCOUNT);
+  assertEquals(rpcArgs(r.calls, "relay_account"), { p_user_id: USER });
+});
+
+// ---- v2 -------------------------------------------------------------------------------
+
+const START_V2_BODY: JsonObject = {
+  client_name: "Long Lines Relay",
+  client_version: "0.2.0",
+  device_name: " SHACK-PC ",
+  scopes: ["contacts:write", "spots:read"],
+  platform: "windows",
+};
+
+/** START_V2_BODY with one field replaced, or removed when value is undefined. */
+function startV2With(key: string, value: unknown): JsonObject {
+  return withFields(START_V2_BODY, { [key]: value });
+}
+
+Deno.test("v2 pairing and the token routes count in v1's buckets", async function (): Promise<
+  void
+> {
+  const subject = await hmacSha256Hex(KEY, "203.0.113.9");
+  const token = await hmacSha256Hex(KEY, "t-1");
+  const from = { "cf-connecting-ip": "203.0.113.9" };
+  const authed = { "cf-connecting-ip": "203.0.113.9", Authorization: `Bearer ${TOKEN}` };
+  const cases: Array<[Request, string]> = [
+    [post("/v2/device/start", {}, from), `relay-start:${subject}`],
+    [post("/v2/device/token", {}, from), `relay-poll:${subject}`],
+    [getMeV2(authed), `relay-token:${token}`],
+    [post("/v2/contacts", {}, authed), `relay-token:${token}`],
+  ];
+  for (const entry of cases) {
+    const r = await run(entry[0], {}, KEY);
+    assertEquals(rpcArgs(r.calls, "record_profile_lookup"), { p_client: entry[1] });
+  }
+  const over = await run(post("/v2/device/start", START_V2_BODY, {}), {
+    rpc: { record_profile_lookup: { data: MAX_STARTS_PER_MINUTE + 1 } },
+  }, KEY);
+  assertEquals(over.res.status, 429);
+  assertEquals(errorOf(over.body), "rate_limited");
+});
+
+Deno.test("v2 device/start passes the scopes and platform to the four-argument start", async function (): Promise<
+  void
+> {
+  const reply = withFields(START_REPLY, { extra: 1 });
+  const cases: Array<[unknown, string[]]> = [
+    [["contacts:write", "spots:read"], ["contacts:write", "spots:read"]],
+    [["spots:read", "contacts:write"], ["spots:read", "contacts:write"]],
+    [["spots:read"], ["spots:read"]],
+    [["contacts:write"], ["contacts:write"]],
+  ];
+  for (const entry of cases) {
+    const body = startV2With("scopes", entry[0]);
+    body["unknown_field"] = true;
+    const r = await run(post("/v2/device/start", body, {}), {
+      rpc: { start_relay_pairing: { data: reply } },
+    }, KEY);
+    assertEquals(r.res.status, 200);
+    assertEquals(r.body, START_REPLY);
+    assertEquals(rpcArgs(r.calls, "start_relay_pairing"), {
+      p_device_name: "SHACK-PC",
+      p_client_version: "0.2.0",
+      p_scopes: entry[1],
+      p_platform: "windows",
+    });
+  }
+});
+
+Deno.test("v2 device/start without scopes asks for both, in the contract's order", async function (): Promise<
+  void
+> {
+  assertEquals(DEFAULT_V2_SCOPES, ["contacts:write", "spots:read"]);
+  for (const platform of ["windows", "macos", "linux"]) {
+    const body = startV2With("scopes", undefined);
+    body["platform"] = platform;
+    const r = await run(post("/v2/device/start", body, {}), {
+      rpc: { start_relay_pairing: { data: START_REPLY } },
+    }, KEY);
+    assertEquals(r.res.status, 200);
+    assertEquals(rpcArgs(r.calls, "start_relay_pairing"), {
+      p_device_name: "SHACK-PC",
+      p_client_version: "0.2.0",
+      p_scopes: ["contacts:write", "spots:read"],
+      p_platform: platform,
+    });
+  }
+});
+
+Deno.test("v2 device/start refuses bad scopes, a bad platform and v1's bad bodies with 400", async function (): Promise<
+  void
+> {
+  const bad: unknown[] = [
+    startV2With("scopes", []),
+    startV2With("scopes", ["spots:read", "spots:read"]),
+    startV2With("scopes", ["contacts:write", 7]),
+    startV2With("scopes", ["contacts:write", null]),
+    startV2With("scopes", ["admin"]),
+    startV2With("scopes", ["Spots:Read"]),
+    startV2With("scopes", "spots:read"),
+    startV2With("scopes", null),
+    startV2With("platform", undefined),
+    startV2With("platform", "android"),
+    startV2With("platform", "Windows"),
+    startV2With("platform", null),
+    startV2With("client_name", "Other App"),
+    startV2With("device_name", "   "),
+    startV2With("device_name", "x".repeat(65)),
+    startV2With("device_name", "PC\u0000"),
+    startV2With("client_version", ""),
+    [],
+    "text",
+  ];
+  for (const body of bad) {
+    const r = await run(post("/v2/device/start", body, {}), {
+      rpc: { start_relay_pairing: { data: START_REPLY } },
+    }, KEY);
+    assertEquals(r.res.status, 400, JSON.stringify(body));
+    assertEquals(errorOf(r.body), "invalid_request");
+    assertEquals(typeof (r.body as JsonObject)["message"], "string");
+    assertEquals(rpcNames(r.calls).includes("start_relay_pairing"), false);
+  }
+});
+
+Deno.test("v2 device/start answers 500 when the pairing cannot be started", async function (): Promise<
+  void
+> {
+  for (
+    const answer of [
+      { error: { message: "Not relay scopes.", code: "22023" } },
+      { error: { message: "down" } },
+      { data: { device_code: "x" } },
+    ]
+  ) {
+    const r = await run(post("/v2/device/start", START_V2_BODY, {}), {
+      rpc: { start_relay_pairing: answer },
+    }, KEY);
+    assertEquals(r.res.status, 500);
+    assertEquals(r.body, { error: "server_error" });
+  }
+});
+
+Deno.test("v2 device/token polls as v1 and echoes the scopes the pairing granted", async function (): Promise<
+  void
+> {
+  const pending = await run(post("/v2/device/token", { device_code: "abc" }, {}), {
+    rpc: { poll_relay_pairing: { data: { status: "authorization_pending" } } },
+  }, KEY);
+  assertEquals(pending.res.status, 400);
+  assertEquals(pending.body, { error: "authorization_pending" });
+  assertEquals(rpcArgs(pending.calls, "poll_relay_pairing"), {
+    p_device_code_hash: await hashApiToken("abc"),
+  });
+
+  const ok = await run(post("/v2/device/token", { device_code: "abc" }, {}), {
+    rpc: {
+      poll_relay_pairing: { data: { status: "ok", access_token: TOKEN, scopes: BOTH_SCOPES } },
+    },
+  }, KEY);
+  assertEquals(ok.res.status, 200);
+  assertEquals(ok.res.headers.get("Cache-Control"), "no-store");
+  assertEquals(ok.body, { access_token: TOKEN, token_type: "bearer", scopes: BOTH_SCOPES });
+});
+
+Deno.test("v2 me adds the relay's id, device name, scopes and the local spots_url", async function (): Promise<
+  void
+> {
+  const r = await run(getMeV2(AUTHED), {
+    rpc: {
+      authenticate_relay_token: { data: [BOTH_ROW] },
+      relay_account: { data: withFields(ACCOUNT_V2, { extra: 1 }) },
+    },
+  }, KEY);
+  assertEquals(r.res.status, 200);
+  assertEquals(r.res.headers.get("Cache-Control"), "no-store");
+  assertEquals(r.body, withFields(ACCOUNT_V2, { spots_url: "http://127.0.0.1:8081/v2/spots" }));
+  assertEquals(Object.keys(r.body as JsonObject), [
+    "callsign",
+    "email",
+    "relay_id",
+    "device_name",
+    "scopes",
+    "spots_url",
+  ]);
+  assertEquals(rpcArgs(r.calls, "relay_account"), { p_user_id: USER, p_token_id: RELAY_ID });
+});
+
+Deno.test("v2 me's spots_url is LONGLINES_SPOTS_URL when it is set", async function (): Promise<
+  void
+> {
+  const r = await runWithSpotsUrl(
+    getMeV2(AUTHED),
+    {
+      rpc: {
+        authenticate_relay_token: { data: [BOTH_ROW] },
+        relay_account: { data: ACCOUNT_V2 },
+      },
+    },
+    KEY,
+    "https://spots.longlines.io/v2/spots",
+  );
+  assertEquals(r.res.status, 200);
+  assertEquals((r.body as JsonObject)["spots_url"], "https://spots.longlines.io/v2/spots");
+});
+
+Deno.test("v2 me answers spots_url whatever the token's scopes", async function (): Promise<void> {
+  for (const scopes of [["contacts:write"], ["spots:read"]]) {
+    const r = await run(getMeV2(AUTHED), {
+      rpc: {
+        authenticate_relay_token: { data: [{ token_id: RELAY_ID, user_id: USER, scopes }] },
+        relay_account: { data: withFields(ACCOUNT_V2, { scopes }) },
+      },
+    }, KEY);
+    assertEquals(r.res.status, 200);
+    assertEquals((r.body as JsonObject)["scopes"], scopes);
+    assertEquals((r.body as JsonObject)["spots_url"], DEFAULT_SPOTS_URL);
+  }
+});
+
+Deno.test("v2 me needs a token: 401 bad_token without one or for an unknown one", async function (): Promise<
+  void
+> {
+  const none = await run(getMeV2({}), {}, KEY);
+  assertEquals(none.res.status, 401);
+  assertEquals(none.body, { error: "bad_token" });
+  assertEquals(rpcNames(none.calls), []);
+
+  const unknown = await run(getMeV2(AUTHED), {
+    rpc: { authenticate_relay_token: { data: [] } },
+  }, KEY);
+  assertEquals(unknown.res.status, 401);
+  assertEquals(unknown.body, { error: "bad_token" });
+});
+
+Deno.test("v2 me answers 500 when the relay cannot be read", async function (): Promise<void> {
+  for (
+    const answer of [
+      { error: { message: "down" } },
+      { data: null },
+      { data: ACCOUNT },
+      { data: withFields(ACCOUNT_V2, { relay_id: undefined }) },
+      { data: withFields(ACCOUNT_V2, { scopes: "spots:read" }) },
+    ]
+  ) {
+    const r = await run(getMeV2(AUTHED), {
+      rpc: {
+        authenticate_relay_token: { data: [BOTH_ROW] },
+        relay_account: answer,
+      },
+    }, KEY);
+    assertEquals(r.res.status, 500, JSON.stringify(answer));
+    assertEquals(r.body, { error: "server_error" });
+  }
+});
+
+Deno.test("v2 me with an unusable LONGLINES_SPOTS_URL is 500 and v1 me still answers", async function (): Promise<
+  void
+> {
+  const setting = "http://spots.longlines.io/v2/spots";
+  let status = 0;
+  let calls: string[] = [];
+  const logged = await capturingErrors(async function (): Promise<void> {
+    const r = await runWithSpotsUrl(
+      getMeV2(AUTHED),
+      {
+        rpc: {
+          authenticate_relay_token: { data: [BOTH_ROW] },
+          relay_account: { data: ACCOUNT_V2 },
+        },
+      },
+      KEY,
+      setting,
+    );
+    status = r.res.status;
+    calls = rpcNames(r.calls);
+  });
+  assertEquals(status, 500);
+  assertEquals(calls.includes("relay_account"), false);
+  assertEquals(logged.length, 1);
+  assertStringIncludes(String(logged[0]), "LONGLINES_SPOTS_URL");
+
+  const v1 = await runWithSpotsUrl(
+    getMe(AUTHED),
+    {
+      rpc: { relay_account: { data: ACCOUNT } },
+    },
+    KEY,
+    setting,
+  );
+  assertEquals(v1.res.status, 200);
+  assertEquals(v1.body, ACCOUNT);
+});
+
+Deno.test("resolveSpotsUrl takes https, or http on loopback, else refuses", function (): void {
+  assertEquals(resolveSpotsUrl(undefined), DEFAULT_SPOTS_URL);
+  assertEquals(resolveSpotsUrl(""), DEFAULT_SPOTS_URL);
+  assertEquals(resolveSpotsUrl("  "), DEFAULT_SPOTS_URL);
+  assertEquals(
+    resolveSpotsUrl(" https://spots.longlines.io/v2/spots "),
+    "https://spots.longlines.io/v2/spots",
+  );
+  assertEquals(resolveSpotsUrl("http://localhost:8081/v2/spots"), "http://localhost:8081/v2/spots");
+  assertEquals(resolveSpotsUrl("http://[::1]:8081/v2/spots"), "http://[::1]:8081/v2/spots");
+  assertEquals(
+    resolveSpotsUrl("http://127.0.0.1:18081/v2/spots"),
+    "http://127.0.0.1:18081/v2/spots",
+  );
+  assertEquals(resolveSpotsUrl("http://spots.longlines.io/v2/spots"), null);
+  assertEquals(resolveSpotsUrl("http://192.168.1.42:8081/v2/spots"), null);
+  assertEquals(resolveSpotsUrl("ftp://spots.longlines.io/v2/spots"), null);
+  assertEquals(resolveSpotsUrl("spots.longlines.io/v2/spots"), null);
+});
+
+Deno.test("v2 contacts applies a batch as v1 does", async function (): Promise<void> {
+  const r = await run(post("/v2/contacts", fixture, AUTHED), {
+    rpc: {
+      authenticate_relay_token: { data: [BOTH_ROW] },
+      apply_logged_contacts: applyAnswering({}),
+    },
+  }, KEY);
+  assertEquals(r.res.status, 200);
+  assertEquals(((r.body as JsonObject)["results"] as unknown[]).length, 4);
+  assertEquals(rpcNames(r.calls), [
+    "authenticate_relay_token",
+    "record_profile_lookup",
+    "record_relay_contacts",
+    "apply_logged_contacts",
+    "match_pending_spots",
+  ]);
+  assertEquals(rpcArgs(r.calls, "record_relay_contacts"), { p_token_id: RELAY_ID, p_count: 4 });
+});
+
+Deno.test("v2 contacts needs contacts:write: a spots-only token is 403", async function (): Promise<
+  void
+> {
+  const r = await run(post("/v2/contacts", fixture, AUTHED), {
+    rpc: { authenticate_relay_token: { data: [READ_ONLY_ROW] } },
+  }, KEY);
+  assertEquals(r.res.status, 403);
+  assertEquals(r.body, { error: "insufficient_scope" });
+  assertEquals(rpcNames(r.calls).includes("record_relay_contacts"), false);
 });
