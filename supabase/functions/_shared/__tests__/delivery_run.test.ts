@@ -990,3 +990,71 @@ Deno.test(
     ]);
   },
 );
+
+/** A claimed Local DX cluster row: the relay on the destination, the cluster_* values on the spot. */
+function clusterRow(id: number, destination: DeliveryDestination): PendingDelivery {
+  const base = row(id, destination, {});
+  return Object.assign({}, base, {
+    spot: Object.assign({}, base.spot, {
+      cluster_spotter: "W4DOG",
+      cluster_frequency_khz: 14062,
+      cluster_callsign: "W1AW",
+      cluster_comment: "CW",
+      cluster_time: "1400",
+      cluster_mode: "CW",
+      cluster_reference: null,
+      cluster_source: "pota",
+      cluster_source_label: "POTA",
+      cluster_spot_time: "2026-10-05T14:00:00Z",
+      cluster_connection: "POTA states",
+    }),
+  });
+}
+
+Deno.test(
+  "runDeliveryBatch never fails a Local DX cluster row: what its relay did not take waits out p_vt",
+  async function (): Promise<void> {
+    const relay = dest("c", {
+      type: "local_cluster",
+      url: null,
+      signing_secret: null,
+      local_cluster: { relay_id: "r1", device_name: "SHACK-PC" },
+    });
+    // The claim's rows parse with the new type and keys.
+    const rows = [clusterRow(1, relay), clusterRow(2, relay), clusterRow(3, relay)];
+    const parsed: PendingDelivery[] = [];
+    function firstWritten(
+      d: DeliveryDestination,
+      b: readonly PendingDelivery[],
+    ): Promise<SendResult> {
+      assertEquals(d.local_cluster, { relay_id: "r1", device_name: "SHACK-PC" });
+      for (const r of b) {
+        parsed.push(r);
+      }
+      // The stream closed after the first event.
+      return Promise.resolve({ ok: false, sent: 1, attempted: 1, error: "Relay not connected" });
+    }
+    const partial = await run(rows, firstWritten, {}, serialOptions());
+    assertEquals(parsed.map((r) => r.spot.cluster_connection), [
+      "POTA states",
+      "POTA states",
+      "POTA states",
+    ]);
+    assertEquals(
+      [partial.result.sent, partial.result.failed, partial.result.unattempted],
+      [1, 0, 2],
+    );
+    assertEquals(partial.calls.slice(1), [
+      { fn: "mark_deliveries_sent", args: { p_delivery_ids: [1], p_msg_ids: [10] } },
+    ]);
+
+    function offline(): Promise<SendResult> {
+      return Promise.resolve({ ok: false, sent: 0, attempted: 0, error: "Relay not connected" });
+    }
+    const none = await run(rows, offline, {}, serialOptions());
+    assertEquals([none.result.sent, none.result.failed, none.result.unattempted], [0, 0, 3]);
+    assertEquals(none.result.destinations[0]!.type, "local_cluster");
+    // Nothing marked, nothing throttled: SQL's age limit is the only thing that drops them.
+    assertEquals(none.calls.slice(1), []);
+  },
+);

@@ -27,6 +27,7 @@ function config(overrides: Partial<SenderConfig>): SenderConfig {
     databaseCa: undefined,
     databaseVerifyHost: true,
     healthPort: 0,
+    streamPort: 0,
     pollMs: 5_000,
     concurrency: 4,
     staleMs: 120_000,

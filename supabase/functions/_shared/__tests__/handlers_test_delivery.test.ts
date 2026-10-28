@@ -805,3 +805,22 @@ Deno.test(
     ]);
   },
 );
+
+Deno.test(
+  "handleSendTest refuses a Local DX cluster: only the relay's own test spot reaches it",
+  async function (): Promise<void> {
+    const relay: DeliveryDestination = Object.assign({}, DEST, {
+      type: "local_cluster",
+      url: null,
+      signing_secret: null,
+    });
+    const ran = await run(post({ destination_id: DEST.id }, "jwt"), {
+      from: { destinations: { data: loaded(relay) } },
+    }, SENT_ONE);
+    assertEquals(ran.res.status, 400);
+    assertEquals(ran.body, { error: "Send a test spot from the relay." });
+    assertEquals(ran.sent, []);
+    // No test RPC renders a spot for it.
+    assertEquals(ran.calls.rpc.map((c: { fn: string }) => c.fn), ["record_send_test"]);
+  },
+);

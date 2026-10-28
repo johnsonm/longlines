@@ -6,6 +6,7 @@ import {
   DEFAULT_POLL_MS,
   DEFAULT_STALE_MS,
   DEFAULT_STATS_MS,
+  DEFAULT_STREAM_PORT,
   integerAtLeast,
   isLocalHost,
   loadConfig,
@@ -37,6 +38,7 @@ Deno.test(
       databaseCa: undefined,
       databaseVerifyHost: true,
       healthPort: DEFAULT_HEALTH_PORT,
+      streamPort: DEFAULT_STREAM_PORT,
       pollMs: DEFAULT_POLL_MS,
       concurrency: DEFAULT_CONCURRENCY,
       staleMs: DEFAULT_STALE_MS,
@@ -45,7 +47,10 @@ Deno.test(
       allowInsecure: false,
     });
     assertEquals([DEFAULT_POLL_MS, DEFAULT_STALE_MS, DEFAULT_STATS_MS], [5_000, 120_000, 60_000]);
-    assertEquals([DEFAULT_CONCURRENCY, DEFAULT_HEALTH_PORT, MIN_POLL_MS], [4, 8080, 1_000]);
+    assertEquals(
+      [DEFAULT_CONCURRENCY, DEFAULT_HEALTH_PORT, DEFAULT_STREAM_PORT, MIN_POLL_MS],
+      [4, 8080, 8081, 1_000],
+    );
   },
 );
 
@@ -53,6 +58,7 @@ Deno.test("loadConfig reads every knob and the VAPID triple", function (): void 
   const config = loadConfig(env({
     SENDER_DATABASE_URL: HOSTED,
     SENDER_HEALTH_PORT: "9090",
+    SENDER_STREAM_PORT: "9091",
     SENDER_POLL_MS: " 2000 ",
     SENDER_CONCURRENCY: "1",
     SENDER_STALE_MS: "90000",
@@ -62,6 +68,7 @@ Deno.test("loadConfig reads every knob and the VAPID triple", function (): void 
     LONGLINES_VAPID_SUBJECT: VAPID.LONGLINES_VAPID_SUBJECT,
   }));
   assertEquals(config.healthPort, 9090);
+  assertEquals(config.streamPort, 9091);
   assertEquals(config.pollMs, 2000);
   assertEquals(config.concurrency, 1);
   assertEquals(config.staleMs, 90000);
@@ -285,5 +292,23 @@ Deno.test(
       env({ SENDER_DATABASE_URL: HOSTED, SENDER_POLL_MS: "3570000", SENDER_STALE_MS: "3600000" }),
     );
     assertEquals([slow.pollMs, slow.staleMs], [3_570_000, 3_600_000]);
+  },
+);
+
+Deno.test(
+  "loadConfig refuses a stream port that is not a port or is the health port",
+  function (): void {
+    for (const value of ["0", "x", "70000"]) {
+      assertThrows(
+        () => loadConfig(env({ SENDER_DATABASE_URL: HOSTED, SENDER_STREAM_PORT: value })),
+        ConfigError,
+        "SENDER_STREAM_PORT must be a port number",
+      );
+    }
+    assertThrows(
+      () => loadConfig(env({ SENDER_DATABASE_URL: HOSTED, SENDER_HEALTH_PORT: "8081" })),
+      ConfigError,
+      "SENDER_STREAM_PORT must differ from SENDER_HEALTH_PORT",
+    );
   },
 );

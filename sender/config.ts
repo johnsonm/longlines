@@ -10,6 +10,8 @@ import {
 import { ConfigError } from "../supabase/functions/_shared/errors.ts";
 
 export const DEFAULT_HEALTH_PORT = 8080;
+/** The spots stream's port (cluster_stream.ts), behind Fly's http_service. */
+export const DEFAULT_STREAM_PORT = 8081;
 export const DEFAULT_POLL_MS = 5_000;
 /** A poll faster than this would hammer the pooler for nothing; the claim meters per minute anyway. */
 export const MIN_POLL_MS = 1_000;
@@ -42,6 +44,8 @@ export interface SenderConfig {
   /** Check the certificate's name against the host too (sslmode verify-full, the default with a CA). */
   databaseVerifyHost: boolean;
   healthPort: number;
+  /** SENDER_STREAM_PORT: Long Lines Relay's spots stream (cluster_stream.ts). */
+  streamPort: number;
   /** Pause between claims that found less than a full batch. */
   pollMs: number;
   /** Destinations sent at once within a cycle. */
@@ -225,12 +229,24 @@ export function loadConfig(env: (name: string) => string | undefined): SenderCon
   if (healthPort === undefined) {
     healthPort = String(DEFAULT_HEALTH_PORT);
   }
+  let streamPort = env("SENDER_STREAM_PORT");
+  if (streamPort === undefined) {
+    streamPort = String(DEFAULT_STREAM_PORT);
+  }
+  const health = portNumber(healthPort, "SENDER_HEALTH_PORT");
+  const stream = portNumber(streamPort, "SENDER_STREAM_PORT");
+  if (health === stream) {
+    throw new ConfigError("SENDER_STREAM_PORT must differ from SENDER_HEALTH_PORT", {
+      cause: undefined,
+    });
+  }
   return {
     databaseUrl: db.url,
     databaseSsl: !db.local,
     databaseCa: verifiedCa,
     databaseVerifyHost: db.sslmode !== "verify-ca",
-    healthPort: portNumber(healthPort, "SENDER_HEALTH_PORT"),
+    healthPort: health,
+    streamPort: stream,
     pollMs,
     concurrency: integerAtLeast(
       env("SENDER_CONCURRENCY"),

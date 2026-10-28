@@ -17,8 +17,8 @@
 # LONGLINES_VAPID_SUBJECT. Optional: SENDER_DATABASE_CA, the PEM certificate
 # the pooler's certificate must chain to (without it TLS is not verified;
 # docs/OPERATIONS.md). Never a Supabase API key. Knobs (SENDER_POLL_MS,
-# SENDER_CONCURRENCY, SENDER_STALE_MS, SENDER_STATS_MS, SENDER_HEALTH_PORT) are
-# optional; sender/config.ts has the defaults.
+# SENDER_CONCURRENCY, SENDER_STALE_MS, SENDER_STATS_MS, SENDER_HEALTH_PORT,
+# SENDER_STREAM_PORT) are optional; sender/config.ts has the defaults.
 
 app = "longlines-sender"
 primary_region = "iad"
@@ -50,9 +50,30 @@ kill_timeout = "30s"
   size = "shared-cpu-1x"
   memory = "256mb"
 
-# No [http_service]: the sender accepts no public traffic, and an http_service
-# with auto_stop_machines would stop the machine for lack of requests. The check
-# reaches the health port over Fly's private network and shows in
+# The one public port: Long Lines Relay's spots stream (sender/cluster_stream.ts,
+# GET /v2/spots), at https://spots.longlines.io (a CNAME to longlines-sender.fly.dev
+# with `fly certs add`; docs/OPERATIONS.md, "Spots stream"). Fly terminates TLS
+# and proxies to 8081; a relay's stream is one long response, kept alive by a
+# comment every 20 s. The machine must never stop for lack of requests: the
+# sender's real work (claiming and sending) arrives through no request, so
+# auto_stop and auto_start are off and the one machine always runs. The health
+# port (8080) stays private.
+[http_service]
+  internal_port = 8081
+  force_https = true
+  auto_stop_machines = false
+  auto_start_machines = false
+  min_machines_running = 1
+
+  # Every open relay is one long request. Fly's default limit (25) would turn
+  # relays away once a couple of dozen are connected, so the limit is set by
+  # what one machine holds: an idle stream is a socket and a 20 s timer.
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 900
+    hard_limit = 1000
+
+# The check reaches the health port over Fly's private network and shows in
 # `fly checks list`; a 503 restarts nothing, the watchdog's exit 1 does.
 [checks]
   [checks.healthz]

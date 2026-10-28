@@ -260,7 +260,8 @@ user's JWT claims, which is how the RLS assertions work.
 
 ## Delivery
 
-Outbound delivery (Discord, webhooks, web push) is the sender: a Deno process on Fly.io in
+Outbound delivery (Discord, webhooks, web push, and Local DX cluster spots to Long Lines Relay
+through its spots stream) is the sender: a Deno process on Fly.io in
 `sender/` (app `longlines-sender`), the way the inbound worker holds the inbound streams. It connects to
 Postgres as the `delivery_sender` role through the Supavisor pooler, polls `claim_deliveries()`
 every few seconds and reports every outcome through its RPC allowlist. Every decision (what to
@@ -328,6 +329,7 @@ In this order, from the repository root:
 | `SENDER_STALE_MS` | no | The watchdog: exit 1 after this long without a successful claim; 120000. At most 3600000, and at least 30000 more than the larger of `SENDER_POLL_MS` and the 60000 claim retry (90000 with the default poll), or the sender refuses to start. |
 | `SENDER_STATS_MS` | no | How often `/healthz` refreshes its queue figures; 60000, at most 3600000. |
 | `SENDER_HEALTH_PORT` | no | 8080, what `sender/fly.toml`'s check expects. |
+| `SENDER_STREAM_PORT` | no | 8081, Long Lines Relay's spots stream, what `sender/fly.toml`'s `[http_service]` proxies to ("Spots stream" under "Long Lines Relay"). |
 
 `LONGLINES_ALLOW_INSECURE_DESTINATIONS` is refused with a non-local database host; never set it on
 Fly.
@@ -373,9 +375,10 @@ bookkeeping call; the start before any) is under `SENDER_STALE_MS` old and 503 a
 cycle that is still sending stays healthy. A 503 restarts nothing: Fly restarts the machine only when the process exits, and
 the watchdog exits 1 at the same threshold, which is what a wedged pooler connection looks like.
 `queue.depth` should stay near zero. `queue.expired_last_hour` counts deliveries that waited past
-their age limit (push: the destination's "drop if offline" setting, 30 minutes by default;
-everything else 24 hours) and were dropped undelivered; that is
-the figure to watch.
+their age limit (push: the destination's "drop if offline" setting, 30 minutes by default; a Local
+DX cluster 2 minutes, which is how it drops spots while its relay is offline; everything else 24
+hours) and were dropped undelivered; that is the figure to watch, after taking out Local DX
+cluster rows (the "Spots stream" query below counts them).
 
 ```sql
 select status, count(*) from deliveries where created_at > now() - interval '1 hour' group by 1;
@@ -465,6 +468,9 @@ for a destination; insert the destination row directly in SQL, since `create_des
 not accept such a URL. The Edge Functions (`send-test`) read the same variable from
 `supabase/functions/.env` under `supabase functions serve`. Never set it on the hosted project or
 on Fly; the sender refuses it with a non-local database host.
+
+The local sender also serves the spots stream at `http://127.0.0.1:8081/v2/spots`, where a relay
+paired against the local stack connects ("Spots stream" under "Long Lines Relay").
 
 ### Push notifications
 
@@ -1021,6 +1027,66 @@ Pairings are pruned a day after they start, by the hourly `prune-callsign-lookup
 that keeps getting `bad_token` was revoked (or its account deleted); it signs out on its own. To
 revoke a relay by hand, delete its `relay_tokens` row. An account holds at most 10 relays
 (`relay_tokens_max()`), counting approvals not yet claimed.
+
+## Spots stream
+
+A Local DX cluster destination sends its spots to one paired relay, which serves them to the
+user's logging software as a DX cluster. The sender holds the relays' streams: `GET /v2/spots`
+(contract section 9) on port 8081 (`SENDER_STREAM_PORT`), a Server-Sent Events response per relay
+token with `spots:read`, which only a v2 pairing grants. It is not behind the `api.longlines.io`
+rewrite (Vercel cannot carry a stream); `GET /v2/me` hands the relay its address as `spots_url`
+(`LONGLINES_SPOTS_URL` on the Edge Functions).
+
+While a relay's stream is open the sender has set `relay_tokens.cluster_connected_at`
+(`set_cluster_stream`), and `claim_deliveries` takes that relay's Local DX cluster rows; it
+clears it when the stream closes and marks every relay offline (`reset_cluster_streams`) at start
+and on shutdown. A relay that is offline gets nothing claimed: its rows age out after 2 minutes
+(`destination_max_age('local_cluster')`) through the expiry sweep, as `dropped_at`, and are never
+failures. A stream that closes between a claim and its write leaves the rows unattempted; they
+wait out the 60 s visibility timeout. A relay takes at most 120 spots a minute across every
+destination that targets it (`local_cluster_relay_cap()`). At most four streams connect at once
+(`MAX_HANDSHAKES` in `sender/cluster_stream.ts`): the stream is public and shares the sender's
+two-connection pool with the claim, so a flood of connection attempts gets 503 before any token
+lookup, and a relay retries with its backoff.
+
+First deploy, once the sender with the stream is deployed (merge) and `20261028000500` and
+`20261028000600` are pushed:
+
+```sh
+fly ips list -a longlines-sender                  # an app created without services has none
+fly ips allocate-v4 --shared -a longlines-sender  # shared IPv4 is free and enough behind TLS (SNI)
+fly ips allocate-v6 -a longlines-sender
+# DNS: spots.longlines.io CNAME longlines-sender.fly.dev
+fly certs add spots.longlines.io -a longlines-sender
+fly certs show spots.longlines.io -a longlines-sender   # wait for "Issued"
+supabase secrets set LONGLINES_SPOTS_URL=https://spots.longlines.io/v2/spots
+supabase functions deploy relay-api
+```
+
+The `[http_service]` in `sender/fly.toml` has `auto_stop_machines = false` and
+`min_machines_running = 1`: the machine's real work (claiming and sending) arrives through no
+request, so Fly must never stop it for lack of traffic, and `fly scale count 1` still holds.
+
+Check it (a token without `spots:read` gets 403 `insufficient_scope`, none 401 `bad_token`):
+
+```sh
+curl -sN https://spots.longlines.io/v2/spots -H "Authorization: Bearer $RELAY_TOKEN"
+# event: hello / data: {"relay_id":"...","device_name":"..."}, then ": keepalive" every 20 s
+```
+
+```sql
+select device_name, platform, scopes, cluster_connected_at from relay_tokens
+where cluster_connected_at is not null;                      -- relays online now
+select d.name, d.type, count(*) filter (where dl.status = 'sent') as sent,
+       count(*) filter (where dl.dropped_at is not null) as dropped
+from deliveries dl join destinations d on d.id = dl.destination_id
+where d.type = 'local_cluster' and dl.created_at > now() - interval '1 hour'
+group by 1, 2;
+```
+
+`fly logs -a longlines-sender` has a line per relay that connects, reconnects (a second stream
+for one token replaces the first) and disconnects, by relay id; tokens are never logged. Local:
+`npm run sender` (in `web/`) serves it at `http://127.0.0.1:8081/v2/spots`.
 
 # IOTA
 

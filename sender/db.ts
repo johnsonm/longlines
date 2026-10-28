@@ -31,14 +31,24 @@ export class DatabaseOpenError extends Error {
   }
 }
 
-type SqlType = "int" | "bigint" | "bigint[]" | "text" | "text[]" | "uuid" | "jsonb" | "timestamptz";
+type SqlType =
+  | "int"
+  | "bigint"
+  | "bigint[]"
+  | "boolean"
+  | "text"
+  | "text[]"
+  | "uuid"
+  | "jsonb"
+  | "timestamptz";
 
 /**
  * The allowlist: every RPC the sender may call with its named parameters and
  * their SQL types, in the function's own order. The grants in
- * 20261015000200_sender_role.sql, 20261015000400_rate_aware_claim.sql and
- * 20261021000100_health.sql are the other half; supabase/tests/sender_role.test.sql
- * pins them.
+ * 20261015000200_sender_role.sql, 20261015000400_rate_aware_claim.sql,
+ * 20261021000100_health.sql and 20261028000500_local_cluster.sql are the other
+ * half; supabase/tests/sender_role.test.sql pins them. The last three are the
+ * spots stream's (cluster_stream.ts): a relay token's row, and its presence.
  */
 export const SENDER_RPCS: Readonly<Record<string, Readonly<Record<string, SqlType>>>> = {
   claim_deliveries: { p_limit: "int", p_vt: "int" },
@@ -58,6 +68,9 @@ export const SENDER_RPCS: Readonly<Record<string, Readonly<Record<string, SqlTyp
     p_last_progress_at: "timestamptz",
     p_rss_bytes: "bigint",
   },
+  authenticate_relay_token: { p_token_hash: "text" },
+  set_cluster_stream: { p_token_id: "uuid", p_connected: "boolean" },
+  reset_cluster_streams: {},
 };
 
 /** One argument of an RpcStatement: the caller's value and the type it is cast to. */
@@ -131,20 +144,23 @@ export interface SqlClient {
 }
 
 /** Any other argument: what the allowlist's scalar and array types take, or null. */
-type PlainParam = number | string | null | number[] | string[];
+type PlainParam = number | string | boolean | null | number[] | string[];
 
 // The values the callers pass: run.ts and send.ts (ids, counts, seconds, endpoints, the error
-// text) and sender.ts (the heartbeat's ISO times and byte count). A missing argument is null.
+// text), sender.ts (the heartbeat's ISO times and byte count) and cluster_stream.ts (a token's
+// hash, its id and whether its stream is open). A missing argument is null.
 const intSchema: z.ZodType<PlainParam> = z.number().nullable();
 const intArraySchema: z.ZodType<PlainParam> = z.array(z.number()).nullable();
 const textSchema: z.ZodType<PlainParam> = z.string().nullable();
 const textArraySchema: z.ZodType<PlainParam> = z.array(z.string()).nullable();
+const booleanSchema: z.ZodType<PlainParam> = z.boolean().nullable();
 const PLAIN_PARAM_SCHEMAS: Readonly<Record<Exclude<SqlType, "jsonb">, z.ZodType<PlainParam>>> = {
   int: intSchema,
   bigint: intSchema,
   "bigint[]": intArraySchema,
   text: textSchema,
   "text[]": textArraySchema,
+  boolean: booleanSchema,
   uuid: textSchema,
   timestamptz: textSchema,
 };
@@ -334,7 +350,8 @@ export function clientOptions(config: DbConnectionConfig): ClientOptions {
     password: decodeURIComponent(url.password),
     database,
     ssl: sslOption(config, url.hostname),
-    // Two connections: the poll loop and the stats refresh may overlap; LISTEN takes one later.
+    // Two connections: the poll loop and the stats refresh may overlap, and the spots stream's
+    // occasional presence calls queue behind them; LISTEN takes one later.
     max: 2,
     prepare: true,
     connect_timeout: 10,

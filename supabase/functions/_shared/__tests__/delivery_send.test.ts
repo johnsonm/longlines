@@ -1,5 +1,6 @@
 import { assertEquals, assertMatch, assertRejects } from "@std/assert";
 import {
+  LOCAL_CLUSTER_TEST,
   MAX_RETRY_AFTER_SECONDS,
   retryAfterSeconds,
   sendDiscord,
@@ -1644,6 +1645,18 @@ Deno.test(
       });
       const c = dest(`${base}/204/api/webhooks/1/abc`, "discord");
       assertEquals(await sendToDestination(c, [delivery(1, c)], options), { ok: true, sent: 1 });
+      // A Local DX cluster is the sender's spots stream's; here nothing is attempted or requested.
+      const relay: DeliveryDestination = Object.assign(dest("x", "webhook"), {
+        type: "local_cluster",
+        url: null,
+        local_cluster: { relay_id: "r1", device_name: "SHACK-PC" },
+      });
+      assertEquals(await sendToDestination(relay, [delivery(1, relay)], options), {
+        ok: false,
+        sent: 0,
+        attempted: 0,
+        error: LOCAL_CLUSTER_TEST,
+      });
       assertEquals(requests.map((r) => r.path), [
         "/201/a",
         "/200/hook",

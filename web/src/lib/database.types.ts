@@ -2078,7 +2078,7 @@ isOneToOne: true
 { Args: Record<PropertyKey, never>; Returns: number
                            },
 "set_cluster_stream":
-{ Args: { "p_connected": boolean,"p_token_id": string }; Returns: boolean
+{ Args: { "p_connected": boolean,"p_token_id": string }; Returns: Json
                            },
 "set_webhook_headers":
 { Args: { "p_destination_id": string,"p_headers": Json }; Returns: undefined
