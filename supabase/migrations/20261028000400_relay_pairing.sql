@@ -7,7 +7,8 @@
 -- 1. The relay-api function's POST /device/start calls start_relay_pairing, which stores a
 --    pending relay_pairings row holding only the SHA-256 of a random device code, and returns the
 --    device code (the relay's polling secret) and a short user code (XXXX-XXXX).
--- 2. The relay opens /relay/approve?code=<user code> in the browser. The signed-in user sees the
+-- 2. The relay opens /relay/approve?code=<user code> in the browser (and shows /relay, where the
+--    code can be typed, in case the browser did not open). The signed-in user sees the
 --    pairing through lookup_relay_pairing and answers it with answer_relay_pairing (Allow or Deny);
 --    both are the only client RPCs here.
 -- 3. The relay polls POST /device/token, which calls poll_relay_pairing with the device code's
@@ -204,7 +205,9 @@ begin
   return jsonb_build_object(
     'device_code', v_device,
     'user_code', v_row.user_code,
-    'verification_uri', public.app_site_url() || '/relay/approve',
+    -- The short address the relay shows for typing a code by hand (/relay goes on to the approval
+    -- page); the browser opens the complete one, the approval page with the code filled in.
+    'verification_uri', public.app_site_url() || '/relay',
     'verification_uri_complete', public.app_site_url() || '/relay/approve?code=' || v_row.user_code,
     'expires_in', extract(epoch from v_row.expires_at - v_row.created_at)::int,
     'interval', v_row.interval_seconds);

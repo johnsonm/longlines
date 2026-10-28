@@ -331,9 +331,11 @@ error code, the token format and the scopes are its, and it wins over this file 
   constraints in phase 2, and a route refuses a token without its scope (403
   `insufficient_scope`). Revoking is the owner's delete (RLS), from the API tokens page's
   "Long Lines Relay" card.
-- Per-client limits reuse the profile's keying (`countClientRequest`, `rateLimitKey`) in
-  relay-api's own buckets (`relay-start`, `relay-poll`, `relay`), so pairing never spends a
-  visitor's profile lookups. Device codes, tokens and contacts are never logged.
+- The pairing routes are limited per client address with the profile's keying
+  (`countClientRequest`, `rateLimitKey`) in relay-api's own buckets (`relay-start`, `relay-poll`),
+  so pairing never spends a visitor's profile lookups; `me` and `contacts` per token
+  (`relay-token`, after authentication), never per address, because the Vercel rewrite can make
+  every relay arrive from one proxy address. Device codes, tokens and contacts are never logged.
 - `/relay/approve` (signed in; `/relay` redirects to it with its query) takes its copy from Brad's
   relay canvas, page 2 (RelayApprove, RelayApproved, RelayWeb*); a typed code goes to SQL as typed.
 

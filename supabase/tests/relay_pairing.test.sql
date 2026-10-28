@@ -60,7 +60,7 @@ select ok((select body ->> 'device_code' ~ '^[0-9a-f]{64}$' from started where n
 select is((select (body ->> 'expires_in')::int from started where name = 'SHACK-PC'), 600, 'pairings last 10 minutes');
 select is((select (body ->> 'interval')::int from started where name = 'SHACK-PC'), 5, 'the poll interval is 5 seconds');
 select is((select body ->> 'verification_uri' from started where name = 'SHACK-PC'),
-  'https://longlines.io/relay/approve', 'the verification URI is the approval page');
+  'https://longlines.io/relay', 'the verification URI is the short address for typing a code');
 select is((select body ->> 'verification_uri_complete' from started where name = 'SHACK-PC'),
   'https://longlines.io/relay/approve?code=' || pg_temp.code('SHACK-PC'), 'the complete URI carries the code');
 select ok((select p.device_code_hash = pg_temp.sha(s.body ->> 'device_code')

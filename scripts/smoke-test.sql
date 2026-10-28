@@ -207,7 +207,7 @@ begin
   declare
     v_start jsonb := public.start_relay_pairing('smoke', '0.0.0');
   begin
-    assert v_start ->> 'verification_uri' = 'https://longlines.io/relay/approve'
+    assert v_start ->> 'verification_uri' = 'https://longlines.io/relay'
            and (v_start ->> 'expires_in')::int = 600,
       'start_relay_pairing should answer the contract''s verification URI and ten minutes';
     assert (select status from relay_pairings

@@ -30,7 +30,7 @@ const ACCOUNT = { callsign: "KK4PWJ", email: "operator@example.com" };
 const START_REPLY = {
   device_code: "5c6f2b1e0f7a4c0f9e3b8d2a61c4e7f0b9a3d5e8c1f2a4b6",
   user_code: "WDJB-MJHT",
-  verification_uri: "https://longlines.io/relay/approve",
+  verification_uri: "https://longlines.io/relay",
   verification_uri_complete: "https://longlines.io/relay/approve?code=WDJB-MJHT",
   expires_in: 600,
   interval: 5,
@@ -209,16 +209,18 @@ Deno.test("without the HMAC key every route fails closed", async function (): Pr
   assertEquals(r.calls.rpc, []);
 });
 
-Deno.test("each route counts the client in its own bucket, apart from profile lookups", async function (): Promise<
+Deno.test("pairing counts the client, me and contacts the token, each in its own bucket", async function (): Promise<
   void
 > {
   const subject = await hmacSha256Hex(KEY, "203.0.113.9");
+  const token = await hmacSha256Hex(KEY, "t-1");
   const from = { "cf-connecting-ip": "203.0.113.9" };
+  const authed = { "cf-connecting-ip": "203.0.113.9", Authorization: `Bearer ${TOKEN}` };
   const cases: Array<[Request, string]> = [
     [post("/v1/device/start", {}, from), `relay-start:${subject}`],
     [post("/v1/device/token", {}, from), `relay-poll:${subject}`],
-    [getMe(from), `relay:${subject}`],
-    [post("/v1/contacts", {}, from), `relay:${subject}`],
+    [getMe(authed), `relay-token:${token}`],
+    [post("/v1/contacts", {}, authed), `relay-token:${token}`],
   ];
   for (const entry of cases) {
     const r = await run(entry[0], {}, KEY);
@@ -226,13 +228,41 @@ Deno.test("each route counts the client in its own bucket, apart from profile lo
   }
 });
 
+Deno.test("relays behind one address (the Vercel rewrite) never share a budget", async function (): Promise<
+  void
+> {
+  const other = { token_id: "t-2", user_id: USER, scopes: ["contacts:write"] };
+  const clients: string[] = [];
+  for (const row of [TOKEN_ROW, other]) {
+    const r = await run(getMe(AUTHED), {
+      rpc: { authenticate_relay_token: { data: [row] }, relay_account: { data: ACCOUNT } },
+    }, KEY);
+    assertEquals(r.res.status, 200);
+    const args = rpcArgs(r.calls, "record_profile_lookup");
+    if (args === undefined) {
+      throw new Error("record_profile_lookup was not called");
+    }
+    clients.push(String(args["p_client"]));
+  }
+  assertEquals(clients[0] === clients[1], false);
+});
+
 Deno.test("past a route's per-client limit the answer is 429 rate_limited with Retry-After", async function (): Promise<
   void
 > {
-  const cases: Array<[() => Request, number]> = [
-    [() => post("/v1/device/start", START_BODY, {}), MAX_STARTS_PER_MINUTE],
-    [() => post("/v1/device/token", { device_code: "abc" }, {}), MAX_POLLS_PER_MINUTE],
-    [() => getMe(AUTHED), MAX_REQUESTS_PER_MINUTE],
+  const cases: Array<[() => Request, number, string[]]> = [
+    [() => post("/v1/device/start", START_BODY, {}), MAX_STARTS_PER_MINUTE, [
+      "record_profile_lookup",
+    ]],
+    [
+      () => post("/v1/device/token", { device_code: "abc" }, {}),
+      MAX_POLLS_PER_MINUTE,
+      ["record_profile_lookup"],
+    ],
+    [() => getMe(AUTHED), MAX_REQUESTS_PER_MINUTE, [
+      "authenticate_relay_token",
+      "record_profile_lookup",
+    ]],
   ];
   for (const entry of cases) {
     const limit = entry[1];
@@ -253,7 +283,7 @@ Deno.test("past a route's per-client limit the answer is 429 rate_limited with R
     assertEquals(over.res.status, 429);
     assertEquals(over.res.headers.get("Retry-After"), "45");
     assertEquals(errorOf(over.body), "rate_limited");
-    assertEquals(rpcNames(over.calls), ["record_profile_lookup"]);
+    assertEquals(rpcNames(over.calls), entry[2]);
   }
 });
 
@@ -421,7 +451,7 @@ Deno.test("device/token answers 500 when the poll fails or answers out of shape"
 
 // ---- authentication and me ------------------------------------------------------
 
-Deno.test("a missing or malformed token is 401 bad_token without a lookup", async function (): Promise<
+Deno.test("a missing or malformed token is 401 bad_token without a database call", async function (): Promise<
   void
 > {
   const cases: Array<Record<string, string>> = [
@@ -434,7 +464,7 @@ Deno.test("a missing or malformed token is 401 bad_token without a lookup", asyn
     const r = await run(getMe(headers), {}, KEY);
     assertEquals(r.res.status, 401);
     assertEquals(r.body, { error: "bad_token" });
-    assertEquals(rpcNames(r.calls), ["record_profile_lookup"]);
+    assertEquals(rpcNames(r.calls), []);
   }
 });
 
@@ -537,8 +567,8 @@ Deno.test("contacts applies the contract's example batch and answers every item 
     ],
   });
   assertEquals(rpcNames(r.calls), [
-    "record_profile_lookup",
     "authenticate_relay_token",
+    "record_profile_lookup",
     "record_relay_contacts",
     "apply_logged_contacts",
     "match_pending_spots",
@@ -595,8 +625,8 @@ Deno.test("a batch with nothing to apply skips the database and the matcher", as
     results: [{ external_id: "bad", status: "rejected", reason: "invalid" }],
   });
   assertEquals(rpcNames(r.calls), [
-    "record_profile_lookup",
     "authenticate_relay_token",
+    "record_profile_lookup",
     "record_relay_contacts",
   ]);
 });

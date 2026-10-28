@@ -110,7 +110,7 @@ Relay" card on API tokens (`web/src/tokens/RelayTokensCard.tsx`); pgTAP
 
 | Question | Decision |
 | --- | --- |
-| `verification_uri` | `https://longlines.io/relay/approve`, as the contract says (the brief suggested `/relay`). `/relay` redirects to `/relay/approve` with its query, so both work and a typed code goes to the same page. |
+| `verification_uri` | `https://longlines.io/relay`, as the brief says, so the relay's "Browser didn't open? Go to longlines.io/relay and enter the code." reads from it; `verification_uri_complete` is `https://longlines.io/relay/approve?code=XXXX-XXXX`. `/relay` redirects to `/relay/approve` with its query, so both work and a typed code goes to the same page. |
 | Codes as typed | Upper-cased, spaces and hyphens dropped, O read as 0 and I and L as 1 (Crockford). |
 | What the approval page tells apart | `pending`; `expired` for any code that is past its 10 minutes or already answered or claimed, by anyone (whose it was is never told); `unknown`. |
 | `slow_down` | A poll less than `interval - 1` seconds after the previous one, so network jitter on a relay that waits exactly 5 s is not punished. A too-early poll still counts as the last poll. |

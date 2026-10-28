@@ -243,11 +243,41 @@ export async function rateLimitKey(
 }
 
 /**
- * Counts one request against the client's per-minute window in record_profile_lookup and returns
- * the window's count, this request included, or null when it cannot be read (logged, prefixed
- * with `fn`). `bucket` names a separate budget: "" is the shared lookup budget (profiles, group
- * pages, reference pages and searches); relay-api keeps its own buckets, so pairing a relay never
- * spends a visitor's lookups. Shared by lookupLimit and relay-api.
+ * Counts one request against `client`'s per-minute window in record_profile_lookup and returns the
+ * window's count, this request included, or null when it cannot be read (logged, prefixed with
+ * `fn`). `client` is already a key that names no one (an HMAC), with any bucket prefix.
+ */
+export async function countRequest(
+  db: SupabaseClient,
+  client: string,
+  fn: string,
+): Promise<number | null> {
+  const lookups = await db.rpc("record_profile_lookup", { p_client: client });
+  if (lookups.error !== null) {
+    console.error(`${fn}: rate limit failed: ${lookups.error.message}`);
+    return null;
+  }
+  try {
+    return parseWith(
+      lookupCountSchema,
+      lookups.data,
+      "countRequest: record_profile_lookup result",
+    );
+  } catch (error) {
+    if (!(error instanceof ValidationError)) {
+      throw error;
+    }
+    console.error(`${fn}: rate limit failed: ${error.message}`);
+    return null;
+  }
+}
+
+/**
+ * Counts one request against the client's per-minute window (countRequest) and returns the
+ * window's count, or null when it cannot be read. `bucket` names a separate budget: "" is the
+ * shared lookup budget (profiles, group pages, reference pages and searches); relay-api keeps its
+ * own buckets, so pairing a relay never spends a visitor's lookups. Shared by lookupLimit and
+ * relay-api.
  */
 export async function countClientRequest(
   req: Request,
@@ -261,24 +291,7 @@ export async function countClientRequest(
   if (bucket !== "") {
     client = `${bucket}:${client}`;
   }
-  const lookups = await db.rpc("record_profile_lookup", { p_client: client });
-  if (lookups.error !== null) {
-    console.error(`${fn}: rate limit failed: ${lookups.error.message}`);
-    return null;
-  }
-  try {
-    return parseWith(
-      lookupCountSchema,
-      lookups.data,
-      "countClientRequest: record_profile_lookup result",
-    );
-  } catch (error) {
-    if (!(error instanceof ValidationError)) {
-      throw error;
-    }
-    console.error(`${fn}: rate limit failed: ${error.message}`);
-    return null;
-  }
+  return await countRequest(db, client, fn);
 }
 
 /**

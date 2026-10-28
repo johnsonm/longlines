@@ -12,8 +12,11 @@
 //   GET  /v1/me            relay_account: the token owner's callsign and email (5)
 //   POST /v1/contacts      apply_logged_contacts, then the matcher (6)
 //
-// Every route is limited per client address (countClientRequest, keyed like the profile's limit
-// but in relay-api's own buckets), and POST /contacts per token (record_relay_contacts). Pairing
+// The pairing routes are limited per client address (countClientRequest, keyed like the profile's
+// limit but in relay-api's own buckets); me and contacts per token, once the token is known
+// (countRequest), and POST /contacts also per contact (record_relay_contacts). The authenticated
+// routes are not keyed by address: production reaches this function through a Vercel rewrite, so
+// every relay can arrive from the same few proxy addresses and would share one budget. Pairing
 // and token policy live in SQL (20261028000400_relay_pairing.sql); checking and shaping a contact
 // is _shared/logged.ts. Device codes, tokens and contacts are never logged.
 
@@ -38,8 +41,9 @@ import {
 } from "../logged.ts";
 import { type JsonObject, jsonObjectSchema } from "../types.ts";
 import { parseWith } from "../validate.ts";
+import { hmacSha256Hex } from "../hmac.ts";
 import { readBody } from "./api.ts";
-import { countClientRequest } from "./callsign_profile.ts";
+import { countClientRequest, countRequest } from "./callsign_profile.ts";
 
 /** Contract section 1: bodies over 256 KiB are refused with 400 invalid_request. */
 export const MAX_BODY_BYTES = 256 * 1024;
@@ -47,7 +51,7 @@ export const MAX_BODY_BYTES = 256 * 1024;
 export const MAX_STARTS_PER_MINUTE = 5;
 /** device/token per client address per minute: a relay polls every 5 s, so room for five. */
 export const MAX_POLLS_PER_MINUTE = 60;
-/** me and contacts per client address per minute, on top of the per-token contact limit. */
+/** me and contacts per relay token per minute, on top of the per-token contact limit. */
 export const MAX_REQUESTS_PER_MINUTE = 120;
 /** The client_name every device/start must carry (contract 4.1). */
 export const CLIENT_NAME = "Long Lines Relay";
@@ -249,35 +253,8 @@ function secondsToNextMinute(now: Date): string {
   return String(60 - now.getUTCSeconds());
 }
 
-/** The per-client limit for a route: null to go on, else the response to send. */
-async function clientLimit(
-  req: Request,
-  db: SupabaseClient,
-  deps: RelayApiDeps,
-  route: Route,
-  now: Date,
-): Promise<Response | null> {
-  if (deps.key === undefined) {
-    console.error("relay-api: missing environment variable SUPABASE_SERVICE_ROLE_KEY");
-    return relayError(500, "server_error", null, {});
-  }
-  let bucket = "relay";
-  let limit = MAX_REQUESTS_PER_MINUTE;
-  if (route === "device/start") {
-    bucket = "relay-start";
-    limit = MAX_STARTS_PER_MINUTE;
-  } else if (route === "device/token") {
-    bucket = "relay-poll";
-    limit = MAX_POLLS_PER_MINUTE;
-  }
-  const count = await countClientRequest(
-    req,
-    db,
-    deps.clientIpHeader,
-    deps.key,
-    "relay-api",
-    bucket,
-  );
+/** The response to send for a window's count past `limit`, else null to go on. */
+function overLimit(count: number | null, limit: number, now: Date): Response | null {
   if (count === null) {
     return relayError(500, "server_error", null, {});
   }
@@ -287,6 +264,40 @@ async function clientLimit(
     });
   }
   return null;
+}
+
+/** A pairing route's per-client limit: null to go on, else the response to send. */
+async function clientLimit(
+  req: Request,
+  db: SupabaseClient,
+  clientIpHeader: string | undefined,
+  key: CryptoKey,
+  route: "device/start" | "device/token",
+  now: Date,
+): Promise<Response | null> {
+  let bucket = "relay-start";
+  let limit = MAX_STARTS_PER_MINUTE;
+  if (route === "device/token") {
+    bucket = "relay-poll";
+    limit = MAX_POLLS_PER_MINUTE;
+  }
+  const count = await countClientRequest(req, db, clientIpHeader, key, "relay-api", bucket);
+  return overLimit(count, limit, now);
+}
+
+/**
+ * me and contacts per relay token (bucket relay-token, keyed by an HMAC of the token's id): null to
+ * go on, else the response to send.
+ */
+async function tokenLimit(
+  db: SupabaseClient,
+  key: CryptoKey,
+  caller: RelayTokenRow,
+  now: Date,
+): Promise<Response | null> {
+  const client = `relay-token:${await hmacSha256Hex(key, caller.token_id)}`;
+  const count = await countRequest(db, client, "relay-api");
+  return overLimit(count, MAX_REQUESTS_PER_MINUTE, now);
 }
 
 /** A request body that parsed as JSON; `value` is still unchecked. */
@@ -342,22 +353,30 @@ export async function handleRelayApi(
     return relayError(404, "not_found", null, {});
   }
 
+  if (deps.key === undefined) {
+    console.error("relay-api: missing environment variable SUPABASE_SERVICE_ROLE_KEY");
+    return relayError(500, "server_error", null, {});
+  }
   const db = deps.db();
-  const limited = await clientLimit(req, db, deps, route, now);
-  if (limited !== null) {
-    return limited;
-  }
 
-  if (route === "device/start") {
-    return await deviceStart(req, db);
-  }
-  if (route === "device/token") {
+  if (route === "device/start" || route === "device/token") {
+    const limited = await clientLimit(req, db, deps.clientIpHeader, deps.key, route, now);
+    if (limited !== null) {
+      return limited;
+    }
+    if (route === "device/start") {
+      return await deviceStart(req, db);
+    }
     return await deviceToken(req, db);
   }
 
   const caller = await authenticate(req, db);
   if (caller instanceof Response) {
     return caller;
+  }
+  const limited = await tokenLimit(db, deps.key, caller, now);
+  if (limited !== null) {
+    return limited;
   }
   if (route === "me") {
     return await me(db, caller);
