@@ -384,6 +384,11 @@ The delivery side (retries, pause, attempts, rendering, Vault) is in "Delivery r
 - Env: `web/vite.config.ts` maps `SUPABASE_URL`/`SUPABASE_ANON_KEY` (what the Supabase Vercel
   integration provides) onto `import.meta.env.VITE_*` with an explicit allowlist. Never widen
   `envPrefix` or add the service-role key to that mapping.
+- Sign in with Google (`signInWithGoogle`, back to the site root) makes an account with no
+  profile: `handle_new_user` skips the profile only for a provider other than email with no
+  callsign in its metadata. `RequireAuth` shows `CompleteProfilePage` while `profileMissing`, and
+  `complete_profile` is the only way such an account gets its profile, so every profile keeps a
+  callsign. The catch-all route waits for the session, so the token in the URL is read first.
 - `web/scripts/*.ts` are local-dev helpers behind the npm scripts, run by Node's built-in type
   stripping (erasable syntax only, `.ts` import extensions). They only talk to the local stack;
   `local-stack.ts` refuses a non-local API URL. Never add a script that deploys or pushes.

@@ -175,6 +175,23 @@ export async function signUp(input: { callsign: string; name: string; email: str
   if (error) fail(error, "Couldn't create your account.");
 }
 
+/**
+ * Leaves for Google's sign-in and comes back to the site root, which the Auth
+ * redirect allow list holds for every environment; the client reads the
+ * session from the URL on load. A new Google user has no profile until
+ * completeProfile.
+ */
+export async function signInWithGoogle(): Promise<void> {
+  const { error } = await supabase.auth.signInWithOAuth({ provider: "google", options: { redirectTo: window.location.origin } });
+  if (error) fail(error, "Couldn't sign in with Google.");
+}
+
+/** Creates the signed-in user's profile, for an account made with Google. */
+export async function completeProfile(callsign: string, name: string): Promise<void> {
+  const { error } = await supabase.rpc("complete_profile", { p_callsign: callsign, p_name: name });
+  if (error) fail(error, "Couldn't finish creating your account.");
+}
+
 export async function requestPasswordReset(email: string): Promise<void> {
   const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: `${window.location.origin}/set-password` });
   if (error) fail(error, "Couldn't send the reset link.");
@@ -203,8 +220,9 @@ export async function signOut(scope: "local" | "others" = "local", cleanup?: () 
 
 // ---- Profile ---------------------------------------------------------------
 
-export async function loadProfile(userId: string): Promise<Profile> {
-  const { data, error } = await supabase.from("profiles").select("*").eq("id", userId).single();
+/** The user's profile, or null for an account made with Google that has no callsign yet. */
+export async function loadProfile(userId: string): Promise<Profile | null> {
+  const { data, error } = await supabase.from("profiles").select("*").eq("id", userId).maybeSingle();
   if (error) fail(error, "Couldn't load your profile.");
   return data;
 }

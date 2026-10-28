@@ -32,6 +32,18 @@ describe("AppProvider", () => {
     expect(result.current.app.session).toBe(SESSION);
   });
 
+  it("reports a missing profile apart from a load in progress", async () => {
+    vi.mocked(loadProfile).mockResolvedValue(null);
+    const { result } = hook();
+    await waitFor(() => expect(result.current.app.profileMissing).toBe(true));
+    expect(result.current.app.profile).toBeNull();
+    expect(result.current.app.profileError).toBeNull();
+    vi.mocked(loadProfile).mockResolvedValue(PROFILE);
+    await act(() => result.current.app.refreshProfile());
+    expect(result.current.app.profile).toEqual(PROFILE);
+    expect(result.current.app.profileMissing).toBe(false);
+  });
+
   it("has no profile when signed out", async () => {
     session(null, true);
     const { result } = hook();
