@@ -405,6 +405,7 @@ describe("edit subscription", () => {
   it("joins rules with And or Or and picks each rule's condition", async () => {
     const { user } = render({ id: "s1" });
     expect(screen.queryByRole("combobox", { name: "Join" })).not.toBeInTheDocument();
+    expect(screen.getByText("Where")).toBeInTheDocument();
     await user.click(screen.getByRole("combobox", { name: "Condition" }));
     await user.click(await screen.findByRole("option", { name: "is not" }));
 
@@ -515,6 +516,7 @@ describe("edit subscription", () => {
     render({ id: "s1", mobile: true, subs: [sub({ rules: [[BAND, rule("mode", "is", "cw")]] })] });
     expect(screen.getAllByRole("combobox", { name: "Condition" })[0]).toHaveTextContent("is");
     expect(screen.getByRole("combobox", { name: "Join" })).toHaveTextContent("And");
+    expect(screen.queryByText("Where")).not.toBeInTheDocument();
   });
 });
 
