@@ -92,6 +92,9 @@ revoke all on logged_contacts from anon, authenticated;
 -- rejected with mycall_mismatch and changes nothing; so is any upsert for an account without a
 -- profile. Deletes are not checked: a contact can only be deleted by the account that posted it.
 --
+-- Batches for one account are serialized by a transaction-level advisory lock, so concurrent
+-- requests for one contact apply one after the other.
+--
 -- "Store" goes through ingest_spots, which queues the spot for matching. raw_spots dedups on
 -- (source, source_spot_id, content_hash), so content this contact had before (an edit undone, a
 -- contact deleted and logged again) already has a retracted row: storing it clears that row's
@@ -120,6 +123,11 @@ begin
   if p_user_id is null or jsonb_typeof(p_items) is distinct from 'array' then
     raise exception 'apply_logged_contacts needs a user and a list of items.' using errcode = '22023';
   end if;
+
+  -- One account's batches apply one at a time. The row lock below cannot cover a contact that has
+  -- no row yet, so two requests storing different content for one new contact at once (a retry
+  -- racing the request it retries) would each store a live spot and leave one never retracted.
+  perform pg_advisory_xact_lock(hashtextextended('logged_contacts:' || p_user_id::text, 0));
 
   select public.base_callsign(p.callsign) into v_base from profiles p where p.id = p_user_id;
 

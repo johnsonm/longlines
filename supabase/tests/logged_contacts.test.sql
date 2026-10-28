@@ -6,7 +6,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(65);
+select plan(66);
 
 create function pg_temp.d(p_offset int) returns date language sql as $$
   select (now() at time zone 'utc')::date + p_offset;
@@ -240,6 +240,16 @@ select ok(exists (select 1 from archive_status where source = 'logged'), 'archiv
 select lives_ok(format('select log_archive(%L, %L, %L, 0, null, null)', 'logged',
   date_trunc('hour', now()) - interval '3 hours', date_trunc('hour', now()) - interval '2 hours'),
   'archive_log accepts logged');
+
+-- Two requests for one new contact at once must not both store a live spot: an account's batches
+-- apply one at a time, under a transaction-level advisory lock held from the first apply above.
+select ok(exists (
+  select 1
+  from pg_locks l,
+       (select hashtextextended('logged_contacts:11111111-1111-1111-1111-111111111111', 0) as k) h
+  where l.locktype = 'advisory' and l.pid = pg_backend_pid() and l.granted and l.objsubid = 1
+    and l.classid = ((h.k >> 32) & 4294967295)::oid and l.objid = (h.k & 4294967295)::oid),
+  'apply_logged_contacts holds the account''s lock until commit');
 
 -- ---------------------------------------------------------------------------
 -- Access and account deletion
