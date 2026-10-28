@@ -477,6 +477,12 @@ verify_jwt = false
 [functions.api]
 verify_jwt = false
 
+# relay-api is the API Long Lines Relay (the desktop app) calls. The relay sends a relay token
+# (ll_relay_...) or nothing (pairing), never a JWT; the function checks the token itself and
+# limits every route per client IP (_shared/handlers/relay_api.ts).
+[functions.relay-api]
+verify_jwt = false
+
 # ingest-rbn is called by the inbound worker on Fly.io, which holds the inbound secret but
 # no Supabase key. It checks x-inbound-secret itself (_shared/serve.ts).
 [functions.ingest-rbn]

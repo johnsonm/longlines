@@ -243,6 +243,45 @@ export async function rateLimitKey(
 }
 
 /**
+ * Counts one request against the client's per-minute window in record_profile_lookup and returns
+ * the window's count, this request included, or null when it cannot be read (logged, prefixed
+ * with `fn`). `bucket` names a separate budget: "" is the shared lookup budget (profiles, group
+ * pages, reference pages and searches); relay-api keeps its own buckets, so pairing a relay never
+ * spends a visitor's lookups. Shared by lookupLimit and relay-api.
+ */
+export async function countClientRequest(
+  req: Request,
+  db: SupabaseClient,
+  clientIpHeader: string | undefined,
+  key: CryptoKey,
+  fn: string,
+  bucket: string,
+): Promise<number | null> {
+  let client = await rateLimitKey(req, clientIpHeader, key, fn);
+  if (bucket !== "") {
+    client = `${bucket}:${client}`;
+  }
+  const lookups = await db.rpc("record_profile_lookup", { p_client: client });
+  if (lookups.error !== null) {
+    console.error(`${fn}: rate limit failed: ${lookups.error.message}`);
+    return null;
+  }
+  try {
+    return parseWith(
+      lookupCountSchema,
+      lookups.data,
+      "countClientRequest: record_profile_lookup result",
+    );
+  } catch (error) {
+    if (!(error instanceof ValidationError)) {
+      throw error;
+    }
+    console.error(`${fn}: rate limit failed: ${error.message}`);
+    return null;
+  }
+}
+
+/**
  * The per-client lookup limit, shared by callsign-profile and group-page so
  * both count against one budget: null to go on, else the response to send.
  * Anything but a count fails closed: a limit that cannot be read is not a
@@ -260,20 +299,8 @@ export async function lookupLimit(
     console.error(`${fn}: missing environment variable SUPABASE_SERVICE_ROLE_KEY`);
     return json({ error: unavailable }, 500, headers);
   }
-  const client = await rateLimitKey(req, deps.clientIpHeader, deps.key, fn);
-  const lookups = await db.rpc("record_profile_lookup", { p_client: client });
-  if (lookups.error !== null) {
-    console.error(`${fn}: rate limit failed: ${lookups.error.message}`);
-    return json({ error: unavailable }, 500, headers);
-  }
-  let count: number;
-  try {
-    count = parseWith(lookupCountSchema, lookups.data, "lookupLimit: record_profile_lookup result");
-  } catch (error) {
-    if (!(error instanceof ValidationError)) {
-      throw error;
-    }
-    console.error(`${fn}: rate limit failed: ${error.message}`);
+  const count = await countClientRequest(req, db, deps.clientIpHeader, deps.key, fn, "");
+  if (count === null) {
     return json({ error: unavailable }, 500, headers);
   }
   if (count > MAX_LOOKUPS_PER_MINUTE) {
