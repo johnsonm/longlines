@@ -25,3 +25,6 @@ export function expiresLabel(expiresAt: string | null, now: Date = new Date()): 
   if (!expiresAt) return "Never";
   return new Date(expiresAt) <= now ? "Expired" : formatDate(expiresAt);
 }
+
+/** Long Lines Relay's latest release, with the installers for each platform. */
+export const RELAY_DOWNLOAD_URL = "https://github.com/sonyccd/longlines-relay/releases/latest";

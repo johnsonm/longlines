@@ -10,6 +10,7 @@ import { createApiToken, deleteApiToken, loadApiTokens, rotateApiToken, type Api
 import { formatDate, timeAgo } from "../lib/time";
 import { API_BASE_URL, API_DOCS_URL, EXAMPLE, EXPIRY, expiresLabel, scopeLabel } from "./model";
 import { errorText, useNotify } from "../app/hooks";
+import { RelayTokensCard } from "./RelayTokensCard";
 
 /** Personal tokens for the management API: create, rotate and revoke. */
 export function ApiTokensPage() {
@@ -162,6 +163,8 @@ export function ApiTokensPage() {
           </TableBody>
         </Table>
       </Paper>
+
+      <RelayTokensCard />
 
       <Paper variant="outlined" sx={{ p: 3 }}>
         <Typography variant="h6" gutterBottom>Using the API</Typography>

@@ -595,6 +595,46 @@ describe("API tokens", () => {
   });
 });
 
+describe("Long Lines Relay", () => {
+  it("lookupRelayPairing returns lookup_relay_pairing's answer for the code as typed", async () => {
+    fake.rpcs.set("lookup_relay_pairing", { data: { status: "expired", code: "KQ7M-X4PD" } });
+    expect(await api.lookupRelayPairing("kq7mx4pd")).toEqual({ status: "expired", code: "KQ7M-X4PD" });
+    expect(fake.client.rpc).toHaveBeenLastCalledWith("lookup_relay_pairing", { p_user_code: "kq7mx4pd" });
+    fake.rpcs.set("lookup_relay_pairing", {});
+    await expect(api.lookupRelayPairing("x")).rejects.toThrow("Couldn't check the code.");
+    fake.rpcs.set("lookup_relay_pairing", { error: boom });
+    await expect(api.lookupRelayPairing("x")).rejects.toThrow("boom");
+  });
+
+  it("answerRelayPairing allows or denies a code", async () => {
+    fake.rpcs.set("answer_relay_pairing", { data: { status: "approved" } });
+    expect(await api.answerRelayPairing("KQ7M-X4PD", true)).toEqual({ status: "approved" });
+    expect(fake.client.rpc).toHaveBeenLastCalledWith("answer_relay_pairing", { p_user_code: "KQ7M-X4PD", p_approve: true });
+    fake.rpcs.set("answer_relay_pairing", {});
+    await expect(api.answerRelayPairing("x", false)).rejects.toThrow("Couldn't answer the relay.");
+    fake.rpcs.set("answer_relay_pairing", { error: boom });
+    await expect(api.answerRelayPairing("x", false)).rejects.toThrow("boom");
+  });
+
+  it("loadRelayTokens selects every column but the hash and the contact window", async () => {
+    fake.tables.set("relay_tokens", { data: [{ id: "r1" }] });
+    expect(await api.loadRelayTokens()).toEqual([{ id: "r1" }]);
+    expect(fake.ops).toContainEqual(["relay_tokens", "select", [api.RELAY_TOKEN_COLUMNS]]);
+    expect(api.RELAY_TOKEN_COLUMNS).not.toContain("token_hash");
+    expect(api.RELAY_TOKEN_COLUMNS).not.toContain("contacts_window");
+    fake.tables.set("relay_tokens", { error: boom });
+    await expect(api.loadRelayTokens()).rejects.toThrow("boom");
+  });
+
+  it("deleteRelayToken deletes by id", async () => {
+    fake.tables.set("relay_tokens", {});
+    await expect(api.deleteRelayToken("r1")).resolves.toBeUndefined();
+    expect(fake.ops).toContainEqual(["relay_tokens", "eq", ["id", "r1"]]);
+    fake.tables.set("relay_tokens", { error: boom });
+    await expect(api.deleteRelayToken("r1")).rejects.toThrow("boom");
+  });
+});
+
 describe("subscriptions", () => {
   it("joins each subscription with its destination ids", async () => {
     fake.tables.set("subscriptions", { data: [{ id: "s1" }, { id: "s2" }] });

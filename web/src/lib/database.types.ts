@@ -995,6 +995,34 @@ isOneToOne: false
                   Relationships: [
                     
                   ]
+                },"relay_pairings": {
+                  Row: {
+                    "answered_at": string | null,"client_version": string,"created_at": string,"device_code_hash": string,"device_name": string,"expires_at": string,"id": string,"interval_seconds": number,"last_polled_at": string | null,"scopes": (string)[],"status": string,"user_code": string,"user_id": string | null
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "answered_at"?: string | null,"client_version": string,"created_at"?: string,"device_code_hash": string,"device_name": string,"expires_at"?: string,"id"?: string,"interval_seconds"?: number,"last_polled_at"?: string | null,"scopes"?: (string)[],"status"?: string,"user_code": string,"user_id"?: string | null
+                  }
+                  Update: {
+                    "answered_at"?: string | null,"client_version"?: string,"created_at"?: string,"device_code_hash"?: string,"device_name"?: string,"expires_at"?: string,"id"?: string,"interval_seconds"?: number,"last_polled_at"?: string | null,"scopes"?: (string)[],"status"?: string,"user_code"?: string,"user_id"?: string | null
+                  }
+                  Relationships: [
+                    
+                  ]
+                },"relay_tokens": {
+                  Row: {
+                    "client_version": string,"contacts_window_count": number,"contacts_window_start": string | null,"created_at": string,"device_name": string,"id": string,"last_used_at": string | null,"scopes": (string)[],"token_hash": string,"token_prefix": string,"user_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "client_version": string,"contacts_window_count"?: number,"contacts_window_start"?: string | null,"created_at"?: string,"device_name": string,"id"?: string,"last_used_at"?: string | null,"scopes": (string)[],"token_hash": string,"token_prefix": string,"user_id": string
+                  }
+                  Update: {
+                    "client_version"?: string,"contacts_window_count"?: number,"contacts_window_start"?: string | null,"created_at"?: string,"device_name"?: string,"id"?: string,"last_used_at"?: string | null,"scopes"?: (string)[],"token_hash"?: string,"token_prefix"?: string,"user_id"?: string
+                  }
+                  Relationships: [
+                    
+                  ]
                 },"send_test_limits": {
                   Row: {
                     "destination_id": string,"tests": number,"user_id": string,"window_start": string
@@ -1218,6 +1246,9 @@ isOneToOne: true
             "abandon_reference_load":
 { Args: { "p_error": string,"p_load": number }; Returns: undefined
                            },
+"answer_relay_pairing":
+{ Args: { "p_approve": boolean,"p_user_code": string }; Returns: Json
+                           },
 "api_call":
 { Args: { "p_args": Json,"p_op": string,"p_token_id": string }; Returns: Json
                            },
@@ -1274,6 +1305,11 @@ isOneToOne: true
 "authenticate_api_request":
 { Args: { "p_token_hash": string }; Returns: {
               "requests": number,"scope": string,"token_id": string,"user_id": string
+            }[]
+                           },
+"authenticate_relay_token":
+{ Args: { "p_token_hash": string }; Returns: {
+              "scopes": (string)[],"token_id": string,"user_id": string
             }[]
                            },
 "backfill_callsign_days":
@@ -1649,6 +1685,9 @@ isOneToOne: true
 "log_archive":
 { Args: { "p_bytes": number,"p_object_path": string,"p_row_count": number,"p_slice_end": string,"p_slice_start": string,"p_source": string }; Returns: undefined
                            },
+"lookup_relay_pairing":
+{ Args: { "p_user_code": string }; Returns: Json
+                           },
 "maintain_aprs_packets":
 { Args: Record<PropertyKey, never>; Returns: undefined
                            },
@@ -1673,6 +1712,12 @@ isOneToOne: true
 "new_group_slug":
 { Args: Record<PropertyKey, never>; Returns: string
                            },
+"new_relay_token":
+{ Args: Record<PropertyKey, never>; Returns: string
+                           },
+"new_relay_user_code":
+{ Args: Record<PropertyKey, never>; Returns: string
+                           },
 "normalize_group_callsigns":
 { Args: { "p_calls": (string)[] }; Returns: Json
                            },
@@ -1690,6 +1735,9 @@ isOneToOne: true
                            },
 "patch_subscription":
 { Args: { "p_id": string,"p_patch": Json }; Returns: undefined
+                           },
+"poll_relay_pairing":
+{ Args: { "p_device_code_hash": string }; Returns: Json
                            },
 "preview_discord_message":
 { Args: { "p_settings": Json,"p_spot_id"?: number }; Returns: Json
@@ -1715,6 +1763,9 @@ isOneToOne: true
                            },
 "prune_push_devices":
 { Args: { "p_endpoints": (string)[] }; Returns: number
+                           },
+"prune_relay_pairings":
+{ Args: Record<PropertyKey, never>; Returns: undefined
                            },
 "public_group_statistics":
 { Args: { "p_period": string,"p_slug": string }; Returns: Json
@@ -1796,6 +1847,9 @@ isOneToOne: true
 "record_push_results":
 { Args: { "p_errors": Json,"p_ok": (string)[] }; Returns: undefined
                            },
+"record_relay_contacts":
+{ Args: { "p_count": number,"p_token_id": string }; Returns: number
+                           },
 "record_send_test":
 { Args: { "p_destination_id": string,"p_user_id": string }; Returns: boolean
                            },
@@ -1828,6 +1882,18 @@ isOneToOne: true
                            },
 "register_push_device":
 { Args: { "p_agent"?: string,"p_auth": string,"p_endpoint": string,"p_label": string,"p_p256dh": string,"p_previous_endpoint"?: string,"p_standalone"?: boolean }; Returns: string
+                           },
+"relay_account":
+{ Args: { "p_user_id": string }; Returns: Json
+                           },
+"relay_contacts_per_minute":
+{ Args: Record<PropertyKey, never>; Returns: number
+                           },
+"relay_tokens_max":
+{ Args: Record<PropertyKey, never>; Returns: number
+                           },
+"relay_user_code":
+{ Args: { "p_text": string }; Returns: string
                            },
 "rename_duplicate_destination_names":
 { Args: Record<PropertyKey, never>; Returns: number
@@ -1928,6 +1994,9 @@ isOneToOne: true
                            },
 "stage_reference_rows":
 { Args: { "p_load": number,"p_rows": Json }; Returns: number
+                           },
+"start_relay_pairing":
+{ Args: { "p_client_version": string,"p_device_name": string }; Returns: Json
                            },
 "stats_payload_without_hidden":
 { Args: { "p_payload": Json }; Returns: Json

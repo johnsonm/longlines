@@ -32,6 +32,16 @@
   ],
   "rewrites": [
     {
+      "source": "/relay/v1/:path*",
+      "has": [
+        {
+          "type": "host",
+          "value": "api.longlines.io"
+        }
+      ],
+      "destination": "https://actcyiensrmjelkavzkv.supabase.co/functions/v1/relay-api/v1/:path*"
+    },
+    {
       "source": "/v1/:path*",
       "has": [
         {

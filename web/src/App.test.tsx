@@ -73,6 +73,10 @@ vi.mock("./groups/PublicGroupPage", () => ({ PublicGroupPage: ({ slug }: { slug:
 vi.mock("./stats/StatsPage", () => ({ StatsPage: () => <p>stats page</p> }));
 vi.mock("./health/HealthPage", () => ({ HealthPage: () => <p>health page</p> }));
 vi.mock("./account/AccountPage", () => ({ AccountPage: () => <p>account page</p> }));
+vi.mock("./relay/ApprovePage", async () => {
+  const { useLocation } = await import("react-router");
+  return { ApprovePage: () => <p>relay approve page {useLocation().search}</p> };
+});
 vi.mock("./profile/LookupPage", () => ({ LookupPage: () => <p>lookup page</p> }));
 vi.mock("./references/ReferenceLookupPage", () => ({ ReferenceLookupPage: () => <p>reference lookup page</p> }));
 vi.mock("./references/ReferencePage", async () => {
@@ -133,6 +137,22 @@ describe("App routing", () => {
     session(null);
     renderAt("/connections/new?source=rbn&callsign=KK4PWJ#top");
     expect(await screen.findByText("sign-in page /connections/new?source=rbn&callsign=KK4PWJ#top")).toBeInTheDocument();
+  });
+
+  it("serves the relay approval page signed in, keeping the code", async () => {
+    renderAt("/relay/approve?code=KQ7M-X4PD");
+    expect(await screen.findByText("relay approve page ?code=KQ7M-X4PD")).toBeInTheDocument();
+  });
+
+  it("sends /relay to the approval page with its code", async () => {
+    renderAt("/relay?code=KQ7M-X4PD");
+    expect(await screen.findByText("relay approve page ?code=KQ7M-X4PD")).toBeInTheDocument();
+  });
+
+  it("sends a signed-out visitor from the relay's link to sign in, and back with the code", async () => {
+    session(null);
+    renderAt("/relay/approve?code=KQ7M-X4PD");
+    expect(await screen.findByText("sign-in page /relay/approve?code=KQ7M-X4PD")).toBeInTheDocument();
   });
 
   it("renders a source's detail page at /sources/:id", async () => {
