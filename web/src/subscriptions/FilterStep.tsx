@@ -232,7 +232,9 @@ export function FilterStep({ sub, setSub, rows, setRows, groups, groupsFailed, p
               </Stack>
             ) : (
               <Stack direction="row" spacing={1} sx={{ alignItems: "flex-start" }}>
-                <Box sx={{ flex: "0 0 96px" }}>{join}</Box>
+                <Box sx={{ flex: "0 0 96px" }}>
+                  {join ?? <Typography sx={{ display: "flex", alignItems: "center", minHeight: 56, pl: 1.75 }}>Where</Typography>}
+                </Box>
                 <Box sx={{ flex: "0 0 190px" }}>{fieldSelect}</Box>
                 <Box sx={{ flex: "0 0 170px" }}>{condition}</Box>
                 <Box sx={{ flexGrow: 1, minWidth: 0 }}>{valuesInput(row, i)}</Box>
