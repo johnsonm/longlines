@@ -525,8 +525,8 @@ Deno.test("backoffSeconds follows 30s, 1m, 2m, 5m, 15m, then every 30m", functio
 
 Deno.test("sourceLabel names every source and passes an unknown one through", function (): void {
   assertEquals(
-    ["pota", "sotawatch", "rbn", "dxcluster", "wwff", "wwbota", "other"].map(sourceLabel),
-    ["POTA", "SOTAwatch", "RBN", "DX Cluster", "WWFF", "WWBOTA", "other"],
+    ["pota", "sotawatch", "rbn", "dxcluster", "wwff", "wwbota", "logged", "other"].map(sourceLabel),
+    ["POTA", "SOTAwatch", "RBN", "DX Cluster", "WWFF", "WWBOTA", "Logged contacts", "other"],
   );
 });
 

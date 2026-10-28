@@ -186,6 +186,8 @@ export function isTooOld(spotTime: Date, now: Date, maxAgeMs: number): boolean {
 // time, two calls and a frequency.
 export const MAX_CALLSIGN_LENGTH = 64;
 export const MAX_SPOT_ID_LENGTH = 256;
+/** A logged contact's source_spot_id is `<user id>|<external id>`: a uuid, a bar and up to 256 characters. */
+export const MAX_LOGGED_SPOT_ID_LENGTH = 36 + 1 + 256;
 /** The most WWBOTA bunkers one spot may name (a five-bunker n-fer is common). */
 export const MAX_REFERENCES = 50;
 const MAX_FUTURE_MS = 24 * 60 * 60 * 1000;
@@ -223,7 +225,11 @@ export function assertPlausibleTime(time: Date, now: Date, field: string): void 
 /** Throws when a normalized spot would fail its ingest_spots batch. The orchestrator runs it on every spot. */
 export function assertStorableSpot(spot: NormalizedSpot, now: Date): void {
   assertPlausibleTime(new Date(spot.spot_time), now, "spot time");
-  assertMaxLength(spot.source_spot_id, MAX_SPOT_ID_LENGTH, "source_spot_id");
+  let maxSpotId = MAX_SPOT_ID_LENGTH;
+  if (spot.source === "logged") {
+    maxSpotId = MAX_LOGGED_SPOT_ID_LENGTH;
+  }
+  assertMaxLength(spot.source_spot_id, maxSpotId, "source_spot_id");
   assertMaxLength(spot.callsign, MAX_CALLSIGN_LENGTH, "callsign");
   const bounded: [string, string | null][] = [
     ["spotter", spot.spotter],

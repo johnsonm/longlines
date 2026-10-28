@@ -9,7 +9,15 @@ import type {
   ReferenceProgram,
 } from "./reference_catalog.ts";
 
-export type Source = "pota" | "sotawatch" | "rbn" | "dxcluster" | "aprs" | "wwff" | "wwbota";
+export type Source =
+  | "pota"
+  | "sotawatch"
+  | "rbn"
+  | "dxcluster"
+  | "aprs"
+  | "wwff"
+  | "wwbota"
+  | "logged";
 
 /** A source name as the database stores it (raw_spots_source_check plus aprs). */
 export const sourceSchema: z.ZodType<Source> = z.enum([
@@ -20,6 +28,7 @@ export const sourceSchema: z.ZodType<Source> = z.enum([
   "aprs",
   "wwff",
   "wwbota",
+  "logged",
 ]);
 
 /** A JSON object as received from an upstream feed. Fields are validated at use. */

@@ -46,6 +46,7 @@ const SOURCE_LABELS: Record<string, string> = {
   dxcluster: "DX Cluster",
   wwff: "WWFF",
   wwbota: "WWBOTA",
+  logged: "Logged contacts",
 };
 
 export function sourceLabel(source: string): string {
