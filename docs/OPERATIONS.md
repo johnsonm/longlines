@@ -642,13 +642,16 @@ because the renamed functions refuse the old header the moment they deploy:
 supabase db push
 supabase functions deploy health            # reads the new payload keys (web deploy follows)
 
-# 2. The same secret under its new name, on both sides. Fly stages secrets for an app with
-#    no machines yet.
-supabase secrets set LONGLINES_INBOUND_SECRET=<current relay secret>
+# 2. A fresh secret under the new name, on both sides. Fly and Supabase secrets are
+#    write-only and neither can be renamed, so the old value is not copied; both sides
+#    are redeployed below, so it need not be. Fly stages secrets for an app with no
+#    machines yet.
+openssl rand -hex 32
+supabase secrets set LONGLINES_INBOUND_SECRET=<new secret>
 fly apps create longlines-inbound
 fly secrets set -a longlines-inbound \
   LONGLINES_FUNCTIONS_URL=https://<project-ref>.supabase.co/functions/v1 \
-  LONGLINES_INBOUND_SECRET=<current relay secret> \
+  LONGLINES_INBOUND_SECRET=<new secret> \
   INBOUND_LOGIN_CALL=<callsign> \
   APRS_LOGIN_CALL=<call-SSID>               # plus DXCLUSTER_HOST/PORT, INBOUND_LICENSES, INBOUND_CATALOGS if the relay set them
 
