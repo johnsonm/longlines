@@ -19,7 +19,7 @@ const STALE_MS = 10 * 60_000;
  * How long shutdown spends pushing what is buffered. Under fly.toml's kill_timeout
  * (30 s) with room for the health server to close, so Fly never kills a push.
  */
-const DRAIN_MS = 20_000;
+export const DRAIN_MS = 20_000;
 
 /** A running feed: its /healthz figures, its forwarder, and a promise that settles when it stops. */
 interface StartedFeed {
