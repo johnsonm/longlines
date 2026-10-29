@@ -96,7 +96,10 @@ Work down the chain.
    ```sql
    select name, created_at from vault.secrets where name like 'longlines_%';
    ```
-   A 401 means the service-role key in Vault does not match the project.
+   A 401 from the gateway means the key in Vault (`longlines_anon_key`, or
+   `longlines_service_role_key` before the cron secret is set) does not match the project; a 403
+   from the function means `longlines_cron_secret` does not match the functions'
+   `LONGLINES_CRON_SECRET` ("Cron secret" below).
 3. Did the function run but fail? `ingest_state.last_error` holds the message, and the Edge
    Function logs in the dashboard show the same line. Invoke a function by hand to see the
    summary or error directly:
@@ -567,6 +570,12 @@ select generated_at, payload->'totals' from stats_snapshots order by generated_a
 
 `cron.job_run_details` shows failed runs under that job name.
 
+`refresh_stats_rollups()` rolls up at most 3 RBN, 2 APRS-IS and 3 country days a run, oldest
+first (`20261029000400`), so after an outage of several days the job catches up a few days an hour
+inside its 2-minute statement timeout instead of timing out and rolling back every hour; a whole
+missing window clears in four runs. A country day waits for its RBN day. To catch up at once by
+hand, outside cron's timeout: `select refresh_stats_rollups_at(now());` (no cap).
+
 ## Web app on Vercel
 
 Create a Vercel project from the GitHub repo with these settings:
@@ -755,6 +764,41 @@ retention deletes it the next night (warning `rbn retention: <day> was retired; 
 rows`), keeps the day's archive as it is and records nothing; APRS-IS does the same. The rollups
 still see the day as retired meanwhile (`rbn_day_retired`: some slice of the day is logged with
 more rows than the database holds), so a late line never lets a retired day be rolled up as whole.
+
+## Cron secret
+
+pg_cron reaches the cron-called functions (`ingest-pota`, `ingest-sotawatch`, `ingest-wwff`,
+`ingest-wwbota`, `archive`, `import-cty`, `import-iota`) through `cron_call_function`, which
+queues the request in pg_net's `net.http_request_queue`. Every database role can read that table
+(a PUBLIC grant on `supabase_admin`'s table that `postgres` cannot revoke), the sender's
+`delivery_sender` included, so since `20261029000500` the request carries the public anon key as
+its bearer (for the gateway's `verify_jwt`) and the cron secret in `x-cron-secret`, never the
+service-role key. Until Vault holds both `longlines_anon_key` and `longlines_cron_secret`,
+`cron_call_function` keeps sending the service-role key as before, so the migration can be pushed
+first. Rollout, in this order:
+
+1. Pick a secret (`openssl rand -hex 32`), set it on the functions and deploy the seven of them
+   (they accept the header from this deploy on, and the service-role key as before):
+   ```sh
+   supabase secrets set LONGLINES_CRON_SECRET=<secret>
+   for f in ingest-pota ingest-sotawatch ingest-wwff ingest-wwbota archive import-cty import-iota; do
+     supabase functions deploy "$f"
+   done
+   ```
+2. Create the two Vault secrets (`scripts/setup-db-settings.sql` has them; run only those two
+   statements on a project that already has the others). `longlines_anon_key` is the legacy anon
+   JWT (Project Settings, API keys, legacy keys), not the `sb_publishable_` key, which is not a JWT
+   and would not pass `verify_jwt`.
+3. `supabase db push`, if `20261029000500` is not hosted yet. Check that the next runs succeed
+   (`cron_http_requests`, /health) and that a queued request has no service-role key:
+   `select headers->>'Authorization' like 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'longlines_anon_key') from net.http_request_queue limit 1;`
+4. Optionally delete `longlines_service_role_key` from Vault: once both new secrets exist only
+   the fallback in `cron_call_function` reads it, and nothing else in the database does. Keep it
+   if you may need the fallback (deleting either new secret would then break cron).
+
+To rotate, set the new value on both sides; runs in between get 403 and the next ones recover:
+`supabase secrets set LONGLINES_CRON_SECRET=<new>`, then
+`select vault.update_secret(id, '<new>') from vault.secrets where name = 'longlines_cron_secret';`.
 
 ## Rotating the inbound secret
 

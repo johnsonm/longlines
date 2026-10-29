@@ -86,7 +86,7 @@ Local invocation: `curl -X POST http://127.0.0.1:54321/functions/v1/ingest-pota 
   per source is fixed (see `ARCHITECTURE.md`; WWFF's is `spot_time, activator, reference,
   frequency_khz, mode, remarks`, WWBOTA's `time, call, freq, mode, comment`, never `type`); changing
   it would make every existing spot look new on the next run.
-- Cron jobs read the project URL and service-role key from Vault
+- Cron jobs read the project URL, the anon key and the cron secret from Vault
   (`scripts/setup-db-settings.sql` creates them once). Migrations never contain secrets.
 
 ## CI
@@ -183,10 +183,14 @@ The conventions are `docs/superpowers/specs/2026-10-22-strict-eslint-conventions
   when it created deliveries, and the cleanup (`20261015001400`) deleted the function, its handler
   and its RPCs `delay_deliveries` and `mark_deliveries_dropped`. Never add a `net.http_post` or a
   delivery Edge Function back.
-- `archive`, `import-cty` and `import-iota` authorize with `isServiceRole` (`_shared/auth.ts`):
-  the runtime's `SUPABASE_SERVICE_ROLE_KEY` (now the `sb_secret_` key) or a JWT with
-  `role: service_role`, which is what pg_cron sends from Vault. The JWT is trusted only because the
-  gateway verified it, so both functions keep `verify_jwt = true` in `config.toml`.
+- `archive`, `import-cty`, `import-iota` and the pulled ingest functions authorize with
+  `isServiceRole` (`_shared/auth.ts`): an `x-cron-secret` header equal to `LONGLINES_CRON_SECRET`,
+  which is what pg_cron sends (`cron_call_function`, from Vault `longlines_cron_secret`, with the
+  anon JWT `longlines_anon_key` as the bearer to pass the gateway), the runtime's
+  `SUPABASE_SERVICE_ROLE_KEY` (now the `sb_secret_` key) or a JWT with `role: service_role`. Never
+  put the service-role key in a pg_net request: every role can read `net.http_request_queue`
+  (`cron_call_function` falls back to it only until both Vault secrets exist). The JWT is trusted
+  only because the gateway verified it, so these functions keep `verify_jwt = true` in `config.toml`.
 
 - Matching lives in SQL (`spot_matches`, `match_pending_spots`); never re-implement the predicate in
   TypeScript. The preview RPC and the matcher must stay on the same function.

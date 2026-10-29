@@ -1,5 +1,5 @@
 // The HTTP shell for the pulled sources (POTA, SOTAwatch, WWFF, WWBOTA), invoked by
-// pg_cron with the service-role key from Vault. Each run fetches the live
+// pg_cron with the cron secret from Vault (or, before it is set, the service-role key). Each run fetches the live
 // upstream feed, so only the service role may start one: the gateway's
 // verify_jwt also lets the public anon key and signed-in users through.
 //
@@ -17,6 +17,8 @@ import type { IngestDb, SourceAdapter } from "./types.ts";
 
 export interface IngestDeps {
   serviceRoleKey: string | undefined;
+  /** LONGLINES_CRON_SECRET: pg_cron's x-cron-secret (isServiceRole). */
+  cronSecret: string | undefined;
   db: () => IngestDb;
 }
 
@@ -26,7 +28,7 @@ export function ingestHandler(
 ): (req: Request) => Promise<Response> {
   function handler(req: Request): Promise<Response> {
     async function run(): Promise<Response> {
-      if (!await isServiceRole(req, deps.serviceRoleKey)) {
+      if (!await isServiceRole(req, deps.serviceRoleKey, deps.cronSecret)) {
         return Response.json({ error: "Forbidden" }, { status: 403 });
       }
       return await respond(adapter.source, () => runIngest(adapter, deps.db(), new Date()));
@@ -39,6 +41,7 @@ export function ingestHandler(
 export function serveIngest(adapter: SourceAdapter): void {
   const ingest = ingestHandler(adapter, {
     serviceRoleKey: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"),
+    cronSecret: Deno.env.get("LONGLINES_CRON_SECRET"),
     db: () => createIngestDb(createServiceClient()),
   });
   async function handler(req: Request): Promise<Response> {

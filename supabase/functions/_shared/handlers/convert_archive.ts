@@ -37,7 +37,8 @@ function failure(error: unknown, status: number, prefix: string): Response {
 }
 
 async function convert(req: Request, deps: ConvertArchiveDeps): Promise<Response> {
-  if (!await isServiceRole(req, deps.serviceRoleKey)) {
+  // Run by hand, never by pg_cron, so it takes no cron secret.
+  if (!await isServiceRole(req, deps.serviceRoleKey, undefined)) {
     return Response.json({ error: "Forbidden" }, { status: 403 });
   }
   let request: ConvertRequest;

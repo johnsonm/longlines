@@ -31,6 +31,7 @@ Deno.test(
     }
     const deps = {
       serviceRoleKey: KEY,
+      cronSecret: undefined,
       db: () => client,
       fetchCty,
     };
@@ -50,6 +51,7 @@ Deno.test(
     const calls = fake.calls;
     const res = await handleImportCty(req(KEY), {
       serviceRoleKey: KEY,
+      cronSecret: undefined,
       db: () => client,
       fetchCty: () => Promise.resolve(fixture),
     });
@@ -82,6 +84,7 @@ Deno.test(
       const client = fake.client;
       const res = await handleImportCty(req(KEY), {
         serviceRoleKey: KEY,
+        cronSecret: undefined,
         db: () => client,
         fetchCty: () => Promise.resolve(text),
       });
@@ -97,6 +100,7 @@ Deno.test(
     const down = fakeSupabase({});
     const res = await handleImportCty(req(KEY), {
       serviceRoleKey: KEY,
+      cronSecret: undefined,
       db: () => down.client,
       fetchCty: () => Promise.reject(new Error("GET cty.dat failed: HTTP 503")),
     });
@@ -107,6 +111,7 @@ Deno.test(
     const client = fake.client;
     const failed = await handleImportCty(req(KEY), {
       serviceRoleKey: KEY,
+      cronSecret: undefined,
       db: () => client,
       fetchCty: () => Promise.resolve(fixture),
     });
@@ -120,6 +125,7 @@ Deno.test("handleImportCty reports a thrown non-Error as text", async function (
   const client = fake.client;
   const res = await handleImportCty(req(KEY), {
     serviceRoleKey: KEY,
+    cronSecret: undefined,
     db: () => client,
     fetchCty: () => rejectWith("socket closed"),
   });

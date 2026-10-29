@@ -10,6 +10,7 @@ function downloadCty(): Promise<string> {
 async function handler(req: Request): Promise<Response> {
   return await handleImportCty(req, {
     serviceRoleKey: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"),
+    cronSecret: Deno.env.get("LONGLINES_CRON_SECRET"),
     db: createServiceClient,
     fetchCty: downloadCty,
   });

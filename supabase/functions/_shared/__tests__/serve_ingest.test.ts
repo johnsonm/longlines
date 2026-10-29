@@ -48,7 +48,11 @@ Deno.test(
   "ingestHandler runs for the service-role key and returns the summary as JSON",
   async function (): Promise<void> {
     const a = adapter();
-    const res = await ingestHandler(a, { serviceRoleKey: SERVICE_KEY, db: () => db })(
+    const res = await ingestHandler(a, {
+      serviceRoleKey: SERVICE_KEY,
+      cronSecret: undefined,
+      db: () => db,
+    })(
       request(SERVICE_KEY),
     );
     assertEquals(res.status, 200);
@@ -68,11 +72,39 @@ Deno.test(
   "ingestHandler runs for the service-role JWT pg_cron sends",
   async function (): Promise<void> {
     const a = adapter();
-    const res = await ingestHandler(a, { serviceRoleKey: SERVICE_KEY, db: () => db })(
+    const res = await ingestHandler(a, {
+      serviceRoleKey: SERVICE_KEY,
+      cronSecret: undefined,
+      db: () => db,
+    })(
       request(jwt("service_role")),
     );
     assertEquals(res.status, 200);
     assertEquals(a.fetches, 1);
+  },
+);
+
+Deno.test(
+  "ingestHandler runs for pg_cron's anon bearer plus the cron secret, and only with the right one",
+  async function (): Promise<void> {
+    const cases = [
+      { secret: "cron-test", status: 200, fetches: 1 },
+      { secret: "cron-wrong", status: 403, fetches: 0 },
+    ];
+    for (const c of cases) {
+      const a = adapter();
+      const req = new Request("http://x/", {
+        method: "POST",
+        headers: { authorization: `Bearer ${jwt("anon")}`, "x-cron-secret": c.secret },
+      });
+      const res = await ingestHandler(a, {
+        serviceRoleKey: SERVICE_KEY,
+        cronSecret: "cron-test",
+        db: () => db,
+      })(req);
+      assertEquals(res.status, c.status, c.secret);
+      assertEquals(a.fetches, c.fetches, c.secret);
+    }
   },
 );
 
@@ -87,7 +119,11 @@ Deno.test(
     for (const token of [jwt("anon"), jwt("authenticated"), "sb_publishable_x", undefined]) {
       const a = adapter();
       opened = false;
-      const res = await ingestHandler(a, { serviceRoleKey: SERVICE_KEY, db: openDb })(
+      const res = await ingestHandler(a, {
+        serviceRoleKey: SERVICE_KEY,
+        cronSecret: undefined,
+        db: openDb,
+      })(
         request(token),
       );
       assertEquals(res.status, 403, String(token));
@@ -104,7 +140,11 @@ Deno.test(
     function failDb(): IngestDb {
       throw new Error("missing environment variable SUPABASE_URL");
     }
-    const res = await ingestHandler(adapter(), { serviceRoleKey: SERVICE_KEY, db: failDb })(
+    const res = await ingestHandler(adapter(), {
+      serviceRoleKey: SERVICE_KEY,
+      cronSecret: undefined,
+      db: failDb,
+    })(
       request(SERVICE_KEY),
     );
     assertEquals(res.status, 500);
@@ -121,7 +161,11 @@ Deno.test("ingestHandler stringifies non-Error throws", async function (): Promi
     const thrown: unknown = "plain string";
     throw thrown;
   }
-  const res = await ingestHandler(adapter(), { serviceRoleKey: SERVICE_KEY, db: failDb })(
+  const res = await ingestHandler(adapter(), {
+    serviceRoleKey: SERVICE_KEY,
+    cronSecret: undefined,
+    db: failDb,
+  })(
     request(SERVICE_KEY),
   );
   assertEquals((await res.json()).error, "plain string");

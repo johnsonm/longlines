@@ -4,20 +4,35 @@ import { bearerToken } from "./bearer.ts";
 
 export { bearerToken };
 
+/** The header pg_cron's cron_call_function sends the cron secret in (20261029000500). */
+export const CRON_SECRET_HEADER = "x-cron-secret";
+
 /**
- * True when the request comes from the service role: the bearer is the runtime's
- * SUPABASE_SERVICE_ROLE_KEY, or a JWT whose role claim is service_role.
+ * True when the request comes from the service role or from pg_cron: its x-cron-secret header
+ * equals cronSecret (the functions' LONGLINES_CRON_SECRET, also in Vault), the bearer is the
+ * runtime's SUPABASE_SERVICE_ROLE_KEY, or the bearer is a JWT whose role claim is service_role.
  *
- * Hosted projects now set SUPABASE_SERVICE_ROLE_KEY to the new sb_secret_ key,
- * which is not a JWT, while pg_cron has to send the legacy service-role JWT (from
- * Vault) to get past verify_jwt. The JWT's signature is not checked here, so call
- * this only from functions deployed with verify_jwt = true, where the gateway has
- * already verified it.
+ * pg_cron queues its requests in pg_net's request queue, which every database role can read, so
+ * cron_call_function sends the public anon JWT as the bearer (it gets past verify_jwt) and the
+ * cron secret, never the service-role key. Until Vault holds both, it still sends the legacy
+ * service-role JWT. Hosted projects set SUPABASE_SERVICE_ROLE_KEY to the new sb_secret_ key, which
+ * is not a JWT. The JWT's signature is not checked here, so call this only from functions deployed
+ * with verify_jwt = true, where the gateway has already verified it. An unset or empty cronSecret
+ * never matches.
  */
 export async function isServiceRole(
   req: Request,
   serviceRoleKey: string | undefined,
+  cronSecret: string | undefined,
 ): Promise<boolean> {
+  const cronHeader = req.headers.get(CRON_SECRET_HEADER);
+  // Constant time, like the inbound secret.
+  if (
+    cronSecret !== undefined && cronSecret !== "" && cronHeader !== null && cronHeader !== "" &&
+    await secretsMatch(cronHeader, cronSecret)
+  ) {
+    return true;
+  }
   const token = bearerToken(req);
   if (token === null || token === "") {
     return false;

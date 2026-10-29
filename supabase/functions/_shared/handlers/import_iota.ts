@@ -1,5 +1,5 @@
-// The IOTA list import, called monthly by pg_cron with the service-role key
-// (Vault). Downloads iota-world.org's groups.json, parses it and replaces
+// The IOTA list import, called monthly by pg_cron with the cron secret
+// (Vault; isServiceRole). Downloads iota-world.org's groups.json, parses it and replaces
 // iota_groups through load_iota_groups, which ingest_spots reads to name the
 // island a DX Cluster spot gives. Any failure leaves the list as it was and
 // answers 500, so it shows up on the Health page.
@@ -13,6 +13,8 @@ import { performanceClock, timed } from "../timing.ts";
 
 export interface ImportIotaDeps {
   serviceRoleKey: string | undefined;
+  /** LONGLINES_CRON_SECRET: pg_cron's x-cron-secret (isServiceRole). */
+  cronSecret: string | undefined;
   db: () => SupabaseClient;
   fetchGroups: () => Promise<unknown>;
 }
@@ -24,7 +26,7 @@ export function handleImportIota(req: Request, deps: ImportIotaDeps): Promise<Re
 
 async function importIota(req: Request, deps: ImportIotaDeps): Promise<Response> {
   // Only the service role (cron, or an operator) may replace the list.
-  if (!await isServiceRole(req, deps.serviceRoleKey)) {
+  if (!await isServiceRole(req, deps.serviceRoleKey, deps.cronSecret)) {
     return Response.json({ error: "Forbidden" }, { status: 403 });
   }
   // The boundary: a failed download (FunctionCallError), a file that does not parse or is too short
