@@ -1,13 +1,11 @@
-// Sign in with a callsign or an email. Supabase Auth only knows emails, so the
-// callsign is resolved server side with the service role; nothing here reveals
-// whether an identifier exists.
+// Sign in with an email. Accounts may share a callsign, so a callsign is refused
+// (SIGN_IN_WITH_EMAIL) before anything is looked up or counted; nothing here
+// reveals whether an account exists.
 //
-// Failed attempts are limited per (identifier, client) and, more loosely, per
-// identifier, in SQL (begin_sign_in_attempt). The identifier is the account's
-// email once email_for_identifier resolves it, so a user's email and callsign
-// share one budget; an unknown callsign is counted as typed. The client is the same HMAC of
-// the caller's address that callsign-profile rate limits on (rateLimitKey), so
-// a stranger guessing at a public callsign does not lock its owner out. An
+// Failed attempts are limited per (email, client) and, more loosely, per email,
+// in SQL (begin_sign_in_attempt). The client is the same HMAC of the caller's
+// address that callsign-profile rate limits on (rateLimitKey), so a stranger
+// guessing at someone's email does not lock its owner out. An
 // attempt is logged before the password check and forgotten again unless the
 // password was wrong, so a right password (verifyPassword in the web app
 // re-checks it) never counts. A wrong password is answered no sooner than
@@ -20,8 +18,10 @@ import { DEFAULT_METHODS, json, preflightResponse } from "../cors.ts";
 import { ValidationError } from "../errors.ts";
 import {
   GENERIC_SIGN_IN_ERROR,
+  isEmailIdentifier,
   normalizeIdentifier,
   parseSignInBody,
+  SIGN_IN_WITH_EMAIL,
   type SignInBody,
   TOO_MANY_ATTEMPTS,
 } from "../signin.ts";
@@ -34,7 +34,7 @@ export const SIGN_IN_UNAVAILABLE = "Sign-in is unavailable right now.";
 export const FAILED_SIGN_IN_FLOOR_MS = 300;
 
 export interface SignInDeps {
-  /** Service-role client for the attempt log and the identifier lookup. */
+  /** Service-role client for the attempt log. */
   admin: () => SupabaseClient;
   /** Anon-key client that checks the password. */
   anon: () => SupabaseClient;
@@ -47,8 +47,6 @@ export interface SignInDeps {
   sleep?: (ms: number) => Promise<void>;
 }
 
-// email_for_identifier returns text: the account's email, or null when there is none.
-const emailSchema: z.ZodType<string | null> = z.string().nullable();
 // begin_sign_in_attempt returns bigint: the attempt's id, or null past the limit.
 const attemptIdSchema: z.ZodType<number | null> = z.number().nullable();
 
@@ -90,7 +88,10 @@ export async function handleSignIn(req: Request, deps: SignInDeps): Promise<Resp
     console.error(`sign-in: reading the request body failed: ${errorText(error)}`);
     return json({ error: SIGN_IN_UNAVAILABLE }, 500, {});
   }
-  const identifier = normalizeIdentifier(body.identifier);
+  const email = normalizeIdentifier(body.identifier);
+  if (!isEmailIdentifier(email)) {
+    return json({ error: SIGN_IN_WITH_EMAIL }, 400, {});
+  }
 
   if (deps.key === undefined) {
     console.error("sign-in: missing environment variable SUPABASE_SERVICE_ROLE_KEY");
@@ -99,30 +100,8 @@ export async function handleSignIn(req: Request, deps: SignInDeps): Promise<Resp
   const client = await rateLimitKey(req, deps.clientIpHeader, deps.key, "sign-in");
 
   const admin = deps.admin();
-  const lookup = await admin.rpc("email_for_identifier", { p_identifier: identifier });
-  if (lookup.error !== null) {
-    console.error(`sign-in: lookup failed: ${lookup.error.message}`);
-    return json({ error: SIGN_IN_UNAVAILABLE }, 500, {});
-  }
-  let email: string | null;
-  try {
-    email = parseWith(emailSchema, lookup.data, "handleSignIn: email_for_identifier result");
-  } catch (error) {
-    return unavailable(error);
-  }
-  let resolved: string | null = null;
-  if (email !== null) {
-    resolved = email.toLowerCase();
-  }
-
-  // One budget per account: the resolved email whether the user typed it or
-  // their callsign. An unknown callsign keeps its own, as typed.
-  let budgetIdentifier = identifier;
-  if (resolved !== null) {
-    budgetIdentifier = resolved;
-  }
   const attempt = await admin.rpc("begin_sign_in_attempt", {
-    p_identifier: budgetIdentifier,
+    p_identifier: email,
     p_client: client,
   });
   if (attempt.error !== null) {
@@ -152,18 +131,10 @@ export async function handleSignIn(req: Request, deps: SignInDeps): Promise<Resp
     }
   }
 
-  // Unknown callsigns still go through a password check, and every wrong
-  // password waits out the floor, so the response does not reveal whether
-  // the account exists.
-  let signInEmail: string;
-  if (resolved !== null) {
-    signInEmail = resolved;
-  } else {
-    signInEmail = `unknown-${crypto.randomUUID()}@invalid`;
-  }
-
+  // Every wrong password waits out the floor, so the response does not reveal
+  // whether the account exists.
   const auth = await deps.anon().auth.signInWithPassword({
-    email: signInEmail,
+    email,
     password: body.password,
   });
   const data = auth.data;

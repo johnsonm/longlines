@@ -153,18 +153,19 @@ flowchart LR
 
 Supabase Auth owns credentials. `profiles` holds the callsign, name and display
 preferences and is created by a trigger on `auth.users` from the sign-up
-metadata; a bad or taken callsign makes the trigger raise, so the sign-up
-fails instead of leaving a user without a profile. `callsign_available()` is
-the only anonymous RPC and reveals nothing but a boolean.
+metadata; a bad callsign makes the trigger raise, so the sign-up fails instead
+of leaving a user without a profile. Accounts may share a callsign
+(`20261029000600`): a club account and its owner's own account can both hold
+it. `profiles.callsign_since` records when the profile took its base call, and
+only the longest holder may post logged contacts as it.
 
-Signing in with a callsign goes through the `sign-in` Edge Function. It resolves
-the callsign to an email with a service-role-only SQL function, calls
-`signInWithPassword` server side, and returns the session tokens. The error
-message is the same for an unknown identifier and a wrong password, unknown
-identifiers still pay for a password check, and attempts are logged in
-`sign_in_attempts`, keyed on the account's email when the identifier resolves (so an
-email and a callsign share one budget), so the eleventh attempt in fifteen minutes is
-refused. A failed sign-in answers no sooner than 300 ms after the request started.
+Signing in is by email only, through the `sign-in` Edge Function, since a
+callsign no longer names one account; it refuses anything else before a lookup.
+It calls `signInWithPassword` server side and returns the session tokens. The
+error message is the same for an unknown email and a wrong password, and
+attempts are logged in `sign_in_attempts`, keyed on the email, so the eleventh
+attempt in fifteen minutes is refused. A failed sign-in answers no sooner than
+300 ms after the request started.
 
 ## Destinations
 
@@ -892,7 +893,7 @@ side: contacts arrive when someone logs.
 - **Applying.** `apply_logged_contacts(user, items)` applies a request in order, in one
   transaction, keyed by `logged_contacts (user_id, external_id)`: created, unchanged, updated,
   retracted, unknown, or rejected for an upsert whose mycall's base call is not the account
-  callsign's (`mycall_mismatch`). It stores through `ingest_spots`, so the matcher picks the spot
+  callsign's, or is but another account has held it longer (`callsign_since`) (`mycall_mismatch`). It stores through `ingest_spots`, so the matcher picks the spot
   up as usual.
 - **Retraction.** `raw_spots` stays append-only. An edit retracts the old spot and stores a new
   one; a delete retracts the spot. `raw_spots.retracted_at` is the marker, set and cleared only by

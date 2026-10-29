@@ -100,9 +100,9 @@ describe("Edge Function calls", () => {
   });
 
   it("surfaces the function's error message and status", async () => {
-    respond(401, { error: "That callsign or email and password don't match." });
+    respond(401, { error: "That email and password don't match." });
     await expect(api.verifyPassword("a@b.c", "pw")).rejects.toMatchObject({
-      message: "That callsign or email and password don't match.",
+      message: "That email and password don't match.",
       code: "401",
     });
   });
@@ -158,15 +158,6 @@ describe("Edge Function calls", () => {
 });
 
 describe("auth wrappers", () => {
-  it("callsignAvailable is true only for a literal true", async () => {
-    fake.rpcs.set("callsign_available", { data: true });
-    expect(await api.callsignAvailable("KK4PWJ")).toBe(true);
-    fake.rpcs.set("callsign_available", { data: false });
-    expect(await api.callsignAvailable("KK4PWJ")).toBe(false);
-    fake.rpcs.set("callsign_available", { error: boom });
-    await expect(api.callsignAvailable("KK4PWJ")).rejects.toThrow("boom");
-  });
-
   it("signUp passes callsign and name as user metadata", async () => {
     await api.signUp({ callsign: "KK4PWJ", name: "Brad", email: "a@b.c", password: "pw" });
     expect(fake.client.auth.signUp).toHaveBeenCalledWith({
@@ -186,8 +177,8 @@ describe("auth wrappers", () => {
   it("completeProfile calls complete_profile and surfaces its message", async () => {
     await api.completeProfile("KK4PWJ", "Brad");
     expect(fake.client.rpc).toHaveBeenCalledWith("complete_profile", { p_callsign: "KK4PWJ", p_name: "Brad" });
-    fake.rpcs.set("complete_profile", { error: { message: "That callsign is already taken.", code: "P0001" } });
-    await expect(api.completeProfile("W1AW", "")).rejects.toThrow("That callsign is already taken.");
+    fake.rpcs.set("complete_profile", { error: { message: "Your account is already set up.", code: "P0001" } });
+    await expect(api.completeProfile("W1AW", "")).rejects.toThrow("Your account is already set up.");
     fake.rpcs.set("complete_profile", { error: { message: "" } });
     await expect(api.completeProfile("W1AW", "")).rejects.toThrow("Couldn't finish creating your account.");
   });
@@ -247,10 +238,8 @@ describe("profile", () => {
     expect(fake.ops).toContainEqual(["profiles", "eq", ["id", "u1"]]);
   });
 
-  it("maps a unique violation to a taken callsign", async () => {
+  it("updates the profile and rejects on error", async () => {
     const patch = { callsign: "W1AW", name: "", timezone: "UTC", utc_times: true };
-    fake.tables.set("profiles", { error: { message: "dup", code: "23505" } });
-    await expect(api.updateProfile("u1", patch)).rejects.toThrow("That callsign is already taken.");
     fake.tables.set("profiles", { error: boom });
     await expect(api.updateProfile("u1", patch)).rejects.toThrow("boom");
     fake.tables.set("profiles", {});

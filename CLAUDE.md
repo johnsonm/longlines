@@ -301,8 +301,10 @@ The design is `docs/superpowers/specs/2026-10-28-logged-contacts-design.md`; the
 - `apply_logged_contacts(user, items)` (service role) is the only writer of `logged_contacts` and
   of logged spots: it applies a request's items in order, stores through `ingest_spots`, revives a
   retracted row whose content comes back (the dedup key would refuse a copy), and decides
-  `mycall_mismatch` with `base_callsign()`. Its statuses and reasons are the contract's; a new one
-  needs a v2.
+  `mycall_mismatch` with `base_callsign()`. Accounts may share a callsign, so only the profile
+  that has held a base call longest (`profiles.callsign_since`, reset by trigger when the base
+  changes) posts as it; never order holders by `created_at`. Its statuses and reasons are the
+  contract's; a new one needs a v2.
 - `_shared/logged.ts` is the only TypeScript for a contact: the request and item schemas
   (loose, since deployed relays lag), `invalid` / `clock_skew` / `too_old` with
   `MAX_CLOCK_SKEW_MS` and `MAX_CONTACT_AGE_MS` (the contract's constants; change them only with
@@ -506,6 +508,9 @@ editor.
 - Env: `web/vite.config.ts` maps `SUPABASE_URL`/`SUPABASE_ANON_KEY` (what the Supabase Vercel
   integration provides) onto `import.meta.env.VITE_*` with an explicit allowlist. Never widen
   `envPrefix` or add the service-role key to that mapping.
+- Callsigns are not unique across accounts (`20261029000600`), so sign-in is by email only; never
+  resolve a callsign to an account. `callsign_available` (shape only) and `email_for_identifier`
+  (emails only) stay for deployed callers until a later migration drops them.
 - Sign in with Google (`signInWithGoogle`, back to the site root) makes an account with no
   profile: `handle_new_user` skips the profile only for a provider other than email with no
   callsign in its metadata. `RequireAuth` shows `CompleteProfilePage` while `profileMissing`, and

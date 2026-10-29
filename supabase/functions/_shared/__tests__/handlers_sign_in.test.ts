@@ -6,7 +6,7 @@ import {
   SIGN_IN_UNAVAILABLE,
 } from "../handlers/sign_in.ts";
 import { hmacKey, hmacSha256Hex } from "../hmac.ts";
-import { GENERIC_SIGN_IN_ERROR, TOO_MANY_ATTEMPTS } from "../signin.ts";
+import { GENERIC_SIGN_IN_ERROR, SIGN_IN_WITH_EMAIL, TOO_MANY_ATTEMPTS } from "../signin.ts";
 import { fakeSupabase, type FakeSupabaseOptions } from "./fake_supabase.ts";
 
 const KEY = await hmacKey("test-service-role-key");
@@ -30,7 +30,7 @@ function post(
   });
 }
 
-const GOOD = { identifier: " kk4pwj ", password: "hunter22" };
+const GOOD = { identifier: " KK4PWJ@Example.com ", password: "hunter22" };
 const SESSION = {
   data: { session: { access_token: "at", refresh_token: "rt", expires_in: 3600 } },
 };
@@ -58,7 +58,6 @@ async function run(
     rpc: Object.assign({
       begin_sign_in_attempt: { data: 41 },
       forget_sign_in_attempt: { data: null },
-      email_for_identifier: { data: "kk4pwj@example.com" },
     }, admin.rpc),
   });
   const b = fakeSupabase(anon);
@@ -148,15 +147,6 @@ Deno.test("handleSignIn rejects malformed and oversized bodies", async function 
 Deno.test(
   "handleSignIn answers 500 for RPC results of the wrong shape",
   async function (): Promise<void> {
-    const lookup = await run(
-      post(GOOD, CLIENT_IP),
-      { rpc: { email_for_identifier: { data: 5 } } },
-      {},
-      DEPS,
-    );
-    assertEquals([lookup.res.status, lookup.body], [500, { error: SIGN_IN_UNAVAILABLE }]);
-    assertEquals(fns(lookup.admin), ["email_for_identifier"]);
-
     const attempt = await run(
       post(GOOD, CLIENT_IP),
       { rpc: { begin_sign_in_attempt: { data: "41" } } },
@@ -178,18 +168,13 @@ Deno.test(
     const anon = ran.anon;
     assertEquals(res.status, 200);
     assertEquals(body, { access_token: "at", refresh_token: "rt", expires_in: 3600 });
-    assertEquals(fns(admin), [
-      "email_for_identifier",
-      "begin_sign_in_attempt",
-      "forget_sign_in_attempt",
-    ]);
-    assertEquals(admin.rpc[0]!.args, { p_identifier: "KK4PWJ" });
-    // The attempt is keyed on the account's email, not the callsign typed.
-    assertEquals(admin.rpc[1]!.args, {
+    assertEquals(fns(admin), ["begin_sign_in_attempt", "forget_sign_in_attempt"]);
+    // The attempt is keyed on the email as Auth compares it.
+    assertEquals(admin.rpc[0]!.args, {
       p_identifier: "kk4pwj@example.com",
       p_client: await hmacSha256Hex(KEY, "192.0.2.7"),
     });
-    assertEquals(admin.rpc[2]!.args, { p_attempt_id: 41 });
+    assertEquals(admin.rpc[1]!.args, { p_attempt_id: 41 });
     assertEquals(anon.signInWithPassword, [{ email: "kk4pwj@example.com", password: "hunter22" }]);
   },
 );
@@ -206,7 +191,7 @@ Deno.test(
       clientIpHeader: "x-real-ip",
     });
     function clientOf(r: typeof one) {
-      return r.admin.rpc[1]!.args!["p_client"];
+      return r.admin.rpc[0]!.args!["p_client"];
     }
     assertEquals(clientOf(one), await hmacSha256Hex(KEY, "198.51.100.1"));
     assertNotEquals(clientOf(one), clientOf(two));
@@ -222,35 +207,41 @@ Deno.test(
     const admin = ran.admin;
     assertEquals(res.status, 401);
     assertEquals(body, { error: GENERIC_SIGN_IN_ERROR });
-    assertEquals(fns(admin), ["email_for_identifier", "begin_sign_in_attempt"]);
+    assertEquals(fns(admin), ["begin_sign_in_attempt"]);
   },
 );
 
 Deno.test(
-  "handleSignIn gives an account's email and callsign one attempt budget",
+  "handleSignIn refuses a callsign before looking anything up",
+  async function (): Promise<void> {
+    const ran = await run(
+      post({ identifier: " kk4pwj ", password: "x" }, CLIENT_IP),
+      {},
+      WRONG,
+      DEPS,
+    );
+    assertEquals([ran.res.status, ran.body], [400, { error: SIGN_IN_WITH_EMAIL }]);
+    assertEquals(ran.admin.rpc, []);
+    assertEquals(ran.anon.signInWithPassword, []);
+    assertEquals(ran.sleeps, []);
+  },
+);
+
+Deno.test(
+  "handleSignIn gives an email one attempt budget whatever its case",
   async function (): Promise<void> {
     function keyOf(r: Awaited<ReturnType<typeof run>>) {
-      return r.admin.rpc[1]!.args!["p_identifier"];
+      return r.admin.rpc[0]!.args!["p_identifier"];
     }
-    const byCall = await run(post(GOOD, CLIENT_IP), {}, WRONG, DEPS);
-    const byEmail = await run(
-      post({ identifier: "KK4PWJ@Example.com", password: "x" }, CLIENT_IP),
-      {
-        rpc: { email_for_identifier: { data: "KK4PWJ@example.com" } },
-      },
+    const typed = await run(post(GOOD, CLIENT_IP), {}, WRONG, DEPS);
+    const lower = await run(
+      post({ identifier: "kk4pwj@example.com", password: "x" }, CLIENT_IP),
+      {},
       WRONG,
       DEPS,
     );
-    assertEquals(byEmail.admin.rpc[0]!.args, { p_identifier: "kk4pwj@example.com" });
-    assertEquals([keyOf(byCall), keyOf(byEmail)], ["kk4pwj@example.com", "kk4pwj@example.com"]);
-    // A callsign with no account is counted as typed.
-    const unknown = await run(
-      post(GOOD, CLIENT_IP),
-      { rpc: { email_for_identifier: { data: null } } },
-      WRONG,
-      DEPS,
-    );
-    assertEquals(keyOf(unknown), "KK4PWJ");
+    assertEquals([keyOf(typed), keyOf(lower)], ["kk4pwj@example.com", "kk4pwj@example.com"]);
+    assertEquals(typed.anon.signInWithPassword[0]!.email, "kk4pwj@example.com");
   },
 );
 
@@ -282,7 +273,6 @@ Deno.test(
     const a = fakeSupabase({
       rpc: {
         begin_sign_in_attempt: { data: 41 },
-        email_for_identifier: { data: "kk4pwj@example.com" },
       },
     });
     const b = fakeSupabase(WRONG);
@@ -298,26 +288,6 @@ Deno.test(
       await res.body.cancel();
     }
     assert(performance.now() - started >= FAILED_SIGN_IN_FLOOR_MS - 5);
-  },
-);
-
-Deno.test(
-  "handleSignIn still checks a password for unknown identifiers",
-  async function (): Promise<void> {
-    const ran = await run(
-      post(GOOD, CLIENT_IP),
-      {
-        rpc: { email_for_identifier: { data: null } },
-      },
-      WRONG,
-      DEPS,
-    );
-    const res = ran.res;
-    const body = ran.body;
-    const anon = ran.anon;
-    assertEquals(res.status, 401);
-    assertEquals(body, { error: GENERIC_SIGN_IN_ERROR });
-    assertMatch(anon.signInWithPassword[0]!.email, /^unknown-.+@invalid$/);
   },
 );
 
@@ -354,7 +324,7 @@ Deno.test(
     assertEquals(res.status, 429);
     assertEquals(body, { error: TOO_MANY_ATTEMPTS });
     assertEquals(anon.signInWithPassword, []);
-    assertEquals(fns(admin), ["email_for_identifier", "begin_sign_in_attempt"]);
+    assertEquals(fns(admin), ["begin_sign_in_attempt"]);
   },
 );
 
@@ -418,7 +388,7 @@ Deno.test(
 );
 
 Deno.test(
-  "handleSignIn returns 500 when the key, attempt log or lookup fails",
+  "handleSignIn returns 500 when the key or attempt log fails",
   async function (): Promise<void> {
     const noKey = await run(post(GOOD, CLIENT_IP), {}, {}, { key: undefined });
     assertEquals(noKey.res.status, 500);
@@ -434,18 +404,6 @@ Deno.test(
     );
     assertEquals(log.res.status, 500);
     assertEquals(log.body, { error: SIGN_IN_UNAVAILABLE });
-
-    const lookup = await run(
-      post(GOOD, CLIENT_IP),
-      {
-        rpc: { email_for_identifier: { error: { message: "down" } } },
-      },
-      {},
-      DEPS,
-    );
-    assertEquals(lookup.res.status, 500);
-    assert(lookup.anon.signInWithPassword.length === 0);
-    // The lookup comes first, so there is no attempt to forget.
-    assertEquals(fns(lookup.admin), ["email_for_identifier"]);
+    assert(log.anon.signInWithPassword.length === 0);
   },
 );
