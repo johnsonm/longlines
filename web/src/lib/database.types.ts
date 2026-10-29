@@ -1386,9 +1386,6 @@ isOneToOne: true
 "cached_reference_profile":
 { Args: { "p_program": string,"p_reference": string }; Returns: Json
                            },
-"callsign_available":
-{ Args: { "p_callsign": string }; Returns: boolean
-                           },
 "callsign_group_rows":
 { Args: { "p_id": string }; Returns: {
               "callsigns": (string)[],"id": string,"member_count": number,"name": string,"on_air": Json,"subscription_count": number,"updated_at": string
@@ -1540,9 +1537,6 @@ isOneToOne: true
                            },
 "edit_group_callsigns":
 { Args: { "p_add": Json,"p_id": string,"p_remove": Json }; Returns: undefined
-                           },
-"email_for_identifier":
-{ Args: { "p_identifier": string }; Returns: string
                            },
 "fcc_license_load_abandon":
 { Args: { "p_error": string,"p_load": number }; Returns: undefined

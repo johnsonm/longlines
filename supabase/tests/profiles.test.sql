@@ -1,7 +1,7 @@
--- pgTAP: profiles, sign-up trigger, callsign_available, complete_profile, RLS.
+-- pgTAP: profiles, sign-up trigger, complete_profile, RLS.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(29);
+select plan(26);
 
 -- Two users signing up with metadata, as Supabase Auth would insert them.
 insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at,
@@ -31,11 +31,7 @@ select lives_ok($$
 $$, 'a sign-up with a callsign another account holds succeeds');
 select is((select count(*) from profiles where callsign = 'KK4PWJ'), 2::bigint, 'and both accounts hold it');
 
--- callsign_available is callable anonymously and checks only the shape now.
 set local role anon;
-select is(callsign_available('kk4pwj'), true, 'a held callsign is available');
-select is(callsign_available('N0CALL'), true, 'free callsign is available');
-select is(callsign_available('bad!'), false, 'invalid callsign is reported unavailable');
 select throws_ok('select * from profiles', '42501', null, 'anon cannot read profiles');
 reset role;
 

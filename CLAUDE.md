@@ -509,8 +509,8 @@ editor.
   integration provides) onto `import.meta.env.VITE_*` with an explicit allowlist. Never widen
   `envPrefix` or add the service-role key to that mapping.
 - Callsigns are not unique across accounts (`20261029000600`), so sign-in is by email only; never
-  resolve a callsign to an account. `callsign_available` (shape only) and `email_for_identifier`
-  (emails only) stay for deployed callers until a later migration drops them.
+  resolve a callsign to an account (`20261029000900` dropped `callsign_available` and
+  `email_for_identifier`).
 - Sign in with Google (`signInWithGoogle`, back to the site root) makes an account with no
   profile: `handle_new_user` skips the profile only for a provider other than email with no
   callsign in its metadata. `RequireAuth` shows `CompleteProfilePage` while `profileMissing`, and
