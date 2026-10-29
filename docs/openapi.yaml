@@ -41,6 +41,10 @@ info:
     - **Request size.** A request body can be at most 256 KB.
     - **List size.** A list in a request, such as `callsigns`, can hold at most 2,000 items,
       and a group at most 1,000 callsigns.
+    - **Account size.** An account can have up to 100 connections, 50 destinations and 50
+      callsign groups, and a connection up to 5,000 values across its rules. Creating one more,
+      or saving a connection with more values, is a `400` with a message such as "You can have
+      up to 100 connections."
 
     ## Responses and errors
 
@@ -65,7 +69,7 @@ tags:
       webhook payload and its signature. The API never returns a destination's URL, only
       `url_display`, a masked form.
 
-      An account can have any number of push destinations. A push destination has no URL
+      An account can have several push destinations. A push destination has no URL
       (`url_display` is "Your devices"); it reaches the devices picked for it in the web app.
       Devices, and which destination gets which, can only be managed from a browser signed in
       to Long Lines. The API creates, lists, tests, renames, turns off and deletes push

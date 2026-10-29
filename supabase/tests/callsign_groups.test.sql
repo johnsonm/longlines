@@ -6,7 +6,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(90);
+select plan(93);
 
 -- Grants: clients read only; every write goes through an RPC.
 select table_privs_are('public', 'callsign_groups', 'authenticated', array['SELECT'], 'authenticated may only select groups');
@@ -245,6 +245,22 @@ select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
 select lives_ok(format($f$ select save_subscription('{"id":"%s","name":"Club","rules":[],"destinations":["%s"]}') $f$,
   (select id from s1), (select id from da)), 'the subscription drops the group');
 select lives_ok(format('select delete_callsign_group(%L)', (select id from g1)), 'a group no longer in use can be deleted');
+
+-- Account cap (20261029000200): 50 groups. Only a create is refused.
+reset role;
+insert into callsign_groups (user_id, name)
+select '22222222-2222-2222-2222-222222222222', 'Cap ' || i
+from generate_series(1, 50 - (select count(*) from callsign_groups where user_id = '22222222-2222-2222-2222-222222222222')) as i;
+select is((select count(*) from callsign_groups where user_id = '22222222-2222-2222-2222-222222222222'), 50::bigint,
+  'an account can hold 50 groups');
+select pg_temp.as_user('22222222-2222-2222-2222-222222222222');
+select throws_ok($$ select save_callsign_group('{"name":"One more"}') $$,
+  'P0001', 'You can have up to 50 groups.', 'save_callsign_group refuses a 51st group');
+select lives_ok(format('select save_callsign_group(%L)', jsonb_build_object('id',
+    (select id from callsign_groups where user_id = '22222222-2222-2222-2222-222222222222' and name = 'Cap 1'),
+    'name', 'Cap renamed', 'callsigns', jsonb_build_array('W1AW'))),
+  'a group of a full account can still be saved');
+reset role;
 
 select * from finish();
 rollback;

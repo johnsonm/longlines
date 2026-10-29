@@ -1962,6 +1962,8 @@ isOneToOne: true
                            },
 "refresh_stats_rollups_at":
 { Args: { "p_now": string }; Returns: undefined
+                           } |
+{ Args: { "p_max_aprs_days": number,"p_max_country_days": number,"p_max_rbn_days": number,"p_now": string }; Returns: undefined
                            },
 "refresh_stats_snapshot":
 { Args: Record<PropertyKey, never>; Returns: undefined

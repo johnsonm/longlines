@@ -6,7 +6,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(66);
+select plan(68);
 
 create function pg_temp.d(p_offset int) returns date language sql as $$
   select (now() at time zone 'utc')::date + p_offset;
@@ -267,6 +267,27 @@ delete from auth.users where id = '22222222-2222-2222-2222-222222222222';
 select is((select count(*) from logged_contacts where user_id = '22222222-2222-2222-2222-222222222222'), 0::bigint,
   'deleting an account deletes its contacts');
 select ok(exists (select 1 from raw_spots where content_hash = 'hb'), 'and keeps their spots, like any other spot');
+
+-- A base call two profiles share (20261029000300). The trigger now refuses a second holder, so
+-- the pair is made as hosted data may already hold one: N5LL/P taken after N5LL. Only the
+-- earliest-created holder posts as the base.
+reset role;
+insert into auth.users (id, instance_id, aud, role, email, encrypted_password, raw_app_meta_data, raw_user_meta_data, created_at, updated_at)
+values ('77777777-7777-7777-7777-777777777777', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
+  'g@example.com', '', '{"provider":"google","providers":["google"]}', '{}', now(), now()),
+       ('78787878-7878-7878-7878-787878787878', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
+  'h@example.com', '', '{"provider":"google","providers":["google"]}', '{}', now(), now());
+alter table profiles disable trigger profiles_unique_base_callsign;
+insert into profiles (id, callsign, created_at)
+values ('78787878-7878-7878-7878-787878787878', 'N5LL', now()),
+       ('77777777-7777-7777-7777-777777777777', 'N5LL/P', now() + interval '1 second');
+alter table profiles enable trigger profiles_unique_base_callsign;
+select is(apply_logged_contacts('77777777-7777-7777-7777-777777777777', jsonb_build_array(
+            pg_temp.up('77777777-7777-7777-7777-777777777777', 'x1', 'hx1', 'N5LL/P', 'K1ABC', 14025))) #>> '{0,reason}',
+  'mycall_mismatch', 'a later profile sharing a base call cannot post as it');
+select is(apply_logged_contacts('78787878-7878-7878-7878-787878787878', jsonb_build_array(
+            pg_temp.up('78787878-7878-7878-7878-787878787878', 'x2', 'hx2', 'N5LL/P', 'K1ABC', 14025))) #>> '{0,status}',
+  'created', 'the earliest holder of the base call still can');
 
 select * from finish();
 rollback;
