@@ -16,6 +16,7 @@ import { SourcesPage } from "./sources/SourcesPage";
 import { SourceDetailPage } from "./sources/SourceDetailPage";
 import { DestinationsPage } from "./destinations/DestinationsPage";
 import { PushDestinationPage } from "./destinations/PushDestinationPage";
+import { LocalClusterDestinationPage } from "./destinations/LocalClusterDestinationPage";
 import { DiscordDestinationPage } from "./destinations/DiscordDestinationPage";
 import { WebhookDestinationPage } from "./destinations/WebhookDestinationPage";
 import { SubscriptionsPage } from "./subscriptions/SubscriptionsPage";
@@ -227,6 +228,7 @@ function DestinationRoute(props: Omit<ComponentProps<typeof PushDestinationPage>
   if (kind === "discord") return <DiscordDestinationPage {...props} id={id} type={search.get("type")} />;
   if (kind === "webhook") return <WebhookDestinationPage {...props} id={id} type={search.get("type")} />;
   if (kind === "push") return <PushDestinationPage {...props} id={id} type={search.get("type")} />;
+  if (kind === "local_cluster") return <LocalClusterDestinationPage {...props} id={id} type={search.get("type")} />;
   if (id && kind === undefined && props.loading) return <LinearProgress />;
   return <Navigate to="/destinations" replace />;
 }

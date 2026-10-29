@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { DiscordSettings, PushSettings, WebhookSettings } from "./api";
+import type { DiscordSettings, LocalClusterSettings, PushSettings, WebhookSettings } from "./api";
 
 type Result = { data?: unknown; error?: { message: string; code?: string } | null };
 
@@ -476,6 +476,64 @@ describe("discord", () => {
   });
 });
 
+describe("local cluster", () => {
+  const settings: LocalClusterSettings = { relay_id: "r1", fields: ["reference", "comment"] };
+
+  it("saveLocalClusterDestination creates without an id and updates with one", async () => {
+    fake.rpcs.set("save_local_cluster_destination", { data: "l1" });
+    expect(await api.saveLocalClusterDestination({ name: "Shack bandmap", enabled: true, settings })).toBe("l1");
+    expect(fake.client.rpc).toHaveBeenLastCalledWith("save_local_cluster_destination", {
+      p_id: null, p_name: "Shack bandmap", p_enabled: true, p_settings: { relay_id: "r1", fields: ["reference", "comment"] },
+    });
+    await api.saveLocalClusterDestination({ id: "l1", name: "Shack bandmap", enabled: false, settings });
+    expect(fake.client.rpc).toHaveBeenLastCalledWith("save_local_cluster_destination", {
+      p_id: "l1", p_name: "Shack bandmap", p_enabled: false, p_settings: { relay_id: "r1", fields: ["reference", "comment"] },
+    });
+    fake.rpcs.set("save_local_cluster_destination", { error: { message: "Pick a relay." } });
+    await expect(api.saveLocalClusterDestination({ name: "x", enabled: true, settings })).rejects.toThrow("Pick a relay.");
+    fake.rpcs.set("save_local_cluster_destination", { error: { message: "" } });
+    await expect(api.saveLocalClusterDestination({ name: "x", enabled: true, settings })).rejects.toThrow("Couldn't save the destination.");
+  });
+
+  it("getLocalClusterDestination returns the RPC's json", async () => {
+    const dest = { id: "l1", name: "Shack bandmap", enabled: true, url_display: "Long Lines Relay", settings };
+    fake.rpcs.set("get_local_cluster_destination", { data: dest });
+    expect(await api.getLocalClusterDestination("l1")).toEqual(dest);
+    expect(fake.client.rpc).toHaveBeenLastCalledWith("get_local_cluster_destination", { p_id: "l1" });
+    fake.rpcs.set("get_local_cluster_destination", { error: { message: "Destination not found." } });
+    await expect(api.getLocalClusterDestination("l1")).rejects.toThrow("Destination not found.");
+  });
+
+  it("listLocalClusterDestinationSettings returns the rows, or none", async () => {
+    const rows = [{
+      destination_id: "l1", relay_id: "r1", device_name: "Shack PC", platform: "windows", cluster_connected_at: null, fields: ["reference"],
+    }];
+    fake.rpcs.set("list_local_cluster_destination_settings", { data: rows });
+    expect(await api.listLocalClusterDestinationSettings()).toEqual(rows);
+    expect(fake.client.rpc).toHaveBeenLastCalledWith("list_local_cluster_destination_settings");
+    fake.rpcs.set("list_local_cluster_destination_settings", { data: null });
+    expect(await api.listLocalClusterDestinationSettings()).toEqual([]);
+    fake.rpcs.set("list_local_cluster_destination_settings", { error: boom });
+    await expect(api.listLocalClusterDestinationSettings()).rejects.toThrow("boom");
+  });
+
+  it("previewLocalClusterLine sends only the fields and the spot, and returns SQL's line", async () => {
+    const preview = {
+      line: "DX de W4DOG:     14062.0  K4ABC        CW POTA K-0039                 2114Z", spotter: "W4DOG", frequency_khz: 14062,
+      callsign: "K4ABC", comment: "CW POTA K-0039", time_utc: "2114",
+    };
+    fake.rpcs.set("preview_local_cluster_line", { data: preview });
+    expect(await api.previewLocalClusterLine(["reference"], 42)).toEqual(preview);
+    expect(fake.client.rpc).toHaveBeenLastCalledWith("preview_local_cluster_line", { p_settings: { fields: ["reference"] }, p_spot_id: 42 });
+    await api.previewLocalClusterLine([], null);
+    expect(fake.client.rpc).toHaveBeenLastCalledWith("preview_local_cluster_line", { p_settings: { fields: [] } });
+    fake.rpcs.set("preview_local_cluster_line", { data: null });
+    await expect(api.previewLocalClusterLine([], null)).rejects.toThrow("Couldn't load the preview.");
+    fake.rpcs.set("preview_local_cluster_line", { error: { message: "Unknown field x." } });
+    await expect(api.previewLocalClusterLine([], null)).rejects.toThrow("Unknown field x.");
+  });
+});
+
 describe("webhook", () => {
   const settings: WebhookSettings = {
     fields: ["id", "time", "callsign"], key_style: "snake", time_format: "iso_utc", frequency_unit: "khz", missing_values: "omit",
@@ -622,6 +680,8 @@ describe("Long Lines Relay", () => {
     expect(fake.ops).toContainEqual(["relay_tokens", "select", [api.RELAY_TOKEN_COLUMNS]]);
     expect(api.RELAY_TOKEN_COLUMNS).not.toContain("token_hash");
     expect(api.RELAY_TOKEN_COLUMNS).not.toContain("contacts_window");
+    // The Local DX cluster editor and the relay card read where it runs and whether its spots stream is open.
+    expect(api.RELAY_TOKEN_COLUMNS).toContain("platform, cluster_connected_at");
     fake.tables.set("relay_tokens", { error: boom });
     await expect(api.loadRelayTokens()).rejects.toThrow("boom");
   });

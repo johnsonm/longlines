@@ -218,8 +218,9 @@ The conventions are `docs/superpowers/specs/2026-10-22-strict-eslint-conventions
   policy is a column or a knob function, never an argument.
 - Formatting, signing and URL safety are pure modules under `_shared/delivery/` with tests;
   `send.ts` is the only place that sends to destinations: `fetch` for Discord and push, and
-  `pinned_http.ts` (hand-rolled HTTP/1.1) for webhooks. `allowInsecure` is for tests and local
-  development only.
+  `pinned_http.ts` (hand-rolled HTTP/1.1) for webhooks. The one exception is a Local DX cluster,
+  whose spots go only to its relay's spots stream (`sender/cluster_stream.ts`, "Local DX cluster
+  rules"). `allowInsecure` is for tests and local development only.
 - A webhook connects to an address `assertSafeResolvedHost` checked, never to a fresh lookup of
   its name: `fetch` resolves again, which DNS rebinding can point at an internal address.
 - Rate limits are not failures: a 429 from any type, or the Discord cap, calls
@@ -433,6 +434,55 @@ The delivery side (retries, pause, attempts, rendering, Vault) is in "Delivery r
   `webhookModel.test.ts`; change the SQL and `webhookModel.ts` together. The field list is the
   generic `FieldPicker` with `keyOf` and `addAs="chips"`; never fork it.
 
+## Local DX cluster rules
+
+The design is the Phase 2 plan of Long Lines Relay (canvas page 2, Phase 2 rows); the wire
+contract is v2 of `docs/contract.md` in `sonyccd/longlines-relay` (it wins on wire details).
+`DestinationPick` and `DestinationDxCluster` are the copy source for the picker entry and the
+editor.
+
+- `local_cluster` is a destination type that sends a connection's spots to one of the owner's
+  paired relays, which serves them as DX cluster lines to logging software on that computer.
+  It has no URL (`destinations_no_url_types`; `url_display` is 'Long Lines Relay'). Only the web
+  editor creates one (`save_local_cluster_destination`); `create_destination` and the API refuse
+  it, and the API reads it as `local_cluster: {relay_id, relay_name, fields}`.
+- Settings live in `local_cluster_destination_settings` (RLS on, no policies, no client grants,
+  a row made by trigger): `relay_token_id` (set null when the relay is revoked; clients name it
+  `relay_id`) and `fields`, an ordered pick of `local_cluster_fields()` (`reference`, `source`,
+  `comment`) after the mode, which always leads the comment. The editor's default is pinned to
+  `local_cluster_default_settings()` by `localClusterModel.test.ts`; change the SQL and
+  `localClusterModel.ts` together. The field list is the generic `FieldPicker` (with `helpOf`);
+  never fork it. The editor offers only relays with `spots:read` (plus the saved one).
+- SQL renders the spot: `local_cluster_spot_fields` adds the `cluster_*` keys to the claim's spot
+  jsonb (spotter, a null one as `LONGLINES`, kHz, call, the finished comment cut to 30, `HHMM`,
+  mode word, reference, source, connection, spot time), and the sender only maps them to the
+  contract's `spot` event. The relay formats the served line; `local_cluster_line` renders the
+  same DXSpider layout only for the editor's preview (`preview_local_cluster_line`), and both are
+  pinned to the contract's example lines. Never format a cluster line or comment in TypeScript.
+- Presence is `relay_tokens.cluster_connected_at`, set only by the sender
+  (`set_cluster_stream`, `reset_cluster_streams`). The claim takes a `local_cluster` row only
+  while its relay is connected (`health_oldest_ready_seconds` repeats that check) and gives each
+  relay at most `local_cluster_relay_cap()` (120) a minute across its destinations, newest first,
+  after `destination_budget` (120/120). `destination_max_age` is 2 minutes, so an offline relay's
+  rows age out through the expiry sweep. Nothing is queued for a relay that is away.
+- A `local_cluster` row is never marked failed and never touches `consecutive_failures`, `health`
+  or `auto_disabled_at`: a relay with no open stream makes the rows unattempted, and they wait out
+  the claim's `p_vt` and then the age. The card says "Relay offline" (from
+  `list_local_cluster_destination_settings`), never Failing.
+- The stream is `sender/cluster_stream.ts` (`GET /v2/spots`, Server-Sent Events, one stream per
+  relay token, a newer one replacing the older). It holds no policy: no capping, ordering or
+  expiry. Its RPCs never count as progress for the sender's watchdog. No spot goes to a stream
+  before its `hello` (rows claimed meanwhile are unattempted), and at most `MAX_HANDSHAKES`
+  streams connect at once (the rest get a 503 before any lookup), because the stream is public
+  and shares the sender's two-connection pool with the delivery loop.
+- Loop guard: `match_pending_spots` never sends a user's own logged contacts to that user's
+  `local_cluster` destinations, nor a spot without a frequency to any of them.
+- There is no web Send test for this type: the card hides it, and `send-test` and the API answer
+  400 "Send a test spot from the relay." The relay's own Send test spot covers it.
+- The approval page shows `spots:read` from `lookup_relay_pairing`'s scopes
+  (`SPOTS_READ_LINE` in `web/src/relay/model.ts`); the relay tokens card shows Connected from
+  `cluster_connected_at`.
+
 ## Web app rules
 
 - `web/src/lib/api.ts` is the only module that touches supabase-js; pages call its typed
@@ -537,7 +587,8 @@ The delivery side (retries, pause, attempts, rendering, Vault) is in "Delivery r
 
 - `sender/` is the outbound delivery process on Fly.io (app `longlines-sender`), the counterpart
   of `inbound/`. `sender/main.ts` is only the process shell; behavior goes in `sender/sender.ts`,
-  `sender/db.ts` (the only module that imports postgres.js) and the shared loop
+  `sender/cluster_stream.ts` (the spots stream), `sender/db.ts` (the only module that imports
+  postgres.js) and the shared loop
   `_shared/delivery/run.ts`, which tests run with fakes and a local `Deno.serve` receiver.
 - The image runs with `sender/deno.json` as `--config /deno.json`: an import map of exactly the
   packages the sender loads (`postgres`, and `zod`, mapped ahead of the Part 2 sender PR), at the
@@ -564,7 +615,9 @@ The delivery side (retries, pause, attempts, rendering, Vault) is in "Delivery r
   that cannot open within `OPEN_DEADLINE_MS` (the start-up probe retries with the claim backoff and
   times out after `PROBE_TIMEOUT_MS`), or an unhandled rejection.
 - Knobs are env variables read in `sender/config.ts` (`SENDER_POLL_MS`, `SENDER_CONCURRENCY`,
-  `SENDER_STALE_MS`, `SENDER_STATS_MS`, `SENDER_HEALTH_PORT`, `SENDER_DATABASE_CA`).
+  `SENDER_STALE_MS`, `SENDER_STATS_MS`, `SENDER_HEALTH_PORT`, `SENDER_STREAM_PORT`,
+  `SENDER_DATABASE_CA`). `SENDER_STREAM_PORT` (8081) is the spots stream's port, Fly's
+  `http_service`, and must differ from `SENDER_HEALTH_PORT` (see "Local DX cluster rules").
   `SENDER_STALE_MS` must exceed max(`SENDER_POLL_MS`, `RETRY_MAX_MS`) + `STALE_MARGIN_MS`, and
   every ms knob is capped at `MAX_INTERVAL_MS` (one hour). The Dockerfile's `--allow-env` must
   name every variable the sender reads (`sender/__tests__/modules.test.ts`), and `deno.json`'s test

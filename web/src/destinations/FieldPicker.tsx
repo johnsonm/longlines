@@ -14,10 +14,13 @@ export interface FieldPickerProps<T extends string> {
   all: readonly FieldInfo<T>[];
   min: number;
   max: number;
-  helper: string;
+  /** The sentence under the list; none when the card around it already says it (Local DX cluster). */
+  helper?: string;
   onChange: (fields: T[]) => void;
   /** A key name shown in monospace under each row's label (the webhook payload's keys). */
   keyOf?: (id: T) => string;
+  /** A sentence shown under each row's label, saying what the field holds (the Local DX cluster's comment fields). */
+  helpOf?: (id: T) => string;
   /**
    * How fields are added: a select (push, Discord), or "+ {label}" chips under
    * the heading Not included (webhooks), hidden with their heading while every
@@ -33,7 +36,7 @@ export interface FieldPickerProps<T extends string> {
  * the lists again on save.
  */
 export function FieldPicker<T extends string>({
-  heading, fields, all, min, max, helper, onChange, keyOf, addAs = "select",
+  heading, fields, all, min, max, helper, onChange, keyOf, helpOf, addAs = "select",
 }: FieldPickerProps<T>) {
   const unpicked = unpickedFields(fields, all);
   const full = fields.length >= max;
@@ -76,7 +79,7 @@ export function FieldPicker<T extends string>({
               <ListItemText
                 primary={fieldLabel(f)} sx={{ pr: 12 }}
                 // A bare <code> keeps the browser's monospace font; MUI 9 has no fontFamily prop.
-                secondary={keyOf ? <Box component="code">{keyOf(f)}</Box> : undefined}
+                secondary={keyOf ? <Box component="code">{keyOf(f)}</Box> : helpOf ? helpOf(f) : undefined}
               />
             </ListItem>
           ))}
@@ -108,7 +111,7 @@ export function FieldPicker<T extends string>({
           slotProps={{
             inputLabel: { shrink: true },
             select: {
-              displayEmpty: true, SelectDisplayProps: { "aria-describedby": helperId },
+              displayEmpty: true, SelectDisplayProps: helper === undefined ? undefined : { "aria-describedby": helperId },
               renderValue: () => <Typography component="span" color="text.secondary">Choose a field</Typography>,
             },
           }}
@@ -116,7 +119,7 @@ export function FieldPicker<T extends string>({
           {unpicked.map((f) => <MenuItem key={f.id} value={f.id}>{f.label}</MenuItem>)}
         </TextField>
       )}
-      <FormHelperText id={helperId}>{helper}</FormHelperText>
+      {helper !== undefined && <FormHelperText id={helperId}>{helper}</FormHelperText>}
     </Stack>
   );
 }

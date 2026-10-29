@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import {
-  Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, Paper, Stack, Table, TableBody, TableCell, TableHead,
+  Alert, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, Paper, Stack, Table, TableBody, TableCell, TableHead,
   TableRow, Typography,
 } from "@mui/material";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
@@ -102,7 +102,11 @@ export function RelayTokensCard() {
             {loadError === null && relays.map((r) => (
               <TableRow key={r.id}>
                 <TableCell>
-                  <Typography variant="subtitle2">{r.device_name}</Typography>
+                  <Stack direction="row" spacing={1} useFlexGap sx={{ alignItems: "center", flexWrap: "wrap" }}>
+                    <Typography variant="subtitle2">{r.device_name}</Typography>
+                    {/* Set by the sender while the relay's spots stream (its local DX cluster) is open. */}
+                    {r.cluster_connected_at !== null && <Chip size="small" color="success" label="Connected" />}
+                  </Stack>
                   <Typography variant="caption" color="text.secondary">{r.token_prefix}… · version {r.client_version}</Typography>
                 </TableCell>
                 <TableCell sx={wide}>{formatDate(r.created_at)}</TableCell>

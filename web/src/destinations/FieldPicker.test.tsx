@@ -49,6 +49,19 @@ describe("FieldPicker", () => {
     expect([...group.querySelectorAll("code")].map((c) => c.textContent)).toEqual(["a_key", "c_key"]);
   });
 
+  it("shows each row's sentence with helpOf, in plain text", () => {
+    const { group } = render({ initial: ["a", "c"], helpOf: (id) => `What ${id} holds` });
+    expect(within(group).getByText("What a holds")).toBeInTheDocument();
+    expect(within(group).getByText("What c holds")).toBeInTheDocument();
+    expect(group.querySelector("code")).toBeNull();
+  });
+
+  it("leaves the helper out when there is none", () => {
+    const { group } = render({ initial: ["a"], helper: undefined });
+    expect(within(group).queryByText("Comment is untrusted.")).not.toBeInTheDocument();
+    expect(within(group).getByRole("combobox", { name: "Add a field" })).not.toHaveAttribute("aria-describedby");
+  });
+
   it("adds through Not included chips, in the catalog's order", async () => {
     const { user, group, spy } = render({ initial: ["b"], addAs: "chips" });
     expect(within(group).queryByRole("combobox")).not.toBeInTheDocument();

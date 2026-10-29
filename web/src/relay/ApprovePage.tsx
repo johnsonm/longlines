@@ -9,13 +9,13 @@ import CloseIcon from "@mui/icons-material/Close";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import { answerRelayPairing, lookupRelayPairing } from "../lib/api";
 import { errorText, useApp } from "../app/hooks";
-import { LOGGERS_URL } from "./model";
+import { CONTACTS_WRITE, LOGGERS_URL, SPOTS_READ, SPOTS_READ_LINE } from "./model";
 
 /** Where the page is: checking a code, asking for one, or one of the drawn states (Brad's relay canvas, page 2). */
 type View =
   | { kind: "checking" }
   | { kind: "entry"; typed: string; unknown: boolean; error: string | null }
-  | { kind: "pending"; code: string; error: string | null }
+  | { kind: "pending"; code: string; scopes: string[]; error: string | null }
   | { kind: "expired"; code: string }
   | { kind: "approved" }
   | { kind: "denied" };
@@ -40,7 +40,7 @@ export function ApprovePage() {
     try {
       const found = await lookupRelayPairing(typed);
       if (found.code !== null) setSearch({ code: found.code }, { replace: true });
-      if (found.status === "pending") setView({ kind: "pending", code: found.code, error: null });
+      if (found.status === "pending") setView({ kind: "pending", code: found.code, scopes: found.scopes, error: null });
       else if (found.status === "expired") setView({ kind: "expired", code: found.code });
       else setView({ kind: "entry", typed, unknown: true, error: null });
     } catch (err) {
@@ -57,7 +57,7 @@ export function ApprovePage() {
     void check(initial);
   });
 
-  const answer = async (code: string, approve: boolean) => {
+  const answer = async (code: string, scopes: string[], approve: boolean) => {
     setBusy(true);
     try {
       const result = await answerRelayPairing(code, approve);
@@ -66,7 +66,7 @@ export function ApprovePage() {
       else if (result.status === "expired") setView({ kind: "expired", code });
       else setView({ kind: "entry", typed: code, unknown: true, error: null });
     } catch (err) {
-      setView({ kind: "pending", code, error: errorText(err, "Couldn't answer the relay.") });
+      setView({ kind: "pending", code, scopes, error: errorText(err, "Couldn't answer the relay.") });
     } finally {
       setBusy(false);
     }
@@ -119,12 +119,20 @@ export function ApprovePage() {
           </Typography>
         </Paper>
         <Stack spacing={1.5}>
-          <Stack direction="row" spacing={1.5} sx={{ alignItems: "flex-start" }}>
-            <CheckIcon color="success" fontSize="small" />
-            <Typography variant="body2">
-              Post contacts logged as <strong>{profile?.callsign ?? ""}</strong> as spots
-            </Typography>
-          </Stack>
+          {view.scopes.includes(CONTACTS_WRITE) && (
+            <Stack direction="row" spacing={1.5} sx={{ alignItems: "flex-start" }}>
+              <CheckIcon color="success" fontSize="small" />
+              <Typography variant="body2">
+                Post contacts logged as <strong>{profile?.callsign ?? ""}</strong> as spots
+              </Typography>
+            </Stack>
+          )}
+          {view.scopes.includes(SPOTS_READ) && (
+            <Stack direction="row" spacing={1.5} sx={{ alignItems: "flex-start" }}>
+              <CheckIcon color="success" fontSize="small" />
+              <Typography variant="body2">{SPOTS_READ_LINE}</Typography>
+            </Stack>
+          )}
           <Stack direction="row" spacing={1.5} sx={{ alignItems: "flex-start" }}>
             <CloseIcon color="disabled" fontSize="small" />
             <Typography variant="body2" color="text.secondary">
@@ -135,8 +143,8 @@ export function ApprovePage() {
         <Alert severity="info">Spots from your log are visible to other Long Lines users, like spots from any other source.</Alert>
         {view.error !== null && <Alert severity="error">{view.error}</Alert>}
         <Stack direction="row" spacing={1} sx={{ justifyContent: "flex-end" }}>
-          <Button disabled={busy} onClick={() => void answer(view.code, false)}>Deny</Button>
-          <Button variant="contained" disabled={busy} onClick={() => void answer(view.code, true)}>Allow</Button>
+          <Button disabled={busy} onClick={() => void answer(view.code, view.scopes, false)}>Deny</Button>
+          <Button variant="contained" disabled={busy} onClick={() => void answer(view.code, view.scopes, true)}>Allow</Button>
         </Stack>
         <Typography variant="caption" color="text.secondary">
           You can disconnect this computer any time from <Link component={RouterLink} to="/api-tokens">API tokens</Link>.

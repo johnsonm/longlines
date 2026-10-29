@@ -506,6 +506,36 @@ sets `enabled = false` and `auto_disabled_at` and makes the destination's whole 
 `dropped_at`, so resuming delivers none of it. `update_destination` turning it back on clears the
 pause. The default threshold is null until the web editor ships (its migration makes it 20).
 
+## Local DX cluster destinations
+
+A Local DX cluster destination (`local_cluster`) sends the spots its connections match to one of
+the owner's Long Lines Relay computers, which re-serves them on a telnet DX cluster on that
+computer so a logging program's bandmap shows them (Phase 2 of the relay; the wire contract is
+v2 of `docs/contract.md` in `sonyccd/longlines-relay`). It has no URL. Its row in
+`local_cluster_destination_settings` names the relay token (set null when the relay is revoked)
+and an ordered pick of comment fields after the mode (`reference`, `source`, `comment`; the
+default is the reference). Only the web editor creates one.
+
+- **Transport.** Edge Functions cannot hold a connection open past their wall clock or be pushed
+  to, so the sender serves the stream: a second `Deno.serve` on `SENDER_STREAM_PORT`
+  (`sender/cluster_stream.ts`, `GET /v2/spots`, Server-Sent Events behind Fly's `http_service`),
+  one stream per relay token, authenticated with `authenticate_relay_token` and the
+  `spots:read` scope. `relay-api`'s v2 `me` hands the relay its `spots_url`.
+- **Presence and drops.** The sender marks the relay connected while its stream is open
+  (`set_cluster_stream`, cleared at start and shutdown by `reset_cluster_streams`). The claim
+  takes a row only while its relay is connected and caps each relay at 120 a minute across its
+  destinations; rows for an offline relay age out after 2 minutes through the expiry sweep, and a
+  stream that closed after the claim leaves its rows unattempted. Nothing is ever marked failed,
+  so the destination's health never changes; the card says "Relay offline".
+- **Rendering.** SQL renders every value (`local_cluster_spot_fields`, the `cluster_*` keys in
+  the claim's spot jsonb), the sender maps them to the contract's `spot` event, and the relay
+  formats the DXSpider line. `local_cluster_line` renders the same layout for the editor's
+  preview only.
+- **Loop guard.** A user's own logged contacts never go to their own Local DX cluster, so a
+  contact logged in N1MM never comes back to its bandmap as a spot.
+- **No web test.** `send-test` cannot reach the relay's socket; the relay's own Send test spot
+  covers it.
+
 # Phase 3: stats snapshot
 
 ```mermaid

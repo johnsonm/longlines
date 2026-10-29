@@ -19,6 +19,8 @@ describe("DestinationDialog", () => {
     expect(within(dialog).getByText("Post each spot to a channel through a webhook.")).toBeInTheDocument();
     expect(within(dialog).getByText("Send each spot as JSON to your own URL.")).toBeInTheDocument();
     expect(within(dialog).getByText("Notify your phone or computer. Works in the browser, no app to install.")).toBeInTheDocument();
+    expect(within(dialog).getByRole("radio", { name: /^Local DX cluster/ })).not.toBeChecked();
+    expect(within(dialog).getByText("Show spots in your logging software's bandmap. Needs the Long Lines Relay on your computer.")).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "Continue" })).toBeInTheDocument();
     expect(within(dialog).queryByRole("textbox")).not.toBeInTheDocument();
   });
@@ -27,6 +29,7 @@ describe("DestinationDialog", () => {
     ["Discord channel", "discord"],
     ["Webhook", "webhook"],
     ["Push notification", "push"],
+    ["Local DX cluster", "local_cluster"],
   ])("continues with %s into its editor and closes", async (label, type) => {
     const { user, dialog, onClose } = render();
     await user.click(within(dialog).getByRole("radio", { name: new RegExp(`^${label}`) }));

@@ -251,3 +251,54 @@ Deno.test("the Rule table names only declared fields and ops", function (): void
   // Exact references next to the substring test (decision 14 of the reference profiles spec).
   assertEquals(table.get("reference"), ["is", "is_not", "contains", "not_contains"]);
 });
+
+/** The newest migration text that contains `marker`. */
+function newestMigration(marker: string): string {
+  const dir = new URL("../../../migrations/", import.meta.url);
+  const last = Array.from(Deno.readDirSync(dir)).map((e) => e.name).sort()
+    .map((name) => Deno.readTextFileSync(new URL(name, dir)))
+    .filter((text) => text.includes(marker))
+    .at(-1);
+  if (last === undefined) {
+    return "";
+  }
+  return last;
+}
+
+/** The single-quoted strings in the first match of `pattern`'s group 1. */
+function quoted(sql: string, pattern: RegExp): string[] {
+  const found = pattern.exec(sql);
+  if (found === null || found[1] === undefined) {
+    return [];
+  }
+  return Array.from(found[1].matchAll(/'([^']+)'/g), (m) => m[1]!);
+}
+
+// The destination types the spec names are the ones the type check allows; the API reads every
+// type even though it creates only some of them.
+Deno.test("the Destination type enum is destinations_type_check's list", function (): void {
+  const sql = newestMigration("add constraint destinations_type_check");
+  const types = quoted(
+    sql,
+    /add constraint destinations_type_check\s+check \(type in \(([^)]*)\)\)/,
+  );
+  assert(types.includes("local_cluster"), "the type check lists local_cluster");
+  const schemas = resolve((spec.components as Node).schemas);
+  const destination = resolve(schemas.Destination);
+  const declared = ((destination.properties as Node).type as Node).enum as string[];
+  assertEquals(declared.slice().sort(), types.slice().sort());
+  assert(
+    "local_cluster" in (destination.properties as Node),
+    "Destination has a local_cluster key",
+  );
+});
+
+// The comment fields a Local DX cluster can carry are local_cluster_fields(), in its order.
+Deno.test("the LocalClusterField enum is local_cluster_fields()", function (): void {
+  const sql = newestMigration("function public.local_cluster_fields(");
+  const body = sql.slice(sql.indexOf("function public.local_cluster_fields("));
+  const fields = quoted(body, /array\[([^\]]*)\]/);
+  const schemas = resolve((spec.components as Node).schemas);
+  assertEquals(resolve(schemas.LocalClusterField).enum, fields);
+  assertEquals(fields, ["reference", "source", "comment"]);
+});

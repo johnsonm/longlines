@@ -178,7 +178,7 @@ export function connectionDetail(c: ConnectionNode): string {
   return `${count(c.matched)} matched · ${c.destinations === 0 ? "No destination" : plural(c.destinations, "destination")}`;
 }
 
-const TYPE_LABELS: Record<string, string> = { discord: "Discord", webhook: "Webhook", push: "Push" };
+const TYPE_LABELS: Record<string, string> = { discord: "Discord", webhook: "Webhook", push: "Push", local_cluster: "Local DX cluster" };
 
 /** "Discord · 131 delivered". */
 export function destinationDetail(d: DestinationNode): string {

@@ -1,5 +1,6 @@
 import type { ComponentType } from "react";
 import type { SvgIconProps } from "@mui/material";
+import DvrOutlinedIcon from "@mui/icons-material/DvrOutlined";
 import ForumOutlinedIcon from "@mui/icons-material/ForumOutlined";
 import HttpIcon from "@mui/icons-material/Http";
 import NotificationsOutlinedIcon from "@mui/icons-material/NotificationsOutlined";
@@ -18,6 +19,12 @@ export const DEST_TYPES: DestType[] = [
   { id: "discord", label: "Discord channel", help: "Post each spot to a channel through a webhook.", icon: ForumOutlinedIcon },
   { id: "webhook", label: "Webhook", help: "Send each spot as JSON to your own URL.", icon: HttpIcon },
   { id: "push", label: "Push notification", help: "Notify your phone or computer. Works in the browser, no app to install.", icon: NotificationsOutlinedIcon },
+  {
+    id: "local_cluster",
+    label: "Local DX cluster",
+    help: "Show spots in your logging software's bandmap. Needs the Long Lines Relay on your computer.",
+    icon: DvrOutlinedIcon,
+  },
 ];
 
 export function typeLabel(id: string): string {

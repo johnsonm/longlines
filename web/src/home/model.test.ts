@@ -184,6 +184,7 @@ describe("copy", () => {
     expect(destinationDetail({ id: "d", name: "D", type: "discord", delivered: 131 })).toBe("Discord · 131 delivered");
     expect(destinationDetail({ id: "d", name: "D", type: "push", delivered: null })).toBe("Push · – delivered");
     expect(destinationDetail({ id: "d", name: "D", type: "webhook", delivered: 49 })).toBe("Webhook · 49 delivered");
+    expect(destinationDetail({ id: "d", name: "D", type: "local_cluster", delivered: 3 })).toBe("Local DX cluster · 3 delivered");
     expect(destinationDetail({ id: "d", name: "D", type: "pager", delivered: 1 })).toBe("pager · 1 delivered");
   });
 });

@@ -13,7 +13,7 @@ vi.mock("../lib/api", () => ({
 
 const RELAY: RelayToken = {
   id: "r1", user_id: "u1", token_prefix: "ll_relay_k3q", device_name: "SHACK-PC", client_version: "0.1.0",
-  scopes: ["contacts:write"], created_at: "2026-10-28T00:00:00Z", last_used_at: null,
+  scopes: ["contacts:write"], created_at: "2026-10-28T00:00:00Z", last_used_at: null, platform: null, cluster_connected_at: null,
 };
 
 beforeEach(() => {
@@ -33,6 +33,18 @@ describe("RelayTokensCard", () => {
     expect(within(row).getByText("Never")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Long Lines Relay" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Get the relay" })).toHaveAttribute("href", RELAY_DOWNLOAD_URL);
+  });
+
+  it("marks a relay whose local DX cluster is connected", async () => {
+    vi.mocked(loadRelayTokens).mockResolvedValueOnce([
+      RELAY,
+      { ...RELAY, id: "r2", device_name: "LAPTOP", scopes: ["contacts:write", "spots:read"], platform: "linux", cluster_connected_at: "2026-10-28T21:00:00Z" },
+    ]);
+    render();
+    const laptop = (await screen.findByText("LAPTOP")).closest("tr")!;
+    expect(within(laptop).getByText("Connected", { selector: ".MuiChip-label" })).toBeInTheDocument();
+    const shack = screen.getByText("SHACK-PC").closest("tr")!;
+    expect(within(shack).queryByText("Connected", { selector: ".MuiChip-label" })).not.toBeInTheDocument();
   });
 
   it("says when no relay is connected", async () => {
