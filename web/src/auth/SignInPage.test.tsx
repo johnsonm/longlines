@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { screen, waitFor } from "@testing-library/react";
 import { renderPage } from "../test/render";
 import { setMobile } from "../test/media";
-import { callsignAvailable, signIn, signInWithGoogle, signUp } from "../lib/api";
+import { signIn, signInWithGoogle, signUp } from "../lib/api";
 import { SignInPage } from "./SignInPage";
 import { peekReturnPath, saveReturnPath } from "./returnPath";
 
@@ -10,14 +10,12 @@ vi.mock("../lib/api", () => ({
   signIn: vi.fn(),
   signUp: vi.fn(),
   signInWithGoogle: vi.fn(),
-  callsignAvailable: vi.fn(),
 }));
 
 beforeEach(() => {
   vi.mocked(signIn).mockReset().mockResolvedValue(undefined);
   vi.mocked(signUp).mockReset().mockResolvedValue(undefined);
   vi.mocked(signInWithGoogle).mockReset().mockResolvedValue(undefined);
-  vi.mocked(callsignAvailable).mockReset().mockResolvedValue(true);
   localStorage.clear();
   sessionStorage.clear();
 });
@@ -30,10 +28,10 @@ describe("SignInPage: sign in", () => {
     const { user } = renderPage(<SignInPage />, { route: "/signin", state: { from: "/destinations" } });
     const submit = screen.getByRole("button", { name: "Sign in" });
     expect(submit).toBeDisabled();
-    await user.type(screen.getByLabelText("Callsign or email"), "kk4pwj");
+    await user.type(screen.getByLabelText("Email"), "kk4pwj@example.com");
     await user.type(screen.getByLabelText("Password"), "hunter22");
     await user.click(submit);
-    expect(signIn).toHaveBeenCalledWith("kk4pwj", "hunter22");
+    expect(signIn).toHaveBeenCalledWith("kk4pwj@example.com", "hunter22");
     await waitFor(() => expect(where()).toHaveTextContent("/destinations"));
     expect(peekReturnPath()).toBeNull();
   });
@@ -41,19 +39,19 @@ describe("SignInPage: sign in", () => {
   it("defaults to Home after sign in", async () => {
     setMobile(true);
     const { user } = renderPage(<SignInPage />, { route: "/signin" });
-    await user.type(screen.getByLabelText("Callsign or email"), "kk4pwj");
+    await user.type(screen.getByLabelText("Email"), "kk4pwj@example.com");
     await user.type(screen.getByLabelText("Password"), "hunter22");
     await user.click(screen.getByRole("button", { name: "Sign in" }));
     await waitFor(() => expect(where()).toHaveTextContent("/home"));
   });
 
   it("shows the sign-in error", async () => {
-    vi.mocked(signIn).mockRejectedValue(new Error("That callsign or email and password don't match."));
+    vi.mocked(signIn).mockRejectedValue(new Error("That email and password don't match."));
     const { user } = renderPage(<SignInPage />, { route: "/signin" });
-    await user.type(screen.getByLabelText("Callsign or email"), "x");
+    await user.type(screen.getByLabelText("Email"), "x@y.z");
     await user.type(screen.getByLabelText("Password"), "y");
     await user.click(screen.getByRole("button", { name: "Sign in" }));
-    expect(await screen.findByText("That callsign or email and password don't match.")).toBeInTheDocument();
+    expect(await screen.findByText("That email and password don't match.")).toBeInTheDocument();
   });
 
   it("shows a notice from navigation state and lets the user dismiss it", async () => {
@@ -113,7 +111,6 @@ describe("SignInPage: create account", () => {
     expect(screen.getByText("Enter a valid email address.")).toBeInTheDocument();
     expect(screen.getByText("Use at least 8 characters.")).toBeInTheDocument();
     expect(screen.getByText("Passwords don't match.")).toBeInTheDocument();
-    expect(callsignAvailable).not.toHaveBeenCalled();
   });
 
   it("creates the account and shows the email step", async () => {
@@ -121,18 +118,8 @@ describe("SignInPage: create account", () => {
     await fill(user);
     await user.click(screen.getByRole("button", { name: "Create account" }));
     await waitFor(() => expect(where()).toHaveTextContent("/check-email"));
-    expect(callsignAvailable).toHaveBeenCalledWith("KK4PWJ");
     expect(signUp).toHaveBeenCalledWith({ callsign: "KK4PWJ", name: "Brad", email: "brad@example.com", password: "hunter22" });
     expect(JSON.parse(where().dataset.state ?? "null")).toEqual({ email: "brad@example.com" });
-  });
-
-  it("refuses a taken callsign", async () => {
-    vi.mocked(callsignAvailable).mockResolvedValue(false);
-    const { user } = await openSignUp();
-    await fill(user);
-    await user.click(screen.getByRole("button", { name: "Create account" }));
-    expect(await screen.findByText("That callsign is already taken.")).toBeInTheDocument();
-    expect(signUp).not.toHaveBeenCalled();
   });
 
   it("shows sign-up errors", async () => {
@@ -173,7 +160,6 @@ describe("SignInPage: Google", () => {
     await user.click(screen.getByRole("tab", { name: "Create account" }));
     await user.click(screen.getByRole("button", { name: "Sign up with Google" }));
     expect(signInWithGoogle).toHaveBeenCalledTimes(1);
-    expect(callsignAvailable).not.toHaveBeenCalled();
     expect(signUp).not.toHaveBeenCalled();
   });
 

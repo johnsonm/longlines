@@ -125,7 +125,7 @@ export interface SignInTokens {
   refresh_token: string;
 }
 
-/** Sign in with a callsign or email. Resolves the session on success. */
+/** Sign in with an email. Resolves the session on success. */
 export async function signIn(identifier: string, password: string): Promise<void> {
   const tokens = await callFunction<SignInTokens>("sign-in", { identifier, password });
   const { error } = await supabase.auth.setSession(tokens);
@@ -177,12 +177,6 @@ export async function deleteAccount(): Promise<void> {
 }
 
 // ---- Auth ------------------------------------------------------------------
-
-export async function callsignAvailable(callsign: string): Promise<boolean> {
-  const { data, error } = await supabase.rpc("callsign_available", { p_callsign: callsign });
-  if (error) fail(error, "Couldn't check that callsign.");
-  return data === true;
-}
 
 export async function signUp(input: { callsign: string; name: string; email: string; password: string }): Promise<void> {
   const { error } = await supabase.auth.signUp({
@@ -250,10 +244,7 @@ export async function updateProfile(
   patch: Pick<Profile, "callsign" | "name" | "timezone" | "utc_times">,
 ): Promise<void> {
   const { error } = await supabase.from("profiles").update(patch).eq("id", userId);
-  if (error) {
-    if (error.code === "23505") throw new ApiError("That callsign is already taken.", error.code);
-    fail(error, "Couldn't save your profile.");
-  }
+  if (error) fail(error, "Couldn't save your profile.");
 }
 
 // ---- Sources ---------------------------------------------------------------

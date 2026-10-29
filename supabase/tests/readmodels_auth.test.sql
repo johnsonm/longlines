@@ -86,9 +86,9 @@ select is((select count(*) from pg_class c where c.relnamespace = 'public'::regn
           2::bigint, 'recent_spots and ingest_health are invoker views');
 
 -- Service role helpers (run as the owner here; grants are checked above).
-select is(email_for_identifier(' kk4pwj '), 'a@example.com', 'callsign resolves to email, case-insensitive');
+select is(email_for_identifier(' kk4pwj '), null, 'a callsign no longer resolves (20261029000600)');
 select is(email_for_identifier('b@example.com'), 'b@example.com', 'email passes through');
-select is(email_for_identifier('N0SUCH'), null, 'unknown callsign gives null');
+select is(email_for_identifier(' B@Example.com '), 'b@example.com', 'trimmed and lower-cased');
 
 select * from finish();
 rollback;

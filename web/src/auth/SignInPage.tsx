@@ -15,7 +15,7 @@ import PersonSearchIcon from "@mui/icons-material/PersonSearch";
 import SendIcon from "@mui/icons-material/Send";
 import SensorsIcon from "@mui/icons-material/Sensors";
 import heroUrl from "../assets/landing-hero.jpg";
-import { callsignAvailable, signIn, signInWithGoogle, signUp } from "../lib/api";
+import { signIn, signInWithGoogle, signUp } from "../lib/api";
 import { isValidCallsign, normalizeCallsign } from "../lib/callsign";
 import { clearReturnPath, saveReturnPath } from "./returnPath";
 import { errorText, useApp } from "../app/hooks";
@@ -121,10 +121,6 @@ export function SignInPage() {
     setError(null);
     const callsign = normalizeCallsign(su.callsign);
     try {
-      if (!(await callsignAvailable(callsign))) {
-        setError("That callsign is already taken.");
-        return;
-      }
       await signUp({ callsign, name: su.name.trim(), email: su.email.trim(), password: su.password });
       void navigate("/check-email", { state: { email: su.email.trim() } });
     } catch (err) {
@@ -173,7 +169,7 @@ export function SignInPage() {
         {mode === "signin" && (
           <Box component="form" onSubmit={(e) => void doSignIn(e)} noValidate>
             <Stack spacing={2}>
-              <TextField label="Callsign or email" value={ident} onChange={(e) => setIdent(e.target.value)} autoComplete="username" autoFocus={desktop} fullWidth />
+              <TextField label="Email" type="email" value={ident} onChange={(e) => setIdent(e.target.value)} autoComplete="username" autoFocus={desktop} fullWidth />
               <TextField label="Password" type="password" value={pw} onChange={(e) => setPw(e.target.value)} autoComplete="current-password" fullWidth />
               <Button type="submit" variant="contained" size="large" disabled={!ident || !pw || busy} fullWidth>Sign in</Button>
               <Button size="small" onClick={() => void navigate("/reset-password")} sx={{ alignSelf: "center" }}>Forgot your password?</Button>
@@ -187,8 +183,8 @@ export function SignInPage() {
             <Stack spacing={2}>
               <TextField
                 label="Callsign" value={su.callsign} onChange={(e) => setF("callsign", e.target.value.toUpperCase().trim())} onBlur={() => touch("callsign")}
-                error={csErr} helperText={csErr ? "Enter a valid amateur callsign, like KK4PWJ." : "You'll use this to sign in."}
-                autoComplete="username" autoFocus={desktop} required fullWidth
+                error={csErr} helperText={csErr ? "Enter a valid amateur callsign, like KK4PWJ." : "Your amateur callsign, like KK4PWJ."}
+                autoComplete="off" autoFocus={desktop} required fullWidth
               />
               <TextField label="Name" value={su.name} onChange={(e) => setF("name", e.target.value)} autoComplete="name" helperText="Optional" fullWidth />
               <TextField
