@@ -13,6 +13,7 @@ import {
   KEEPALIVE_MS,
   MAX_BUFFERED_BYTES,
   MAX_HANDSHAKES,
+  MAX_HANDSHAKES_PER_ADDRESS,
   routeSend,
   SHUTDOWN_GRACE_MS,
 } from "./cluster_stream.ts";
@@ -39,6 +40,7 @@ export async function main(): Promise<void> {
     keepaliveMs: KEEPALIVE_MS,
     maxBufferedBytes: MAX_BUFFERED_BYTES,
     maxHandshakes: MAX_HANDSHAKES,
+    maxHandshakesPerAddress: MAX_HANDSHAKES_PER_ADDRESS,
     shutdownGraceMs: SHUTDOWN_GRACE_MS,
     log: logLine,
   });

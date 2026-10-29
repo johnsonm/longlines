@@ -10,6 +10,7 @@ import type {
   PendingDelivery,
 } from "../../supabase/functions/_shared/delivery/types.ts";
 import {
+  clientAddress,
   type ClusterStream,
   type ClusterStreamConfig,
   createClusterStream,
@@ -18,6 +19,7 @@ import {
   KEEPALIVE_MS,
   MAX_BUFFERED_BYTES,
   MAX_HANDSHAKES,
+  MAX_HANDSHAKES_PER_ADDRESS,
   NOT_A_CLUSTER_SPOT,
   RELAY_NOT_CONNECTED,
   routeSend,
@@ -97,6 +99,8 @@ function streamConfig(db: DeliveryRpc, logs: string[]): ClusterStreamConfig {
     keepaliveMs: 60_000,
     maxBufferedBytes: MAX_BUFFERED_BYTES,
     maxHandshakes: MAX_HANDSHAKES,
+    // Every test client is 127.0.0.1; the per-address tests set their own.
+    maxHandshakesPerAddress: MAX_HANDSHAKES,
     shutdownGraceMs: 1_000,
     log,
   };
@@ -128,6 +132,17 @@ function request(base: string, token: string | null, path: string, method: strin
 
 function connect(base: string, token: string | null) {
   return request(base, token, SPOTS_PATH, "GET");
+}
+
+/** A connect as Fly's proxy would forward it from `ip`. */
+function connectFrom(base: string, token: string, ip: string) {
+  return fetch(`${base}${SPOTS_PATH}`, {
+    headers: {
+      Accept: "text/event-stream",
+      Authorization: `Bearer ${token}`,
+      "Fly-Client-IP": ip,
+    },
+  });
 }
 
 /** Reads an event stream as text. */
@@ -282,12 +297,16 @@ Deno.test(
     ) {
       assertEquals(spotEvent(without(key)), null, key);
     }
-    assertEquals([KEEPALIVE_MS, SHUTDOWN_GRACE_MS, MAX_BUFFERED_BYTES, MAX_HANDSHAKES], [
-      20_000,
-      5_000,
-      262_144,
-      4,
-    ]);
+    assertEquals(
+      [
+        KEEPALIVE_MS,
+        SHUTDOWN_GRACE_MS,
+        MAX_BUFFERED_BYTES,
+        MAX_HANDSHAKES,
+        MAX_HANDSHAKES_PER_ADDRESS,
+      ],
+      [20_000, 5_000, 262_144, 4, 1],
+    );
   },
 );
 
@@ -701,6 +720,123 @@ Deno.test(
       assertEquals(countOf(fake.calls, "authenticate_relay_token"), 2);
       await next.cancel();
       await reader.cancel();
+    }
+    await withStream({ authenticate_relay_token: gated }, { maxHandshakes: 1 }, check);
+  },
+);
+
+Deno.test("clientAddress keys Fly's client address, else the connection's", function (): void {
+  function info(remoteAddr: Deno.Addr): Deno.ServeHandlerInfo {
+    return { remoteAddr, completed: Promise.resolve() };
+  }
+  const tcp = info({ transport: "tcp", hostname: "203.0.113.9", port: 50_000 });
+  function from(ip: string | null): Request {
+    const headers = new Headers();
+    if (ip !== null) {
+      headers.set("Fly-Client-IP", ip);
+    }
+    return new Request(`http://x${SPOTS_PATH}`, { headers });
+  }
+  assertEquals(clientAddress(from("198.51.100.1"), tcp), "198.51.100.1");
+  assertEquals(clientAddress(from("2001:db8:aa:bb:1:2:3:4"), tcp), "2001:db8:aa:bb::/64");
+  assertEquals(clientAddress(from("2001:db8:aa:bb::99"), tcp), "2001:db8:aa:bb::/64");
+  // No header, or one that is not an address: the connection's own.
+  assertEquals(clientAddress(from(null), tcp), "203.0.113.9");
+  assertEquals(clientAddress(from("not an address"), tcp), "203.0.113.9");
+  const v6 = info({ transport: "tcp", hostname: "2001:db8::5", port: 1 });
+  assertEquals(clientAddress(from(null), v6), "2001:db8:0:0::/64");
+  assertEquals(clientAddress(from(null), info({ transport: "unix", path: "/tmp/s" })), "unknown");
+});
+
+Deno.test(
+  "past maxHandshakesPerAddress from one address, a stream is refused before any lookup",
+  async function (): Promise<void> {
+    function nothing(): void {}
+    let open: () => void = nothing;
+    function capture(resolve: () => void): void {
+      open = resolve;
+    }
+    const gate = new Promise<void>(capture);
+    async function gated(): Promise<Answer> {
+      await gate;
+      return knownToken();
+    }
+    async function check(base: string, _stream: ClusterStream, fake: Fake): Promise<void> {
+      function lookups(): number {
+        return countOf(fake.calls, "authenticate_relay_token");
+      }
+      const first = connectFrom(base, TOKEN, "198.51.100.1");
+      await eventually(() => lookups() === 1, "the first lookup");
+      const firstV6 = connectFrom(base, TOKEN, "2001:db8:aa:bb::1");
+      await eventually(() => lookups() === 2, "the IPv6 lookup");
+      const pending: Promise<Response>[] = [first, firstV6];
+      try {
+        // The same address, or another in the same /64: refused with no lookup.
+        for (const ip of ["198.51.100.1", "2001:db8:aa:bb::2"]) {
+          const refused = await connectFrom(base, TOKEN, ip);
+          assertEquals(refused.status, 503, ip);
+          assertEquals(await refused.json(), { error: "server_error" });
+        }
+        // A malformed token is refused as bad_token before it takes or counts against a slot.
+        const malformed = await connectFrom(base, "ll_relay_short", "198.51.100.1");
+        assertEquals(malformed.status, 401);
+        assertEquals(await malformed.json(), { error: "bad_token" });
+        assertEquals(lookups(), 2);
+        // Another address still gets its handshake.
+        pending.push(connectFrom(base, TOKEN, "198.51.100.2"));
+        await eventually(() => lookups() === 3, "the other address's lookup");
+      } finally {
+        open();
+      }
+      for (const res of await Promise.all(pending)) {
+        assertEquals(res.status, 200);
+        await res.body!.cancel();
+      }
+      // Its handshake over, the address may connect again.
+      const again = await connectFrom(base, TOKEN, "198.51.100.1");
+      assertEquals(again.status, 200);
+      await again.body!.cancel();
+      assertEquals(lookups(), 4);
+    }
+    await withStream(
+      { authenticate_relay_token: gated },
+      { maxHandshakesPerAddress: MAX_HANDSHAKES_PER_ADDRESS },
+      check,
+    );
+  },
+);
+
+Deno.test(
+  "a malformed token is bad_token even while every handshake slot is taken",
+  async function (): Promise<void> {
+    function nothing(): void {}
+    let open: () => void = nothing;
+    function capture(resolve: () => void): void {
+      open = resolve;
+    }
+    const gate = new Promise<void>(capture);
+    async function gated(): Promise<Answer> {
+      await gate;
+      return knownToken();
+    }
+    async function check(base: string, _stream: ClusterStream, fake: Fake): Promise<void> {
+      const pending = connect(base, TOKEN);
+      await eventually(
+        () => countOf(fake.calls, "authenticate_relay_token") === 1,
+        "the first lookup",
+      );
+      try {
+        for (const token of [null, "ll_relay_short"]) {
+          const res = await connect(base, token);
+          assertEquals(res.status, 401, String(token));
+          assertEquals(await res.json(), { error: "bad_token" });
+        }
+      } finally {
+        open();
+      }
+      const res = await pending;
+      assertEquals(res.status, 200);
+      await res.body!.cancel();
     }
     await withStream({ authenticate_relay_token: gated }, { maxHandshakes: 1 }, check);
   },
