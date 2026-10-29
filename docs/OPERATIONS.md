@@ -241,8 +241,7 @@ group by 1, 2 having count(*) >= 10;
 Rows older than a day are deleted by the daily housekeeping job.
 
 The identifier is the email as typed, trimmed and lowercased; a callsign is refused before it is
-counted, since accounts may share one (`email_for_identifier` is unused and goes in a later
-migration). A wrong password
+counted, since accounts may share one. A wrong password
 is answered no sooner than 300 ms after the request arrived (`FAILED_SIGN_IN_FLOOR_MS`), so response
 time does not show whether an email has an account.
 
