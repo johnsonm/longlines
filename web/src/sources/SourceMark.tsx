@@ -3,6 +3,7 @@ import type { SourceInfo } from "./sources";
 import aprsLogo from "../assets/sources/aprs.png";
 import dxclusterLogo from "../assets/sources/dxcluster.png";
 import iotaLogo from "../assets/sources/iota.png";
+import loggedLogo from "../assets/sources/logged.png";
 import potaLogo from "../assets/sources/pota.png";
 import rbnLogo from "../assets/sources/rbn.png";
 import sotawatchLogo from "../assets/sources/sotawatch.png";
@@ -16,6 +17,7 @@ const LOGOS: Record<string, string> = {
   wwff: wwffLogo,
   wwbota: wwbotaLogo,
   iota: iotaLogo,
+  logged: loggedLogo,
   dxcluster: dxclusterLogo,
   aprs: aprsLogo,
   rbn: rbnLogo,
