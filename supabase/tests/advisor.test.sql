@@ -31,7 +31,9 @@ select set_eq(
         'save_discord_destination', 'get_discord_destination', 'list_discord_destination_settings',
         'preview_discord_message',
         'save_webhook_destination', 'get_webhook_destination', 'list_webhook_destination_settings',
-        'preview_webhook_request'],
+        'preview_webhook_request',
+        'save_local_cluster_destination', 'get_local_cluster_destination', 'list_local_cluster_destination_settings',
+        'preview_local_cluster_line'],
   'authenticated may execute only the client RPCs');
 
 select set_eq(

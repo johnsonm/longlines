@@ -693,6 +693,32 @@ isOneToOne: false
                   Relationships: [
                     
                   ]
+                },"local_cluster_destination_settings": {
+                  Row: {
+                    "destination_id": string,"fields": (string)[],"relay_token_id": string | null,"local_cluster_settings_json": Json | null
+                  }
+                  ComputedFields: "local_cluster_settings_json"
+                  Insert: {
+                    "destination_id": string,"fields": (string)[],"relay_token_id"?: string | null
+                  }
+                  Update: {
+                    "destination_id"?: string,"fields"?: (string)[],"relay_token_id"?: string | null
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "local_cluster_destination_settings_destination_id_fkey"
+      columns: ["destination_id"]
+isOneToOne: true
+      referencedRelation: "destinations"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "local_cluster_destination_settings_relay_token_id_fkey"
+      columns: ["relay_token_id"]
+isOneToOne: false
+      referencedRelation: "relay_tokens"
+      referencedColumns: ["id"]
+    }
+                  ]
                 },"logged_contacts": {
                   Row: {
                     "content_hash": string,"created_at": string,"external_id": string,"logger_app": string | null,"relay_version": string | null,"retracted_at": string | null,"spot_id": number,"state": string,"updated_at": string,"user_id": string
@@ -997,28 +1023,28 @@ isOneToOne: false
                   ]
                 },"relay_pairings": {
                   Row: {
-                    "answered_at": string | null,"client_version": string,"created_at": string,"device_code_hash": string,"device_name": string,"expires_at": string,"id": string,"interval_seconds": number,"last_polled_at": string | null,"scopes": (string)[],"status": string,"user_code": string,"user_id": string | null
+                    "answered_at": string | null,"client_version": string,"created_at": string,"device_code_hash": string,"device_name": string,"expires_at": string,"id": string,"interval_seconds": number,"last_polled_at": string | null,"platform": string | null,"scopes": (string)[],"status": string,"user_code": string,"user_id": string | null
                   }
                   ComputedFields: never
                   Insert: {
-                    "answered_at"?: string | null,"client_version": string,"created_at"?: string,"device_code_hash": string,"device_name": string,"expires_at"?: string,"id"?: string,"interval_seconds"?: number,"last_polled_at"?: string | null,"scopes"?: (string)[],"status"?: string,"user_code": string,"user_id"?: string | null
+                    "answered_at"?: string | null,"client_version": string,"created_at"?: string,"device_code_hash": string,"device_name": string,"expires_at"?: string,"id"?: string,"interval_seconds"?: number,"last_polled_at"?: string | null,"platform"?: string | null,"scopes"?: (string)[],"status"?: string,"user_code": string,"user_id"?: string | null
                   }
                   Update: {
-                    "answered_at"?: string | null,"client_version"?: string,"created_at"?: string,"device_code_hash"?: string,"device_name"?: string,"expires_at"?: string,"id"?: string,"interval_seconds"?: number,"last_polled_at"?: string | null,"scopes"?: (string)[],"status"?: string,"user_code"?: string,"user_id"?: string | null
+                    "answered_at"?: string | null,"client_version"?: string,"created_at"?: string,"device_code_hash"?: string,"device_name"?: string,"expires_at"?: string,"id"?: string,"interval_seconds"?: number,"last_polled_at"?: string | null,"platform"?: string | null,"scopes"?: (string)[],"status"?: string,"user_code"?: string,"user_id"?: string | null
                   }
                   Relationships: [
                     
                   ]
                 },"relay_tokens": {
                   Row: {
-                    "client_version": string,"contacts_window_count": number,"contacts_window_start": string | null,"created_at": string,"device_name": string,"id": string,"last_used_at": string | null,"scopes": (string)[],"token_hash": string,"token_prefix": string,"user_id": string
+                    "client_version": string,"cluster_connected_at": string | null,"contacts_window_count": number,"contacts_window_start": string | null,"created_at": string,"device_name": string,"id": string,"last_used_at": string | null,"platform": string | null,"scopes": (string)[],"token_hash": string,"token_prefix": string,"user_id": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "client_version": string,"contacts_window_count"?: number,"contacts_window_start"?: string | null,"created_at"?: string,"device_name": string,"id"?: string,"last_used_at"?: string | null,"scopes": (string)[],"token_hash": string,"token_prefix": string,"user_id": string
+                    "client_version": string,"cluster_connected_at"?: string | null,"contacts_window_count"?: number,"contacts_window_start"?: string | null,"created_at"?: string,"device_name": string,"id"?: string,"last_used_at"?: string | null,"platform"?: string | null,"scopes": (string)[],"token_hash": string,"token_prefix": string,"user_id": string
                   }
                   Update: {
-                    "client_version"?: string,"contacts_window_count"?: number,"contacts_window_start"?: string | null,"created_at"?: string,"device_name"?: string,"id"?: string,"last_used_at"?: string | null,"scopes"?: (string)[],"token_hash"?: string,"token_prefix"?: string,"user_id"?: string
+                    "client_version"?: string,"cluster_connected_at"?: string | null,"contacts_window_count"?: number,"contacts_window_start"?: string | null,"created_at"?: string,"device_name"?: string,"id"?: string,"last_used_at"?: string | null,"platform"?: string | null,"scopes"?: (string)[],"token_hash"?: string,"token_prefix"?: string,"user_id"?: string
                   }
                   Relationships: [
                     
@@ -1377,6 +1403,9 @@ isOneToOne: true
 "check_discord_setting_keys":
 { Args: { "p_settings": Json }; Returns: undefined
                            },
+"check_local_cluster_setting_keys":
+{ Args: { "p_settings": Json }; Returns: undefined
+                           },
 "check_webhook_setting_keys":
 { Args: { "p_settings": Json }; Returns: undefined
                            },
@@ -1556,6 +1585,9 @@ isOneToOne: true
 "get_group_statistics":
 { Args: { "p_id": string,"p_period": string }; Returns: Json
                            },
+"get_local_cluster_destination":
+{ Args: { "p_id": string }; Returns: Json
+                           },
 "get_push_destination":
 { Args: { "p_id": string }; Returns: Json
                            },
@@ -1606,6 +1638,9 @@ isOneToOne: true
               "id": number,"source": string,"source_spot_id": string
             }[]
                            },
+"insert_relay_pairing":
+{ Args: { "p_client_version": string,"p_device_name": string,"p_platform": string,"p_scopes": (string)[] }; Returns: Json
+                           },
 "int_array_add":
 { Args: { "p_a": (number)[],"p_b": (number)[] }; Returns: (number)[]
                            },
@@ -1638,6 +1673,9 @@ isOneToOne: true
 { Args: Record<PropertyKey, never>; Returns: {
               "consecutive_failures": number,"last_error": string,"last_run_at": string,"last_success_at": string,"seconds_since_last_success": number,"source": string
             }[]
+                           },
+"list_local_cluster_destination_settings":
+{ Args: Record<PropertyKey, never>; Returns: Json
                            },
 "list_push_devices":
 { Args: { "p_current_endpoint"?: string }; Returns: {
@@ -1681,6 +1719,54 @@ isOneToOne: true
                            },
 "load_iota_groups":
 { Args: { "p_groups": Json }; Returns: number
+                           },
+"local_cluster_comment":
+{ Args: { "p_fields": (string)[],"p_spot": Json }; Returns: string
+                           },
+"local_cluster_default_settings":
+{ Args: Record<PropertyKey, never>; Returns: Json
+                           },
+"local_cluster_fields":
+{ Args: Record<PropertyKey, never>; Returns: (string)[]
+                           },
+"local_cluster_fields_valid":
+{ Args: { "p_fields": (string)[] }; Returns: boolean
+                           },
+"local_cluster_line":
+{ Args: { "p_callsign": string,"p_comment": string,"p_frequency_khz": number,"p_spotter": string,"p_time": string }; Returns: string
+                           },
+"local_cluster_mode_word":
+{ Args: { "p_frequency_khz": number,"p_mode": string }; Returns: string
+                           },
+"local_cluster_reference":
+{ Args: { "p_spot": Json }; Returns: string
+                           },
+"local_cluster_relay_cap":
+{ Args: Record<PropertyKey, never>; Returns: number
+                           },
+"local_cluster_sample_spot":
+{ Args: Record<PropertyKey, never>; Returns: Json
+                           },
+"local_cluster_settings_json":
+{ Args: { "p_settings": Omit<Database["public"]['Tables']["local_cluster_destination_settings"]['Row'], Database["public"]['Tables']["local_cluster_destination_settings"]['ComputedFields']> }; Returns: Json
+                           },
+"local_cluster_settings_record":
+{ Args: { "p_destination_id": string,"p_settings": Json }; Returns: {
+              "destination_id": string,
+"fields": (string)[],
+"relay_token_id": string | null
+            }
+                          SetofOptions: {
+        from: "*"
+        to: "local_cluster_destination_settings"
+        isOneToOne: true
+        isSetofReturn: false
+      } },
+"local_cluster_spot_fields":
+{ Args: { "p_settings": Omit<Database["public"]['Tables']["local_cluster_destination_settings"]['Row'], Database["public"]['Tables']["local_cluster_destination_settings"]['ComputedFields']>,"p_spot": Json }; Returns: Json
+                           },
+"local_cluster_station":
+{ Args: { "p_text": string }; Returns: string
                            },
 "log_archive":
 { Args: { "p_bytes": number,"p_object_path": string,"p_row_count": number,"p_slice_end": string,"p_slice_start": string,"p_source": string }; Returns: undefined
@@ -1740,6 +1826,9 @@ isOneToOne: true
 { Args: { "p_device_code_hash": string }; Returns: Json
                            },
 "preview_discord_message":
+{ Args: { "p_settings": Json,"p_spot_id"?: number }; Returns: Json
+                           },
+"preview_local_cluster_line":
 { Args: { "p_settings": Json,"p_spot_id"?: number }; Returns: Json
                            },
 "preview_push_notification":
@@ -1885,9 +1974,14 @@ isOneToOne: true
                            },
 "relay_account":
 { Args: { "p_user_id": string }; Returns: Json
+                           } |
+{ Args: { "p_token_id": string,"p_user_id": string }; Returns: Json
                            },
 "relay_contacts_per_minute":
 { Args: Record<PropertyKey, never>; Returns: number
+                           },
+"relay_scopes":
+{ Args: Record<PropertyKey, never>; Returns: (string)[]
                            },
 "relay_tokens_max":
 { Args: Record<PropertyKey, never>; Returns: number
@@ -1909,6 +2003,9 @@ isOneToOne: true
                            },
 "report_push_device_blocked":
 { Args: { "p_endpoint": string }; Returns: undefined
+                           },
+"reset_cluster_streams":
+{ Args: Record<PropertyKey, never>; Returns: number
                            },
 "retire_aprs_day":
 { Args: { "p_day": string }; Returns: undefined
@@ -1954,6 +2051,9 @@ isOneToOne: true
 "save_discord_destination":
 { Args: { "p_enabled": boolean,"p_id": string,"p_name": string,"p_settings": Json,"p_url": string }; Returns: string
                            },
+"save_local_cluster_destination":
+{ Args: { "p_enabled": boolean,"p_id": string,"p_name": string,"p_settings": Json }; Returns: string
+                           },
 "save_push_destination":
 { Args: { "p_device_ids": (string)[],"p_enabled": boolean,"p_id": string,"p_name": string,"p_settings": Json }; Returns: string
                            },
@@ -1977,6 +2077,9 @@ isOneToOne: true
 "send_test_destination_limit":
 { Args: Record<PropertyKey, never>; Returns: number
                            },
+"set_cluster_stream":
+{ Args: { "p_connected": boolean,"p_token_id": string }; Returns: boolean
+                           },
 "set_webhook_headers":
 { Args: { "p_destination_id": string,"p_headers": Json }; Returns: undefined
                            },
@@ -1997,6 +2100,8 @@ isOneToOne: true
                            },
 "start_relay_pairing":
 { Args: { "p_client_version": string,"p_device_name": string }; Returns: Json
+                           } |
+{ Args: { "p_client_version": string,"p_device_name": string,"p_platform": string,"p_scopes": (string)[] }; Returns: Json
                            },
 "stats_payload_without_hidden":
 { Args: { "p_payload": Json }; Returns: Json
@@ -2027,6 +2132,12 @@ isOneToOne: true
                            },
 "validate_discord_settings":
 { Args: { "p_settings": Omit<Database["public"]['Tables']["discord_destination_settings"]['Row'], Database["public"]['Tables']["discord_destination_settings"]['ComputedFields']> }; Returns: undefined
+                           },
+"validate_local_cluster_fields":
+{ Args: { "p_fields": (string)[] }; Returns: undefined
+                           },
+"validate_local_cluster_settings":
+{ Args: { "p_settings": Omit<Database["public"]['Tables']["local_cluster_destination_settings"]['Row'], Database["public"]['Tables']["local_cluster_destination_settings"]['ComputedFields']>,"p_user": string }; Returns: undefined
                            },
 "validate_push_endpoint":
 { Args: { "p_endpoint": string }; Returns: undefined

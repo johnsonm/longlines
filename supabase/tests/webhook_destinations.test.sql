@@ -97,8 +97,9 @@ select ok(webhook_fields_valid(array['id']) and webhook_fields_valid(webhook_fie
           and not webhook_fields_valid(array['id', 'id']) and not webhook_fields_valid(array['grid'])
           and not webhook_fields_valid(array[null]::text[]),
   'a field list is 1 to 16 known fields, each once');
-select is(array[destination_batch_full('discord'), destination_batch_full('webhook'), destination_batch_full('push')],
-  array[10, 50, null], 'a hold releases at 10 Discord spots or 50 webhook spots');
+select is(array[destination_batch_full('discord'), destination_batch_full('webhook'), destination_batch_full('push'),
+                destination_batch_full('local_cluster')],
+  array[10, 50, null, null], 'a hold releases at 10 Discord spots or 50 webhook spots');
 select is(array[webhook_claim_max(0), webhook_claim_max(10), webhook_claim_max(30), webhook_claim_max(60)],
   array[5::numeric, null, null, null], 'one request per spot: 5 a claim; grouped: no cap beyond the bucket');
 select is(array[webhook_retry_max_attempts('none'), webhook_retry_max_attempts('three_10m'), webhook_retry_max_attempts('day')],

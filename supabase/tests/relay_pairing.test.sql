@@ -1,11 +1,12 @@
 -- pgTAP: Long Lines Relay pairing and relay tokens (20261028000400): codes, start, poll (pending,
 -- slow_down with its jitter allowance, denied, approved once, expired), the approval page's lookup
 -- and answer (normalized codes, the callsign rule, the 10-relay cap), token authentication, the
--- per-token contact window, GET /me's account, pruning, and access.
+-- per-token contact window, GET /me's account, v2's scopes and platform (20261028000500), pruning,
+-- and access.
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(77);
+select plan(96);
 
 -- A user with no profile (a Google sign-up that has not given a callsign yet).
 insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at,
@@ -180,6 +181,60 @@ select is(relay_account('11111111-1111-1111-1111-111111111111'), '{"callsign": "
   'the account is its callsign and email');
 select is(relay_account('33333333-3333-3333-3333-333333333333'), null, 'an account without a profile has none');
 
+-- v2: scopes and platform (20261028000500) ------------------------------------------
+
+create function pg_temp.start_v2(p_name text, p_scopes text[], p_platform text) returns jsonb language sql as $$
+  insert into started values (p_name, start_relay_pairing(p_name, '0.2.0', p_scopes, p_platform)) returning body;
+$$;
+select is((select array_agg(k order by k) from jsonb_object_keys(
+             pg_temp.start_v2('V2-PC', array['contacts:write', 'spots:read'], 'windows')) as k),
+  array['device_code', 'expires_in', 'interval', 'user_code', 'verification_uri', 'verification_uri_complete'],
+  'a v2 start returns the same fields');
+select is((select scopes::text || ' ' || platform from relay_pairings where user_code = pg_temp.code('V2-PC')),
+  '{contacts:write,spots:read} windows', 'a v2 pairing asks for its scopes and names its platform');
+select pg_temp.start_v2('V2-ORDER', array['spots:read', 'contacts:write'], 'linux');
+select is((select scopes from relay_pairings where user_code = pg_temp.code('V2-ORDER')),
+  array['contacts:write', 'spots:read'], 'scopes are stored in the contract''s order');
+select pg_temp.start_v2('V2-SPOTS', array['spots:read'], 'macos');
+select is((select scopes from relay_pairings where user_code = pg_temp.code('V2-SPOTS')), array['spots:read'],
+  'one scope may be asked for alone');
+select is((select scopes::text || ' ' || coalesce(platform, 'none') from relay_pairings
+           where user_code = pg_temp.code('SHACK-PC')),
+  '{contacts:write} none', 'a v1 pairing asks for contacts:write alone, with no platform');
+select throws_ok($$ select start_relay_pairing('PC', '0.2.0', array[]::text[], 'windows') $$, '22023', null,
+  'no scopes are refused');
+select throws_ok($$ select start_relay_pairing('PC', '0.2.0', array['spots:read', 'spots:read'], 'windows') $$, '22023',
+  null, 'a repeated scope is refused');
+select throws_ok($$ select start_relay_pairing('PC', '0.2.0', array['spots:write'], 'windows') $$, '22023', null,
+  'an unknown scope is refused');
+select throws_ok($$ select start_relay_pairing('PC', '0.2.0', array['spots:read', null], 'windows') $$, '22023', null,
+  'a null scope is refused');
+select throws_ok($$ select start_relay_pairing('PC', '0.2.0', null, 'windows') $$, '22023', null,
+  'null scopes are refused');
+select throws_ok($$ select start_relay_pairing('PC', '0.2.0', array['spots:read'], 'amiga') $$, '22023', null,
+  'an unknown platform is refused');
+select throws_ok($$ select start_relay_pairing('PC', '0.2.0', array['spots:read'], null) $$, '22023', null,
+  'v2 needs a platform');
+select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
+select is(lookup_relay_pairing(pg_temp.code('V2-PC')) -> 'scopes', '["contacts:write", "spots:read"]',
+  'the approval page sees both scopes');
+select is(answer_relay_pairing(pg_temp.code('V2-PC'), true), '{"status": "approved"}', 'Allow approves a v2 pairing');
+reset role;
+create temp table tok2 as select pg_temp.poll_later('V2-PC') as body;
+select is((select body -> 'scopes' from tok2), '["contacts:write", "spots:read"]', 'the token comes with both scopes');
+create temp table me2 as
+select id from relay_tokens where token_hash = pg_temp.sha((select body ->> 'access_token' from tok2));
+select is((select scopes::text || ' ' || platform || ' ' || coalesce(cluster_connected_at::text, 'offline')
+           from relay_tokens where id = (select id from me2)),
+  '{contacts:write,spots:read} windows offline', 'the token keeps the platform and starts offline');
+select is(relay_account('11111111-1111-1111-1111-111111111111', (select id from me2)),
+  jsonb_build_object('callsign', 'KK4PWJ', 'email', 'a@example.com', 'relay_id', (select id from me2),
+                     'device_name', 'V2-PC', 'scopes', jsonb_build_array('contacts:write', 'spots:read')),
+  'GET /v2/me: the account and the token');
+select is(relay_account('22222222-2222-2222-2222-222222222222', (select id from me2)), null,
+  'another account''s token has no v2 account');
+delete from relay_tokens where id = (select id from me2);
+
 -- Access ---------------------------------------------------------------------------
 
 select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
@@ -188,6 +243,8 @@ select throws_ok($$ select token_hash from relay_tokens $$, '42501', null, 'clie
 select throws_ok($$ select device_name from relay_pairings $$, '42501', null, 'clients cannot read pairings');
 select throws_ok($$ update relay_tokens set device_name = 'x' $$, '42501', null, 'clients cannot change relay tokens');
 select throws_ok($$ select start_relay_pairing('PC', '0.1.0') $$, '42501', null, 'clients cannot start pairings');
+select throws_ok($$ select start_relay_pairing('PC', '0.2.0', array['spots:read'], 'linux') $$, '42501', null,
+  'or v2 pairings');
 select throws_ok($$ select poll_relay_pairing('x') $$, '42501', null, 'clients cannot poll');
 select throws_ok($$ select relay_account(auth.uid()) $$, '42501', null, 'clients cannot read relay_account');
 delete from relay_tokens where user_id = '22222222-2222-2222-2222-222222222222';
