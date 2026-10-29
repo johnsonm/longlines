@@ -87,11 +87,11 @@ describe("AccountPage profile", () => {
   });
 
   it("reports save errors", async () => {
-    vi.mocked(updateProfile).mockRejectedValue(new Error("That callsign is already taken."));
+    vi.mocked(updateProfile).mockRejectedValue(new Error("Couldn't save your profile."));
     const { user, app } = render();
     await user.type(screen.getByLabelText("Name"), "x");
     await user.click(screen.getByRole("button", { name: "Save changes" }));
-    await waitFor(() => expect(app.notify).toHaveBeenCalledWith("That callsign is already taken."));
+    await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Couldn't save your profile."));
   });
 
   it("keeps an unlisted time zone selectable", () => {
@@ -202,11 +202,11 @@ describe("ChangePassword", () => {
   });
 
   it("does not change the password when verification fails", async () => {
-    vi.mocked(verifyPassword).mockRejectedValue(new Error("That callsign or email and password don't match."));
+    vi.mocked(verifyPassword).mockRejectedValue(new Error("That email and password don't match."));
     const { user, app } = render();
     await fill(user);
     await user.click(screen.getByRole("button", { name: "Change password" }));
-    await waitFor(() => expect(app.notify).toHaveBeenCalledWith("That callsign or email and password don't match."));
+    await waitFor(() => expect(app.notify).toHaveBeenCalledWith("That email and password don't match."));
     expect(updatePassword).not.toHaveBeenCalled();
   });
 });

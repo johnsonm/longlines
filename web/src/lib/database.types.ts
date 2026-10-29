@@ -761,14 +761,14 @@ isOneToOne: false
                   ]
                 },"profiles": {
                   Row: {
-                    "callsign": string,"created_at": string,"id": string,"name": string,"timezone": string,"utc_times": boolean
+                    "callsign": string,"callsign_since": string,"created_at": string,"id": string,"name": string,"timezone": string,"utc_times": boolean
                   }
                   ComputedFields: never
                   Insert: {
-                    "callsign": string,"created_at"?: string,"id": string,"name"?: string,"timezone"?: string,"utc_times"?: boolean
+                    "callsign": string,"callsign_since"?: string,"created_at"?: string,"id": string,"name"?: string,"timezone"?: string,"utc_times"?: boolean
                   }
                   Update: {
-                    "callsign"?: string,"created_at"?: string,"id"?: string,"name"?: string,"timezone"?: string,"utc_times"?: boolean
+                    "callsign"?: string,"callsign_since"?: string,"created_at"?: string,"id"?: string,"name"?: string,"timezone"?: string,"utc_times"?: boolean
                   }
                   Relationships: [
                     

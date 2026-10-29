@@ -9,8 +9,7 @@ import {
   TOO_MANY_ATTEMPTS,
 } from "../signin.ts";
 
-Deno.test("normalizeIdentifier uppercases callsigns and lowercases emails", function (): void {
-  assertEquals(normalizeIdentifier("  kk4pwj "), "KK4PWJ");
+Deno.test("normalizeIdentifier trims and lowercases", function (): void {
   assertEquals(normalizeIdentifier(" Brad@Example.com "), "brad@example.com");
 });
 

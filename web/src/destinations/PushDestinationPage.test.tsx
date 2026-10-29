@@ -83,7 +83,7 @@ function render({ id, type = null, dests = DESTS, loading = false, mobile = fals
   const reload = vi.fn(() => Promise.resolve());
   const r = renderPage(
     <PushDestinationPage id={id} type={type} dests={dests} loading={loading} reload={reload} mobile={mobile} />,
-    { route: "/destinations/x", app: timezone ? { profile: { id: "u1", callsign: "KK4PWJ", name: "Brad", timezone, utc_times: false, created_at: "" } } : {} },
+    { route: "/destinations/x", app: timezone ? { profile: { id: "u1", callsign: "KK4PWJ", name: "Brad", timezone, utc_times: false, created_at: "", callsign_since: "" } } : {} },
   );
   return { ...r, reload };
 }

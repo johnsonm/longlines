@@ -240,8 +240,9 @@ group by 1, 2 having count(*) >= 10;
 
 Rows older than a day are deleted by the daily housekeeping job.
 
-The identifier is the account's email whenever `email_for_identifier` resolves the one typed, so a
-user's email and callsign share one budget; an unknown callsign is counted as typed. A wrong password
+The identifier is the email as typed, trimmed and lowercased; a callsign is refused before it is
+counted, since accounts may share one (`email_for_identifier` is unused and goes in a later
+migration). A wrong password
 is answered no sooner than 300 ms after the request arrived (`FAILED_SIGN_IN_FLOOR_MS`), so response
 time does not show whether an email has an account.
 
@@ -1022,7 +1023,9 @@ with `retracted_at` on its `logged_contacts` row (a check keeps the two columns 
 
 A connection receives logged contacts only when its sources list Logged contacts. If one is
 missing, check the connection's sources, then the account's callsign: an upsert whose mycall is
-another station's is rejected (`mycall_mismatch`) and stored nowhere.
+another station's is rejected (`mycall_mismatch`) and stored nowhere. So is one from an account
+sharing its base call with an account that has held it longer: compare `callsign_since` on the
+profiles whose `base_callsign(callsign)` matches.
 
 # Long Lines Relay
 

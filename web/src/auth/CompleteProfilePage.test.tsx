@@ -41,11 +41,11 @@ describe("CompleteProfilePage", () => {
   });
 
   it("shows SQL's refusal and lets the user try another callsign", async () => {
-    vi.mocked(completeProfile).mockRejectedValueOnce(new Error("That callsign is already taken."));
+    vi.mocked(completeProfile).mockRejectedValueOnce(new Error("Enter a valid amateur callsign."));
     const { user, app } = renderPage(<CompleteProfilePage />, { app: { profile: null, profileMissing: true } });
     await user.type(screen.getByLabelText(/^Callsign/), "W1AW");
     await user.click(screen.getByRole("button", { name: "Create account" }));
-    expect(await screen.findByText("That callsign is already taken.")).toBeInTheDocument();
+    expect(await screen.findByText("Enter a valid amateur callsign.")).toBeInTheDocument();
     expect(app.refreshProfile).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Create account" })).toBeEnabled();
   });

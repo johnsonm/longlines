@@ -19,6 +19,7 @@ export const PROFILE: Profile = {
   timezone: "UTC",
   utc_times: true,
   created_at: "2026-10-01T00:00:00Z",
+  callsign_since: "2026-10-01T00:00:00Z",
 };
 
 export const SESSION = {

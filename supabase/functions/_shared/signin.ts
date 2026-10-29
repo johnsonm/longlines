@@ -3,7 +3,9 @@
 import { z } from "zod";
 import { parseWith } from "./validate.ts";
 
-export const GENERIC_SIGN_IN_ERROR = "That callsign or email and password don't match.";
+export const GENERIC_SIGN_IN_ERROR = "That email and password don't match.";
+/** For an identifier that is not an email: accounts may share a callsign, so it names no one account. */
+export const SIGN_IN_WITH_EMAIL = "Sign in with your email address.";
 /** Past the limit; says nothing about whether the credentials were right. */
 export const TOO_MANY_ATTEMPTS = "Too many attempts. Try again in a few minutes.";
 /** Longest identifier accepted: an email address is at most 254 characters. */
@@ -20,13 +22,9 @@ export function isEmailIdentifier(identifier: string): boolean {
   return identifier.includes("@");
 }
 
-/** Emails lowercase, callsigns uppercase, both trimmed. */
+/** Trimmed and lowercased, as Auth compares emails. */
 export function normalizeIdentifier(identifier: string): string {
-  const trimmed = identifier.trim();
-  if (isEmailIdentifier(trimmed)) {
-    return trimmed.toLowerCase();
-  }
-  return trimmed.toUpperCase();
+  return identifier.trim().toLowerCase();
 }
 
 // The web app's request body (signIn in web/src/lib/api.ts): strict. The identifier is checked
