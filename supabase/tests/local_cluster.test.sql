@@ -6,7 +6,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(89);
+select plan(91);
 
 delete from deliveries;
 select pgmq.purge_queue('spot_events');
@@ -66,13 +66,15 @@ select lives_ok($$ select validate_destination_url('local_cluster', null) $$, 'a
 -- ---------------------------------------------------------------------------
 -- Relay presence (the sender)
 -- ---------------------------------------------------------------------------
-select is(set_cluster_stream('aaaaaaaa-0000-0000-0000-000000000001', true), true, 'a relay with spots:read connects');
+select is(set_cluster_stream('aaaaaaaa-0000-0000-0000-000000000001', true),
+  '{"relay_id": "aaaaaaaa-0000-0000-0000-000000000001", "device_name": "SHACK-PC"}'::jsonb,
+  'a relay with spots:read connects, answered with the stream''s hello');
 select ok((select cluster_connected_at is not null from relay_tokens where id = 'aaaaaaaa-0000-0000-0000-000000000001'),
   'its stream time is set');
-select is(set_cluster_stream('aaaaaaaa-0000-0000-0000-000000000003', true), false,
+select is(set_cluster_stream('aaaaaaaa-0000-0000-0000-000000000003', true), null,
   'a v1 relay without spots:read cannot connect');
-select is(set_cluster_stream(gen_random_uuid(), true), false, 'an unknown relay is not connected');
-select is(set_cluster_stream('aaaaaaaa-0000-0000-0000-000000000001', false), true, 'a relay disconnects');
+select is(set_cluster_stream(gen_random_uuid(), true), null, 'an unknown relay is not connected');
+select is(set_cluster_stream('aaaaaaaa-0000-0000-0000-000000000001', false) ->> 'device_name', 'SHACK-PC', 'a relay disconnects');
 select ok((select cluster_connected_at is null from relay_tokens where id = 'aaaaaaaa-0000-0000-0000-000000000001'),
   'its stream time is cleared');
 select set_cluster_stream('aaaaaaaa-0000-0000-0000-000000000001', true);
@@ -124,8 +126,11 @@ select is((local_cluster_spot_fields(
   jsonb_build_object('cluster_spotter', 'LONGLINES', 'cluster_frequency_khz', 14062.1, 'cluster_callsign', '?/K4',
                      'cluster_comment', 'USB WWBOTA B/G-1042', 'cluster_time', '2114', 'cluster_mode', 'USB',
                      'cluster_reference', 'WWBOTA B/G-1042', 'cluster_source', 'wwbota',
-                     'cluster_source_label', 'WWBOTA'),
-  'the spot event''s values: LONGLINES for no spotter, one decimal, HHMM, a cleaned callsign');
+                     'cluster_source_label', 'WWBOTA', 'cluster_spot_time', '2026-10-28T21:14:07Z'),
+  'the spot event''s values: LONGLINES for no spotter, one decimal, HHMM, a cleaned callsign, the time in UTC');
+select is(local_cluster_spot_fields((null, null, array[]::text[])::local_cluster_destination_settings,
+  '{"source": "pota", "spot_time": "2026-10-28T17:14:07.654321-04:00", "callsign": "K4ABC", "frequency_khz": 14062}')
+  ->> 'cluster_spot_time', '2026-10-28T21:14:07Z', 'spot_time in UTC with the fraction dropped');
 
 -- The contract's example lines (10.3), rendered from spots.
 create temp table examples (n int, spotter text, khz numeric, callsign text, fields text[], spot jsonb, line text);
@@ -319,6 +324,8 @@ select is((select jsonb_build_object('spotter', spot ->> 'cluster_spotter', 'khz
     "reference": "POTA K-0039", "source": "pota", "label": "POTA", "connection": "POTA states"}'::jsonb,
   'the spot carries the finished cluster values and the connection''s name');
 select ok((select spot ->> 'cluster_time' ~ '^[0-2][0-9][0-5][0-9]$' from claimed), 'cluster_time is HHMM');
+select ok((select spot ->> 'cluster_spot_time' ~ '^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$' from claimed),
+  'cluster_spot_time is YYYY-MM-DDTHH:MM:SSZ');
 select mark_deliveries_sent(array(select delivery_id from claimed), array(select msg_id from claimed));
 select is((select status from deliveries where id = (select delivery_id from claimed)), 'sent', 'the ack marks it sent');
 

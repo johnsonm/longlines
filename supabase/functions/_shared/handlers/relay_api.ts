@@ -24,7 +24,6 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { errorStatus } from "../api/errors.ts";
 import { hashApiToken } from "../api/token.ts";
-import { bearerToken } from "../auth.ts";
 import { json } from "../cors.ts";
 import { createIngestDb } from "../db.ts";
 import { FunctionCallError, ValidationError } from "../errors.ts";
@@ -41,6 +40,7 @@ import {
 } from "../logged.ts";
 import { type JsonObject, jsonObjectSchema } from "../types.ts";
 import { parseWith } from "../validate.ts";
+import { relayToken, type RelayTokenRow, relayTokenRowsSchema } from "../relay_token.ts";
 import { hmacSha256Hex } from "../hmac.ts";
 import { readBody } from "./api.ts";
 import { countClientRequest, countRequest } from "./callsign_profile.ts";
@@ -57,8 +57,6 @@ export const MAX_REQUESTS_PER_MINUTE = 120;
 export const CLIENT_NAME = "Long Lines Relay";
 /** The scope POST /contacts needs (contract 3). */
 export const CONTACTS_WRITE = "contacts:write";
-
-const TOKEN_PATTERN = /^ll_relay_[a-z2-7]{52}$/;
 
 /** The contract's error codes (section 8 and 4.2). */
 export type RelayErrorCode =
@@ -111,13 +109,6 @@ export interface PollReply {
   scopes?: string[];
 }
 
-/** A row of authenticate_relay_token. */
-interface RelayTokenRow {
-  token_id: string;
-  user_id: string;
-  scopes: string[];
-}
-
 /** relay_account's reply: GET /me's body. */
 export interface RelayAccount {
   callsign: string;
@@ -151,14 +142,6 @@ const pollReplySchema: z.ZodType<PollReply> = z.looseObject({
   access_token: z.string().optional(),
   scopes: z.array(z.string()).optional(),
 });
-
-// authenticate_relay_token returns a table: no row for an unknown or revoked token; null reads
-// the same.
-const tokenRowsSchema: z.ZodType<RelayTokenRow[] | null> = z.array(z.looseObject({
-  token_id: z.string(),
-  user_id: z.string(),
-  scopes: z.array(z.string()),
-})).nullable();
 
 const accountSchema: z.ZodType<RelayAccount | null> = z.looseObject({
   callsign: z.string().min(1),
@@ -469,8 +452,8 @@ async function deviceToken(req: Request, db: SupabaseClient): Promise<Response> 
 
 /** The relay token's row, or the 401 (or 500) to send. */
 async function authenticate(req: Request, db: SupabaseClient): Promise<RelayTokenRow | Response> {
-  const token = bearerToken(req);
-  if (token === null || !TOKEN_PATTERN.test(token)) {
+  const token = relayToken(req);
+  if (token === null) {
     return relayError(401, "bad_token", null, {});
   }
   const auth = await db.rpc("authenticate_relay_token", {
@@ -481,7 +464,7 @@ async function authenticate(req: Request, db: SupabaseClient): Promise<RelayToke
   }
   let rows: RelayTokenRow[] | null;
   try {
-    rows = parseWith(tokenRowsSchema, auth.data, "relay-api: authenticate_relay_token result");
+    rows = parseWith(relayTokenRowsSchema, auth.data, "relay-api: authenticate_relay_token result");
   } catch (error) {
     if (!(error instanceof ValidationError)) {
       throw error;

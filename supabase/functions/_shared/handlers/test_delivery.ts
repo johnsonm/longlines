@@ -5,14 +5,16 @@
 // from its saved settings, for the sample spot or the spot the editor previews
 // (spot_id). A webhook's body is rendered from its saved settings the same way,
 // with its extra headers. SQL builds all of that (push_test_delivery,
-// discord_test_delivery, webhook_test_delivery); this only sends it.
+// discord_test_delivery, webhook_test_delivery); this only sends it. A Local
+// DX cluster gets a 400: only the sender's spots stream reaches a relay, and
+// the relay's own "Send test spot" covers it.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { isUuid } from "../api/routes.ts";
 import { userFromRequest } from "../auth.ts";
 import { DEFAULT_METHODS, json, preflightResponse } from "../cors.ts";
-import { pushBookkeeping, type SendResult } from "../delivery/send.ts";
+import { LOCAL_CLUSTER_TEST, pushBookkeeping, type SendResult } from "../delivery/send.ts";
 import {
   type DeliveryDestination,
   type DeliverySpot,
@@ -226,7 +228,7 @@ function applyWebhookTest(destination: DeliveryDestination, found: unknown): Del
  * null when the RPC found none. Throws ValidationError on a result of the wrong shape.
  */
 const TEST_RPCS: Record<
-  DeliveryDestination["type"],
+  Exclude<DeliveryDestination["type"], "local_cluster">,
   {
     rpc: string;
     apply: (destination: DeliveryDestination, found: unknown) => DeliverySpot | null;
@@ -252,7 +254,7 @@ interface DestinationRow {
 // A destinations row with the columns sendTestTo selects; loose, as any table row.
 const destinationRowSchema: z.ZodType<DestinationRow> = z.looseObject({
   id: z.string(),
-  type: z.enum(["discord", "webhook", "push"]),
+  type: z.enum(["discord", "webhook", "push", "local_cluster"]),
   name: z.string(),
   url: z.string().nullable(),
   signing_secret: z.string().nullable(),
@@ -339,6 +341,10 @@ export async function sendTestTo(
     health: row.health,
     consecutive_failures: row.consecutive_failures,
   };
+  // A relay's DX cluster is reached only through the sender's spots stream.
+  if (destination.type === "local_cluster") {
+    return json({ error: LOCAL_CLUSTER_TEST }, 400, {});
+  }
   const testRpc = TEST_RPCS[destination.type];
   const rpc = testRpc.rpc;
   const test = await admin.rpc(rpc, { p_destination_id: destination.id, p_spot_id: spotId });

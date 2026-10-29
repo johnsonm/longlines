@@ -1,22 +1,8 @@
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { z } from "zod";
+import { bearerToken } from "./bearer.ts";
 
-/** The bearer token from the Authorization header, or null. */
-export function bearerToken(req: Request): string | null {
-  let header = req.headers.get("authorization");
-  if (header === null) {
-    header = "";
-  }
-  const match = /^Bearer\s+(\S+)$/i.exec(header);
-  if (match === null) {
-    return null;
-  }
-  const token = match[1];
-  if (token === undefined) {
-    return null;
-  }
-  return token;
-}
+export { bearerToken };
 
 /**
  * True when the request comes from the service role: the bearer is the runtime's

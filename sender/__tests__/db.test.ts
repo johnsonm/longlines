@@ -48,6 +48,7 @@ function noop(): void {}
 
 Deno.test("SENDER_RPCS is exactly the sender role's allowlist", function (): void {
   assertEquals(Object.keys(SENDER_RPCS).sort(), [
+    "authenticate_relay_token",
     "claim_deliveries",
     "delivery_queue_stats",
     "mark_deliveries_failed",
@@ -55,8 +56,26 @@ Deno.test("SENDER_RPCS is exactly the sender role's allowlist", function (): voi
     "prune_push_devices",
     "record_push_results",
     "record_sender_heartbeat",
+    "reset_cluster_streams",
+    "set_cluster_stream",
     "throttle_destination",
   ]);
+});
+
+Deno.test("rpcStatement casts the spots stream's token hash, id and state", function (): void {
+  assertEquals(rpcStatement("authenticate_relay_token", { p_token_hash: "ab" }), {
+    text: "select * from public.authenticate_relay_token(p_token_hash => $1::text)",
+    params: [{ value: "ab", type: "text" }],
+  });
+  assertEquals(rpcStatement("set_cluster_stream", { p_token_id: "u", p_connected: false }), {
+    text: "select * from public.set_cluster_stream(p_token_id => $1::uuid, " +
+      "p_connected => $2::boolean)",
+    params: [{ value: "u", type: "uuid" }, { value: false, type: "boolean" }],
+  });
+  assertEquals(rpcStatement("reset_cluster_streams", {}), {
+    text: "select * from public.reset_cluster_streams()",
+    params: [],
+  });
 });
 
 Deno.test("rpcStatement casts the heartbeat's times and memory", function (): void {
@@ -229,6 +248,12 @@ Deno.test(
     assertEquals(ids.error!.startsWith("senderDb.rpc: parameter $1::bigint[]: 1: "), true);
     const json = await db.rpc("record_push_results", { p_ok: [], p_errors: { a: 1n } });
     assertEquals(json.error!.startsWith("senderDb.rpc: parameter $2::jsonb: "), true, json.error!);
+    const state = await db.rpc("set_cluster_stream", { p_token_id: "u", p_connected: "true" });
+    assertEquals(
+      state.error!.startsWith("senderDb.rpc: parameter $2::boolean: (root): Invalid input"),
+      true,
+      state.error!,
+    );
     assertEquals(fake.executed, []);
     // A missing argument is null, which every type takes.
     assertEquals((await db.rpc("throttle_destination", {})).error, null);
@@ -567,6 +592,23 @@ Deno.test({
       });
       assertEquals(throttled.data, null);
       assertEquals(throttled.error, "Destination not found.");
+
+      // The spots stream's RPCs, with a token and a relay that exist nowhere: no rows, a null
+      // hello, and a boolean that reaches the function as one.
+      const auth = await db.rpc("authenticate_relay_token", { p_token_hash: "0".repeat(64) });
+      assertEquals(auth, { data: [], error: null });
+      const missing = "00000000-0000-0000-0000-000000000000";
+      for (const connected of [true, false]) {
+        const presence = await db.rpc("set_cluster_stream", {
+          p_token_id: missing,
+          p_connected: connected,
+        });
+        assertEquals(presence, { data: [{ set_cluster_stream: null }], error: null });
+      }
+      const refused = await db.rpc("set_cluster_stream", { p_token_id: missing });
+      assertEquals(refused.error, "set_cluster_stream needs a token and a state.");
+      // reset_cluster_streams is left out: it would mark a local relay offline under a running
+      // sender.
     } finally {
       await db.close();
     }

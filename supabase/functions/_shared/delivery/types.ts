@@ -66,6 +66,26 @@ export interface DeliverySpot {
   webhook_fields?: WebhookField[];
   /** Webhook only, from SQL: the name of the connection that matched. */
   webhook_connection?: string;
+  /**
+   * Local DX cluster only, from SQL (local_cluster_spot_fields): the spot event's values
+   * (contract v2, 9.4), finished, so the sender only names them. Absent on other types' rows,
+   * and stripped from webhook payloads (webhookSpot).
+   */
+  cluster_spotter?: string;
+  cluster_frequency_khz?: number;
+  cluster_callsign?: string;
+  /** The finished comment: mode word, then the picked fields, at most 30 characters. */
+  cluster_comment?: string;
+  /** HHMM, UTC. */
+  cluster_time?: string;
+  cluster_mode?: string | null;
+  cluster_reference?: string | null;
+  cluster_source?: string;
+  cluster_source_label?: string;
+  /** spot_time as YYYY-MM-DDTHH:MM:SSZ. */
+  cluster_spot_time?: string;
+  /** The name of the connection that matched. */
+  cluster_connection?: string;
 }
 
 /** One field of a Discord card's grid, its name and value rendered by SQL (discord_grid). */
@@ -92,6 +112,16 @@ export interface WebhookSettings {
   batch_seconds: number;
   /** In position order. */
   headers: WebhookHeader[];
+}
+
+/**
+ * A Local DX cluster destination's relay, as claim_deliveries hands it over: the relay token's
+ * id (the spots stream's key) and its device name. The claim takes a row only while the relay's
+ * stream is open, so neither is null in practice; a null is a relay that is not connected.
+ */
+export interface LocalClusterTarget {
+  relay_id: string | null;
+  device_name: string | null;
 }
 
 /** A browser push subscription. The endpoint and keys are capability secrets. */
@@ -139,9 +169,9 @@ export interface DiscordSettings {
 
 export interface DeliveryDestination {
   id: string;
-  type: "discord" | "webhook" | "push";
+  type: "discord" | "webhook" | "push" | "local_cluster";
   name: string;
-  /** Null for push, which fans out to `devices` instead. */
+  /** Null for push, which fans out to `devices` instead, and for local_cluster (a relay). */
   url: string | null;
   signing_secret: string | null;
   health: "ok" | "failing" | "paused";
@@ -156,6 +186,8 @@ export interface DeliveryDestination {
   discord?: DiscordSettings;
   /** Webhook only: its settings. Absent on rows claimed before the migration. */
   webhook?: WebhookSettings;
+  /** Local DX cluster only: the relay whose spots stream takes its spots. */
+  local_cluster?: LocalClusterTarget;
 }
 
 export interface PendingDelivery {
@@ -242,7 +274,8 @@ export interface PushNotification {
 // 20261021000600): delivery_spot_json plus the renderer's keys for the destination's type
 // (push_spot_fields, discord_spot_fields, webhook_spot_fields), and the destination's columns
 // plus its type's settings (push_member_devices, push_destination_settings, push_quiet_now,
-// discord_destination_settings, webhook_header_values). RPC jsonb can gain keys across deploys,
+// discord_destination_settings, webhook_header_values; local_cluster_spot_fields and the
+// relay for a Local DX cluster, 20261028000500). RPC jsonb can gain keys across deploys,
 // so every object is loose. A key format.ts or send.ts reads with a fallback is optional, so a
 // claim from before a migration still parses (the sender and the migration ship in either order).
 
@@ -300,6 +333,17 @@ export const deliverySpotSchema: z.ZodType<DeliverySpot> = z.looseObject({
   discord_suppress_embeds: z.boolean().optional(),
   webhook_fields: z.array(webhookFieldSchema).optional(),
   webhook_connection: z.string().optional(),
+  cluster_spotter: z.string().optional(),
+  cluster_frequency_khz: z.number().optional(),
+  cluster_callsign: z.string().optional(),
+  cluster_comment: z.string().optional(),
+  cluster_time: z.string().optional(),
+  cluster_mode: nullableTextSchema.optional(),
+  cluster_reference: nullableTextSchema.optional(),
+  cluster_source: z.string().optional(),
+  cluster_source_label: z.string().optional(),
+  cluster_spot_time: z.string().optional(),
+  cluster_connection: z.string().optional(),
 });
 
 const separatorSchema = z.enum(["dot", "comma", "newline"]);
@@ -376,10 +420,16 @@ export const webhookSettingsSchema: z.ZodType<WebhookSettings> = z.looseObject({
   headers: webhookHeadersSchema,
 });
 
+/** local_cluster: {relay_id, device_name} from relay_tokens. */
+export const localClusterTargetSchema: z.ZodType<LocalClusterTarget> = z.looseObject({
+  relay_id: nullableTextSchema,
+  device_name: nullableTextSchema,
+});
+
 /** The destination's columns plus its type's settings, as claim_deliveries builds them. */
 export const deliveryDestinationSchema: z.ZodType<DeliveryDestination> = z.looseObject({
   id: z.string(),
-  type: z.enum(["discord", "webhook", "push"]),
+  type: z.enum(["discord", "webhook", "push", "local_cluster"]),
   name: z.string(),
   url: nullableTextSchema,
   signing_secret: nullableTextSchema,
@@ -390,6 +440,7 @@ export const deliveryDestinationSchema: z.ZodType<DeliveryDestination> = z.loose
   quiet_now: z.boolean().optional(),
   discord: discordSettingsSchema.optional(),
   webhook: webhookSettingsSchema.optional(),
+  local_cluster: localClusterTargetSchema.optional(),
 });
 
 /**

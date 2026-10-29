@@ -14,7 +14,9 @@ RUN rm -rf sender/__tests__ supabase/functions/_shared/__tests__ \
   && deno cache --config /deno.json sender/main.ts
 
 USER deno
-EXPOSE 8080
+# 8080 is /healthz (Fly's check, private); 8081 is Long Lines Relay's spots stream, behind the
+# http_service (sender/fly.toml).
+EXPOSE 8080 8081
 # 160 MB of V8 heap leaves room for the runtime inside a 256 MB machine.
 # --allow-net is unrestricted because destinations are arbitrary public hosts
 # (urlsafety.ts is the guard). --allow-env must name every variable the sender
@@ -22,5 +24,5 @@ EXPOSE 8080
 # (sender/__tests__/modules.test.ts checks the list).
 CMD ["run", "--config", "/deno.json", "--v8-flags=--max-old-space-size=160", \
   "--allow-net", \
-  "--allow-env=SENDER_DATABASE_URL,SENDER_DATABASE_CA,SENDER_HEALTH_PORT,SENDER_POLL_MS,SENDER_CONCURRENCY,SENDER_STALE_MS,SENDER_STATS_MS,LONGLINES_VAPID_PUBLIC_KEY,LONGLINES_VAPID_PRIVATE_KEY,LONGLINES_VAPID_SUBJECT,LONGLINES_ALLOW_INSECURE_DESTINATIONS,PGAPPNAME,PGTARGETSESSIONATTRS", \
+  "--allow-env=SENDER_DATABASE_URL,SENDER_DATABASE_CA,SENDER_HEALTH_PORT,SENDER_STREAM_PORT,SENDER_POLL_MS,SENDER_CONCURRENCY,SENDER_STALE_MS,SENDER_STATS_MS,LONGLINES_VAPID_PUBLIC_KEY,LONGLINES_VAPID_PRIVATE_KEY,LONGLINES_VAPID_SUBJECT,LONGLINES_ALLOW_INSECURE_DESTINATIONS,PGAPPNAME,PGTARGETSESSIONATTRS", \
   "sender/main.ts"]

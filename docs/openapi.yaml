@@ -248,7 +248,9 @@ paths:
         Delivers a sample spot the way real spots go: for push, to at least one of its devices,
         with the notification text its saved fields build; for Discord, as the message its saved
         settings build, marked as a test; for a webhook, as the body its saved settings build,
-        with its extra headers and `X-LongLines-Test: true`.
+        with its extra headers and `X-LongLines-Test: true`. A Local DX cluster destination has
+        no test here (400 "Send a test spot from the relay."): only Long Lines Relay's own "Send
+        test spot" reaches its DX cluster.
       security:
         - apiToken: [write]
       responses:
@@ -266,6 +268,7 @@ paths:
                     description: For a webhook, the HTTP status the receiver answered.
               examples:
                 webhook: { value: { ok: true, status: 204 } }
+        "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/ReadOnly" }
         "404": { $ref: "#/components/responses/NotFound" }

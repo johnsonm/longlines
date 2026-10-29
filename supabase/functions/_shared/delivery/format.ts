@@ -298,8 +298,8 @@ export function discordMessages(
 }
 
 /**
- * The legacy body's spot: the stored columns without the push, Discord and
- * webhook fields SQL adds.
+ * The legacy body's spot: the stored columns without the push, Discord,
+ * webhook and Local DX cluster fields SQL adds.
  */
 export function webhookSpot(spot: DeliverySpot): DeliverySpot {
   // A shallow copy keeps the stored columns in the claim's key order.
@@ -319,6 +319,17 @@ export function webhookSpot(spot: DeliverySpot): DeliverySpot {
   delete rest.discord_suppress_embeds;
   delete rest.webhook_fields;
   delete rest.webhook_connection;
+  delete rest.cluster_spotter;
+  delete rest.cluster_frequency_khz;
+  delete rest.cluster_callsign;
+  delete rest.cluster_comment;
+  delete rest.cluster_time;
+  delete rest.cluster_mode;
+  delete rest.cluster_reference;
+  delete rest.cluster_source;
+  delete rest.cluster_source_label;
+  delete rest.cluster_spot_time;
+  delete rest.cluster_connection;
   return rest;
 }
 

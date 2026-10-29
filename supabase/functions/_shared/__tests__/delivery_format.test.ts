@@ -546,6 +546,23 @@ Deno.test("webhookSpot leaves out the Discord fields SQL adds", function (): voi
   assertEquals(webhookSpot(rendered(42, {})), spot);
 });
 
+Deno.test("webhookSpot leaves out the Local DX cluster fields SQL adds", function (): void {
+  const cluster: DeliverySpot = spotWith({
+    cluster_spotter: "W4DOG",
+    cluster_frequency_khz: 14062,
+    cluster_callsign: "K4ABC",
+    cluster_comment: "CW POTA K-0039",
+    cluster_time: "2114",
+    cluster_mode: "CW",
+    cluster_reference: "POTA K-0039",
+    cluster_source: "pota",
+    cluster_source_label: "POTA",
+    cluster_spot_time: "2026-10-28T21:14:07Z",
+    cluster_connection: "POTA states",
+  });
+  assertEquals(webhookSpot(cluster), spot);
+});
+
 // A spot as claim_deliveries hands it to a push destination: text and URLs built in SQL.
 function pushed(callsign: string, id: number, more: Partial<DeliverySpot>): DeliverySpot {
   const sql: Partial<DeliverySpot> = {

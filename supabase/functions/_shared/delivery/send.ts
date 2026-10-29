@@ -43,6 +43,11 @@ const PUSH_TIMEOUT_MS = 10_000;
 export const MAX_RETRY_AFTER_SECONDS = 86_400;
 const NO_DEVICES = "Turn on notifications on a device first.";
 const NO_URL = "Destination has no URL";
+/**
+ * A Local DX cluster's spots go only through the sender's spots stream (sender/cluster_stream.ts),
+ * so an Edge Function cannot reach one; the relay's own "Send test spot" stands in for Send test.
+ */
+export const LOCAL_CLUSTER_TEST = "Send a test spot from the relay.";
 
 export interface SendOptions {
   /** Tests only: skip URL safety so a loopback http server can stand in for the destination. */
@@ -494,6 +499,10 @@ export function sendToDestination(
       return sendWebhook(destination, deliveries, options);
     case "push":
       return sendPush(destination, deliveries, options);
+    case "local_cluster":
+      // Only the sender reaches a relay (main.ts sends this type to the spots stream); send-test
+      // and the API refuse it first. Nothing was attempted, so nothing counts as a failure.
+      return Promise.resolve({ ok: false, sent: 0, attempted: 0, error: LOCAL_CLUSTER_TEST });
   }
 }
 
