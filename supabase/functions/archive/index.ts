@@ -10,6 +10,7 @@ function store(): ArchiveStore {
 async function handler(req: Request): Promise<Response> {
   return await handleArchive(req, {
     serviceRoleKey: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"),
+    cronSecret: Deno.env.get("LONGLINES_CRON_SECRET"),
     db: createServiceClient,
     store,
   }, new Date());

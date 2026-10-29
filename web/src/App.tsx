@@ -10,6 +10,7 @@ import { CheckEmailPage } from "./auth/CheckEmailPage";
 import { ResetPasswordPage } from "./auth/ResetPasswordPage";
 import { SetPasswordPage } from "./auth/SetPasswordPage";
 import { CompleteProfilePage } from "./auth/CompleteProfilePage";
+import { clearReturnPath, peekReturnPath } from "./auth/returnPath";
 import { AppShell } from "./layout/AppShell";
 import { HomePage } from "./home/HomePage";
 import { SourcesPage } from "./sources/SourcesPage";
@@ -102,12 +103,20 @@ function Router() {
 
 /**
  * Unknown paths go to Home, but only once the session is read: Google's sign-in comes back to
- * the site root with the session in the URL, and leaving first would drop it.
+ * the site root with the session in the URL, and leaving first would drop it. A Google sign-in
+ * goes on to the page it started from (SignInPage keeps it in sessionStorage), once: the kept
+ * path is read during render and cleared after commit, so StrictMode's second render and effect
+ * still see it, and it is cleared whether or not the sign-in worked. Signed out, that page's
+ * RequireAuth sends the visitor back to sign in with it as `from`.
  */
 function ToHome() {
   const { sessionLoading } = useApp();
+  const saved = sessionLoading ? null : peekReturnPath();
+  useEffect(() => {
+    if (!sessionLoading) clearReturnPath();
+  }, [sessionLoading]);
   if (sessionLoading) return <LinearProgress />;
-  return <Navigate to="/home" replace />;
+  return <Navigate to={saved ?? "/home"} replace />;
 }
 
 /** /relay is the short address the relay tells people to type; the page itself is /relay/approve, code and all. */

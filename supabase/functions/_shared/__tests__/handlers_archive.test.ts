@@ -105,6 +105,7 @@ Deno.test(
     for (const token of [undefined, "anon-key"]) {
       const res = await handleArchive(req(token, undefined), {
         serviceRoleKey: KEY,
+        cronSecret: undefined,
         db: () => client,
         store: bucket.store,
       }, NOW);
@@ -112,6 +113,7 @@ Deno.test(
     }
     const unset = await handleArchive(req(KEY, undefined), {
       serviceRoleKey: undefined,
+      cronSecret: undefined,
       db: () => client,
       store: bucket.store,
     }, NOW);
@@ -137,6 +139,7 @@ Deno.test(
     const bucket = fakeStore(undefined);
     const res = await handleArchive(req(KEY, undefined), {
       serviceRoleKey: KEY,
+      cronSecret: undefined,
       db: () => client,
       store: bucket.store,
     }, NOW);
@@ -163,6 +166,7 @@ Deno.test("handleArchive answers 500 when any slice failed", async function (): 
   const bucket = fakeStore("HTTP 503");
   const res = await handleArchive(req(KEY, undefined), {
     serviceRoleKey: KEY,
+    cronSecret: undefined,
     db: () => client,
     store: bucket.store,
   }, NOW);
@@ -181,6 +185,7 @@ Deno.test(
     const client = fake.client;
     const res = await handleArchive(req(cronJwt, undefined), {
       serviceRoleKey: "sb_secret_runtime",
+      cronSecret: undefined,
       db: () => client,
       store: fakeStore(undefined).store,
     }, NOW);
@@ -205,7 +210,7 @@ Deno.test(
     const bucket = fakeStore(undefined);
     const res = await handleArchive(
       req(KEY, '{"sources":["aprs"]}'),
-      { serviceRoleKey: KEY, db: () => client, store: bucket.store },
+      { serviceRoleKey: KEY, cronSecret: undefined, db: () => client, store: bucket.store },
       NOW,
     );
     assertEquals(res.status, 200);
@@ -223,6 +228,7 @@ Deno.test(
       const bucket = fakeStore(undefined);
       const res = await handleArchive(req(KEY, body), {
         serviceRoleKey: KEY,
+        cronSecret: undefined,
         db: () => client,
         store: bucket.store,
       }, NOW);
@@ -241,6 +247,7 @@ Deno.test(
     const bucket = fakeStore(undefined);
     const res = await handleArchive(req(KEY, "{}"), {
       serviceRoleKey: KEY,
+      cronSecret: undefined,
       db: () => client,
       store: bucket.store,
     }, NOW);
@@ -267,6 +274,7 @@ Deno.test(
     const client = fake.client;
     const res = await handleArchive(req(KEY, undefined), {
       serviceRoleKey: KEY,
+      cronSecret: undefined,
       db: () => client,
       store: unconfigured,
     }, NOW);
@@ -283,6 +291,7 @@ Deno.test(
     const client = fake.client;
     const res = await handleArchive(brokenReq(), {
       serviceRoleKey: KEY,
+      cronSecret: undefined,
       db: () => client,
       store: fakeStore(undefined).store,
     }, NOW);

@@ -272,6 +272,7 @@ Deno.test(
         throttled: 0,
         skipped_paused: 0,
         errors: 0,
+        malformed: 0,
       },
       queue: { depth: 3, expired_last_hour: 1 },
     });
@@ -362,6 +363,7 @@ Deno.test("startSender claims again at once after a full batch", async function 
     throttled: 0,
     skipped_paused: 0,
     errors: 0,
+    malformed: 0,
   });
   await sender.shutdown();
   await sender.done;
@@ -568,6 +570,51 @@ Deno.test(
     h = await health(sender.addr.port);
     assertEquals(h.body.last_error, null);
     assertEquals(h.body.totals.sent, 2);
+    await sender.shutdown();
+    await sender.done;
+  },
+);
+
+Deno.test(
+  "startSender reports a claimed row that does not parse but keeps polling at pollMs",
+  async function (): Promise<void> {
+    const d = dest("d1", {});
+    // The bad row comes back at every claim until the expiry sweep drops it.
+    const broken = Object.assign({}, row(9, d), { attempts: "0" });
+    let next = 1;
+    function answer(call: RpcCall) {
+      if (call.fn === "claim_deliveries") {
+        next += 1;
+        return { data: [row(next, d), broken] };
+      }
+      return undefined;
+    }
+    const db = fakeDb(answer);
+    const clock = fakeClock(T0);
+    const logs: string[] = [];
+    const sender = startSender(config({ pollMs: 1_000 }), { db: db.db, send: allSent }, {
+      hostname: "127.0.0.1",
+      log: (line) => logs.push(line),
+      now: clock.now,
+      sleep: clock.sleep,
+    });
+    await waitFor("the first cycle", () => sender.status().totals.cycles === 1);
+    const h = await health(sender.addr.port);
+    assertEquals(h.status, 200);
+    assertStringIncludes(h.body.last_error, "claim_deliveries row 1: attempts");
+    assertEquals(h.body.totals.errors, 0);
+    assertEquals(h.body.totals.malformed, 1);
+    assertEquals(logs.some((line) => line.includes('"malformed":["runDeliveryBatch')), true);
+
+    // The next claims wait pollMs, never the doubling retry delay.
+    for (const cycle of [2, 3, 4]) {
+      await clock.advance(1_000);
+      await waitFor(`cycle ${String(cycle)}`, () => sender.status().totals.cycles === cycle);
+    }
+    assertEquals(1_000 * 3 < RETRY_MIN_MS, true);
+    assertEquals(sender.status().totals.sent, 4);
+    assertEquals(sender.status().totals.malformed, 4);
+    assertEquals(db.of("mark_deliveries_sent").length, 4);
     await sender.shutdown();
     await sender.done;
   },
@@ -802,6 +849,7 @@ Deno.test(
         throttled: 0,
         skipped_paused: 0,
         errors: 0,
+        malformed: 0,
       },
       queue: null,
     };

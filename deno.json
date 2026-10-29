@@ -61,8 +61,10 @@
         "deno.json",
         "inbound/Dockerfile",
         "inbound/deno.json",
+        "inbound/fly.toml",
         "sender/Dockerfile",
-        "sender/deno.json"
+        "sender/deno.json",
+        "sender/fly.toml"
       ]
     }
   }

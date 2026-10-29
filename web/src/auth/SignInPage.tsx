@@ -17,6 +17,7 @@ import SensorsIcon from "@mui/icons-material/Sensors";
 import heroUrl from "../assets/landing-hero.jpg";
 import { callsignAvailable, signIn, signInWithGoogle, signUp } from "../lib/api";
 import { isValidCallsign, normalizeCallsign } from "../lib/callsign";
+import { clearReturnPath, saveReturnPath } from "./returnPath";
 import { errorText, useApp } from "../app/hooks";
 
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
@@ -97,6 +98,7 @@ export function SignInPage() {
     setError(null);
     try {
       await signIn(ident, pw);
+      clearReturnPath(); // from a Google attempt abandoned on Google's page; state.from goes there now
       void navigate(state.from ?? "/home", { replace: true });
     } catch (err) {
       setError(errorText(err, "Couldn't sign in."));
@@ -132,13 +134,16 @@ export function SignInPage() {
     }
   };
 
-  // Leaves the page for Google's sign-in, so busy stays on until the browser goes.
+  // Leaves the page for Google's sign-in, so busy stays on until the browser goes. Router state
+  // doesn't survive the trip, so `from` waits in sessionStorage for the site root (App's ToHome).
   const doGoogle = async () => {
     setBusy(true);
     setError(null);
+    saveReturnPath(state.from);
     try {
       await signInWithGoogle();
     } catch (err) {
+      clearReturnPath();
       setError(errorText(err, "Couldn't sign in with Google."));
       setBusy(false);
     }

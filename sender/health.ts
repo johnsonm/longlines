@@ -15,6 +15,8 @@ export interface SenderTotals {
   skipped_paused: number;
   /** Bookkeeping RPCs that failed inside a cycle. */
   errors: number;
+  /** Claimed rows that did not parse; never sent, never a backoff. */
+  malformed: number;
 }
 
 export interface QueueStats {

@@ -18,6 +18,7 @@
 
 import { z } from "zod";
 import { hashApiToken } from "../supabase/functions/_shared/api/token.ts";
+import { rateLimitSubject } from "../supabase/functions/_shared/client_address.ts";
 import type { DeliveryRpc, DeliverySender } from "../supabase/functions/_shared/delivery/run.ts";
 import type { SendResult } from "../supabase/functions/_shared/delivery/send.ts";
 import type {
@@ -56,6 +57,18 @@ export const SHUTDOWN_GRACE_MS = 5_000;
  * backoff (contract 9.5).
  */
 export const MAX_HANDSHAKES = 4;
+/**
+ * Streams connecting at once from one client address (an IPv4 address or an IPv6 /64), so a
+ * single client holding handshakes open cannot take every MAX_HANDSHAKES slot and turn away
+ * every other relay. Refused like the global cap: 503, and the relay retries with its backoff.
+ */
+export const MAX_HANDSHAKES_PER_ADDRESS = 1;
+/**
+ * The header Fly's proxy sets to the address it accepted the connection from (sender/fly.toml's
+ * http_service fronts the stream); a client's own value does not survive the proxy. Without it
+ * (a local run) the connection's remote address counts.
+ */
+export const CLIENT_IP_HEADER = "fly-client-ip";
 /** SendResult.error for a relay with no open stream. */
 export const RELAY_NOT_CONNECTED = "Relay not connected";
 /** SendResult.error for a claimed row without the cluster_* values. */
@@ -108,6 +121,8 @@ export interface ClusterStreamConfig {
   maxBufferedBytes: number;
   /** MAX_HANDSHAKES in production. */
   maxHandshakes: number;
+  /** MAX_HANDSHAKES_PER_ADDRESS in production. */
+  maxHandshakesPerAddress: number;
   shutdownGraceMs: number;
   log: (message: string) => void;
 }
@@ -204,6 +219,28 @@ export function spotEvent(spot: DeliverySpot): SpotEvent | null {
     connection,
     spot_time: spotTime,
   };
+}
+
+/**
+ * Whom a handshake counts against: CLIENT_IP_HEADER's address, else the connection's remote
+ * address, keyed like the profile's rate limit (rateLimitSubject: IPv4 by address, IPv6 by /64).
+ * Anything else shares one "unknown" key.
+ */
+export function clientAddress(req: Request, info: Deno.ServeHandlerInfo): string {
+  const header = req.headers.get(CLIENT_IP_HEADER);
+  if (header !== null) {
+    const subject = rateLimitSubject(header);
+    if (subject !== null) {
+      return subject;
+    }
+  }
+  if (info.remoteAddr.transport === "tcp" || info.remoteAddr.transport === "udp") {
+    const subject = rateLimitSubject(info.remoteAddr.hostname);
+    if (subject !== null) {
+      return subject;
+    }
+  }
+  return "unknown";
 }
 
 /** A contract error response (section 8): `{"error": code}`, never cached. */
@@ -405,12 +442,8 @@ export function createClusterStream(config: ClusterStreamConfig): ClusterStream 
     return conn;
   }
 
-  /** The token's row, or the response that refuses it. */
-  async function authenticate(req: Request): Promise<RelayTokenRow | Response> {
-    const token = relayToken(req);
-    if (token === null) {
-      return streamError(401, "bad_token");
-    }
+  /** The well-formed token's row, or the response that refuses it. */
+  async function authenticate(token: string): Promise<RelayTokenRow | Response> {
     const auth = await db.rpc("authenticate_relay_token", {
       p_token_hash: await hashApiToken(token),
     });
@@ -458,27 +491,58 @@ export function createClusterStream(config: ClusterStreamConfig): ClusterStream 
     release(conn);
   }
 
-  /** Streams between their request and their hello (or refusal): MAX_HANDSHAKES caps it. */
+  /**
+   * Streams between their request and their hello (or refusal): MAX_HANDSHAKES caps them all,
+   * MAX_HANDSHAKES_PER_ADDRESS those of one client address (handshakesFrom, keyed by
+   * clientAddress; a key leaves the map when its count is back to 0).
+   */
   let handshakes = 0;
+  const handshakesFrom = new Map<string, number>();
+
+  /** Handshakes in flight from one client address. */
+  function handshakesOf(address: string): number {
+    const count = handshakesFrom.get(address);
+    if (count === undefined) {
+      return 0;
+    }
+    return count;
+  }
 
   async function handler(req: Request, info: Deno.ServeHandlerInfo): Promise<Response> {
     if (req.method !== "GET" || new URL(req.url).pathname !== SPOTS_PATH) {
       return streamError(404, "not_found");
     }
-    if (closing || handshakes >= config.maxHandshakes) {
+    // A missing or malformed token is refused before it takes a slot or reaches the database.
+    const token = relayToken(req);
+    if (token === null) {
+      return streamError(401, "bad_token");
+    }
+    const address = clientAddress(req, info);
+    const fromAddress = handshakesOf(address);
+    if (
+      closing || handshakes >= config.maxHandshakes ||
+      fromAddress >= config.maxHandshakesPerAddress
+    ) {
       return streamError(503, "server_error");
     }
     handshakes += 1;
+    handshakesFrom.set(address, fromAddress + 1);
     try {
-      return await handshake(req, info);
+      return await handshake(token, info);
     } finally {
       handshakes -= 1;
+      const left = handshakesOf(address) - 1;
+      if (left > 0) {
+        handshakesFrom.set(address, left);
+      } else {
+        handshakesFrom.delete(address);
+      }
     }
   }
 
   /** Authenticates the relay, makes its stream current, marks it connected and says hello. */
-  async function handshake(req: Request, info: Deno.ServeHandlerInfo): Promise<Response> {
-    const caller = await authenticate(req);
+  async function handshake(token: string, info: Deno.ServeHandlerInfo): Promise<Response> {
+    const caller = await authenticate(token);
     if (caller instanceof Response) {
       return caller;
     }

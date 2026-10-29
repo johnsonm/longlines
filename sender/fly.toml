@@ -23,11 +23,8 @@
 app = "longlines-sender"
 primary_region = "iad"
 
-# Relative to this file's directory (flyctl resolves it from the config's
-# location, not from the build context), so not "sender/Dockerfile".
-[build]
-  dockerfile = "Dockerfile"
-
+# Top-level keys, so ahead of every table: after [build] they would be
+# build.kill_signal and build.kill_timeout, which Fly ignores.
 # main.ts stops claiming on SIGINT and waits for the cycle in flight to finish
 # its sends and marks before exiting; there is no drain deadline, and a send
 # already started runs to its own 10 s timeout. 30 s covers an ordinary cycle
@@ -37,6 +34,11 @@ primary_region = "iad"
 # reappears after the 60 s visibility timeout and is sent once more.
 kill_signal = "SIGINT"
 kill_timeout = "30s"
+
+# Relative to this file's directory (flyctl resolves it from the config's
+# location, not from the build context), so not "sender/Dockerfile".
+[build]
+  dockerfile = "Dockerfile"
 
 # Restart the process whenever it exits, however often. The default on-failure
 # policy gives up after a few restarts, which would leave the sender down after

@@ -1,4 +1,10 @@
-import { assertEquals, assertExists, assertMatch, assertRejects } from "@std/assert";
+import {
+  assertEquals,
+  assertExists,
+  assertMatch,
+  assertRejects,
+  assertStringIncludes,
+} from "@std/assert";
 import { FunctionCallError, ValidationError } from "../errors.ts";
 import { runIngest } from "../ingest.ts";
 import { wwff } from "../wwff.ts";
@@ -44,7 +50,7 @@ function spotFor(raw: JsonObject): NormalizedSpot {
 /** Adapter whose feed items declare how they should be handled. */
 function fakeAdapter(
   feed: JsonObject[] | Error,
-  options: { epoch?: string; source?: Source },
+  options: { epoch?: string | Error; source?: Source },
 ): SourceAdapter & { fetchCount: number } {
   let source: Source = "pota";
   if (options.source !== undefined) {
@@ -83,7 +89,12 @@ function fakeAdapter(
   };
   if (options.epoch !== undefined) {
     const epoch = options.epoch;
-    adapter.fetchEpoch = () => Promise.resolve(epoch);
+    adapter.fetchEpoch = function (): Promise<string> {
+      if (epoch instanceof Error) {
+        return Promise.reject(epoch);
+      }
+      return Promise.resolve(epoch);
+    };
   }
   return adapter;
 }
@@ -200,11 +211,15 @@ Deno.test(
   },
 );
 
+// SOTAwatch's epochs are UUIDs (fixtures/sotawatch-epoch.txt).
+const EPOCH_1 = "7d7221c8-f4d9-4955-a976-ece92b4735b8";
+const EPOCH_2 = "0B3E9A51-2C4D-4E6F-8A7B-9C0D1E2F3A4B";
+
 Deno.test(
   "runIngest exits early when the upstream epoch is unchanged",
   async function (): Promise<void> {
-    const adapter = fakeAdapter([{ id: 1 }], { epoch: "e1", source: "sotawatch" });
-    const fake = fakeDb({ lastEpoch: "e1" });
+    const adapter = fakeAdapter([{ id: 1 }], { epoch: EPOCH_1, source: "sotawatch" });
+    const fake = fakeDb({ lastEpoch: EPOCH_1 });
     const db = fake.db;
     const calls = fake.calls;
     const summary = await runIngest(adapter, db, NOW);
@@ -212,21 +227,88 @@ Deno.test(
     assertEquals(summary.fetched, 0);
     assertEquals(adapter.fetchCount, 0);
     assertEquals(calls.ingested, []);
-    assertEquals(calls.success, [["sotawatch", 0, "e1"]]);
+    assertEquals(calls.success, [["sotawatch", 0, EPOCH_1]]);
   },
 );
 
 Deno.test(
   "runIngest fetches and stores the new epoch when it changed",
   async function (): Promise<void> {
-    const adapter = fakeAdapter([{ id: 1 }], { epoch: "e2", source: "sotawatch" });
-    const fake = fakeDb({ lastEpoch: "e1" });
+    const adapter = fakeAdapter([{ id: 1 }], { epoch: EPOCH_2, source: "sotawatch" });
+    const fake = fakeDb({ lastEpoch: EPOCH_1 });
     const db = fake.db;
     const calls = fake.calls;
     const summary = await runIngest(adapter, db, NOW);
     assertEquals(summary.epoch_unchanged, false);
     assertEquals(adapter.fetchCount, 1);
-    assertEquals(calls.success, [["sotawatch", 1, "e2"]]);
+    assertEquals(calls.success, [["sotawatch", 1, EPOCH_2]]);
+  },
+);
+
+const EPOCH_FETCH_FAILURES: Array<[string, Error]> = [
+  ["a non-2xx", new FunctionCallError("GET epoch: HTTP 503", { cause: undefined, status: 503 })],
+  ["a network error", new TypeError("error sending request")],
+  ["a timeout", new DOMException("Signal timed out.", "TimeoutError")],
+];
+
+for (const entry of EPOCH_FETCH_FAILURES) {
+  const name = entry[0];
+  const failure = entry[1];
+  Deno.test(
+    `runIngest fetches the spots when the epoch fetch fails with ${name}`,
+    async function (): Promise<void> {
+      const adapter = fakeAdapter([{ id: 1 }], { epoch: failure, source: "sotawatch" });
+      const fake = fakeDb({ lastEpoch: EPOCH_1 });
+      async function ingests(): Promise<void> {
+        const summary = await runIngest(adapter, fake.db, NOW);
+        assertEquals(summary.epoch_unchanged, false);
+        assertEquals(summary.inserted, 1);
+      }
+      const logged = await capturingErrors(ingests);
+      assertEquals(adapter.fetchCount, 1);
+      // null keeps the stored epoch (coalesce in record_ingest_success).
+      assertEquals(fake.calls.success, [["sotawatch", 1, null]]);
+      assertEquals(fake.calls.failure, []);
+      assertEquals(logged.length, 1);
+      const line = String(logged[0]);
+      assertStringIncludes(line, "ingest-sotawatch: epoch unusable, fetching spots anyway");
+      assertStringIncludes(line, failure.message);
+    },
+  );
+}
+
+for (const junk of ["", "<html>Down for maintenance</html>", "null", "e1", `${EPOCH_1}x`]) {
+  Deno.test(
+    `runIngest neither compares nor stores a malformed epoch (${JSON.stringify(junk)})`,
+    async function (): Promise<void> {
+      const adapter = fakeAdapter([{ id: 1 }], { epoch: junk, source: "sotawatch" });
+      // Even a stored value equal to the junk (from before this check) must not skip the run.
+      const fake = fakeDb({ lastEpoch: junk });
+      async function ingests(): Promise<void> {
+        const summary = await runIngest(adapter, fake.db, NOW);
+        assertEquals(summary.epoch_unchanged, false);
+        assertEquals(summary.inserted, 1);
+      }
+      const logged = await capturingErrors(ingests);
+      assertEquals(adapter.fetchCount, 1);
+      assertEquals(fake.calls.success, [["sotawatch", 1, null]]);
+      assertEquals(logged.length, 1);
+      assertStringIncludes(String(logged[0]), "not a UUID");
+    },
+  );
+}
+
+Deno.test(
+  "runIngest fails the run on an epoch error that is not a fetch failure",
+  async function (): Promise<void> {
+    const adapter = fakeAdapter([{ id: 1 }], {
+      epoch: new RangeError("a bug"),
+      source: "sotawatch",
+    });
+    const fake = fakeDb({});
+    await assertRejects(() => runIngest(adapter, fake.db, NOW), RangeError, "a bug");
+    assertEquals(adapter.fetchCount, 0);
+    assertEquals(fake.calls.failure, [["sotawatch", "a bug"]]);
   },
 );
 

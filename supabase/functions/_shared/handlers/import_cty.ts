@@ -1,5 +1,5 @@
-// The country-file import, called weekly by pg_cron with the service-role key
-// (Vault). Downloads cty.dat, parses it and swaps it into cty_entities and
+// The country-file import, called weekly by pg_cron with the cron secret
+// (Vault; isServiceRole). Downloads cty.dat, parses it and swaps it into cty_entities and
 // cty_prefixes through load_cty. Any failure leaves the loaded set as it was
 // and answers 500, so it shows up in net._http_response.
 
@@ -16,6 +16,8 @@ const MIN_ENTITIES = 300;
 
 export interface ImportCtyDeps {
   serviceRoleKey: string | undefined;
+  /** LONGLINES_CRON_SECRET: pg_cron's x-cron-secret (isServiceRole). */
+  cronSecret: string | undefined;
   db: () => SupabaseClient;
   fetchCty: () => Promise<string>;
 }
@@ -27,7 +29,7 @@ export function handleImportCty(req: Request, deps: ImportCtyDeps): Promise<Resp
 
 async function importCty(req: Request, deps: ImportCtyDeps): Promise<Response> {
   // Only the service role (cron, or an operator) may replace the country tables.
-  if (!await isServiceRole(req, deps.serviceRoleKey)) {
+  if (!await isServiceRole(req, deps.serviceRoleKey, deps.cronSecret)) {
     return Response.json({ error: "Forbidden" }, { status: 403 });
   }
   // The boundary: a failed download (FunctionCallError), a file that does not parse or is too short

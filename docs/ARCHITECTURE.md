@@ -102,9 +102,12 @@ and `pgmq.metrics('spot_events')` doubles as a check that the insert path is liv
 
 ## Why Vault for the cron credentials
 
-The cron jobs call the functions over HTTP with the service-role key. The URL and key live in
-Supabase Vault (`vault.decrypted_secrets`), encrypted at rest, created once by
-`scripts/setup-db-settings.sql`. Migrations never contain them.
+The cron jobs call the functions over HTTP with the anon key as the bearer (to pass `verify_jwt`)
+and a cron secret in `x-cron-secret`, which `isServiceRole` checks against `LONGLINES_CRON_SECRET`.
+Never the service-role key: pg_net queues each request in `net.http_request_queue`, which every
+database role can read (`20261029000500`; it falls back to the service-role key only until both new
+secrets exist). The URL and secrets live in Supabase Vault (`vault.decrypted_secrets`), encrypted
+at rest, created once by `scripts/setup-db-settings.sql`. Migrations never contain them.
 
 ## Scheduling
 
@@ -915,8 +918,8 @@ side: contacts arrive when someone logs.
 
 ```mermaid
 flowchart LR
-  CRON[pg_cron every 10 min] -- "service-role key" --> A[archive function]
-  CRONA[pg_cron every 5 min: sources aprs] -- "service-role key" --> A
+  CRON[pg_cron every 10 min] -- "cron secret" --> A[archive function]
+  CRONA[pg_cron every 5 min: sources aprs] -- "cron secret" --> A
   A -- "rpc archive_pending_slices" --> P[(due slices)]
   A -- "rpc archive_columns" --> N[(rbn_spots / aprs_packets / raw_spots)]
   A -- "encode Parquet, signed PUT" --> S[[Backblaze B2 bucket]]
@@ -947,7 +950,7 @@ object.
   milliseconds. The function only encodes Parquet (`hyparquet-writer`, snappy, one row group a
   file; column types in `ARCHIVE_SCHEMAS`) and uploads, which measured at about 0.25 s for a full
   60,000-row run against the 2 s CPU limit.
-- **Runs.** pg_cron calls `archive` every 10 minutes with the service-role key (Vault), like the
+- **Runs.** pg_cron calls `archive` every 10 minutes with the cron secret (Vault), like the
   ingest jobs. A run takes POTA, then SOTAwatch, then DX Cluster, then WWFF, then WWBOTA, then RBN
   (`ARCHIVE_ORDER`), oldest first, and starts no new slice once it has archived 60,000 rows, so a backlog clears about six times faster
   than real time without risking the CPU limit. APRS-IS is not in that list: at ~100 packets a
@@ -990,7 +993,7 @@ object.
 
 ```mermaid
 flowchart LR
-  CRON[pg_cron Mondays 04:20 UTC] -- "service-role key" --> F[import-cty function]
+  CRON[pg_cron Mondays 04:20 UTC] -- "cron secret" --> F[import-cty function]
   F -- "GET cty.dat" --> C[[country-files.com]]
   F -- "rpc load_cty" --> T[(cty_entities, cty_prefixes, cty_load)]
   Q[profiles, rollups] -- "cty_lookup(call)" --> T

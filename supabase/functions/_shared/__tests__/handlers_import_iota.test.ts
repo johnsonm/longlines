@@ -42,6 +42,7 @@ Deno.test(
     for (const token of [undefined, "anon-key"]) {
       const res = await handleImportIota(req(token), {
         serviceRoleKey: KEY,
+        cronSecret: undefined,
         db: () => client,
         fetchGroups,
       });
@@ -60,6 +61,7 @@ Deno.test(
     const calls = fake.calls;
     const res = await handleImportIota(req(KEY), {
       serviceRoleKey: KEY,
+      cronSecret: undefined,
       db: () => client,
       fetchGroups: () => Promise.resolve(groups(1200)),
     });
@@ -91,6 +93,7 @@ Deno.test(
       const client = fake.client;
       const res = await handleImportIota(req(KEY), {
         serviceRoleKey: KEY,
+        cronSecret: undefined,
         db: () => client,
         fetchGroups: () => Promise.resolve(body),
       });
@@ -106,6 +109,7 @@ Deno.test(
     const down = fakeSupabase({});
     const res = await handleImportIota(req(KEY), {
       serviceRoleKey: KEY,
+      cronSecret: undefined,
       db: () => down.client,
       fetchGroups: () => Promise.reject(new Error("GET groups.json failed: HTTP 503")),
     });
@@ -115,6 +119,7 @@ Deno.test(
     const fake = fakeSupabase({ rpc: { load_iota_groups: { error: { message: "boom" } } } });
     const failed = await handleImportIota(req(KEY), {
       serviceRoleKey: KEY,
+      cronSecret: undefined,
       db: () => fake.client,
       fetchGroups: () => Promise.resolve(groups(1200)),
     });
@@ -124,6 +129,7 @@ Deno.test(
     const odd = fakeSupabase({ rpc: { load_iota_groups: { data: "lots" } } });
     const unread = await handleImportIota(req(KEY), {
       serviceRoleKey: KEY,
+      cronSecret: undefined,
       db: () => odd.client,
       fetchGroups: () => Promise.resolve(groups(1200)),
     });
@@ -135,6 +141,7 @@ Deno.test("handleImportIota reports a thrown non-Error as text", async function 
   const fake = fakeSupabase({});
   const res = await handleImportIota(req(KEY), {
     serviceRoleKey: KEY,
+    cronSecret: undefined,
     db: () => fake.client,
     fetchGroups: () => rejectWith("socket closed"),
   });

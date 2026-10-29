@@ -3,7 +3,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(53);
+select plan(55);
 
 -- Drain anything already queued so counts below are exact.
 select pgmq.purge_queue('spot_events');
@@ -202,6 +202,22 @@ select ok(pg_get_functiondef('public.match_pending_spots(int)'::regprocedure) no
   'match_pending_spots no longer calls net.http_post');
 select ok(pg_get_functiondef('public.match_pending_spots(int)'::regprocedure) like '%pg_notify(''deliveries''%',
   'match_pending_spots notifies the deliveries channel');
+
+-- Runs are serial (20261029000100). Two runs at once need two sessions, which pgTAP does not have,
+-- so this pins the mechanism instead: the advisory lock is taken before pgmq.read, as its own
+-- statement (each later statement's snapshot then sees the previous run's committed quiet
+-- stamps), and held until the transaction ends.
+select ok(position('pg_advisory_xact_lock(hashtextextended(''match_pending_spots'', 0))' in p.prosrc) between 1
+            and position('pgmq.read' in p.prosrc),
+  'match_pending_spots takes its advisory lock before it reads the queue')
+from pg_proc p where p.oid = 'public.match_pending_spots(int)'::regprocedure;
+select match_pending_spots();
+select ok(exists (
+    select 1 from pg_locks l
+    where l.locktype = 'advisory' and l.pid = pg_backend_pid() and l.granted and l.objsubid = 1
+      and l.classid = ((hashtextextended('match_pending_spots', 0) >> 32) & 4294967295)::oid
+      and l.objid = (hashtextextended('match_pending_spots', 0) & 4294967295)::oid),
+  'match_pending_spots holds the lock until its transaction ends');
 
 select * from finish();
 rollback;

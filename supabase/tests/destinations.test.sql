@@ -2,7 +2,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(69);
+select plan(75);
 
 select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
 
@@ -97,6 +97,31 @@ select isnt(rotate_signing_secret((select id from d2)), (select signing_secret f
 select pg_temp.as_user('22222222-2222-2222-2222-222222222222');
 select is((select count(*) from destinations), 0::bigint, 'other user sees no destinations');
 select throws_ok(format('select rotate_signing_secret(%L)', (select id from d2)), 'P0001', 'Destination not found.', 'other user cannot rotate');
+
+-- Account cap (20261029000200): 50 destinations, counted on every create path; existing rows stay.
+reset role;
+insert into destinations (user_id, type, name, url, url_display)
+select '22222222-2222-2222-2222-222222222222', 'discord', 'Cap ' || i, 'https://discord.com/api/webhooks/1/' || i, 'x'
+from generate_series(1, 50 - (select count(*) from destinations where user_id = '22222222-2222-2222-2222-222222222222')) as i;
+select is((select count(*) from destinations where user_id = '22222222-2222-2222-2222-222222222222'), 50::bigint,
+  'an account can hold 50 destinations');
+select pg_temp.as_user('22222222-2222-2222-2222-222222222222');
+select throws_ok($$ select create_destination('discord', 'One more', 'https://discord.com/api/webhooks/1/more') $$,
+  'P0001', 'You can have up to 50 destinations.', 'create_destination refuses a 51st destination');
+select throws_ok($$ select save_push_destination(null, 'One more', true, null, null) $$,
+  'P0001', 'You can have up to 50 destinations.', 'save_push_destination refuses a 51st destination');
+select throws_ok(format('select duplicate_destination(%L)',
+    (select id from destinations where user_id = '22222222-2222-2222-2222-222222222222' and name = 'Cap 1')),
+  'P0001', 'You can have up to 50 destinations.', 'duplicate_destination refuses a 51st destination');
+reset role;
+select lives_ok($$update destinations set name = 'Cap renamed', enabled = false
+                  where user_id = '22222222-2222-2222-2222-222222222222' and name = 'Cap 1'$$,
+  'a destination of a full account can still be changed: only creates are counted');
+delete from destinations where user_id = '22222222-2222-2222-2222-222222222222' and name = 'Cap 2';
+select pg_temp.as_user('22222222-2222-2222-2222-222222222222');
+select lives_ok($$ select create_destination('discord', 'One more', 'https://discord.com/api/webhooks/1/more') $$,
+  'deleting one makes room again');
+reset role;
 
 select * from finish();
 rollback;

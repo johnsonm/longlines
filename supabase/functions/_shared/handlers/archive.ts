@@ -1,4 +1,4 @@
-// The archive worker, called by pg_cron with the service-role key (Vault):
+// The archive worker, called by pg_cron with the cron secret (Vault):
 // every 10 minutes for the default sources, and every 5 minutes with
 // {"sources": ["aprs"]} for APRS-IS. Runs runArchive over the slice RPCs and
 // the archive bucket (B2) and returns its summary; 500 when any slice failed or
@@ -14,6 +14,8 @@ import type { ArchiveStore, Source } from "../types.ts";
 
 export interface ArchiveDeps {
   serviceRoleKey: string | undefined;
+  /** LONGLINES_CRON_SECRET: pg_cron's x-cron-secret (isServiceRole). */
+  cronSecret: string | undefined;
   db: () => SupabaseClient;
   /** Throws when the LONGLINES_ARCHIVE_S3_* secrets are missing or bad. */
   store: () => ArchiveStore;
@@ -30,7 +32,7 @@ export function handleArchive(
 
 async function archive(req: Request, deps: ArchiveDeps, now: Date): Promise<Response> {
   // Only the service role (cron) may run the archive.
-  if (!await isServiceRole(req, deps.serviceRoleKey)) {
+  if (!await isServiceRole(req, deps.serviceRoleKey, deps.cronSecret)) {
     return Response.json({ error: "Forbidden" }, { status: 403 });
   }
   let sources: readonly Source[];

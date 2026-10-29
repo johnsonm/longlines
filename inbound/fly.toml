@@ -1,34 +1,54 @@
-# fly.toml app configuration file generated for longlines-inbound on 2026-10-28T17:31:04Z
+# Fly.io app for the inbound worker (inbound/). Each Fly app's config lives in its
+# own folder (inbound/fly.toml, sender/fly.toml); Fly's GitHub integration for
+# this app has "Config path" set to inbound/fly.toml and the working directory
+# left at the repository root, so the build context is the root and the image
+# gets supabase/functions/_shared. To deploy by hand from the root:
+#   fly deploy --config inbound/fly.toml --ha=false
+# Secrets (fly secrets set ...): LONGLINES_FUNCTIONS_URL, LONGLINES_INBOUND_SECRET,
+# INBOUND_LOGIN_CALL, and optionally DXCLUSTER_HOST / DXCLUSTER_PORT to pick a DX
+# Cluster node other than the default. APRS_LOGIN_CALL (a call-SSID no other
+# client uses) turns on the APRS-IS full feed; APRS_HOST / APRS_PORT pick another
+# server. See docs/OPERATIONS.md.
 #
-# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
-#
+# Fly Launch once overwrote this file; inbound/__tests__/fly_config.test.ts now
+# checks kill_timeout against DRAIN_MS and that no [http_service] comes back.
 
-app = 'longlines-inbound'
-primary_region = 'iad'
+app = "longlines-inbound"
+primary_region = "iad"
 
+# Top-level keys, so ahead of every table: after [build] they would be
+# build.kill_signal and build.kill_timeout, which Fly ignores.
+# Fly's default kill signal; main.ts pushes buffered lines on it. Shutdown drains
+# for at most DRAIN_MS (20 s, inbound/inbound.ts) and aborts the push in flight then,
+# so kill_timeout must stay above it or Fly kills the process mid-push.
+kill_signal = "SIGINT"
+kill_timeout = "30s"
+
+# Relative to this file's directory, not to the build context.
 [build]
-  dockerfile = 'Dockerfile'
+  dockerfile = "Dockerfile"
 
-[http_service]
-  internal_port = 8080
-  force_https = true
-  auto_stop_machines = 'stop'
-  auto_start_machines = true
-  min_machines_running = 1
-  processes = ['app']
-
-[checks]
-  [checks.healthz]
-    port = 8080
-    type = 'http'
-    interval = '30s'
-    timeout = '5s'
-    grace_period = '1m0s'
-    path = '/healthz'
-
-[[vm]]
-  size = 'shared-cpu-1x'
-  memory = '256mb'
-
+# Restart the process whenever it exits, however often. The default on-failure
+# policy gives up after a few restarts, which would leave ingestion down after
+# a long outage even once the cause is gone. A stop made through Fly (deploy,
+# fly machine stop) is not an exit this policy restarts.
 [[restart]]
   policy = "always"
+
+# One machine, smallest size. Exactly one copy may run: a second would open a
+# second telnet session to each upstream.
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
+
+# No [http_service]: the inbound worker accepts no public traffic, and an http_service
+# with auto_stop_machines would stop the machine for lack of requests. The check
+# reaches the health port over Fly's private network and shows in `fly checks list`.
+[checks]
+  [checks.healthz]
+    type = "http"
+    port = 8080
+    path = "/healthz"
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "60s"

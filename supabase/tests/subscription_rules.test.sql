@@ -5,7 +5,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(110);
+select plan(115);
 
 -- Start from empty tables so watched_among and preview see only these rows.
 delete from deliveries;
@@ -236,6 +236,16 @@ select lives_ok(format('select pg_temp.norm(%L)', (
     select jsonb_build_array(jsonb_agg('{"field":"band","op":"is","values":["20m"]}'::jsonb))
     from generate_series(1, 50))),
   '50 rules are allowed');
+-- At most 5,000 values across a connection's rules (20261029000200), counted after normalising.
+create temp table five_k as
+  select jsonb_agg(jsonb_build_object('field', 'callsign', 'op', 'is_not', 'values',
+           (select jsonb_agg('W' || (g * 1000 + i)) from generate_series(1, 1000) as i))) as rules
+  from generate_series(1, 5) as g;
+select lives_ok(format('select pg_temp.norm(%L)', (select jsonb_build_array(rules) from five_k)),
+  '5,000 values across five rules are allowed');
+select throws_ok(format('select pg_temp.norm(%L)', (select jsonb_build_array(
+    rules || '[{"field":"band","op":"is","values":["20m"]}]'::jsonb) from five_k)),
+  'P0001', 'A connection can have up to 5,000 values across its rules.', 'a 5,001st value is refused');
 select throws_ok(format('select pg_temp.norm(%L)', jsonb_build_array(jsonb_build_array(
     jsonb_build_object('field', 'group', 'op', 'is', 'values', array[(select id from other_grp)])))),
   'P0001', 'Group not found.', 'strict: another user''s group is refused');
@@ -430,6 +440,22 @@ select ok(not has_function_privilege('authenticated', 'public.normalize_subscrip
   'clients cannot call the rule helpers');
 select hasnt_function('public', 'edit_subscription_callsigns', array['uuid', 'jsonb', 'jsonb'], 'edit_subscription_callsigns is dropped');
 select hasnt_column('public', 'subscriptions', 'callsigns', 'the callsigns column is gone');
+
+-- Account cap (20261029000200): 100 connections. Only a create is refused; a full account can
+-- still save the connections it has.
+reset role;
+insert into subscriptions (user_id, name)
+select '22222222-2222-2222-2222-222222222222', 'Cap ' || i
+from generate_series(1, 100 - (select count(*) from subscriptions where user_id = '22222222-2222-2222-2222-222222222222')) as i;
+select is((select count(*) from subscriptions where user_id = '22222222-2222-2222-2222-222222222222'), 100::bigint,
+  'an account can hold 100 connections');
+select pg_temp.as_user('22222222-2222-2222-2222-222222222222');
+select throws_ok($$ select save_subscription('{"name":"One more"}') $$,
+  'P0001', 'You can have up to 100 connections.', 'save_subscription refuses a 101st connection');
+select lives_ok(format('select save_subscription(%L)', jsonb_build_object('id',
+    (select id from subscriptions where user_id = '22222222-2222-2222-2222-222222222222' and name = 'Cap 1'), 'name', 'Cap renamed')),
+  'a connection of a full account can still be saved');
+reset role;
 
 select * from finish();
 rollback;

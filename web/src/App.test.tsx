@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { StrictMode } from "react";
 import { MemoryRouter } from "react-router";
 import type { Session } from "@supabase/supabase-js";
 import App from "./App";
@@ -11,6 +12,7 @@ import { withoutQueryOrHash } from "./lib/analytics";
 import { Analytics } from "@vercel/analytics/react";
 import { SpeedInsights } from "@vercel/speed-insights/react";
 import { PROFILE, SESSION } from "./test/render";
+import { peekReturnPath, saveReturnPath } from "./auth/returnPath";
 
 vi.mock("./auth/useSession", () => ({ useSession: vi.fn() }));
 vi.mock("./lib/api", () => ({ loadProfile: vi.fn(), loadDestinations: vi.fn(), loadSubscriptions: vi.fn(), signOut: vi.fn() }));
@@ -113,6 +115,7 @@ const DEST = { id: "d1", name: "Shack", health: "ok" } as Destination;
 
 beforeEach(() => {
   localStorage.clear();
+  sessionStorage.clear();
   session(SESSION);
   vi.mocked(loadProfile).mockReset().mockResolvedValue({ ...PROFILE, timezone: "Asia/Tokyo" });
   vi.mocked(loadDestinations).mockReset().mockResolvedValue([DEST]);
@@ -204,6 +207,57 @@ describe("App routing", () => {
         <App />
       </MemoryRouter>,
     );
+    expect(await screen.findByText(/^home page/)).toBeInTheDocument();
+  });
+
+  it("goes on from the site root to the page a Google sign-in started from, once", async () => {
+    saveReturnPath("/relay/approve?code=KQ7M-X4PD");
+    session(null, true);
+    const { rerender } = renderAt("/");
+    expect(screen.getByRole("progressbar")).toBeInTheDocument();
+    expect(peekReturnPath()).toBe("/relay/approve?code=KQ7M-X4PD");
+    session(SESSION);
+    rerender(
+      <MemoryRouter initialEntries={["/"]}>
+        <App />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText("relay approve page ?code=KQ7M-X4PD")).toBeInTheDocument();
+    expect(peekReturnPath()).toBeNull();
+  });
+
+  it("keeps the saved page through StrictMode's double render", async () => {
+    saveReturnPath("/connections/new?source=pota&reference=US-0001");
+    render(
+      <StrictMode>
+        <MemoryRouter initialEntries={["/"]}>
+          <App />
+        </MemoryRouter>
+      </StrictMode>,
+    );
+    expect(await screen.findByText("subscription editor new pota any reference US-0001")).toBeInTheDocument();
+    expect(peekReturnPath()).toBeNull();
+  });
+
+  it("asks a new Google account for its callsign on the saved page", async () => {
+    vi.mocked(loadProfile).mockResolvedValue(null);
+    saveReturnPath("/relay/approve?code=KQ7M-X4PD");
+    renderAt("/");
+    expect(await screen.findByText("complete-profile page")).toBeInTheDocument();
+    expect(peekReturnPath()).toBeNull();
+  });
+
+  it("sends a failed or cancelled Google sign-in to sign in, still headed for the saved page", async () => {
+    session(null);
+    saveReturnPath("/relay/approve?code=KQ7M-X4PD");
+    renderAt("/");
+    expect(await screen.findByText("sign-in page /relay/approve?code=KQ7M-X4PD")).toBeInTheDocument();
+    expect(peekReturnPath()).toBeNull();
+  });
+
+  it("ignores a saved value that is not a path on this site", async () => {
+    sessionStorage.setItem("longlines.returnPath", "//evil.example/x");
+    renderAt("/");
     expect(await screen.findByText(/^home page/)).toBeInTheDocument();
   });
 

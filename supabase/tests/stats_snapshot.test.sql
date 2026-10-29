@@ -4,7 +4,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(198);
+select plan(205);
 
 -- Start from empty tables so every count below is exact. Both are empty on a
 -- fresh CI database; locally the cron jobs may have filled them. deliveries
@@ -527,15 +527,40 @@ select is(pg_temp.snap() #>> '{hourly,167,hour}',
 -- The two cron jobs (20261022000100): the :05 snapshot never makes a day rollup; rollup-stats-days
 -- at :01 makes them.
 delete from rbn_rollup_days;
+delete from aprs_rollup_days;
+delete from country_rollup_days;
 select lives_ok('select refresh_stats_snapshot()', 'the snapshot job runs with no day rolled up');
 select is((select count(*) from rbn_rollup_days), 0::bigint, 'the snapshot job makes no day rollup');
+-- The cron entry point catches a window with every day missing up a few days a run, oldest first
+-- (20261029000400): 3 RBN, 2 APRS-IS and 3 country days, so each run fits the statement timeout.
+create function pg_temp.rolled() returns text language sql as $$
+  select format('rbn %s, aprs %s, countries %s', (select count(*) from rbn_rollup_days),
+                (select count(*) from aprs_rollup_days), (select count(*) from country_rollup_days));
+$$;
 select lives_ok('select refresh_stats_rollups()', 'refresh_stats_rollups runs');
-select is((select count(*) from rbn_rollup_days), 7::bigint, 'refresh_stats_rollups rolls up each window day');
+select is(pg_temp.rolled(), 'rbn 3, aprs 2, countries 3', 'the first run rolls up at most its caps');
+select is((select array_agg(day order by day) from rbn_rollup_days),
+          array(select (now() at time zone 'utc')::date - i from generate_series(7, 5, -1) as i),
+          'oldest days first');
+select refresh_stats_rollups();
+select is(pg_temp.rolled(), 'rbn 6, aprs 4, countries 6', 'the second run catches up as many more');
+select refresh_stats_rollups();
+select is(pg_temp.rolled(), 'rbn 7, aprs 6, countries 7', 'the third finishes RBN and the countries');
+select refresh_stats_rollups();
+select is(pg_temp.rolled(), 'rbn 7, aprs 7, countries 7', 'the fourth finishes APRS-IS: the window is caught up');
+delete from rbn_rollup_days where day > (now() at time zone 'utc')::date - 5;
+delete from country_rollup_days;
+select refresh_stats_rollups_at(now(), 0, 0, 7);
+select is((select count(*) from country_rollup_days), 3::bigint,
+          'a country day waits for its RBN day');
+select lives_ok('select refresh_stats_rollups_at(now())', 'the one-argument form takes no cap');
+select is(pg_temp.rolled(), 'rbn 7, aprs 7, countries 7', 'and rolls up every day that needs it in one call');
 select is((select schedule from cron.job where jobname = 'rollup-stats-days'), '1 * * * *',
           'rollup-stats-days runs at one past every hour');
 select ok(not has_function_privilege('authenticated', 'public.refresh_stats_rollups()', 'execute')
           and not has_function_privilege('anon', 'public.refresh_stats_rollups()', 'execute')
           and not has_function_privilege('authenticated', 'public.refresh_stats_rollups_at(timestamptz)', 'execute')
+          and not has_function_privilege('authenticated', 'public.refresh_stats_rollups_at(timestamptz, int, int, int)', 'execute')
           and not has_function_privilege('authenticated', 'public.build_stats_snapshot_at(timestamptz)', 'execute'),
           'clients cannot run the rollups or build a snapshot');
 

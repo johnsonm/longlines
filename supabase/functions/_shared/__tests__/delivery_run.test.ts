@@ -165,6 +165,7 @@ Deno.test(
       skipped_paused: 0,
       unattempted: 0,
       errors: [],
+      malformed: [],
       destinations: [],
     });
     assertEquals(DEFAULT_CONCURRENCY, 4);
@@ -232,9 +233,11 @@ Deno.test(
       [out.result.claimed, out.result.sent, out.result.failed, out.result.unattempted],
       [3, 2, 0, 1],
     );
-    assertEquals(out.result.errors, [
+    assertEquals(out.result.malformed, [
       "runDeliveryBatch: claim_deliveries row 1: attempts: Invalid input: expected number, received string",
     ]);
+    // Not a bookkeeping failure: the sender backs off only on those.
+    assertEquals(out.result.errors, []);
     // Never marked: its message reappears after the visibility timeout.
     assertEquals(out.calls.slice(1), [
       { fn: "mark_deliveries_sent", args: { p_delivery_ids: [1, 3], p_msg_ids: [10, 30] } },

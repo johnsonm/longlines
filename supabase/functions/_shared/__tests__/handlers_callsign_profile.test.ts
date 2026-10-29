@@ -7,9 +7,9 @@ import {
   MAX_LOOKUPS_PER_MINUTE,
   parseCallsign,
   PROFILE_CACHE_CONTROL,
-  rateLimitSubject,
   TOO_MANY_LOOKUPS,
 } from "../handlers/callsign_profile.ts";
+import { rateLimitSubject } from "../client_address.ts";
 import { hmacKey, hmacSha256Hex } from "../hmac.ts";
 import { fakeSupabase, type FakeSupabaseOptions } from "./fake_supabase.ts";
 

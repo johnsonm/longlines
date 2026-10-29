@@ -7,7 +7,7 @@
 -- stream).
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(18);
+select plan(22);
 
 select ok(exists (
   select 1 from pg_roles
@@ -62,6 +62,29 @@ select is(
       and has_table_privilege('delivery_sender', format('%I.%I', schemaname, tablename),
                               'select, insert, update, delete')),
   0::bigint, 'no privilege on any pgmq table');
+
+-- pg_net's request queue is supabase_admin's, granted to PUBLIC, and postgres cannot revoke that,
+-- so this role (any role) can read every queued request. cron_call_function (20261029000500)
+-- therefore sends the anon key and the cron secret, never the service-role key, once Vault holds
+-- both new secrets; until then it falls back to the service-role header for the rollout.
+select ok(has_table_privilege('delivery_sender', 'net.http_request_queue', 'select'),
+  'the role can still read pg_net''s queue (its PUBLIC grant), so no key may be queued there');
+delete from vault.secrets
+where name in ('longlines_supabase_url', 'longlines_service_role_key', 'longlines_anon_key', 'longlines_cron_secret');
+select vault.create_secret('http://127.0.0.1:9', 'longlines_supabase_url');
+select vault.create_secret('pgtap-service-role-key', 'longlines_service_role_key');
+create temp table cron_old as select public.cron_call_function('pgtap', 'ingest-pota', '{}'::jsonb, 1000) as id;
+select is((select q.headers ->> 'Authorization' from net.http_request_queue q where q.id = (select id from cron_old)),
+  'Bearer pgtap-service-role-key', 'without the new secrets cron still sends the service-role key (rollout)');
+select vault.create_secret('pgtap-anon-key', 'longlines_anon_key');
+select vault.create_secret('pgtap-cron-secret', 'longlines_cron_secret');
+create temp table cron_new as select public.cron_call_function('pgtap', 'ingest-pota', '{}'::jsonb, 1000) as id;
+select is((select q.headers from net.http_request_queue q where q.id = (select id from cron_new)),
+  '{"Content-Type": "application/json", "Authorization": "Bearer pgtap-anon-key", "x-cron-secret": "pgtap-cron-secret"}'::jsonb,
+  'with them a queued cron request carries the anon key and the cron secret');
+select is(position('pgtap-service-role-key' in (select q.headers::text from net.http_request_queue q
+                                                where q.id = (select id from cron_new))), 0,
+  'and not the service-role key');
 
 -- As the role. The runner's postgres user is not a superuser, so it joins the
 -- role for the rest of this transaction; pgTAP lives in extensions, so the
