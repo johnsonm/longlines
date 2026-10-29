@@ -3,7 +3,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(34);
+select plan(30);
 
 -- Start from empty tables so the counts below are exact: supabase/seed.sql fills
 -- them on a local reset and on preview branches. The test rolls back, so the
@@ -69,7 +69,6 @@ select throws_ok('select * from ingest_state', '42501', null, 'ingest_state stay
 select throws_ok('select * from deliveries', '42501', null, 'deliveries hidden from clients');
 select throws_ok('select * from subscription_quiet', '42501', null, 'subscription_quiet hidden from clients');
 select throws_ok('select * from sign_in_attempts', '42501', null, 'sign_in_attempts hidden from clients');
-select throws_ok($$ select email_for_identifier('KK4PWJ') $$, '42501', null, 'email lookup not callable by clients');
 select throws_ok($$ select begin_sign_in_attempt('KK4PWJ', 'c') $$, '42501', null, 'attempt recording not callable by clients');
 select throws_ok($$ select forget_sign_in_attempt(1) $$, '42501', null, 'forgetting attempts not callable by clients');
 
@@ -84,11 +83,6 @@ reset role;
 select is((select count(*) from pg_class c where c.relnamespace = 'public'::regnamespace and c.relkind = 'v'
            and c.relname in ('recent_spots', 'ingest_health') and 'security_invoker=true' = any(c.reloptions)),
           2::bigint, 'recent_spots and ingest_health are invoker views');
-
--- Service role helpers (run as the owner here; grants are checked above).
-select is(email_for_identifier(' kk4pwj '), null, 'a callsign no longer resolves (20261029000600)');
-select is(email_for_identifier('b@example.com'), 'b@example.com', 'email passes through');
-select is(email_for_identifier(' B@Example.com '), 'b@example.com', 'trimmed and lower-cased');
 
 select * from finish();
 rollback;
