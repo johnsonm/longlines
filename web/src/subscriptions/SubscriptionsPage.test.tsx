@@ -129,9 +129,14 @@ describe("SubscriptionsPage", () => {
     await waitFor(() => expect(reload).toHaveBeenCalled());
   });
 
-  it("deletes a subscription", async () => {
+  it("deletes a subscription once confirmed", async () => {
     const { user, app } = render([sub()]);
     await user.click(screen.getByRole("button", { name: "Delete" }));
+    const dialog = await screen.findByRole("dialog", { name: "Delete NC parks?" });
+    expect(dialog).toHaveTextContent("Spots stop going out for this connection. Its destinations are kept.");
+    expect(dialog).toHaveTextContent("This can't be undone.");
+    expect(deleteSubscription).not.toHaveBeenCalled();
+    await user.click(within(dialog).getByRole("button", { name: "Delete" }));
     expect(deleteSubscription).toHaveBeenCalledWith("s1");
     await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Deleted NC parks"));
   });
@@ -143,7 +148,16 @@ describe("SubscriptionsPage", () => {
     await user.click(screen.getByRole("switch"));
     await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Couldn't update the connection."));
     await user.click(screen.getByRole("button", { name: "Delete" }));
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Delete" }));
     await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Couldn't delete the connection."));
+  });
+
+  it("keeps a subscription when the confirmation is cancelled", async () => {
+    const { user } = render([sub()]);
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(deleteSubscription).not.toHaveBeenCalled();
   });
 
   it("links Edit to the subscription's page", async () => {

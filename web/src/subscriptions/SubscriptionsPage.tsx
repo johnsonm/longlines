@@ -14,6 +14,7 @@ import {
 } from "../lib/api";
 import type { CallsignGroup } from "../groups/types";
 import { errorText, useNotify } from "../app/hooks";
+import { ConfirmDeleteDialog } from "../layout/ConfirmDeleteDialog";
 import { sourceName } from "../sources/sources";
 import { linkedDestinations, quietLabel, ruleSummaries, singleSource, toInput } from "./model";
 import { SourcePickerDialog } from "./SourcePickerDialog";
@@ -68,6 +69,7 @@ export function SubscriptionsPage({ subs, dests, loading, reload, mobile }: Prop
   const notify = useNotify();
   const navigate = useNavigate();
   const [picking, setPicking] = useState(false);
+  const [confirming, setConfirming] = useState<SubscriptionWithLinks | null>(null);
   const [previews, setPreviews] = useState<Record<string, Preview>>({});
   // Names for the group rule lines. null until loaded, and if loading fails.
   const [groups, setGroups] = useState<CallsignGroup[] | null>(null);
@@ -109,6 +111,7 @@ export function SubscriptionsPage({ subs, dests, loading, reload, mobile }: Prop
   const pick = (source: string) => void navigate(`/connections/new?source=${encodeURIComponent(source)}`);
 
   const remove = async (s: SubscriptionWithLinks) => {
+    setConfirming(null);
     try {
       await deleteSubscription(s.id);
       await reload();
@@ -180,7 +183,7 @@ export function SubscriptionsPage({ subs, dests, loading, reload, mobile }: Prop
                 <Divider />
                 <CardActions>
                   <Button size="small" startIcon={<EditIcon />} component={RouterLink} to={`/connections/${s.id}`}>Edit</Button>
-                  <Button size="small" color="error" startIcon={<DeleteIcon />} onClick={() => void remove(s)}>Delete</Button>
+                  <Button size="small" color="error" startIcon={<DeleteIcon />} onClick={() => setConfirming(s)}>Delete</Button>
                 </CardActions>
               </Card>
             </Grid>
@@ -188,6 +191,11 @@ export function SubscriptionsPage({ subs, dests, loading, reload, mobile }: Prop
         })}
       </Grid>
       {picking && <SourcePickerDialog open fullScreen={mobile} onClose={cancelPick} onContinue={pick} />}
+      {confirming && (
+        <ConfirmDeleteDialog name={confirming.name} onCancel={() => setConfirming(null)} onConfirm={() => void remove(confirming)}>
+          <Typography variant="body2">Spots stop going out for this connection. Its destinations are kept.</Typography>
+        </ConfirmDeleteDialog>
+      )}
     </Stack>
   );
 }
