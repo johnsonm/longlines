@@ -103,8 +103,14 @@ export interface DeliveryBatchResult {
   skipped_paused: number;
   /** Every destination's unattempted rows, plus claimed rows that did not parse (claimedRows). */
   unattempted: number;
-  /** Bookkeeping RPCs that failed and claimed rows that did not parse; the cycle still completes. */
+  /** Bookkeeping RPCs that failed; the cycle still completes. The sender backs off on these. */
   errors: string[];
+  /**
+   * Claimed rows that did not parse (claimedRows), one issue each. Kept apart from `errors`:
+   * such a row comes back at every claim until it expires, and the sender must not back off
+   * for it.
+   */
+  malformed: string[];
   destinations: DestinationResult[];
 }
 
@@ -141,6 +147,7 @@ export async function runDeliveryBatch(
     skipped_paused: 0,
     unattempted: 0,
     errors: [],
+    malformed: [],
     destinations: [],
   };
 
@@ -342,7 +349,7 @@ interface Outcome {
 /**
  * The claim's rows that parse, in claim order; sets `result.claimed` to every row claimed.
  * Throws ClaimError when the result is not rows at all. A row that does not parse is never
- * sent: it counts as unattempted, its issues go in `result.errors`, and its message reappears
+ * sent: it counts as unattempted, its issues go in `result.malformed`, and its message reappears
  * after the visibility timeout until the claim's expiry sweep drops it, so one malformed row
  * cannot hold up every other destination's deliveries.
  */
@@ -372,7 +379,7 @@ function claimedRows(data: unknown, result: DeliveryBatchResult): PendingDeliver
         throw error;
       }
       result.unattempted++;
-      result.errors.push(error.message);
+      result.malformed.push(error.message);
       console.error(`deliver: ${error.message}; left for the visibility timeout`);
     }
   }

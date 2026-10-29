@@ -157,6 +157,7 @@ export function startSender(
     throttled: 0,
     skipped_paused: 0,
     errors: 0,
+    malformed: 0,
   };
   function status(): SenderStatus {
     return {
@@ -173,6 +174,7 @@ export function startSender(
         throttled: totals.throttled,
         skipped_paused: totals.skipped_paused,
         errors: totals.errors,
+        malformed: totals.malformed,
       },
       queue,
     };
@@ -203,13 +205,16 @@ export function startSender(
     totals.throttled += result.throttled;
     totals.skipped_paused += result.skipped_paused;
     totals.errors += result.errors.length;
+    totals.malformed += result.malformed.length;
   }
 
   // Claim, send, mark; then sleep pollMs, or claim again at once when the
   // batch was full. A failed claim (ClaimError), or a mark still failing after
   // runDeliveryBatch's own retries, is logged and the next claim waits a
   // doubling delay; anything else thrown is a bug and ends the process through
-  // `done`.
+  // `done`. A claimed row that did not parse (`malformed`) is logged and kept in
+  // lastError but never backs off: it comes back at every claim until the
+  // expiry sweep drops it, and a backoff would slow every destination that long.
   async function pollLoop(): Promise<void> {
     let claimLimit = CLAIM_LIMIT;
     if (options.claimLimit !== undefined) {
@@ -245,16 +250,19 @@ export function startSender(
       }
       inFlight = false;
       record(result);
-      if (result.claimed > 0 || result.errors.length > 0) {
+      if (result.claimed > 0 || result.errors.length > 0 || result.malformed.length > 0) {
         log(JSON.stringify(result));
       }
+      const problems = result.errors.concat(result.malformed);
+      lastError = null;
+      if (problems.length > 0) {
+        lastError = problems.join("; ");
+      }
       if (result.errors.length > 0) {
-        lastError = result.errors.join("; ");
         await sleep(retryMs, signal);
         retryMs = Math.min(retryMs * 2, RETRY_MAX_MS);
         continue;
       }
-      lastError = null;
       retryMs = RETRY_MIN_MS;
       if (result.claimed >= claimLimit) {
         continue;
