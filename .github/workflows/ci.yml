@@ -5,6 +5,10 @@ on:
   push:
     branches: [main]
 
+# Every job only checks out and runs checks; nothing writes to the repo or calls the API.
+permissions:
+  contents: read
+
 jobs:
   deno:
     name: Deno checks

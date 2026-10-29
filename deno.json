@@ -5,7 +5,7 @@
   },
   "nodeModulesDir": "none",
   "imports": {
-    "@supabase/supabase-js": "npm:@supabase/supabase-js@2",
+    "@supabase/supabase-js": "npm:@supabase/supabase-js@2.117.2",
     "@std/assert": "jsr:@std/assert@1",
     "@std/yaml": "jsr:@std/yaml@1",
     "hyparquet-writer": "npm:hyparquet-writer@0.16.10",

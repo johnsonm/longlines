@@ -260,8 +260,15 @@ describe("editing", () => {
     await user.click(await screen.findByRole("button", { name: "Replace URL" }));
     await user.type(screen.getByRole("textbox", { name: "Webhook URL" }), "https://new.example.org/in");
     expect(preview()).toHaveAttribute("data-path", "/in");
-    await user.click(screen.getByRole("button", { name: "Save destination" }));
-    await waitFor(() => expect(saveWebhookDestination).toHaveBeenCalledWith(expect.objectContaining({ url: "https://new.example.org/in" })));
+    // A new URL clears the stored header values, so the saved Authorization header needs its value again.
+    const save = screen.getByRole("button", { name: "Save destination" });
+    expect(save).toBeDisabled();
+    expect(screen.getByText("Give the Authorization header a value.")).toBeInTheDocument();
+    await user.type(screen.getByRole("textbox", { name: "Value" }), "Bearer k");
+    await user.click(save);
+    await waitFor(() => expect(saveWebhookDestination).toHaveBeenCalledWith(expect.objectContaining({
+      url: "https://new.example.org/in", headers: [{ name: "Authorization", value: "Bearer k" }],
+    })));
   });
 
   it("removes a header and wants a value for a renamed one", async () => {

@@ -165,13 +165,19 @@ function blankRow(row: HeaderRow): boolean {
 
 /**
  * True when a row has a name but SQL would refuse it for want of a value
- * ("Give the {name} header a value."): a new row, or a saved one renamed
- * (other than in case), with nothing typed. A client-side hint; SQL decides.
+ * ("Give the {name} header a value."): a new row, a saved one renamed (other
+ * than in case), or any row while a new URL is typed, since update_destination
+ * clears stored values when the URL changes. A client-side hint; SQL decides.
  */
-export function headerNeedsValue(row: HeaderRow): boolean {
+export function headerNeedsValue(row: HeaderRow, urlReplaced: boolean): boolean {
   const name = row.name.trim();
   if (name === "" || row.value !== "") return false;
-  return row.saved === null || row.saved.toLowerCase() !== name.toLowerCase();
+  return urlReplaced || row.saved === null || row.saved.toLowerCase() !== name.toLowerCase();
+}
+
+/** True when saving would change a saved destination's URL: the field is open and something is typed. */
+export function urlReplaced(form: WebhookForm): boolean {
+  return form.id !== undefined && (form.url?.trim() ?? "") !== "";
 }
 
 /** A row as set_webhook_headers takes it: the value only when one was typed, so a saved row keeps its stored value. */

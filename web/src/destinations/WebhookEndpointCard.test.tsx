@@ -19,7 +19,7 @@ function Harness(props: Partial<WebhookEndpointCardProps> & { initialUrl?: strin
       <span data-testid="url">{url === null ? "closed" : url}</span>
       <WebhookEndpointCard
         urlDisplay={null} url={url} onUrlChange={setUrl} rotatedAt={null} rotating={false}
-        headers={headers}
+        headers={headers} urlReplaced={false}
         onHeadersChange={(rows) => {
           spy?.(rows);
           setHeaders(rows);
@@ -127,6 +127,14 @@ describe("extra headers", () => {
     expect(screen.queryByText(/header a value/)).not.toBeInTheDocument(); // a case-only rename keeps the value
     await user.type(name, "2");
     expect(screen.getByText("Give the x-key2 header a value.")).toBeInTheDocument();
+  });
+
+  it("wants every saved value again while a new URL is typed", () => {
+    renderPage(<Harness urlDisplay={MASKED} initialUrl="https://new.example.org/hook" onRotate={() => {}} initialHeaders={[saved("X-Key")]} urlReplaced />);
+    const value = screen.getByRole("textbox", { name: "Value" });
+    expect(value).not.toHaveAttribute("placeholder");
+    expect(screen.getByText("Give the X-Key header a value.")).toBeInTheDocument();
+    expect(screen.getByText("A new URL clears the saved header values, so enter them again.")).toBeInTheDocument();
   });
 
   it("stops at ten headers", async () => {

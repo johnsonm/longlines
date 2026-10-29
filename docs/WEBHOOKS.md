@@ -33,7 +33,8 @@ ASCII characters. Names Long Lines sets are refused, ignoring case: `Accept`, `C
 `Content-Encoding`, `Content-Length`, `Content-Type`, `Expect`, `Host`, `Keep-Alive`, `TE`,
 `Trailer`, `Transfer-Encoding`, `Upgrade`, `User-Agent`, and any name starting `Proxy-` or
 `X-LongLines-`, so an extra header can never replace a fixed one. Values are stored encrypted
-(Supabase Vault) and never shown again after saving.
+(Supabase Vault) and never shown again after saving. A new URL removes the stored values, since
+they were meant for the old address: the editor asks for each one again when you replace the URL.
 
 ### One request per spot
 

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { WebhookDestination, WebhookField, WebhookSettings } from "../lib/api";
 import { sendTestBlocker as discordBlocker } from "./discordModel";
 import {
-  addHeader, answeredStatus, blankForm, createdSentence, extraHeaderLines, fixedHeaderLines, headerNeedsName, looksLikeHttpsUrl, requestPath, DEFAULT_WEBHOOK_SETTINGS, defaultFields, dirty, FIELDS_MAX, FIELDS_MIN, formOf, FREQUENCY_UNITS, headerInput,
+  addHeader, answeredStatus, blankForm, createdSentence, extraHeaderLines, fixedHeaderLines, headerNeedsName, looksLikeHttpsUrl, requestPath, urlReplaced, DEFAULT_WEBHOOK_SETTINGS, defaultFields, dirty, FIELDS_MAX, FIELDS_MIN, formOf, FREQUENCY_UNITS, headerInput,
   headerNeedsValue, HEADERS_MAX, KEY_STYLES, missingHelper, MISSING_VALUES, PAUSE_AFTER, removeHeader, REQUEST_OPTIONS, requestsHelper,
   RETRY_POLICIES, sendTestBlocker, timeExample, TIME_FORMATS, toInput, updateHeader, WEBHOOK_FIELDS, webhookCardLine,
   webhookKey, type HeaderRow,
@@ -153,16 +153,30 @@ describe("header rows", () => {
   });
 
   it("asks for a value on a new or renamed row, not on a saved or case-only renamed one", () => {
-    expect(headerNeedsValue(row("X-New", "", null))).toBe(true);
-    expect(headerNeedsValue(row("X-New", "v", null))).toBe(false);
-    expect(headerNeedsValue(row("", "", null))).toBe(false);
-    expect(headerNeedsValue(row("X-Renamed", "", "X-Key"))).toBe(true);
-    expect(headerNeedsValue(row("x-key", "", "X-Key"))).toBe(false);
-    expect(headerNeedsValue(row("X-Key", "", "X-Key"))).toBe(false);
+    expect(headerNeedsValue(row("X-New", "", null), false)).toBe(true);
+    expect(headerNeedsValue(row("X-New", "v", null), false)).toBe(false);
+    expect(headerNeedsValue(row("", "", null), false)).toBe(false);
+    expect(headerNeedsValue(row("X-Renamed", "", "X-Key"), false)).toBe(true);
+    expect(headerNeedsValue(row("x-key", "", "X-Key"), false)).toBe(false);
+    expect(headerNeedsValue(row("X-Key", "", "X-Key"), false)).toBe(false);
+  });
+
+  it("asks for every value while a new URL is typed, which clears the stored ones", () => {
+    expect(headerNeedsValue(row("X-Key", "", "X-Key"), true)).toBe(true);
+    expect(headerNeedsValue(row("X-Key", "v", "X-Key"), true)).toBe(false);
+    expect(headerNeedsValue(row("", "", null), true)).toBe(false);
   });
 });
 
 describe("forms", () => {
+  it("replaces the URL only on a saved destination with a URL typed", () => {
+    const form = formOf(DEST);
+    expect(urlReplaced(form)).toBe(false);
+    expect(urlReplaced({ ...form, url: "  " })).toBe(false);
+    expect(urlReplaced({ ...form, url: "https://new.example.org/hook" })).toBe(true);
+    expect(urlReplaced({ ...blankForm(), url: "https://new.example.org/hook" })).toBe(false);
+  });
+
   it("starts a new destination with the URL field open, the defaults and no headers", () => {
     const form = blankForm();
     expect(form).toEqual({ name: "", enabled: true, url: "", settings: DEFAULT_WEBHOOK_SETTINGS, headers: [] });

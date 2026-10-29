@@ -8,6 +8,21 @@ import { assertEquals } from "@std/assert";
 const functionsDir = new URL("../../", import.meta.url);
 const root = JSON.parse(Deno.readTextFileSync(new URL("../../../../deno.json", import.meta.url)));
 
+// A deploy reads only the function's deno.json, never deno.lock, so a range
+// such as `@2` ships whatever release npm has that day.
+Deno.test("the root deno.json pins every npm package to an exact version", function (): void {
+  const ranged: string[] = [];
+  for (const specifier of Object.values(root.imports)) {
+    if (typeof specifier !== "string" || !specifier.startsWith("npm:")) {
+      continue;
+    }
+    if (!/@\d+\.\d+\.\d+$/.test(specifier)) {
+      ranged.push(specifier);
+    }
+  }
+  assertEquals(ranged, [], "npm imports without an exact version");
+});
+
 Deno.test(
   "every function has a deno.json mapping supabase-js like the root one",
   function (): void {
