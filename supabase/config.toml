@@ -276,16 +276,17 @@ subject = "Your Long Lines verification code"
 content_path = "./supabase/templates/reauthentication.html"
 
 # Security notifications, sent after the change. Enabling one here turns it on locally only; the
-# hosted project needs it switched on in the dashboard as well.
+# hosted project needs it switched on in the dashboard as well. Their content_path is relative to
+# supabase/, unlike the templates' (the CLI resolves the two differently).
 [auth.email.notification.password_changed]
 enabled = true
 subject = "Your Long Lines password was changed"
-content_path = "./supabase/templates/password_changed_notification.html"
+content_path = "./templates/password_changed_notification.html"
 
 [auth.email.notification.email_changed]
 enabled = true
 subject = "Your Long Lines email was changed"
-content_path = "./supabase/templates/email_changed_notification.html"
+content_path = "./templates/email_changed_notification.html"
 
 [auth.sms]
 # Allow/disallow new user signups via SMS to your project.
