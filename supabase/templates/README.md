@@ -12,9 +12,16 @@ in `supabase/config.toml` beside each `content_path`.
 | `email_change.html` | Change email address | Confirm your new Long Lines email | `.ConfirmationURL`, `.Email` (current), `.NewEmail`, `.SiteURL` |
 | `recovery.html` | Reset password | Reset your Long Lines password | `.ConfirmationURL`, `.Email`, `.SiteURL` |
 | `reauthentication.html` | Reauthentication | Your Long Lines verification code | `.Token`, `.SiteURL` |
+| `password_changed_notification.html` | Password changed (security) | Your Long Lines password was changed | `.Email`, `.SiteURL` |
+| `email_changed_notification.html` | Email address changed (security) | Your Long Lines email was changed | `.OldEmail`, `.Email` (new), `.SiteURL` |
 
-Auth also offers `.Token` (the six-digit code), `.TokenHash` and `.RedirectTo` in every template
-but reauthentication. The web app has no code entry, so the link templates send only the link.
+The last two are security notifications: Auth sends them after the change, not to confirm it, and
+only while each is switched on (`enabled` in `config.toml` locally, the notification's toggle under
+Authentication → Emails in the dashboard). Neither carries a link of its own: the password one
+points at `/reset-password`, and the email one at the Account page on a signed-in device.
+
+Auth also offers `.Token` (the six-digit code), `.TokenHash` and `.RedirectTo` in every link
+template. The web app has no code entry, so the link templates send only the link.
 `.Data` is the user's metadata: sign-up stores `callsign` and `name` there; a Google or invited
 user has neither, so `confirmation.html` reads `callsign` under an `if`.
 

@@ -29,6 +29,12 @@ describe("SourceMark", () => {
     expect(container).not.toHaveTextContent("IO");
   });
 
+  it("shows the Long Lines Relay mark for logged contacts", () => {
+    const { container } = renderPage(<SourceMark source={findLiveSource("logged")!} />);
+    expect(container.querySelector("img")).toHaveAttribute("src", expect.stringMatching(/logged\.png$/));
+    expect(container).not.toHaveTextContent("LC");
+  });
+
   it("falls back to the two-letter mark for a source without a logo", () => {
     const { container } = renderPage(<SourceMark source={planned} size="large" />);
     expect(container.querySelector("img")).toBeNull();
