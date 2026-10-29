@@ -12,7 +12,7 @@ import { WebhookDeliveryCard } from "./WebhookDeliveryCard";
 import { WebhookPreviewCard } from "./WebhookPreviewCard";
 import { SigningSecretDialog } from "./SigningSecretDialog";
 import {
-  blankForm, dirty, extraHeaderLines, formOf, headerNeedsName, headerNeedsValue, looksLikeHttpsUrl, requestPath, toInput, type WebhookForm,
+  blankForm, dirty, extraHeaderLines, formOf, headerNeedsName, headerNeedsValue, looksLikeHttpsUrl, requestPath, toInput, urlReplaced, type WebhookForm,
 } from "./webhookModel";
 
 interface Props {
@@ -105,7 +105,8 @@ function Editor({ initial, saved, reload, mobile }: EditorProps) {
   const urlValid = looksLikeHttpsUrl(typedUrl);
   // A saved destination already has a URL; a new one needs one typed.
   const hasUrl = !isNew || urlValid;
-  const headersBlocked = form.headers.some((r) => headerNeedsName(r) || headerNeedsValue(r));
+  const replacingUrl = urlReplaced(form);
+  const headersBlocked = form.headers.some((r) => headerNeedsName(r) || headerNeedsValue(r, replacingUrl));
   // Save, Cancel and Rotate block each other: a save leaves the page, which would lose a rotated secret before it is shown.
   const pending = busy || rotating;
   // A replacement left empty keeps the stored URL; a typed one must start with https://.
@@ -213,6 +214,7 @@ function Editor({ initial, saved, reload, mobile }: EditorProps) {
               urlDisplay={saved?.urlDisplay ?? null} url={form.url} onUrlChange={(url) => setForm((f) => ({ ...f, url }))}
               rotatedAt={rotatedAt} onRotate={isNew ? undefined : () => void rotate()} rotating={pending}
               headers={form.headers} onHeadersChange={(headers) => setForm((f) => ({ ...f, headers }))}
+              urlReplaced={replacingUrl}
             />
             <WebhookPayloadCard settings={form.settings} onChange={setSettings} />
             <WebhookDeliveryCard settings={form.settings} onChange={setSettings} />

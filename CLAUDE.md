@@ -419,7 +419,9 @@ The delivery side (retries, pause, attempts, rendering, Vault) is in "Delivery r
   a row made by trigger) and are written only by `save_webhook_destination`, validated by
   `validate_webhook_settings`. Extra headers are rows of `webhook_destination_headers` whose
   values are Vault secrets, written only by `set_webhook_headers` (at most 10; an item without a
-  value keeps the stored one by name, a renamed header needs one). Clients and the API only ever
+  value keeps the stored one by name, a renamed header needs one). A new URL deletes the headers
+  (`update_destination`, `20261029000700`), so stored values never reach a host they were not set
+  for; the editor asks for every value again while a new URL is typed. Clients and the API only ever
   get header names; the editor never receives a value, a URL or the secret.
 - SQL names and renders every key and value (`webhook_spot_fields` pairs). The preview
   (`preview_webhook_request`) and the test (`webhook_test_delivery`) call the same renderer and

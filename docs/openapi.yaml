@@ -175,7 +175,8 @@ paths:
       summary: Rename, re-point or turn a destination on or off
       description: |
         The type can't change, and a push destination takes no `url`. A new `url` clears
-        `failing` health and the failure count. `"enabled": false` stops new spots going to it
+        `failing` health and the failure count, and removes a webhook's extra headers, since
+        their values were meant for the old address. `"enabled": false` stops new spots going to it
         and drops the ones already queued; connections that use it keep their other
         destinations. `"enabled": true` on a webhook that paused itself after repeated failures
         resumes it and starts its failure counts again. Fields left out, or sent as `null`, keep

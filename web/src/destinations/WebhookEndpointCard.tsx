@@ -19,6 +19,8 @@ export interface WebhookEndpointCardProps {
   rotating: boolean;
   headers: HeaderRow[];
   onHeadersChange: (rows: HeaderRow[]) => void;
+  /** A saved destination's URL is being replaced, which clears the stored header values. */
+  urlReplaced: boolean;
 }
 
 const SECRET_HELP = "We sign each request with this secret so you can check it came from Long Lines. It is only shown once, when created or rotated.";
@@ -29,7 +31,7 @@ const SECRET_HELP = "We sign each request with this secret so you can check it c
  * header's value is never sent to the browser; its field is empty with a
  * masked placeholder, and typing replaces it.
  */
-export function WebhookEndpointCard({ urlDisplay, url, onUrlChange, rotatedAt, onRotate, rotating, headers, onHeadersChange }: WebhookEndpointCardProps) {
+export function WebhookEndpointCard({ urlDisplay, url, onUrlChange, rotatedAt, onRotate, rotating, headers, onHeadersChange, urlReplaced }: WebhookEndpointCardProps) {
   const editing = urlDisplay !== null && url === null;
   const replacing = urlDisplay !== null && url !== null;
   const value = url ?? "";
@@ -86,7 +88,8 @@ export function WebhookEndpointCard({ urlDisplay, url, onUrlChange, rotatedAt, o
             <Typography variant="subtitle2" component="h3">Extra headers</Typography>
             {headers.map((row) => {
               const needsName = headerNeedsName(row);
-              const needsValue = headerNeedsValue(row);
+              const needsValue = headerNeedsValue(row, urlReplaced);
+              const masked = row.saved !== null && !urlReplaced;
               return (
                 <Stack key={row.key} direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ alignItems: { sm: "flex-start" } }}>
                   <TextField
@@ -97,8 +100,8 @@ export function WebhookEndpointCard({ urlDisplay, url, onUrlChange, rotatedAt, o
                   <Stack direction="row" spacing={1} sx={{ alignItems: "flex-start", width: "100%" }}>
                     <TextField
                       label="Value" size="small" fullWidth autoComplete="off" value={row.value} error={needsValue}
-                      placeholder={row.saved !== null ? "••••••••••••" : undefined}
-                      slotProps={{ inputLabel: row.saved !== null ? { shrink: true } : undefined }}
+                      placeholder={masked ? "••••••••••••" : undefined}
+                      slotProps={{ inputLabel: masked ? { shrink: true } : undefined }}
                       helperText={needsValue ? `Give the ${row.name.trim()} header a value.` : undefined}
                       onChange={(e) => onHeadersChange(updateHeader(headers, row.key, { value: e.target.value }))}
                     />
@@ -117,6 +120,11 @@ export function WebhookEndpointCard({ urlDisplay, url, onUrlChange, rotatedAt, o
             <Typography variant="body2" color="text.secondary">
               Sent with every request, for example an API key. Stored encrypted and never shown again after saving.
             </Typography>
+            {urlReplaced && headers.some((r) => r.saved !== null) && (
+              <Typography variant="body2" color="text.secondary">
+                A new URL clears the saved header values, so enter them again.
+              </Typography>
+            )}
           </Stack>
         </Stack>
       </CardContent>
