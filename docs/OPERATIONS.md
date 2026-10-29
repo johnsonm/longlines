@@ -983,9 +983,15 @@ another station's is rejected (`mycall_mismatch`) and stored nowhere.
 # Long Lines Relay
 
 The desktop app (`sonyccd/longlines-relay`) signs in by pairing and posts logged contacts through
-the `relay-api` function, at `https://api.longlines.io/relay/v1/<path>` (a Vercel rewrite in
-`web/vercel.json`, host `api.longlines.io`, ahead of the management API's `/v1` rule). The wire
-contract is that repository's `docs/contract.md`. Pairing: the relay calls `device/start`, opens
+the `relay-api` function, at `https://api.longlines.io/relay/<version>/<path>` (Vercel rewrites in
+`web/vercel.json`, one each for `v1` and `v2`, host `api.longlines.io`, ahead of the management
+API's `/v1` rule). The wire contract is that repository's `docs/contract.md`; it wins on wire
+details. Both versions are served side by side and v1 answers exactly as it did in phase 1: a
+v1 pairing grants `contacts:write` alone, and v1 `me` answers callsign and email only. v2
+`device/start` also takes `scopes` (one or both of `contacts:write` and `spots:read`; both when
+absent) and `platform` (`windows`, `macos` or `linux`, required), and v2 `me` adds `relay_id`,
+`device_name`, `scopes` and `spots_url` ("Spots stream" below). `device/token` and `contacts`
+are the same on both. `GET /v1/spots` and `/v2/spots` are 404 here: the stream is the sender's. Pairing: the relay calls `device/start`, opens
 `https://longlines.io/relay/approve?code=XXXX-XXXX` (`verification_uri_complete`), and shows
 `longlines.io/relay` (`verification_uri`, which redirects there) for a code typed by hand; the signed-in user selects Allow, and the relay's `device/token` poll gets its token once.
 Tokens are listed and revoked on the API tokens page ("Long Lines Relay" card).
@@ -1002,9 +1008,22 @@ curl -s -X POST https://api.longlines.io/relay/v1/device/start \
 # 200 with a device_code and a user_code; the pairing expires unused in 10 minutes
 ```
 
+v2 (`20261028000500` pushed, `relay-api` redeployed and the web deployed with the `/relay/v2`
+rewrite) is checked the same way:
+
+```sh
+curl -s -X POST https://api.longlines.io/relay/v2/device/start \
+  -H 'Content-Type: application/json' \
+  -d '{"client_name":"Long Lines Relay","client_version":"0.0.0","device_name":"deploy check","platform":"linux"}'
+# 200 as on v1; a 404 not_found means the web deploy without the v2 rewrite is still live
+```
+
 `relay-api` keeps `verify_jwt = false` (the relay sends a relay token, never a JWT) and reads
 `SUPABASE_SERVICE_ROLE_KEY` (the per-client limit's HMAC key) and `LONGLINES_CLIENT_IP_HEADER`
-like `callsign-profile`. Limits: `device/start` 5 a minute per client address, `device/token` 60
+like `callsign-profile`, plus `LONGLINES_SPOTS_URL`, v2 `me`'s `spots_url`. Unset, it is
+`http://127.0.0.1:8081/v2/spots` (the local sender); set, it must be `https`, or `http` on a
+loopback host, or v2 `me` answers 500 (logged as `LONGLINES_SPOTS_URL is not an https or
+loopback http URL`) while v1 keeps working. Limits, shared by both versions: `device/start` 5 a minute per client address, `device/token` 60
 per client address, `me` and `contacts` 120 requests a minute per token (all in
 `lookup_rate_limits`, apart from profile lookups), and 120 contacts a minute per token
 (`relay_contacts_per_minute()`). The authenticated routes are never limited per address: through
@@ -1020,7 +1039,8 @@ Is it working?
 
 ```sql
 select status, count(*) from relay_pairings group by status;
-select device_name, client_version, created_at, last_used_at from relay_tokens order by created_at desc;
+select device_name, platform, scopes, client_version, created_at, last_used_at
+from relay_tokens order by created_at desc;
 ```
 
 Pairings are pruned a day after they start, by the hourly `prune-callsign-lookups` job. A relay

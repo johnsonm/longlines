@@ -1,7 +1,8 @@
 // The relay-api function: the API Long Lines Relay (the desktop app) calls. The wire contract is
 // docs/contract.md in sonyccd/longlines-relay; every path, body, status and error code here is
-// that file's, version v1. Production reaches it at https://api.longlines.io/relay/v1/<path>
-// through a Vercel rewrite (web/vercel.json); locally at /functions/v1/relay-api/v1/<path>.
+// that file's, versions v1 and v2. Production reaches it at
+// https://api.longlines.io/relay/<version>/<path> through Vercel rewrites (web/vercel.json, one
+// per version); locally at /functions/v1/relay-api/<version>/<path>.
 //
 // Deployed with verify_jwt = false: pairing has no credentials, and the other routes carry a
 // relay token (ll_relay_...), not a JWT, which this handler checks itself. It never imports
@@ -11,6 +12,18 @@
 //   POST /v1/device/token  poll_relay_pairing; the token once, on an approved pairing (4.2)
 //   GET  /v1/me            relay_account: the token owner's callsign and email (5)
 //   POST /v1/contacts      apply_logged_contacts, then the matcher (6)
+//
+// v2 is v1 plus the spots stream's needs (contract section 2: a v1 route never gains a v2 field,
+// status or error code, so v1 answers exactly as it did):
+//
+//   POST /v2/device/start  as v1, plus the scopes asked for (both when absent) and the platform
+//   POST /v2/device/token  as v1; the scopes come from the pairing
+//   GET  /v2/me            as v1, plus relay_id, device_name, scopes and spots_url
+//   POST /v2/contacts      as v1
+//
+// The spots stream itself is the sender's (sender/cluster_stream.ts), at the address GET /v2/me
+// hands out (LONGLINES_SPOTS_URL), never under this function: GET /v1/spots and /v2/spots are
+// 404 here.
 //
 // The pairing routes are limited per client address (countClientRequest, keyed like the profile's
 // limit but in relay-api's own buckets); me and contacts per token, once the token is known
@@ -40,7 +53,12 @@ import {
 } from "../logged.ts";
 import { type JsonObject, jsonObjectSchema } from "../types.ts";
 import { parseWith } from "../validate.ts";
-import { relayToken, type RelayTokenRow, relayTokenRowsSchema } from "../relay_token.ts";
+import {
+  relayToken,
+  type RelayTokenRow,
+  relayTokenRowsSchema,
+  SPOTS_READ,
+} from "../relay_token.ts";
 import { hmacSha256Hex } from "../hmac.ts";
 import { readBody } from "./api.ts";
 import { countClientRequest, countRequest } from "./callsign_profile.ts";
@@ -57,6 +75,17 @@ export const MAX_REQUESTS_PER_MINUTE = 120;
 export const CLIENT_NAME = "Long Lines Relay";
 /** The scope POST /contacts needs (contract 3). */
 export const CONTACTS_WRITE = "contacts:write";
+/** What a v2 device/start asks for when it names no scopes (contract 4.1), in the table's order. */
+export const DEFAULT_V2_SCOPES: readonly RelayScope[] = [CONTACTS_WRITE, SPOTS_READ];
+/** spots_url when LONGLINES_SPOTS_URL is unset: the sender's stream on a local stack (contract 5). */
+export const DEFAULT_SPOTS_URL = "http://127.0.0.1:8081/v2/spots";
+
+/** A scope a relay token can carry (contract 3.1). */
+export type RelayScope = typeof CONTACTS_WRITE | typeof SPOTS_READ;
+/** The OS a v2 relay names in device/start (contract 4.1). */
+export type RelayPlatform = "windows" | "macos" | "linux";
+/** A version of the contract this function serves. */
+export type RelayVersion = "v1" | "v2";
 
 /** The contract's error codes (section 8 and 4.2). */
 export type RelayErrorCode =
@@ -78,6 +107,8 @@ export interface RelayApiDeps {
   clientIpHeader: string | undefined;
   /** HMAC key for the per-client limit's key, imported once per isolate; undefined when unset. */
   key: CryptoKey | undefined;
+  /** LONGLINES_SPOTS_URL, GET /v2/me's spots_url; undefined (or empty) for DEFAULT_SPOTS_URL. */
+  spotsUrl: string | undefined;
 }
 
 /** A POST /device/start body (contract 4.1). */
@@ -85,6 +116,12 @@ export interface DeviceStartRequest {
   client_name: string;
   client_version: string;
   device_name: string;
+}
+
+/** A POST /v2/device/start body: v1's fields plus the scopes and the platform (contract 4.1). */
+export interface DeviceStartV2Request extends DeviceStartRequest {
+  scopes?: RelayScope[];
+  platform: RelayPlatform;
 }
 
 /** A POST /device/token body (contract 4.2). */
@@ -109,18 +146,37 @@ export interface PollReply {
   scopes?: string[];
 }
 
-/** relay_account's reply: GET /me's body. */
+/** relay_account(p_user_id)'s reply: GET /v1/me's body. */
 export interface RelayAccount {
   callsign: string;
   email: string;
 }
 
+/** relay_account(p_user_id, p_token_id)'s reply: GET /v2/me's body but spots_url. */
+export interface RelayAccountV2 extends RelayAccount {
+  relay_id: string;
+  device_name: string;
+  scopes: string[];
+}
+
 // Request bodies are ours, but the contract has the server ignore fields it does not know
 // (section 2) because deployed relays lag the server, so they are loose.
-const deviceStartSchema: z.ZodType<DeviceStartRequest> = z.looseObject({
+const deviceStartObject = z.looseObject({
   client_name: z.literal(CLIENT_NAME),
   client_version: z.string().min(1).max(32).refine(storableText),
   device_name: z.string().trim().min(1).max(64).refine(storableText),
+});
+
+const deviceStartSchema: z.ZodType<DeviceStartRequest> = deviceStartObject;
+
+// v2's scopes: one or both, each once, in any order; start_relay_pairing stores them in the
+// contract's order. An empty list, a repeat, a non-string or an unknown scope is a 400.
+const deviceStartV2Schema: z.ZodType<DeviceStartV2Request> = deviceStartObject.extend({
+  scopes: z.array(z.enum([CONTACTS_WRITE, SPOTS_READ])).min(1).refine(
+    (scopes) => new Set(scopes).size === scopes.length,
+    "Each scope at most once.",
+  ).optional(),
+  platform: z.enum(["windows", "macos", "linux"]),
 });
 
 const deviceTokenSchema: z.ZodType<DeviceTokenRequest> = z.looseObject({
@@ -148,6 +204,14 @@ const accountSchema: z.ZodType<RelayAccount | null> = z.looseObject({
   email: z.string(),
 }).nullable();
 
+const accountV2Schema: z.ZodType<RelayAccountV2 | null> = z.looseObject({
+  callsign: z.string().min(1),
+  email: z.string(),
+  relay_id: z.string().min(1),
+  device_name: z.string().min(1),
+  scopes: z.array(z.string()),
+}).nullable();
+
 /** A POST /contacts body's items as sent: objects, otherwise unchecked. */
 interface ContactItems {
   contacts: JsonObject[];
@@ -167,15 +231,23 @@ const itemIdSchema: z.ZodType<ItemId> = z.looseObject({ external_id: z.string() 
 // record_relay_contacts returns int: 0, or the seconds until the window ends.
 const retryAfterSchema: z.ZodType<number> = z.number().int().min(0);
 
-/** A route of the contract, or null for anything else. */
-type Route = "device/start" | "device/token" | "me" | "contacts";
+/** A route of the contract, the same name in every version. */
+export type RouteName = "device/start" | "device/token" | "me" | "contacts";
 
-const ROUTES: ReadonlyArray<readonly [string, string, Route]> = [
-  ["POST", "/v1/device/start", "device/start"],
-  ["POST", "/v1/device/token", "device/token"],
-  ["GET", "/v1/me", "me"],
-  ["POST", "/v1/contacts", "contacts"],
+/** A route and the version it was asked for under. */
+export interface Route {
+  version: RelayVersion;
+  name: RouteName;
+}
+
+const ROUTES: ReadonlyArray<readonly [string, string, RouteName]> = [
+  ["POST", "/device/start", "device/start"],
+  ["POST", "/device/token", "device/token"],
+  ["GET", "/me", "me"],
+  ["POST", "/contacts", "contacts"],
 ];
+
+const VERSIONS: readonly RelayVersion[] = ["v1", "v2"];
 
 /**
  * The path after the function's name, without a trailing slash, or null when the request is not
@@ -194,12 +266,48 @@ export function relayPath(pathname: string): string | null {
   return rest.replace(/\/+$/, "");
 }
 
-/** The route for a method and path; null for an unknown path or method (contract: 404). */
+/**
+ * The route for a method and path; null for an unknown path, method or version (contract: 404).
+ * Both versions have the same four routes.
+ */
 export function relayRoute(method: string, path: string): Route | null {
-  for (const entry of ROUTES) {
-    if (entry[0] === method && entry[1] === path) {
-      return entry[2];
+  for (const version of VERSIONS) {
+    for (const entry of ROUTES) {
+      if (entry[0] === method && `/${version}${entry[1]}` === path) {
+        return { version, name: entry[2] };
+      }
     }
+  }
+  return null;
+}
+
+/** The hosts the contract lets a relay send its token to over http (section 5). */
+const LOOPBACK_HOSTS: readonly string[] = ["127.0.0.1", "[::1]", "localhost"];
+
+/**
+ * GET /v2/me's spots_url: LONGLINES_SPOTS_URL, or DEFAULT_SPOTS_URL when it is unset or blank.
+ * Null when it is set to something a relay must not send its token to (contract 5): anything but
+ * an absolute https URL, or http on a loopback host.
+ */
+export function resolveSpotsUrl(value: string | undefined): string | null {
+  if (value === undefined || value.trim() === "") {
+    return DEFAULT_SPOTS_URL;
+  }
+  const trimmed = value.trim();
+  let url: URL;
+  try {
+    url = new URL(trimmed);
+  } catch (error) {
+    if (!(error instanceof TypeError)) {
+      throw error;
+    }
+    return null;
+  }
+  if (url.protocol === "https:") {
+    return trimmed;
+  }
+  if (url.protocol === "http:" && LOOPBACK_HOSTS.includes(url.hostname)) {
+    return trimmed;
   }
   return null;
 }
@@ -258,6 +366,7 @@ async function clientLimit(
   route: "device/start" | "device/token",
   now: Date,
 ): Promise<Response | null> {
+  // One bucket per route, shared by both versions: a relay is one client whatever it speaks.
   let bucket = "relay-start";
   let limit = MAX_STARTS_PER_MINUTE;
   if (route === "device/token") {
@@ -342,12 +451,16 @@ export async function handleRelayApi(
   }
   const db = deps.db();
 
-  if (route === "device/start" || route === "device/token") {
-    const limited = await clientLimit(req, db, deps.clientIpHeader, deps.key, route, now);
+  const name = route.name;
+  if (name === "device/start" || name === "device/token") {
+    const limited = await clientLimit(req, db, deps.clientIpHeader, deps.key, name, now);
     if (limited !== null) {
       return limited;
     }
-    if (route === "device/start") {
+    if (name === "device/start") {
+      if (route.version === "v2") {
+        return await deviceStartV2(req, db);
+      }
       return await deviceStart(req, db);
     }
     return await deviceToken(req, db);
@@ -361,7 +474,10 @@ export async function handleRelayApi(
   if (limited !== null) {
     return limited;
   }
-  if (route === "me") {
+  if (name === "me") {
+    if (route.version === "v2") {
+      return await meV2(db, caller, deps.spotsUrl);
+    }
     return await me(db, caller);
   }
   if (!caller.scopes.includes(CONTACTS_WRITE)) {
@@ -370,6 +486,7 @@ export async function handleRelayApi(
   return await contacts(req, db, caller, now);
 }
 
+/** v1: the two-argument start_relay_pairing, which asks for contacts:write alone. */
 async function deviceStart(req: Request, db: SupabaseClient): Promise<Response> {
   const raw = await jsonBody(req);
   if (raw instanceof Response) {
@@ -379,10 +496,40 @@ async function deviceStart(req: Request, db: SupabaseClient): Promise<Response> 
   if (body instanceof Response) {
     return body;
   }
-  const started = await db.rpc("start_relay_pairing", {
+  return await startPairing(db, {
     p_device_name: body.device_name,
     p_client_version: body.client_version,
   });
+}
+
+/** v2: the four-argument start_relay_pairing, with the scopes asked for and the platform. */
+async function deviceStartV2(req: Request, db: SupabaseClient): Promise<Response> {
+  const raw = await jsonBody(req);
+  if (raw instanceof Response) {
+    return raw;
+  }
+  const body = parseRequest(deviceStartV2Schema, raw.value, "device/start: body");
+  if (body instanceof Response) {
+    return body;
+  }
+  let scopes: readonly RelayScope[] = DEFAULT_V2_SCOPES;
+  if (body.scopes !== undefined) {
+    scopes = body.scopes;
+  }
+  return await startPairing(db, {
+    p_device_name: body.device_name,
+    p_client_version: body.client_version,
+    p_scopes: scopes,
+    p_platform: body.platform,
+  });
+}
+
+/** Calls start_relay_pairing (the overload the arguments name) and answers device/start. */
+async function startPairing(
+  db: SupabaseClient,
+  args: Record<string, string | readonly string[]>,
+): Promise<Response> {
+  const started = await db.rpc("start_relay_pairing", args);
   if (started.error !== null) {
     return serverError("start_relay_pairing", started.error.message);
   }
@@ -500,6 +647,52 @@ async function me(db: SupabaseClient, caller: RelayTokenRow): Promise<Response> 
     return serverError("relay_account", "the token's account has no profile");
   }
   return reply({ callsign: account.callsign, email: account.email }, 200, {});
+}
+
+/** GET /v2/me: v1's fields, the token's own (relay_account's two-argument overload) and spots_url. */
+async function meV2(
+  db: SupabaseClient,
+  caller: RelayTokenRow,
+  spotsUrlSetting: string | undefined,
+): Promise<Response> {
+  const spotsUrl = resolveSpotsUrl(spotsUrlSetting);
+  if (spotsUrl === null) {
+    console.error("relay-api: LONGLINES_SPOTS_URL is not an https or loopback http URL");
+    return relayError(500, "server_error", null, {});
+  }
+  const result = await db.rpc("relay_account", {
+    p_user_id: caller.user_id,
+    p_token_id: caller.token_id,
+  });
+  if (result.error !== null) {
+    return serverError("relay_account", result.error.message);
+  }
+  let account: RelayAccountV2 | null;
+  try {
+    account = parseWith(accountV2Schema, result.data, "me: relay_account result");
+  } catch (error) {
+    if (!(error instanceof ValidationError)) {
+      throw error;
+    }
+    return serverError("relay_account", error.message);
+  }
+  // Null only for a token that is not the user's, which authenticate_relay_token just matched,
+  // or an account without a profile, which pairing refuses.
+  if (account === null) {
+    return serverError("relay_account", "the token's account or relay was not found");
+  }
+  return reply(
+    {
+      callsign: account.callsign,
+      email: account.email,
+      relay_id: account.relay_id,
+      device_name: account.device_name,
+      scopes: account.scopes,
+      spots_url: spotsUrl,
+    },
+    200,
+    {},
+  );
 }
 
 async function contacts(

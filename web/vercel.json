@@ -42,6 +42,16 @@
       "destination": "https://actcyiensrmjelkavzkv.supabase.co/functions/v1/relay-api/v1/:path*"
     },
     {
+      "source": "/relay/v2/:path*",
+      "has": [
+        {
+          "type": "host",
+          "value": "api.longlines.io"
+        }
+      ],
+      "destination": "https://actcyiensrmjelkavzkv.supabase.co/functions/v1/relay-api/v2/:path*"
+    },
+    {
       "source": "/v1/:path*",
       "has": [
         {
