@@ -4,6 +4,7 @@ import { renderPage } from "../test/render";
 import { setMobile } from "../test/media";
 import { callsignAvailable, signIn, signInWithGoogle, signUp } from "../lib/api";
 import { SignInPage } from "./SignInPage";
+import { peekReturnPath, saveReturnPath } from "./returnPath";
 
 vi.mock("../lib/api", () => ({
   signIn: vi.fn(),
@@ -18,12 +19,14 @@ beforeEach(() => {
   vi.mocked(signInWithGoogle).mockReset().mockResolvedValue(undefined);
   vi.mocked(callsignAvailable).mockReset().mockResolvedValue(true);
   localStorage.clear();
+  sessionStorage.clear();
 });
 
 const where = () => screen.getByTestId("location");
 
 describe("SignInPage: sign in", () => {
   it("signs in and returns to the page the user came from", async () => {
+    saveReturnPath("/relay/approve?code=KQ7M-X4PD"); // left by a Google attempt abandoned on Google's page
     const { user } = renderPage(<SignInPage />, { route: "/signin", state: { from: "/destinations" } });
     const submit = screen.getByRole("button", { name: "Sign in" });
     expect(submit).toBeDisabled();
@@ -32,6 +35,7 @@ describe("SignInPage: sign in", () => {
     await user.click(submit);
     expect(signIn).toHaveBeenCalledWith("kk4pwj", "hunter22");
     await waitFor(() => expect(where()).toHaveTextContent("/destinations"));
+    expect(peekReturnPath()).toBeNull();
   });
 
   it("defaults to Home after sign in", async () => {
@@ -150,6 +154,20 @@ describe("SignInPage: Google", () => {
     expect(screen.getByRole("progressbar")).toBeInTheDocument();
   });
 
+  it("keeps the page the user came from for the trip to Google", async () => {
+    const { user } = renderPage(<SignInPage />, { route: "/signin", state: { from: "/relay/approve?code=KQ7M-X4PD" } });
+    await user.click(screen.getByRole("button", { name: "Sign in with Google" }));
+    expect(signInWithGoogle).toHaveBeenCalledTimes(1);
+    expect(peekReturnPath()).toBe("/relay/approve?code=KQ7M-X4PD");
+  });
+
+  it("forgets an older saved page when this sign-in came from nowhere", async () => {
+    saveReturnPath("/destinations");
+    const { user } = renderPage(<SignInPage />, { route: "/signin" });
+    await user.click(screen.getByRole("button", { name: "Sign in with Google" }));
+    expect(peekReturnPath()).toBeNull();
+  });
+
   it("offers Google sign-up without submitting the form", async () => {
     const { user } = renderPage(<SignInPage />, { route: "/signin" });
     await user.click(screen.getByRole("tab", { name: "Create account" }));
@@ -165,5 +183,13 @@ describe("SignInPage: Google", () => {
     await user.click(screen.getByRole("button", { name: "Sign in with Google" }));
     expect(await screen.findByText("Unsupported provider: provider is not enabled")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Sign in with Google" })).toBeEnabled();
+  });
+
+  it("forgets the saved page when Google's sign-in can't start", async () => {
+    vi.mocked(signInWithGoogle).mockRejectedValue(new Error("Unsupported provider: provider is not enabled"));
+    const { user } = renderPage(<SignInPage />, { route: "/signin", state: { from: "/destinations" } });
+    await user.click(screen.getByRole("button", { name: "Sign in with Google" }));
+    await screen.findByText("Unsupported provider: provider is not enabled");
+    expect(peekReturnPath()).toBeNull();
   });
 });
