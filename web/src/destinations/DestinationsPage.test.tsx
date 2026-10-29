@@ -34,7 +34,7 @@ function device(id: string, overrides: Partial<PushDevice> = {}): PushDevice {
   };
 }
 
-const sub = (id: string, destinations: string[]) => ({ id, destinations }) as SubscriptionWithLinks;
+const sub = (id: string, destinations: string[]) => ({ id, name: `Conn ${id}`, destinations }) as SubscriptionWithLinks;
 const ago = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
 
 beforeEach(() => {
@@ -245,20 +245,55 @@ describe("DestinationsPage", () => {
     await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Test spot sent to Dest a"));
   });
 
-  it("explains a disabled Delete in the singular", async () => {
-    const { user } = render([dest("a")], [sub("s1", ["a"])]);
-    const button = screen.getByRole("button", { name: "Delete Dest a" });
-    expect(button).toBeDisabled();
-    await user.hover(button.parentElement!);
-    expect(await screen.findByRole("tooltip")).toHaveTextContent("Used by 1 connection. Remove it from them first.");
+  it("names the connections a used destination would leave with nowhere to send, then deletes it", async () => {
+    vi.mocked(deleteDestination).mockResolvedValue(undefined);
+    const { user, app } = render([dest("a"), dest("b")], [sub("s1", ["a"]), sub("s2", ["a", "b"]), sub("s3", ["a"]), sub("s4", ["b"])]);
+    await user.click(screen.getByRole("button", { name: "Delete Dest a" }));
+    const dialog = await screen.findByRole("dialog", { name: "Delete Dest a?" });
+    expect(dialog).toHaveTextContent("These 3 connections send to it: Conn s1, Conn s2 and Conn s3.");
+    expect(within(dialog).getByRole("alert")).toHaveTextContent(
+      "Conn s1 and Conn s3 have no other destination, so they won't send spots anywhere until you add one.",
+    );
+    expect(dialog).toHaveTextContent("This can't be undone.");
+    expect(deleteDestination).not.toHaveBeenCalled();
+    await user.click(within(dialog).getByRole("button", { name: "Delete" }));
+    expect(deleteDestination).toHaveBeenCalledWith("a");
+    await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Deleted Dest a"));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
-  it("disables Delete for a used destination and explains why", async () => {
+  it("words the warning for one connection", async () => {
+    const { user } = render([dest("a")], [sub("s1", ["a"])]);
+    await user.click(screen.getByRole("button", { name: "Delete Dest a" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent("This connection sends to it: Conn s1.");
+    expect(within(dialog).getByRole("alert")).toHaveTextContent(
+      "Conn s1 has no other destination, so it won't send spots anywhere until you add one.",
+    );
+  });
+
+  it("words the warning when every connection would be left with none", async () => {
     const { user } = render([dest("a")], [sub("s1", ["a"]), sub("s2", ["a"])]);
-    const button = screen.getByRole("button", { name: "Delete Dest a" });
-    expect(button).toBeDisabled();
-    await user.hover(button.parentElement!);
-    expect(await screen.findByRole("tooltip")).toHaveTextContent("Used by 2 connections. Remove it from them first.");
+    await user.click(screen.getByRole("button", { name: "Delete Dest a" }));
+    expect(within(await screen.findByRole("dialog")).getByRole("alert")).toHaveTextContent(
+      "None of them has another destination, so they won't send spots anywhere until you add one.",
+    );
+  });
+
+  it("leaves out the warning when every connection keeps another destination", async () => {
+    const { user } = render([dest("a"), dest("b")], [sub("s1", ["a", "b"])]);
+    await user.click(screen.getByRole("button", { name: "Delete Dest a" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent("This connection sends to it: Conn s1.");
+    expect(within(dialog).queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("keeps the destination when the confirmation is cancelled", async () => {
+    const { user } = render([dest("a")], [sub("s1", ["a"])]);
+    await user.click(screen.getByRole("button", { name: "Delete Dest a" }));
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(deleteDestination).not.toHaveBeenCalled();
   });
 
   it("renders push cards with their devices from one device list", async () => {
@@ -377,6 +412,9 @@ describe("DestinationsPage", () => {
     vi.mocked(deleteDestination).mockResolvedValue(undefined);
     const { user, app, reload } = render([dest("a")]);
     await user.click(screen.getByRole("button", { name: "Delete Dest a" }));
+    const dialog = await screen.findByRole("dialog", { name: "Delete Dest a?" });
+    expect(dialog).toHaveTextContent("No connections use this destination.");
+    await user.click(within(dialog).getByRole("button", { name: "Delete" }));
     expect(deleteDestination).toHaveBeenCalledWith("a");
     await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Deleted Dest a"));
     expect(reload).toHaveBeenCalled();

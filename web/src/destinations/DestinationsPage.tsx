@@ -10,6 +10,7 @@ import {
 } from "../lib/api";
 import { currentEndpoint } from "../pwa/push";
 import { errorText, useNotify } from "../app/hooks";
+import { ConfirmDeleteDialog } from "../layout/ConfirmDeleteDialog";
 import { DestinationCard } from "./DestinationCard";
 import { DestinationDialog } from "./DestinationDialog";
 import { answeredStatus } from "./webhookModel";
@@ -27,6 +28,30 @@ function joinNames(names: string[]): string {
   return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
 }
 
+/**
+ * The connections that still send to a destination about to go. Deleting it unlinks them; one
+ * with no other destination stays saved and waits for one, as a connection saved with none does.
+ */
+function DeleteWarning({ users }: { users: SubscriptionWithLinks[] }) {
+  if (users.length === 0) return <Typography variant="body2">No connections use this destination.</Typography>;
+  const stranded = users.filter((s) => s.destinations.length === 1);
+  const one = stranded.length === 1;
+  const which = stranded.length === users.length && !one
+    ? "None of them has another destination"
+    : `${joinNames(stranded.map((s) => s.name))} ${one ? "has" : "have"} no other destination`;
+  return (
+    <>
+      <Typography variant="body2">
+        {users.length === 1 ? "This connection sends to it" : `These ${users.length} connections send to it`}:{" "}
+        {joinNames(users.map((s) => s.name))}.
+      </Typography>
+      {stranded.length > 0 && (
+        <Alert severity="warning">{which}, so {one ? "it" : "they"} won't send spots anywhere until you add one.</Alert>
+      )}
+    </>
+  );
+}
+
 export function DestinationsPage({ dests, subs, loading, reload }: Props) {
   const notify = useNotify();
   const navigate = useNavigate();
@@ -34,7 +59,9 @@ export function DestinationsPage({ dests, subs, loading, reload }: Props) {
   const [open, setOpen] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [devices, setDevices] = useState<PushDevice[]>([]);
-  const usedBy = (id: string) => subs.filter((s) => s.destinations.includes(id)).length;
+  const [confirming, setConfirming] = useState<Destination | null>(null);
+  const usersOf = (id: string) => subs.filter((s) => s.destinations.includes(id));
+  const usedBy = (id: string) => usersOf(id).length;
 
   // One device list for every push card, re-read when the destinations change.
   const pushIds = useMemo(() => dests.filter((d) => d.type === "push").map((d) => d.id).join(","), [dests]);
@@ -143,6 +170,15 @@ export function DestinationsPage({ dests, subs, loading, reload }: Props) {
     }
   };
 
+  const remove = (d: Destination) => {
+    setConfirming(null);
+    void run(d.id, async () => {
+      await deleteDestination(d.id);
+      await reload();
+      notify(`Deleted ${d.name}`);
+    });
+  };
+
   const test = (d: Destination) =>
     void run(d.id, async () => {
       let status: number | null;
@@ -214,17 +250,18 @@ export function DestinationsPage({ dests, subs, loading, reload }: Props) {
                   await reload();
                   await navigate(`/destinations/${id}`);
                 })}
-                onDelete={() => void run(d.id, async () => {
-                  await deleteDestination(d.id);
-                  await reload();
-                  notify(`Deleted ${d.name}`);
-                })}
+                onDelete={() => setConfirming(d)}
               />
             </Grid>
           ))}
         </Grid>
       )}
       <DestinationDialog open={open} onClose={closeDialog} />
+      {confirming && (
+        <ConfirmDeleteDialog name={confirming.name} onCancel={() => setConfirming(null)} onConfirm={() => remove(confirming)}>
+          <DeleteWarning users={usersOf(confirming.id)} />
+        </ConfirmDeleteDialog>
+      )}
     </Stack>
   );
 }

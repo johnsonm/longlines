@@ -278,10 +278,7 @@ export async function rotateSigningSecret(destinationId: string): Promise<string
 
 export async function deleteDestination(destinationId: string): Promise<void> {
   const { error } = await supabase.from("destinations").delete().eq("id", destinationId);
-  if (error) {
-    if (error.code === "23503") throw new ApiError("Remove it from its connections first.", error.code);
-    fail(error, "Couldn't delete the destination.");
-  }
+  if (error) fail(error, "Couldn't delete the destination.");
 }
 
 // ---- Push ------------------------------------------------------------------

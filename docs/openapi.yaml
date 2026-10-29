@@ -205,6 +205,9 @@ paths:
       operationId: delete_destination
       tags: [Destinations]
       summary: Delete a destination
+      description: |
+        Connections that send to it lose it. A connection left with no destinations stays saved
+        and sends nothing until one is added.
       security:
         - apiToken: [write]
       responses:
@@ -212,7 +215,6 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/ReadOnly" }
         "404": { $ref: "#/components/responses/NotFound" }
-        "409": { $ref: "#/components/responses/InUse" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
         "500": { $ref: "#/components/responses/ServerError" }
 
@@ -655,7 +657,7 @@ components:
           schema: { $ref: "#/components/schemas/Error" }
     InUse:
       description: |
-        Still used by a connection: "Remove it from its connections first."
+        The group is still used by a connection: "Remove it from its connections first."
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }

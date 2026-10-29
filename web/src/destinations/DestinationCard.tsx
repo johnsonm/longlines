@@ -1,4 +1,4 @@
-import { Box, Button, Card, CardActions, CardContent, Chip, Divider, Paper, Stack, Tooltip, Typography } from "@mui/material";
+import { Box, Button, Card, CardActions, CardContent, Chip, Divider, Paper, Stack, Typography } from "@mui/material";
 import type { Destination, DiscordSettingsSummary, LocalClusterSettingsSummary, PushDevice, WebhookSettingsSummary } from "../lib/api";
 import { cardMeta } from "./cardMeta";
 import { discordCardLine } from "./discordModel";
@@ -39,7 +39,6 @@ export function DestinationCard({ dest, usedBy, devices, discord, webhook, local
     ? webhookCardLine(webhook.field_count, webhook.batch_seconds)
     : typeLabel(dest.type);
   const blocked = devices.filter((d) => d.blocked_at !== null).length;
-  const deleteTip = usedBy > 0 ? `Used by ${usedBy} connection${usedBy === 1 ? "" : "s"}. Remove it from them first.` : "Delete";
 
   return (
     <Card variant="outlined" sx={{ height: "100%", display: "flex", flexDirection: "column" }}>
@@ -79,13 +78,13 @@ export function DestinationCard({ dest, usedBy, devices, discord, webhook, local
         {!cluster && <Button size="small" variant="outlined" disabled={busy} onClick={onSendTest}>Send test</Button>}
         {editable && <Button size="small" aria-label={`Edit ${dest.name}`} disabled={busy} onClick={onEdit}>Edit</Button>}
         {editable && <Button size="small" aria-label={`Duplicate ${dest.name}`} disabled={busy} onClick={onDuplicate}>Duplicate</Button>}
-        <Tooltip title={deleteTip}>
-          <Box component="span" sx={{ ml: mobile ? 0 : "auto", display: mobile ? "flex" : "inline-flex", flexDirection: "column" }}>
-            <Button size="small" color="error" aria-label={`Delete ${dest.name}`} disabled={usedBy > 0 || busy} onClick={onDelete} fullWidth={mobile}>
-              Delete
-            </Button>
-          </Box>
-        </Tooltip>
+        {/* Allowed while connections use it: the page's confirmation names them. */}
+        <Button
+          size="small" color="error" aria-label={`Delete ${dest.name}`} disabled={busy} onClick={onDelete} fullWidth={mobile}
+          sx={{ ml: mobile ? 0 : "auto" }}
+        >
+          Delete
+        </Button>
       </CardActions>
     </Card>
   );

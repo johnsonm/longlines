@@ -134,6 +134,10 @@ The conventions are `docs/superpowers/specs/2026-10-22-strict-eslint-conventions
 - Client writes to `destinations` and `subscriptions` go through RPCs (`create_destination`,
   `rotate_signing_secret`, `save_subscription`, `delete_subscription`). Direct insert/update is
   revoked on purpose; the only direct client write is `subscriptions.enabled`.
+- A destination in use can be deleted: `subscription_destinations` cascades (`20261029000900`), and
+  a connection left with none waits for one. The web asks before deleting a connection or a
+  destination (`ConfirmDeleteDialog`) and names the connections a destination would leave with
+  none; never put the in-use guard back.
 - `destinations.url` and `signing_secret` are excluded from the column grant. Never add them to a
   view or RPC result except the one-time return from `create_destination`/`rotate_signing_secret`
   (and `save_webhook_destination` when it creates). `duplicate_destination` copies a webhook's

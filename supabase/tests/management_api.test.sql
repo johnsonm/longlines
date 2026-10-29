@@ -2,7 +2,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(80);
+select plan(81);
 
 -- ---------------------------------------------------------------------------
 -- Tokens
@@ -172,8 +172,14 @@ select is(pg_temp.call('patch_subscription', jsonb_build_object('id', (select id
 select is(pg_temp.call('patch_subscription', jsonb_build_object('id', (select id from sub),
   'body', jsonb_build_object('destinations', jsonb_build_array((select id from dest))))) -> 'destinations',
   jsonb_build_array((select id from dest)), 'and get one back');
-select throws_ok(format($$ select pg_temp.call('delete_destination', '{"id": "%s"}') $$, (select id from dest)),
-  'LL409', 'Remove it from its connections first.', 'a destination in use is LL409');
+create temp table spare as
+  select (pg_temp.call('create_destination', '{"type":"webhook","name":"Spare","url":"https://example.com/s"}') ->> 'id')::uuid as id;
+select pg_temp.call('patch_subscription', jsonb_build_object('id', (select id from sub),
+  'body', jsonb_build_object('destinations', jsonb_build_array((select id from dest), (select id from spare)))));
+select is(pg_temp.call('delete_destination', jsonb_build_object('id', (select id from spare))), '{"deleted": true}'::jsonb,
+  'a destination in use can be deleted');
+select is(pg_temp.call('get_subscription', jsonb_build_object('id', (select id from sub))) -> 'destinations',
+  jsonb_build_array((select id from dest)), 'its connections keep their other destinations');
 
 -- Push: created without a URL, listed as "Your devices", and never given a URL.
 create temp table pushed as

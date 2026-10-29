@@ -291,11 +291,9 @@ describe("sources and destinations", () => {
     await expect(api.rotateSigningSecret("d1")).rejects.toThrow("boom");
   });
 
-  it("deleteDestination explains a foreign-key violation", async () => {
+  it("deleteDestination deletes or fails", async () => {
     fake.tables.set("destinations", {});
     await expect(api.deleteDestination("d1")).resolves.toBeUndefined();
-    fake.tables.set("destinations", { error: { message: "fk", code: "23503" } });
-    await expect(api.deleteDestination("d1")).rejects.toThrow("Remove it from its connections first.");
     fake.tables.set("destinations", { error: boom });
     await expect(api.deleteDestination("d1")).rejects.toThrow("boom");
   });
