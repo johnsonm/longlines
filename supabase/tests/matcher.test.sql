@@ -1,9 +1,9 @@
 -- pgTAP: spot_matches predicate, match_pending_spots, quiet window,
--- cross-subscription dedup, preview_subscription, callsign groups.
+-- cross-subscription dedup, preview_subscription, callsign groups, goals.
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(55);
+select plan(62);
 
 -- Drain anything already queued so counts below are exact.
 select pgmq.purge_queue('spot_events');
@@ -195,6 +195,80 @@ select is((select station_count from preview_subscription('{}')), 0::bigint, 'st
 select is((select station_count from preview_subscription('{"rules":[[{"field":"group","op":"is","values":["not-a-uuid"]}]]}')), 0::bigint,
   'a malformed group id is ignored like another user''s');
 reset role;
+
+-- Goals (20261029001200). A connection with a goal rule delivers only spots of entries
+-- still needed; a logged contact that works an entry stops it on the next run, and a complete
+-- list turns the rule off.
+select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
+create temp table dn as select * from create_destination('webhook', 'Needs hook', 'https://hooks.example.com/n');
+create temp table nl as
+  select save_goal('{"name": "Parks to chase", "requirements": [
+    {"kind": "park", "complete_when": "all", "entries": ["US-2763", "US-0817"]}]}') as id;
+create temp table nl_sub as
+  select save_subscription(jsonb_build_object('name', 'Needed parks', 'sources', array['pota'], 'quiet_minutes', 0,
+    'rules', jsonb_build_array(jsonb_build_array(
+      jsonb_build_object('field', 'goal', 'op', 'is', 'values', array[(select id from nl)]))),
+    'destinations', array[(select id from dn)])) as id;
+reset role;
+create function pg_temp.goalspot(p_id text, p_call text, p_ref text, p_ago interval) returns jsonb language sql as $$
+  select jsonb_build_object('source', 'pota', 'source_spot_id', p_id, 'content_hash', p_id, 'spot_time', now() - p_ago,
+    'callsign', p_call, 'frequency_khz', 14062, 'band', '20m', 'mode', 'cw', 'comment', '',
+    'pota_reference', p_ref, 'pota_location', 'US-NC', 'raw_payload', '{}'::jsonb);
+$$;
+create function pg_temp.goal_delivered() returns text[] language sql as $$
+  select coalesce(array_agg(r.source_spot_id order by r.source_spot_id), '{}')
+  from deliveries d join raw_spots r on r.id = d.spot_id
+  where d.destination_id = (select id from dn);
+$$;
+
+select count(*) from ingest_spots(jsonb_build_array(
+  pg_temp.goalspot('n1', 'K4ABC', 'US-2763', interval '20 minutes'),
+  pg_temp.goalspot('n2', 'N4DXX', 'US-0817', interval '19 minutes'),
+  pg_temp.goalspot('n3', 'W1AW', 'US-5555', interval '18 minutes')));
+select match_pending_spots();
+select is(pg_temp.goal_delivered(), array['n1', 'n2'], 'goal: the matcher delivers the needed parks only');
+
+-- KK4PWJ logs K4ABC five minutes after its spot at US-2763: the park is worked.
+select is(apply_logged_contacts('11111111-1111-1111-1111-111111111111', jsonb_build_array(jsonb_build_object(
+    'op', 'upsert', 'external_id', 'nl-1', 'logger_app', 'N1MM', 'relay_version', '0.2.0', 'us_state', null, 'gridsquare', null,
+    'spot', jsonb_build_object('source', 'logged', 'source_spot_id', '11111111-1111-1111-1111-111111111111|nl-1',
+      'content_hash', 'nl-1', 'spot_time', now() - interval '15 minutes', 'callsign', 'K4ABC', 'spotter', 'KK4PWJ',
+      'frequency_khz', 14062, 'band', '20m', 'mode', 'CW', 'mode_family', 'cw', 'comment', '', 'raw_payload', '{}'::jsonb))))
+    -> 0 ->> 'status', 'created', 'the contact is stored');
+select ok((select e.worked_how = 'contact' from goal_entries e
+           where e.requirement_id = (select r.id from goal_requirements r where r.list_id = (select id from nl))
+             and e.value = 'US-2763'),
+  'goal: the contact works US-2763');
+select count(*) from ingest_spots(jsonb_build_array(
+  pg_temp.goalspot('n4', 'K4ABC', 'US-2763', interval '10 minutes'),
+  pg_temp.goalspot('n5', 'N4DXX', 'US-0817', interval '9 minutes')));
+select match_pending_spots();
+select is(pg_temp.goal_delivered(), array['n1', 'n2', 'n5'],
+  'goal: once worked, the park stops alerting on the next run; the other still alerts');
+
+-- The preview: every recent POTA spot is either matched (US-0817) or skipped, since the goal is the only rule.
+select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
+create temp table nl_preview as
+  select array[p.count, p.skipped_worked, p.window_size - p.count] as got
+  from preview_subscription(jsonb_build_object('sources', array['pota'], 'rules', jsonb_build_array(jsonb_build_array(
+    jsonb_build_object('field', 'goal', 'op', 'is', 'values', array[(select id from nl)]))))) p;
+reset role;
+select is((select got from nl_preview),
+  (select array[count(*) filter (where pota_reference = 'US-0817'), count(*) filter (where pota_reference is distinct from 'US-0817'),
+                count(*) filter (where pota_reference is distinct from 'US-0817')]
+   from raw_spots where source = 'pota' and spot_time > now() - interval '24 hours'),
+  'goal preview: the needed park''s spots match and every other one is skipped_worked');
+
+-- Marking the last park by hand completes the list: the rule is off and the connection alerts for
+-- everything its other rules allow.
+select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
+select mark_goal_entry((select r.id from goal_requirements r where r.list_id = (select id from nl)), 'US-0817', true);
+reset role;
+select ok((select completed_at is not null from goals where id = (select id from nl)), 'the list is complete');
+select count(*) from ingest_spots(jsonb_build_array(pg_temp.goalspot('n6', 'W1AW', 'US-5555', interval '1 minute')));
+select match_pending_spots();
+select is(pg_temp.goal_delivered(), array['n1', 'n2', 'n5', 'n6'],
+  'goal: a complete list''s rule passes every spot');
 
 -- Cutover (20261015001200): the matcher no longer kicks the deliver function over pg_net; it
 -- notifies the sender's channel instead.

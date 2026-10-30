@@ -1,11 +1,12 @@
 -- pgTAP: subscription rules (20261014000500). Each op per field, AND inside a
 -- group and OR between groups, the per-group RBN guard and its trigger,
 -- watched_among over rules, normalize_subscription_rules, preview, and
--- save_subscription's legacy keys, kept rules and derived group_ids.
+-- save_subscription's legacy keys, kept rules and derived group_ids, and the goal rule
+-- (20261029001200): validation, matching, the save's lock and the preview's skipped_worked.
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(115);
+select plan(161);
 
 -- Start from empty tables so watched_among and preview see only these rows.
 delete from deliveries;
@@ -423,6 +424,217 @@ select lives_ok(format('select delete_callsign_group(%L)', (select club from grp
   'a group the rules no longer name can be deleted');
 select is((select subscription_count from list_callsign_groups() where id = (select rivals from grp)), 1::bigint,
   'list_callsign_groups counts a subscription naming the group in an is_not rule');
+
+-- ---------------------------------------------------------------------------
+-- The goal rule (20261029001200)
+-- ---------------------------------------------------------------------------
+
+-- User 1's lists. Chase: states NC, VA, GA (all), parks US-2763, US-0001 (all), bands 20m, 40m,
+-- 80m (at least 2). Bands only: 20m, 40m (all). Done is complete, Ended ended yesterday, and
+-- Later starts tomorrow. User 2 has a list of its own.
+select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
+create temp table nl as select
+  save_goal('{"name": "Chase", "requirements": [
+    {"kind": "state", "complete_when": "all", "entries": ["NC", "VA", "GA"]},
+    {"kind": "park", "complete_when": "all", "entries": ["US-2763", "US-0001"]},
+    {"kind": "band", "complete_when": "at_least", "at_least": 2, "entries": ["20m", "40m", "80m"]}]}') as chase,
+  save_goal('{"name": "Bands only", "requirements": [
+    {"kind": "band", "complete_when": "all", "entries": ["20m", "40m"]}]}') as bands,
+  save_goal('{"name": "Done", "requirements": [{"kind": "band", "complete_when": "all", "entries": ["20m"]}]}') as done,
+  save_goal(jsonb_build_object('name', 'Ended', 'starts_on', (now() at time zone 'utc')::date - 30,
+    'ends_on', (now() at time zone 'utc')::date - 1,
+    'requirements', '[{"kind": "band", "complete_when": "all", "entries": ["20m"]}]'::jsonb)) as ended,
+  save_goal(jsonb_build_object('name', 'Later', 'starts_on', (now() at time zone 'utc')::date + 1,
+    'ends_on', (now() at time zone 'utc')::date + 30,
+    'requirements', '[{"kind": "band", "complete_when": "all", "entries": ["20m"]}]'::jsonb)) as later;
+select mark_goal_entry((select id from goal_requirements where list_id = (select done from nl)), '20m', true);
+select pg_temp.as_user('22222222-2222-2222-2222-222222222222');
+create temp table other_nl as
+  select save_goal('{"name": "Theirs", "requirements": [{"kind": "band", "complete_when": "all", "entries": ["20m"]}]}') as id;
+reset role;
+
+-- A goal rule naming p_list, and a requirement's id by kind.
+create function pg_temp.nl(p_list uuid) returns subscriptions language sql as $$
+  select pg_temp.one('goal', 'is', jsonb_build_array(p_list));
+$$;
+create function pg_temp.nreq(p_list uuid, p_kind text) returns uuid language sql as $$
+  select id from goal_requirements where list_id = p_list and kind = p_kind;
+$$;
+create function pg_temp.potaspot(p_call text, p_band text, p_ref text, p_loc text) returns raw_spots language sql as $$
+  select pg_temp.spot('pota', p_call, p_band, 'cw', 14062, null, p_ref, p_loc);
+$$;
+insert into callsign_licenses (callsign, authority, country, state, loaded_at)
+values ('K4LIC', 'FCC', 'US', 'GA', now()), ('K5TEX', 'FCC', 'US', 'TX', now()),
+       ('VE3LIC', 'ISED', 'CA', 'NC', now())
+on conflict (callsign) do update set authority = excluded.authority, country = excluded.country, state = excluded.state;
+
+-- Validation.
+select throws_ok(format('select pg_temp.norm(%L)', jsonb_build_array(jsonb_build_array(
+    jsonb_build_object('field', 'goal', 'op', 'is_not', 'values', array[(select chase from nl)])))),
+  'P0001', 'A goal rule can''t use is_not.', 'a goal rule takes is only');
+select throws_ok(format('select pg_temp.norm(%L)', jsonb_build_array(jsonb_build_array(
+    jsonb_build_object('field', 'goal', 'op', 'is', 'values', array[(select chase from nl), (select bands from nl)])))),
+  'P0001', 'A goal rule takes one goal.', 'a goal rule takes one list, not two');
+select throws_ok($$ select pg_temp.norm('[[{"field":"goal","op":"is","values":[]}]]') $$,
+  'P0001', 'A goal rule takes one goal.', 'a goal rule needs a list');
+select throws_ok(format('select pg_temp.norm(%L)', jsonb_build_array(jsonb_build_array(
+    jsonb_build_object('field', 'goal', 'op', 'is', 'values', array[(select id from other_nl)])))),
+  'P0001', 'Goal not found.', 'strict: another user''s goal is refused');
+select throws_ok($$ select pg_temp.norm('[[{"field":"goal","op":"is","values":["not-a-uuid"]}]]') $$,
+  'P0001', 'Goal not found.', 'strict: a malformed goal id is refused');
+select is(pg_temp.norm(jsonb_build_array(jsonb_build_array(
+    jsonb_build_object('field', 'goal', 'op', 'is', 'values', array[(select id from other_nl)])))::text, false),
+  '[[{"field":"goal","op":"is","values":[]}]]'::jsonb,
+  'not strict: another user''s goal id is dropped');
+select is(pg_temp.norm(jsonb_build_array(jsonb_build_array(
+    jsonb_build_object('field', 'goal', 'op', 'is', 'values', array[' ' || upper((select chase::text from nl)) || ' '])))::text),
+  jsonb_build_array(jsonb_build_array(jsonb_build_object('field', 'goal', 'op', 'is', 'values', array[(select chase::text from nl)]))),
+  'a goal id is trimmed and stored lowercase');
+
+-- Matching: still needed passes, worked drops.
+select ok(spot_matches(pg_temp.nl((select chase from nl)), pg_temp.spot('sotawatch', 'W7JZ', '20m', 'cw')),
+  'goal: a spot on a needed band passes');
+select ok(not spot_matches(pg_temp.nl((select chase from nl)), pg_temp.spot('sotawatch', 'W7JZ', '6m', 'cw')),
+  'goal: a spot on a band the list lacks, with no park or state, is kept out');
+select ok(not spot_matches(pg_temp.nl((select chase from nl)), pg_temp.spot('sotawatch', 'W7JZ', null, 'cw')),
+  'goal: a spot with nothing the list names is kept out');
+select ok(spot_matches(pg_temp.nl((select chase from nl)), pg_temp.potaspot('W7JZ', '6m', 'us-2763', null)),
+  'goal: a needed park passes, compared upper case');
+select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
+select mark_goal_entry(pg_temp.nreq((select chase from nl), 'band'), '20m', true);
+select mark_goal_entry(pg_temp.nreq((select chase from nl), 'park'), 'US-2763', true);
+reset role;
+select ok(not spot_matches(pg_temp.nl((select chase from nl)), pg_temp.spot('sotawatch', 'W7JZ', '20m', 'cw')),
+  'goal: a worked band is kept out');
+select ok(not spot_matches(pg_temp.nl((select chase from nl)), pg_temp.potaspot('W7JZ', '6m', 'US-2763', null)),
+  'goal: a worked park is kept out');
+select ok(spot_matches(pg_temp.nl((select chase from nl)), pg_temp.potaspot('W7JZ', '20m', 'US-0001', null)),
+  'goal: one needed entry is enough, though the band is worked');
+
+-- "At least": once at_least entries are worked the requirement is complete and its other entries
+-- stop passing.
+select ok(spot_matches(pg_temp.nl((select chase from nl)), pg_temp.spot('sotawatch', 'W7JZ', '80m', 'cw')),
+  'goal: 80m passes while the band requirement lacks one');
+select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
+select mark_goal_entry(pg_temp.nreq((select chase from nl), 'band'), '40m', true);
+reset role;
+select ok(not spot_matches(pg_temp.nl((select chase from nl)), pg_temp.spot('sotawatch', 'W7JZ', '80m', 'cw')),
+  'goal: 2 of 3 bands worked completes the requirement, so 80m is kept out');
+
+-- States: the POTA location, else the license.
+select ok(spot_matches(pg_temp.nl((select chase from nl)), pg_temp.potaspot('W7JZ', '20m', 'US-9999', 'US-NC')),
+  'goal state: a POTA spot in NC passes by its location');
+select ok(spot_matches(pg_temp.nl((select chase from nl)), pg_temp.potaspot('K5TEX', '20m', 'US-9998', 'US-SC,US-VA')),
+  'goal state: a park on a state line passes for either state, before the license');
+select ok(not spot_matches(pg_temp.nl((select chase from nl)), pg_temp.potaspot('K4LIC', '20m', 'US-9997', 'US-TX')),
+  'goal state: the location wins over the license (TX, though licensed in GA)');
+select ok(spot_matches(pg_temp.nl((select chase from nl)), pg_temp.spot('sotawatch', 'K4LIC/P', '20m', 'cw')),
+  'goal state: a spot without a location passes by the base call''s license state (GA)');
+select ok(spot_matches(pg_temp.nl((select chase from nl)), pg_temp.potaspot('K4LIC', '20m', 'CA-0001', 'CA-ON')),
+  'goal state: a park outside the US falls back to the license, as marking does');
+select ok(not spot_matches(pg_temp.nl((select chase from nl)), pg_temp.spot('sotawatch', 'K5TEX', '20m', 'cw')),
+  'goal state: a license state not on the list is kept out');
+select ok(not spot_matches(pg_temp.nl((select chase from nl)), pg_temp.spot('sotawatch', 'VE3LIC', '20m', 'cw')),
+  'goal state: a license from outside the US gives no state');
+select is(spot_us_states(pg_temp.potaspot('W7JZ', '20m', 'US-9996', 'US-VA,US-NC,US-DC')), array['NC', 'VA'],
+  'spot_us_states: the location''s states, sorted, without DC');
+select ok(not spot_matches(pg_temp.nl((select bands from nl)), pg_temp.potaspot('W7JZ', '6m', 'US-2763', 'US-NC')),
+  'goal: a park and a state never match a list of bands only');
+
+-- Complete, ended and missing lists pass everything; one that has not started yet still filters.
+select ok(spot_matches(pg_temp.nl((select done from nl)), pg_temp.spot('sotawatch', 'W7JZ', '20m', 'cw')),
+  'goal: a complete list passes every spot');
+select ok(spot_matches(pg_temp.nl((select ended from nl)), pg_temp.spot('sotawatch', 'W7JZ', '6m', 'cw')),
+  'goal: an ended list passes every spot');
+select ok(spot_matches(pg_temp.nl(gen_random_uuid()), pg_temp.spot('sotawatch', 'W7JZ', '6m', 'cw')),
+  'goal: a missing list passes every spot');
+select ok(spot_matches(pg_temp.one('goal', 'is', '[]'), pg_temp.spot('sotawatch', 'W7JZ', '6m', 'cw')),
+  'goal: a rule left with no list (not strict) passes every spot');
+select ok(not spot_matches(pg_temp.nl((select later from nl)), pg_temp.spot('sotawatch', 'W7JZ', '6m', 'cw')),
+  'goal: a list before its start date still filters');
+update goals set marking = 'hand' where id = (select bands from nl);
+select ok(spot_matches(pg_temp.nl((select bands from nl)), pg_temp.spot('sotawatch', 'W7JZ', '20m', 'cw'))
+          and not spot_matches(pg_temp.nl((select bands from nl)), pg_temp.spot('sotawatch', 'W7JZ', '6m', 'cw')),
+  'goal: a hand-only list filters the same way');
+
+-- It combines with the other rules: AND inside a group, OR between groups.
+select ok(not spot_matches(pg_temp.sub(jsonb_build_array(jsonb_build_array(
+    jsonb_build_object('field', 'goal', 'op', 'is', 'values', array[(select chase from nl)]),
+    jsonb_build_object('field', 'mode', 'op', 'is', 'values', array['ssb'])))),
+  pg_temp.potaspot('W7JZ', '20m', 'US-0001', null)),
+  'goal AND mode: a needed park in the wrong mode is kept out');
+select ok(spot_matches(pg_temp.sub(jsonb_build_array(
+    jsonb_build_array(jsonb_build_object('field', 'goal', 'op', 'is', 'values', array[(select chase from nl)])),
+    jsonb_build_array(jsonb_build_object('field', 'callsign', 'op', 'is', 'values', array['W7JZ'])))),
+  pg_temp.spot('sotawatch', 'W7JZ', '20m', 'cw')),
+  'goal OR callsign: a worked band still passes by the other group');
+select ok(not spot_matches(pg_temp.one('goal', 'is', jsonb_build_array((select bands from nl)), '{rbn}'),
+                           pg_temp.spot('rbn', 'W7JZ', '20m', 'cw')),
+  'goal: an RBN spot needs stations named, as before');
+
+-- save_subscription: ownership, and the delete guard through the stored rule.
+select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
+select throws_ok(format('select save_subscription(%L)', jsonb_build_object('name', 'Theirs', 'rules', jsonb_build_array(jsonb_build_array(
+    jsonb_build_object('field', 'goal', 'op', 'is', 'values', array[(select id from other_nl)]))))),
+  'P0001', 'Goal not found.', 'save refuses another user''s goal');
+create temp table nl_sub as select save_subscription(jsonb_build_object('name', 'Chasing', 'sources', array['pota'],
+  'rules', jsonb_build_array(jsonb_build_array(
+    jsonb_build_object('field', 'goal', 'op', 'is', 'values', array[(select chase from nl)]))))) as id;
+select is((select rules from subscriptions where id = (select id from nl_sub)),
+  jsonb_build_array(jsonb_build_array(jsonb_build_object('field', 'goal', 'op', 'is', 'values', array[(select chase::text from nl)]))),
+  'save stores the goal rule');
+select is((select group_ids from subscriptions where id = (select id from nl_sub)), '{}'::uuid[],
+  'a goal is not a group');
+select throws_ok(format('select delete_goal(%L)', (select chase from nl)), 'LL409', 'Remove it from its connections first.',
+  'a goal a connection names cannot be deleted');
+select ok(position('for key share of l' in p.prosrc) > 0
+          and position('rules_goal_ids(v_rules)' in p.prosrc) > 0,
+  'save_subscription takes a key-share lock on the goals it names')
+from pg_proc p where p.oid = 'public.save_subscription(jsonb)'::regprocedure;
+
+-- preview_subscription: skipped_worked counts what only the goal rule kept out. Five
+-- recent POTA spots: US-0001 (needed), US-2763 (worked) twice, 20m in GA by license (needed
+-- state), 6m at a park and state not on the list.
+reset role;
+insert into raw_spots (source, source_spot_id, content_hash, spot_time, callsign, spotter, frequency_khz, band, mode,
+                       mode_family, pota_reference, pota_location, raw_payload)
+values ('pota', 'nl-a', 'nl-a', now() - interval '1 hour', 'W1AW', 'K4SWL', 14062, '20m', 'cw', 'cw', 'US-0001', 'US-TX', '{}'),
+       ('pota', 'nl-b', 'nl-b', now() - interval '1 hour', 'N0ONE', 'K4SWL', 14062, '20m', 'cw', 'cw', 'US-2763', 'US-TX', '{}'),
+       ('pota', 'nl-c', 'nl-c', now() - interval '1 hour', 'N0TWO', 'K4SWL', 7030, '40m', 'ssb', 'phone', 'US-2763', 'US-TX', '{}'),
+       ('pota', 'nl-d', 'nl-d', now() - interval '1 hour', 'K4LIC', 'K4SWL', 14062, '20m', 'cw', 'cw', 'US-9999', 'CA-ON', '{}'),
+       ('pota', 'nl-e', 'nl-e', now() - interval '1 hour', 'N0SIX', 'K4SWL', 50313, '6m', 'cw', 'cw', 'US-9998', 'US-TX', '{}');
+create function pg_temp.preview(p_rules jsonb)
+returns table (count bigint, window_size bigint, skipped_worked int) language sql as $$
+  select p.count, p.window_size, p.skipped_worked
+  from preview_subscription(jsonb_build_object('sources', array['pota'], 'rules', p_rules)) p;
+$$;
+select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
+select is((select row(p.*)::text from pg_temp.preview(jsonb_build_array(jsonb_build_array(
+    jsonb_build_object('field', 'goal', 'op', 'is', 'values', array[(select chase from nl)])))) p),
+  '(2,5,3)', 'preview: 2 of 5 pass the goal, 3 matched the other rules and were skipped');
+select is((select row(p.*)::text from pg_temp.preview(jsonb_build_array(jsonb_build_array(
+    jsonb_build_object('field', 'goal', 'op', 'is', 'values', array[(select chase from nl)]),
+    jsonb_build_object('field', 'mode', 'op', 'is', 'values', array['cw'])))) p),
+  '(2,5,2)', 'preview: skipped_worked counts only spots the other rules pass');
+select is((select row(p.*)::text from pg_temp.preview(jsonb_build_array(
+    jsonb_build_array(jsonb_build_object('field', 'goal', 'op', 'is', 'values', array[(select chase from nl)])),
+    jsonb_build_array(jsonb_build_object('field', 'band', 'op', 'is', 'values', array['40m'])))) p),
+  '(3,5,2)', 'preview: a spot another group passes is matched, not skipped');
+select is((select row(p.*)::text from pg_temp.preview(jsonb_build_array(jsonb_build_array(
+    jsonb_build_object('field', 'goal', 'op', 'is', 'values', array[(select done from nl)])))) p),
+  '(5,5,0)', 'preview: a complete list skips nothing');
+select is((select row(p.*)::text from pg_temp.preview('[[{"field":"band","op":"is","values":["20m"]}]]') p),
+  '(3,5,)', 'preview: skipped_worked is null without a goal rule');
+select is((select row(p.*)::text from pg_temp.preview(jsonb_build_array(jsonb_build_array(
+    jsonb_build_object('field', 'goal', 'op', 'is', 'values', array[(select id from other_nl)])))) p),
+  '(5,5,)', 'preview: another user''s list is dropped, so the rule passes everything and nothing is skipped');
+reset role;
+delete from raw_spots where source_spot_id like 'nl-_';
+
+select ok(not has_function_privilege('authenticated', 'public.goal_matches(uuid, raw_spots)', 'execute')
+          and not has_function_privilege('authenticated', 'public.spot_us_states(raw_spots)', 'execute')
+          and not has_function_privilege('anon', 'public.goal_matches(uuid, raw_spots)', 'execute'),
+  'clients cannot call the goal matchers');
 
 -- patch_subscription (service role only; the API calls it as the token's owner, whose
 -- claims as_user left set) leaves group_ids to save_subscription.
