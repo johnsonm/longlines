@@ -263,7 +263,7 @@ Server messages (the plan's, plus the ones marked new, which Brad has not seen):
   requirements.', 'A requirement takes at most 500 entries.', '"At least" must be a whole number
   of 1 or more.', 'Give the time window a start and an end date.', 'The end date can''t be before
   the start date.', 'Not a date: %.', 'Not a way to mark entries: %.', 'Not on this goal:
-  %.', 'Say whether the entry is worked.', 'Review not found.'
+  %.', 'Say whether the entry is worked.', 'Review not found.', 'Requirement not found.' (the API)
 
 ## Management API (PR 3)
 
@@ -272,6 +272,18 @@ Server messages (the plan's, plus the ones marked new, which Brad has not seen):
 /v1/goals/:id/entries` (`{requirement_id, value, worked}`), `POST
 /v1/goals/:id/reviews` (`{review_id, reference | null}`). Reads are `read` scope, the rest
 `write`. `docs/openapi.yaml` gains the paths and the `goal` rule.
+
+Built in `20261029001300_goals_api.sql`. The operations are `list_goals`,
+`create_goal`, `get_goal`, `replace_goal`, `delete_goal`,
+`mark_goal_entry` and `resolve_goal_review`. Every route but the list and the delete answers
+with `api_goal_json(get_goal(id))`: the card's fields at the top level beside
+`requirements`, `reviews`, `relay`, `used_by` and `first_contact_at`. Requests send entries as
+plain values (`["NC"]`), and a requirement's `id` keeps its hand marks across a PUT. A missing
+or foreign list on the path is LL404 ("Goal not found."); a body's requirement or review
+that isn't the path's list's is a 400 ("Requirement not found." or "Review not found.").
+The entries route requires `requirement_id`, `value` and `worked`, the reviews route
+`review_id` and `reference` (null is "Not a park contact", so it can't be left out). Copy for
+next year has no route.
 
 ## Web (PRs 4 to 6)
 

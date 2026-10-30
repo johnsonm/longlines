@@ -1393,6 +1393,9 @@ isOneToOne: true
 "api_destination_json":
 { Args: { "d": Omit<Database["public"]['Tables']["destinations"]['Row'], Database["public"]['Tables']["destinations"]['ComputedFields']> }; Returns: Json
                            },
+"api_goal_json":
+{ Args: { "g": Json }; Returns: Json
+                           },
 "api_group_json":
 { Args: { "g": Json }; Returns: Json
                            },

@@ -7,8 +7,8 @@ info:
   title: Long Lines API
   version: "1"
   description: |
-    Manage your connections, destinations and callsign groups from your own scripts, bots and
-    club tools. Everything the web app can change about these, the API can change too, and the
+    Manage your connections, destinations, callsign groups and goals from your own
+    scripts, bots and club tools. Everything the web app can change about these, the API can change too, and the
     same rules and error messages apply.
 
     ## Tokens
@@ -41,8 +41,8 @@ info:
     - **Request size.** A request body can be at most 256 KB.
     - **List size.** A list in a request, such as `callsigns`, can hold at most 2,000 items,
       and a group at most 1,000 callsigns.
-    - **Account size.** An account can have up to 100 connections, 50 destinations and 50
-      callsign groups, and a connection up to 5,000 values across its rules. Creating one more,
+    - **Account size.** An account can have up to 100 connections, 50 destinations, 50
+      callsign groups and 50 goals, and a connection up to 5,000 values across its rules. Creating one more,
       or saving a connection with more values, is a `400` with a message such as "You can have
       up to 100 connections."
 
@@ -96,6 +96,23 @@ tags:
 
       The two `members` routes change the list in one step, so two scripts adding members at
       the same time don't lose each other's changes.
+  - name: Goals
+    description: |
+      A goal is what you're still chasing: US states, POTA parks, bands. Point a
+      connection at one with a `goal` rule and it stops alerting for anything you've
+      already worked. A list has one or more requirements, each of one kind with its entries
+      and a "Complete when" rule: all of them, or at least some number of them.
+
+      An entry is worked when you log a contact through Long Lines Relay inside the list's
+      dates (with `marking` `relay`), or when you mark it by hand. A contact's park comes from a
+      POTA spot of that station within 30 minutes either side of it; when there is none, or
+      spots at two parks, the contact is listed in `reviews` for you to pick the park or say it
+      wasn't a park contact. A spot alone never works an entry.
+
+      A list is `complete` when every requirement is, and `ended` once its end date has passed.
+      Either way its rule is off on every connection that has it: those connections alert for
+      everything their other rules allow. A goal a connection uses can't be deleted
+      (`409`).
 
 paths:
   /destinations:
@@ -606,6 +623,185 @@ paths:
         "429": { $ref: "#/components/responses/TooManyRequests" }
         "500": { $ref: "#/components/responses/ServerError" }
 
+  /goals:
+    get:
+      operationId: list_goals
+      tags: [Goals]
+      summary: List your goals
+      responses:
+        "200":
+          description: All your goals, by name, as their summaries.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/GoalCard" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "500": { $ref: "#/components/responses/ServerError" }
+    post:
+      operationId: create_goal
+      tags: [Goals]
+      summary: Create a goal
+      description: |
+        Names are unique per account, ignoring case. Contacts you have already logged inside the
+        list's dates mark its entries straight away.
+      security:
+        - apiToken: [write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GoalInput" }
+            example:
+              name: 2026 chase
+              starts_on: "2026-01-01"
+              ends_on: "2026-12-31"
+              requirements:
+                - { kind: state, entries: [NC, VA, SC] }
+                - { kind: band, complete_when: at_least, at_least: 4, entries: [80m, 40m, 20m, 17m, 15m, 10m] }
+      responses:
+        "201":
+          description: The goal.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Goal" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ReadOnly" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "500": { $ref: "#/components/responses/ServerError" }
+
+  /goals/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      operationId: get_goal
+      tags: [Goals]
+      summary: Get a goal with its progress
+      responses:
+        "200":
+          description: The goal.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Goal" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "500": { $ref: "#/components/responses/ServerError" }
+    put:
+      operationId: replace_goal
+      tags: [Goals]
+      summary: Replace a goal
+      description: |
+        Sends the whole list: anything left out goes back to its default, and a requirement or
+        entry left out is removed. Send each requirement's `id` to keep the entries you marked
+        by hand. After the save, the contacts inside the new dates are checked again, so
+        changing the dates can set worked entries back to needed.
+      security:
+        - apiToken: [write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GoalInput" }
+      responses:
+        "200":
+          description: The goal.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Goal" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ReadOnly" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "500": { $ref: "#/components/responses/ServerError" }
+    delete:
+      operationId: delete_goal
+      tags: [Goals]
+      summary: Delete a goal
+      description: Refused with `409` while any of your connections has a `goal` rule naming it.
+      security:
+        - apiToken: [write]
+      responses:
+        "200": { $ref: "#/components/responses/Deleted" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ReadOnly" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/InUse" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "500": { $ref: "#/components/responses/ServerError" }
+
+  /goals/{id}/entries:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    post:
+      operationId: mark_goal_entry
+      tags: [Goals]
+      summary: Mark an entry worked or needed by hand
+      description: |
+        `worked: true` marks the entry worked now; an entry already worked keeps its mark.
+        `worked: false` sets it back to needed, and only a contact logged after that marks it
+        again. A requirement that isn't this goal's is a `400`: "Requirement not found."
+      security:
+        - apiToken: [write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GoalEntryMark" }
+            example: { requirement_id: 4b0e…, value: NC, worked: true }
+      responses:
+        "200":
+          description: The goal, after marking.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Goal" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ReadOnly" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "500": { $ref: "#/components/responses/ServerError" }
+
+  /goals/{id}/reviews:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    post:
+      operationId: resolve_goal_review
+      tags: [Goals]
+      summary: Pick the park of a contact that needs a look
+      description: |
+        A `reference` picks the park, which marks it worked where the list still needs it, with
+        the contact as its evidence. `null` says it wasn't a park contact. Either way the review
+        is resolved and stays resolved. A review that isn't this goal's, or is already
+        resolved, is a `400`: "Review not found."
+      security:
+        - apiToken: [write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GoalReviewResolve" }
+            example: { review_id: 7f2a…, reference: US-2763 }
+      responses:
+        "200":
+          description: The goal, after resolving.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Goal" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ReadOnly" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "500": { $ref: "#/components/responses/ServerError" }
+
 components:
   securitySchemes:
     apiToken:
@@ -651,13 +847,14 @@ components:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
     NotFound:
-      description: The connection, destination or group doesn't exist or isn't yours.
+      description: The connection, destination, group or goal doesn't exist or isn't yours.
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
     InUse:
       description: |
-        The group is still used by a connection: "Remove it from its connections first."
+        The group or goal is still used by a connection: "Remove it from its connections
+        first."
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
@@ -1095,3 +1292,211 @@ components:
             source: pota
             reference: US-1234
             spot_time: "2026-10-13T18:31:07Z"
+
+    GoalInput:
+      type: object
+      required: [name, requirements]
+      properties:
+        name: { type: [string, "null"] }
+        starts_on:
+          type: [string, "null"]
+          format: date
+          description: |
+            The first UTC day whose contacts count, as `YYYY-MM-DD`. Send both dates (between
+            dates, for a contest or a calendar-year award) or neither (no end date, for a
+            lifetime award like POTA hunter).
+        ends_on:
+          type: [string, "null"]
+          format: date
+          description: The last UTC day whose contacts count. It can't be before `starts_on`.
+        marking:
+          type: [string, "null"]
+          enum: [relay, hand, null]
+          description: |
+            `relay` (the default): from your log, using Long Lines Relay, and you can still mark
+            by hand. `hand`: by hand only.
+        requirements:
+          type: array
+          minItems: 1
+          maxItems: 10
+          items: { $ref: "#/components/schemas/GoalRequirementInput" }
+
+    GoalRequirementInput:
+      type: object
+      required: [kind, entries]
+      properties:
+        id:
+          type: [string, "null"]
+          format: uuid
+          description: |
+            The requirement's id from a read. Send it to keep the entries you marked by hand; a
+            requirement without one is new, and only your contacts mark its entries.
+        kind: { type: string, enum: [state, park, band] }
+        complete_when:
+          type: [string, "null"]
+          enum: [all, at_least, null]
+          description: Defaults to `all`.
+        at_least:
+          type: [integer, "null"]
+          minimum: 1
+          description: |
+            With `complete_when: at_least`, how many worked entries complete the requirement. It
+            must be smaller than the number of entries. Once that many are worked, the rest stop
+            alerting too.
+        entries:
+          type: array
+          minItems: 1
+          maxItems: 500
+          items: { type: string }
+          description: |
+            `state`: two-letter codes of the 50 states (no DC), uppercased for you. `park`: POTA
+            references such as `US-2763`, uppercased for you; they need not be in the POTA list.
+            `band`: band names such as `20m`, lowercased for you. Each value is kept once.
+
+    GoalEntryMark:
+      type: object
+      required: [requirement_id, value, worked]
+      properties:
+        requirement_id: { type: [string, "null"], format: uuid }
+        value:
+          type: [string, "null"]
+          description: The entry, for example `NC`, `US-2763` or `20m`.
+        worked: { type: [boolean, "null"] }
+
+    GoalReviewResolve:
+      type: object
+      required: [review_id, reference]
+      properties:
+        review_id: { type: [string, "null"], format: uuid }
+        reference:
+          type: [string, "null"]
+          description: The park the contact was at, such as `US-2763`, or `null` for not a park contact.
+
+    GoalCard:
+      type: object
+      required: [id, name, starts_on, ends_on, marking, status, completed_at, requirement_count,
+                 worked, total, needed_by_kind, connection_count, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        starts_on: { type: [string, "null"], format: date }
+        ends_on: { type: [string, "null"], format: date }
+        marking: { type: string, enum: [relay, hand] }
+        status:
+          type: string
+          enum: [active, complete, ended]
+          description: |
+            `complete` once every requirement is complete, `ended` after `ends_on` (UTC) when it
+            isn't, else `active`. A complete or ended list's rule passes every spot.
+        completed_at: { type: [string, "null"], format: date-time }
+        requirement_count: { type: integer }
+        worked:
+          type: integer
+          description: Worked entries, each requirement counted up to what completes it.
+        total: { type: integer, description: The entries that complete every requirement. }
+        needed_by_kind:
+          type: object
+          description: Entries still needed by requirements that aren't complete, by kind.
+          required: [state, park, band]
+          properties:
+            state: { type: integer }
+            park: { type: integer }
+            band: { type: integer }
+        connection_count: { type: integer, description: Connections whose rules name the list. }
+        updated_at: { type: string, format: date-time }
+
+    Goal:
+      allOf:
+        - $ref: "#/components/schemas/GoalCard"
+        - type: object
+          required: [requirements, reviews, relay, used_by, first_contact_at]
+          properties:
+            requirements:
+              type: array
+              items:
+                type: object
+                required: [id, kind, complete_when, at_least, position, complete, worked, target,
+                           entries]
+                properties:
+                  id: { type: string, format: uuid }
+                  kind: { type: string, enum: [state, park, band] }
+                  complete_when: { type: string, enum: [all, at_least] }
+                  at_least: { type: [integer, "null"] }
+                  position: { type: integer }
+                  complete: { type: boolean }
+                  worked:
+                    type: integer
+                    description: Worked entries, up to `target`.
+                  target:
+                    type: integer
+                    description: The entry count for `all`, else `at_least`.
+                  entries:
+                    type: array
+                    items:
+                      type: object
+                      required: [value, label, position, worked_at, worked_how, evidence]
+                      properties:
+                        value: { type: string }
+                        label:
+                          type: [string, "null"]
+                          description: A park's name from the POTA list; null for states and bands.
+                        position: { type: integer }
+                        worked_at: { type: [string, "null"], format: date-time }
+                        worked_how: { type: [string, "null"], enum: [contact, hand, null] }
+                        evidence:
+                          type: [object, "null"]
+                          description: For an entry a contact worked, the contact and the POTA spot its park came from.
+                          properties:
+                            worked_call: { type: string }
+                            contact_time: { type: string, format: date-time }
+                            logger_app: { type: [string, "null"] }
+                            matched_spot_time: { type: [string, "null"], format: date-time }
+            reviews:
+              type: array
+              description: |
+                Contacts that need a look: no POTA spot of that station within 30 minutes either
+                side, or spots at two parks, while a park requirement isn't complete. Newest first.
+              items:
+                type: object
+                required: [id, worked_call, band, mode, contact_time, candidates]
+                properties:
+                  id: { type: string, format: uuid }
+                  worked_call: { type: string }
+                  band: { type: [string, "null"] }
+                  mode: { type: [string, "null"] }
+                  contact_time: { type: string, format: date-time }
+                  candidates:
+                    type: array
+                    description: The parks spotted in the window; empty when there were none.
+                    items:
+                      type: object
+                      required: [reference, name]
+                      properties:
+                        reference: { type: string }
+                        name: { type: [string, "null"] }
+            relay:
+              type: object
+              description: |
+                Whether Long Lines Relay is sending your contacts: `recent` with a contact in the
+                last 7 days, `never` with no relay paired and no contact, else `stale`.
+              required: [status, last_contact_at, logger_app, relay_count]
+              properties:
+                status: { type: string, enum: [never, recent, stale] }
+                last_contact_at: { type: [string, "null"], format: date-time }
+                logger_app: { type: [string, "null"] }
+                relay_count: { type: integer }
+            used_by:
+              type: array
+              description: The connections whose rules name the list.
+              items:
+                type: object
+                required: [id, name, sources, destination_count]
+                properties:
+                  id: { type: string, format: uuid }
+                  name: { type: string }
+                  sources: { type: array, items: { $ref: "#/components/schemas/Source" } }
+                  destination_count: { type: integer }
+            first_contact_at:
+              type: [string, "null"]
+              format: date-time
+              description: When Long Lines got your first logged contact; earlier contacts are marked by hand.
