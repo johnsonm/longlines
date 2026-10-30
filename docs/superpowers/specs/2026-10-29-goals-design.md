@@ -277,7 +277,7 @@ Server messages (the plan's, plus the ones marked new, which Brad has not seen):
 
 Routes `/goals`, `/goals/new`, `/goals/:id`, `/goals/:id/edit`; the nav
 item after Groups (`ChecklistIcon`). The canvas's check marks are MUI's `CheckIcon`. Phone: cards
-stack, chip lists show 12 then "Show all N needed", "How entries get marked" is an `Accordion`,
+stack, chip lists show 12 (parks 4, as the phone frame draws them) then "Show all N needed", "How entries get marked" is an `Accordion`,
 and the edit page is a full-screen dialog with Save in the top bar. The relay banner's "Dismiss for
 7 days" is per list in `localStorage` (`longlines.goalRelayDismissed.<id>`). The connection
 editor offers the `goal` field with op `is` labelled "is in", a source warning when a kind

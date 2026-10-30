@@ -356,7 +356,7 @@ describe("GoalPage", () => {
   describe("on a phone", () => {
     beforeEach(() => setMobile(true));
 
-    it("puts progress and the relay first, shows 12 chips then Show all, and folds How entries get marked", async () => {
+    it("puts progress and the relay first, shows 12 chips (4 parks) then Show all, and folds How entries get marked", async () => {
       const { user } = show();
       expect(await screen.findByRole("heading", { level: 1, name: "2026 chase" })).toBeInTheDocument();
       expect(screen.getByRole("link", { name: "Back" })).toHaveAttribute("href", "/goals");
@@ -375,7 +375,15 @@ describe("GoalPage", () => {
       expect(st.queryByRole("button", { name: /Show all/ })).not.toBeInTheDocument();
       expect(within(section("Bands")).getByText("· At least 4 of 6")).toBeInTheDocument();
 
+      // Parks show four chips, as the canvas's phone frame draws them.
       const pk = within(section("Parks"));
+      const parkChips = () => pk.getAllByRole("button").filter((b) => b.classList.contains("MuiChip-root")).map((b) => b.textContent);
+      expect(parkChips()).toEqual([
+        "Hanging Rock State Park", "Pilot Mountain State Park", "Jordan Lake State Recreation Area", "Fort Macon State Park",
+      ]);
+      await user.click(pk.getByRole("button", { name: "Show all 7 needed" }));
+      expect(parkChips()).toHaveLength(7);
+      expect(pk.queryByRole("button", { name: /Show all/ })).not.toBeInTheDocument();
       await user.click(pk.getByRole("button", { name: "Show 3 worked" }));
       expect(pk.getByText("K4ABC · Oct 3, 21:14 UTC · Matched to a POTA spot at 21:09")).toBeInTheDocument();
 

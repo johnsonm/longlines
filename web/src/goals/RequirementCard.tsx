@@ -4,7 +4,7 @@ import {
 } from "@mui/material";
 import CheckIcon from "@mui/icons-material/Check";
 import {
-  KIND_LABEL, PHONE_CHIPS, atLeastNote, chipLabel, entryName, evidenceLine, percent, ruleLabel,
+  KIND_LABEL, PHONE_CHIPS, PHONE_PARK_CHIPS, atLeastNote, chipLabel, entryName, evidenceLine, percent, ruleLabel,
 } from "./model";
 import type { GoalEntry, GoalRequirement, GoalStatus } from "./types";
 
@@ -20,7 +20,7 @@ interface Props {
 
 /**
  * One requirement on the progress page: its rule and progress, the still-needed entries as chips
- * (a chip opens Mark as worked; phones show 12, then "Show all N needed"), and the worked entries
+ * (a chip opens Mark as worked; phones show 12, or 4 parks, then "Show all N needed"), and the worked entries
  * behind "Show N worked", each with how it got marked and Mark as needed.
  */
 export function RequirementCard({ req, status, phone, now, busy, onMark }: Props) {
@@ -31,7 +31,8 @@ export function RequirementCard({ req, status, phone, now, busy, onMark }: Props
   const worked = req.entries.filter((e) => e.worked_at !== null);
   const kind = KIND_LABEL[req.kind];
   const ended = status === "ended";
-  const chips = phone && !allChips ? needed.slice(0, PHONE_CHIPS) : needed;
+  const phoneChips = req.kind === "park" ? PHONE_PARK_CHIPS : PHONE_CHIPS;
+  const chips = phone && !allChips ? needed.slice(0, phoneChips) : needed;
 
   const markWorked = () => {
     if (menu) onMark(menu.entry.value, true);

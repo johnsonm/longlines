@@ -19,6 +19,8 @@ const KIND_NOUN: Record<GoalKind, string> = { state: "states", park: "parks", ba
 
 /** Phones show this many still-needed chips, then "Show all N needed". */
 export const PHONE_CHIPS = 12;
+/** Park names are long: phones show this many park chips first, as the canvas's phone frame does. */
+export const PHONE_PARK_CHIPS = 4;
 
 /** The relay banner's "Dismiss for 7 days". */
 export const DISMISS_MS = 7 * DAY_MS;
