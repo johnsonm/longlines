@@ -44,13 +44,13 @@ Files: create `supabase/functions/_shared/ised.ts`,
 `supabase/functions/_shared/__tests__/ised.test.ts`,
 `supabase/functions/_shared/__tests__/fixtures/ised-amateur.txt`.
 
-- [ ] Write the fixture by hand: a header line identical to the real one, then about 12 synthetic
+- [x] Write the fixture by hand: a header line identical to the real one, then about 12 synthetic
       records with calls ending in `S` (as `seed.sql` does: `VE3TSS`, `VA7QSS`, ...), CRLF line
       ends, UTF-8. Cover: accented names (`Hélène`, `Françoise`), a literal `"` nickname, padded
       names, a club with `club_name_2`, a blank province, each qualification combination in the
       spec, one A-only and one E-only. Every address field holds made-up text, so the tests can
       prove none of it comes through. Never paste lines from the real file.
-- [ ] Write failing tests:
+- [x] Write failing tests:
   - the header is read by name: a fixture with the columns shuffled parses the same rows; a
     header missing `callsign`, `first_name`, `surname`, `prov_cd`, any `qual_*` or `club_name`
     throws `ValidationError`
@@ -65,7 +65,7 @@ Files: create `supabase/functions/_shared/ised.ts`,
     is skipped and counted, not thrown (`IsedRecords.skipped`)
   - a qualification field holding anything but its own letter or empty is skipped and counted
   - the parser streams: feeding the fixture in 7-byte chunks gives the same rows
-- [ ] Implement:
+- [x] Implement:
   - `export interface IsedRow` (the six keys above) and `isedRowSchema: z.ZodType<IsedRow>`,
     `z.strictObject` (our own request bodies)
   - `export class IsedRecords`, modelled on `UlsRecords` and `ReferenceCatalogParser`: takes text
@@ -75,7 +75,7 @@ Files: create `supabase/functions/_shared/ised.ts`,
     actions `status`, `begin`, `rows`, `finish`, `abandon`; `finish` carries `{load, rows}`) and
     `IsedLoad` / `isedLoadSchema` (`z.looseObject`, RPC jsonb)
   - split on `;` only: the file has no quoting (spec, "Upstream")
-- [ ] `deno test -P supabase/functions/_shared/__tests__/ised.test.ts`, then `npm run lint`,
+- [x] `deno test -P supabase/functions/_shared/__tests__/ised.test.ts`, then `npm run lint`,
       `npm run typecheck`. Commit.
 
 ## Task 2: Migration

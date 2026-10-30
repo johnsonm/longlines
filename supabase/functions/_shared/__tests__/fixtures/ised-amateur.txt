@@ -1,0 +1,11 @@
+callsign;first_name;surname;address_line;city;prov_cd;postal_code;qual_a;qual_b;qual_c;qual_d;qual_e;club_name;club_name_2;club_address;club_city;club_prov_cd;club_postal_code
+VE3TSS;Hélène;McFadden;188 Millwood Dr;Ottawa;ON;K1A0B1;A;;C;D;;;;;;;;
+VA7QSS;Françoise;"Frank";381B Pleasant St;Vancouver;BC;V5K0A1;A;;;;;;;;;;;
+VE1CSS;DAVID;LEWIS;;NS;;;D;E;;;;;;;;
+VE2RSS;John;Smith;123 Main St;Montreal;QC;H3Z2Y7;;B;;;;;;;;;
+VE4SSS;Jane;Doe;456 Elm St;Winnipeg;MB;R3C1A1;A;B;C;D;E;;;;;;;
+VE5CSS;;;;;;;;;;;;Example Radio Club;HQ;789 Park Ave;Regina;SK;S4P3Y2
+VE6OSS;Mark;O'Connor;999 First Ave;Calgary;AB;T2P1J9;X;;;;;;;;;;;
+BADCALL;Bad;Call;;;;;;;;;;;;;;;;;;
+VE3BADQUAL;Bad;Qual;;ON;;;Z;;;;;;;;;;;
+VE3MINI;Short;;;;ON;;;;;;;;;;;;;
