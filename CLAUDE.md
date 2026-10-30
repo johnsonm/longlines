@@ -992,6 +992,13 @@ rule in the connection editor.
   kind changes is sent without its id. Parks come from `searchReferences(q, "pota")`, which only
   suggests; a typed POTA reference goes in as typed. A phone gets a full-screen dialog with Save in
   its top bar.
+- In the connection editor the rule is the `goal` field (after Callsign group, op `is` worded
+  "is in", one list from `listGoals()`; Add rule never picks it). Its helper, the source warning
+  and the preview's skipped line are worded in `goals/model.ts` from the card and
+  `skipped_worked` only: parks are the one kind a source can lack (`parksCanMatch`: only `pota`, or
+  any source, carries `pota_reference`, which `goal_matches` reads), so change the two
+  together. A finished list's rule says it is off and never warns. "Create a Parks on the Air
+  connection" opens `/connections/new?source=pota&goal=<id>` (`blankSub`'s goal).
 
 ## Group statistics rules
 
