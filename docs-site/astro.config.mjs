@@ -5,15 +5,16 @@ import starlight from '@astrojs/starlight';
 // https://astro.build/config
 export default defineConfig({
 	site: 'https://docs.longlines.io',
-	// No landing page: the root opens Getting started.
-	redirects: { '/': '/getting-started/' },
+	// No landing page: Getting started is the root page itself (index.md), not a redirect, which on
+	// GitHub Pages is a meta-refresh stub that flashes. The old path still leads there.
+	redirects: { '/getting-started/': '/' },
 	integrations: [
 		starlight({
 			title: 'Long Lines',
 			description: 'How to use Long Lines and Long Lines Relay.',
 			social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/sonyccd/longlines' }],
 			sidebar: [
-				{ label: 'Getting started', slug: 'getting-started' },
+				{ label: 'Getting started', link: '/' },
 				{ label: 'Your account', slug: 'account' },
 				{
 					label: 'Spots in',
