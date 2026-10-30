@@ -37,6 +37,13 @@ Deno.test("matchRoute finds each route with its id", function (): void {
   assertEquals(matchRoute("POST", `/v1/connections/${ID}/callsigns`), { kind: "not_found" });
   assertEquals(route("POST", `/v1/destinations/${ID}/test`).op, "send_test");
   assertEquals(route("GET", "/v1/destinations").op, "list_destinations");
+  assertEquals(route("PUT", `/v1/goals/${ID}`).op, "replace_goal");
+  assertEquals(route("POST", `/v1/goals/${ID}/entries`).op, "mark_goal_entry");
+  assertEquals(route("POST", `/v1/goals/${ID}/reviews`).op, "resolve_goal_review");
+  assertEquals(matchRoute("PATCH", `/v1/goals/${ID}`), {
+    kind: "method_not_allowed",
+    allow: ["GET", "PUT", "DELETE"],
+  });
 });
 
 Deno.test("matchRoute separates unknown paths from wrong methods", function (): void {
@@ -64,7 +71,12 @@ Deno.test("only GET routes are readable with a read token", function (): void {
 
 Deno.test("creates answer 201 and everything else 200", function (): void {
   const created = ROUTES.filter((e) => e[2].status === 201).map((e) => `${e[0]} ${e[1]}`);
-  assertEquals(created, ["POST /v1/destinations", "POST /v1/connections", "POST /v1/groups"]);
+  assertEquals(created, [
+    "POST /v1/destinations",
+    "POST /v1/connections",
+    "POST /v1/groups",
+    "POST /v1/goals",
+  ]);
 });
 
 // api_call's allowlist is the other half of the route table: an op missing
@@ -252,6 +264,44 @@ Deno.test("checkBody wants rules as a list and leaves its contents to SQL", func
   }
 });
 
+Deno.test("checkBody wants a goal's requirements as a list", function (): void {
+  const requirement = { kind: "state", complete_when: "all", entries: ["NC"] };
+  for (const r of [route("POST", "/v1/goals"), route("PUT", `/v1/goals/${ID}`)]) {
+    assertEquals(
+      checkBody(r, {
+        name: "2026 chase",
+        starts_on: null,
+        ends_on: null,
+        requirements: [requirement],
+      }),
+      null,
+    );
+    assertEquals(checkBody(r, { requirements: requirement }), "requirements must be a list.");
+    assertEquals(checkBody(r, { starts_on: 20260101 }), "starts_on must be a string.");
+    assertEquals(checkBody(r, { marking: true }), "marking must be a string.");
+  }
+});
+
+Deno.test("checkBody wants every key of an entry mark and a review", function (): void {
+  const entries = route("POST", `/v1/goals/${ID}/entries`);
+  assertEquals(checkBody(entries, { requirement_id: ID, value: "NC", worked: true }), null);
+  assertEquals(checkBody(entries, { requirement_id: ID, value: "NC" }), "worked is required.");
+  assertEquals(checkBody(entries, { value: "NC", worked: true }), "requirement_id is required.");
+  assertEquals(
+    checkBody(entries, { requirement_id: ID, value: "NC", worked: "yes" }),
+    "worked must be a boolean.",
+  );
+  const reviews = route("POST", `/v1/goals/${ID}/reviews`);
+  // A null reference is "Not a park contact"; leaving it out is not.
+  assertEquals(checkBody(reviews, { review_id: ID, reference: null }), null);
+  assertEquals(checkBody(reviews, { review_id: ID, reference: "US-2763" }), null);
+  assertEquals(checkBody(reviews, { review_id: ID }), "reference is required.");
+  assertEquals(
+    checkBody(reviews, { review_id: ID, reference: 2763 }),
+    "reference must be a string.",
+  );
+});
+
 Deno.test("routeArgs builds each input kind, the path id winning", function (): void {
   assertEquals(routeArgs(route("GET", `/v1/destinations/${ID}`), ID, {}), { id: ID });
   assertEquals(
@@ -265,6 +315,17 @@ Deno.test("routeArgs builds each input kind, the path id winning", function (): 
     id: ID,
     body: { name: "A" },
   });
+  assertEquals(routeArgs(route("PUT", `/v1/goals/${ID}`), ID, { id: "other", name: "A" }), {
+    id: ID,
+    body: { id: "other", name: "A" },
+  });
+  assertEquals(
+    routeArgs(route("POST", `/v1/goals/${ID}/reviews`), ID, {
+      review_id: ID,
+      reference: null,
+    }),
+    { id: ID, review_id: ID, reference: null },
+  );
 });
 
 Deno.test("parseBody passes the object through, an own __proto__ key included", function (): void {
