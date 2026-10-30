@@ -67,9 +67,14 @@ vi.mock("./subscriptions/SubscriptionsPage", () => ({
 }));
 vi.mock("./subscriptions/SubscriptionEditorPage", () => ({
   SubscriptionEditorPage: (
-    { id, source, callsign, group, reference }: { id?: string; source?: string | null; callsign?: string | null; group?: string | null; reference?: string | null },
+    { id, source, callsign, group, reference, goal }: {
+      id?: string; source?: string | null; callsign?: string | null; group?: string | null; reference?: string | null; goal?: string | null;
+    },
   ) => (
-    <p>subscription editor {id ?? "new"} {source ?? "none"} {callsign ?? "any"}{group ? ` group ${group}` : ""}{reference ? ` reference ${reference}` : ""}</p>
+    <p>
+      subscription editor {id ?? "new"} {source ?? "none"} {callsign ?? "any"}{group ? ` group ${group}` : ""}{reference ? ` reference ${reference}` : ""}
+      {goal ? ` goal ${goal}` : ""}
+    </p>
   ),
 }));
 vi.mock("./groups/GroupsPage", () => ({ GroupsPage: () => <p>groups page</p> }));
@@ -424,6 +429,7 @@ describe("App routing", () => {
     ["/connections/new?source=rbn&callsign=KK4PWJ", "subscription editor new rbn KK4PWJ"],
     ["/connections/new?source=pota&group=g1", "subscription editor new pota any group g1"],
     ["/connections/new?source=sotawatch&reference=W4C%2FCM-001", "subscription editor new sotawatch any reference W4C/CM-001"],
+    ["/connections/new?source=pota&goal=n1", "subscription editor new pota any goal n1"],
     ["/connections/s1", "subscription editor s1 none any"],
     // Old bookmarks redirect, keeping the id and query string.
     ["/subscriptions", "subscriptions page 0"],

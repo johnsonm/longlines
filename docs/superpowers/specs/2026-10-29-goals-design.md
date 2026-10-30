@@ -328,6 +328,20 @@ window reaches back before `first_contact_at`; a new list has no `first_contact_
 shows there. The relay sentence of the marking help shows only while the relay is recent. "Delete
 goal" is at the foot of the edit page on a desktop too, so an active list can be deleted.
 
+PR 6 (the rule in the connection editor: `subscriptions/model.ts`, `FilterStep.tsx`,
+`SubscriptionEditorPage.tsx`, `SubscriptionsPage.tsx`; the wording in `goals/model.ts`),
+decisions Brad may revisit: Goal follows Callsign group in the Field menu, offered on every
+source, and Add rule never picks it on its own (it would be an empty rule for an account with no
+lists); the value is a single-value `Autocomplete` over `list_goals`, finished lists
+included, loaded once per visit like groups; "N entries still needed" is the card's `total -
+worked` and "across M requirements" its `requirement_count`; the source warning shows only for
+parks (the one kind a source can lack), with "SOTAwatch spots" from the source's name ("Logged
+contacts" for logged, and "POTA parks" for WWFF and WWBOTA), and spans the rule row under the helper; "Create a Parks on the Air
+connection" opens `/connections/new?source=pota&goal=<id>` in a new tab (so the draft being
+edited is never lost), a new POTA connection with only that rule and no name; a complete or ended list's rule says it is off instead of counting, with
+no warning; the preview line shows only when `skipped_worked` is more than zero; connection cards
+show "Goal is in" with the list's name once the lists load.
+
 ## PR order
 
 1. Spec + schema + marking (this file, the migration, `logged.ts`, pgTAP). Hosted: db push, then
@@ -583,3 +597,10 @@ Frame "Warning: source can't match an entry" (the filter step of a SOTAwatch con
   this connection.`; `[Create a Parks on the Air connection]`.
 - Then `and` `Mode` `is` `CW`; `[Add rule]`; `(Repeat spots for the same station)` `At most once
   per 30 minutes`.
+
+New copy in the connection editor (PR 6; not on the canvas, Brad has not seen it): the source
+warning's sentence for WWFF and WWBOTA connections, whose spots are park-like activations with
+their own references, `The Parks requirement has 7 parks still needed. WWFF spots don't include
+POTA parks, so those entries will never alert on this connection.` (`WWBOTA spots` likewise, and
+any list of sources that names either says `POTA parks`); the SOTAwatch sentence above stays word
+for word for every other source.

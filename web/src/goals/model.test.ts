@@ -3,8 +3,8 @@ import { NOW, bands, card, parks, states } from "../test/goals";
 import {
   atLeastNote, bandLabel, blockedDeleteText, browserStorage, cardMeta, chipLabel, completeRuleBanner, completeText, connectionDetail,
   contactTime, copyYear, datesLine, dismissKey, dismissRelay, endedBanner, entryName, evidenceLine, joinNames, neededParks, percent,
-  relayBannerText, relayDismissed, relayLine, requirementsLine, reviewBanner, reviewDetail, reviewTitle, ruleLabel, showRelayBanner,
-  usageLine, usedByNote, utcDay, windowLabel, workedLine,
+  parksCanMatch, relayBannerText, relayDismissed, relayLine, requirementsLine, reviewBanner, reviewDetail, reviewTitle, ruleHelperText,
+  ruleLabel, showRelayBanner, skippedWorkedText, sourceWarning, unmatchableEntries, usageLine, usedByNote, utcDay, windowLabel, workedLine,
 } from "./model";
 
 describe("dates", () => {
@@ -203,5 +203,56 @@ describe("connections", () => {
     expect(blockedDeleteText(1)).toBe("1 connection uses this goal. Remove the goal rule from it, then you can delete it.");
     expect(requirementsLine(0, 3, "active")).toBe("0 of 3 requirements complete");
     expect(requirementsLine(0, 3, "ended")).toBe("Final: 0 of 3 requirements complete");
+  });
+});
+
+describe("the rule in the connection editor", () => {
+  it("says how much is still needed, as the canvas does", () => {
+    expect(ruleHelperText(card(), ["pota"]))
+      .toBe("46 entries still needed across 3 requirements. This rule updates itself as you work them.");
+    expect(ruleHelperText(card({ worked: 63, requirement_count: 1 }), ["pota"]))
+      .toBe("1 entry still needed across 1 requirement. This rule updates itself as you work them.");
+  });
+
+  it("counts the parks a source can never match", () => {
+    expect(parksCanMatch(["pota"])).toBe(true);
+    expect(parksCanMatch([])).toBe(true);
+    expect(parksCanMatch(["sotawatch", "pota"])).toBe(true);
+    expect(parksCanMatch(["sotawatch"])).toBe(false);
+    expect(unmatchableEntries(card(), ["sotawatch"])).toBe(7);
+    expect(unmatchableEntries(card(), ["pota"])).toBe(0);
+    expect(unmatchableEntries(card({ status: "ended" }), ["sotawatch"])).toBe(0);
+    expect(ruleHelperText(card(), ["sotawatch"])).toBe("46 entries still needed across 3 requirements. 7 can't match on this source.");
+  });
+
+  it("says when a finished goal's rule is off", () => {
+    expect(ruleHelperText(card({ status: "complete" }), ["pota"])).toBe("You worked everything on this goal, so this rule is off.");
+    expect(ruleHelperText(card({ status: "ended" }), ["pota"]))
+      .toBe("This goal ended, so this rule is off. Change its dates to turn it back on.");
+  });
+
+  it("warns when parks can't match the source, in the canvas's words", () => {
+    expect(sourceWarning(card(), ["sotawatch"])).toEqual({
+      title: "Parks in this goal can't match here",
+      text: "The Parks requirement has 7 parks still needed. SOTAwatch spots don't include parks, so those entries will never alert on this connection.",
+    });
+    expect(sourceWarning(card({ needed_by_kind: { state: 0, park: 1, band: 0 } }), ["logged"])?.text)
+      .toBe("The Parks requirement has 1 park still needed. Logged contacts don't include parks, so those entries will never alert on this connection.");
+    expect(sourceWarning(card(), ["sotawatch", "dxcluster"])?.text).toContain("SOTAwatch and DX Cluster spots don't include parks");
+    // WWFF and WWBOTA spots are park-like activations: they lack POTA parks, not parks.
+    expect(sourceWarning(card(), ["wwff"])?.text)
+      .toBe("The Parks requirement has 7 parks still needed. WWFF spots don't include POTA parks, so those entries will never alert on this connection.");
+    expect(sourceWarning(card(), ["wwbota"])?.text)
+      .toBe("The Parks requirement has 7 parks still needed. WWBOTA spots don't include POTA parks, so those entries will never alert on this connection.");
+    expect(sourceWarning(card(), ["sotawatch", "wwff"])?.text).toContain("SOTAwatch and WWFF spots don't include POTA parks");
+    expect(sourceWarning(card(), ["pota"])).toBeNull();
+    expect(sourceWarning(card({ needed_by_kind: { state: 38, park: 0, band: 1 } }), ["sotawatch"])).toBeNull();
+  });
+
+  it("words the preview's skipped spots", () => {
+    expect(skippedWorkedText(29)).toBe("29 more matched your other rules but were skipped. You've already worked those.");
+    expect(skippedWorkedText(1)).toBe("1 more matched your other rules but was skipped. You've already worked it.");
+    expect(skippedWorkedText(0)).toBeNull();
+    expect(skippedWorkedText(null)).toBeNull();
   });
 });
