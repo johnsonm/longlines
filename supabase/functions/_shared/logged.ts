@@ -9,6 +9,9 @@
 // call, which applies them in order and rejects an upsert whose mycall is another station's
 // (mycall_mismatch, decided in SQL by base_callsign()). mergeLoggedResults puts both kinds of
 // result back in input order.
+//
+// An upsert may also carry the worked station's state and grid square (optional, for goals). They ride on the apply item as us_state and gridsquare, beside the spot and outside the
+// content hash, and a malformed one is dropped rather than rejecting the contact.
 
 import { z } from "zod";
 import { bandForFrequency } from "./bands.ts";
@@ -51,6 +54,10 @@ export interface LoggedUpsert {
   mode: string;
   timestamp_utc: string;
   logger_app?: string | null;
+  /** The worked station's state, two capital letters; null when absent or malformed. */
+  state: string | null;
+  /** The worked station's Maidenhead locator, 4 to 8 characters in capitals; null likewise. */
+  gridsquare: string | null;
 }
 
 /** A delete item: only the id, the op and the time are read; anything else is ignored. */
@@ -84,6 +91,13 @@ export interface LoggedApplyItem {
   external_id: string;
   logger_app: string | null;
   relay_version: string;
+  /**
+   * The upsert's state and grid, stored on the contact and never content (outside the spot, so out
+   * of the hash); null for a delete. Goals read us_state (supabase/migrations/
+   * 20261029001100_goals.sql); nothing reads gridsquare yet.
+   */
+  us_state: string | null;
+  gridsquare: string | null;
   /** The spot to store for an upsert; null for a delete. */
   spot: NormalizedSpot | null;
 }
@@ -117,6 +131,8 @@ export type LoggedOutcome = LoggedApply | LoggedAnswered;
  * code points as the contract counts characters (as zod and Postgres' char_length do).
  */
 const CALL_TEXT = /^[^\s\p{Cc}]+$/u;
+const US_STATE = /^[A-Z]{2}$/;
+const GRIDSQUARE = /^[A-R]{2}[0-9]{2}([A-X]{2}([0-9]{2})?)?$/;
 const TIMESTAMP_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
 
 /** `YYYY-MM-DDTHH:MM:SSZ` exactly, naming a real instant (no February 30th). */
@@ -149,6 +165,15 @@ const timestampUtcSchema: z.ZodType<string> = z.string().refine(isTimestampUtc, 
   error: "expected YYYY-MM-DDTHH:MM:SSZ",
 });
 
+/**
+ * An optional field a newer relay sends (contract 6.1 allows new optional request fields within a
+ * version): trimmed and upper-cased when it has the shape, else null, so a malformed one never
+ * rejects the contact it came with.
+ */
+function optionalShape(shape: RegExp): z.ZodType<string | null> {
+  return z.string().trim().toUpperCase().regex(shape).nullable().catch(null);
+}
+
 /** A call as logged: trimmed and upper-cased, 1 to 64 characters, no whitespace or control. */
 const callSchema: z.ZodType<string> = z.string().trim().toUpperCase().min(1).max(64).regex(
   CALL_TEXT,
@@ -167,6 +192,8 @@ const upsertSchema = z.looseObject({
   mode: z.string().trim().toUpperCase().min(1).max(32).refine(storableText),
   timestamp_utc: timestampUtcSchema,
   logger_app: z.string().max(64).refine(storableText).nullable().optional(),
+  state: optionalShape(US_STATE),
+  gridsquare: optionalShape(GRIDSQUARE),
 });
 const deleteSchema = z.looseObject({
   external_id: loggedExternalIdSchema,
@@ -285,6 +312,8 @@ export async function normalizeLoggedContact(
         external_id: externalId,
         logger_app: null,
         relay_version: relayVersion,
+        us_state: null,
+        gridsquare: null,
         spot: null,
       },
     };
@@ -306,6 +335,8 @@ export async function normalizeLoggedContact(
       external_id: externalId,
       logger_app: loggerApp,
       relay_version: relayVersion,
+      us_state: contact.state,
+      gridsquare: contact.gridsquare,
       spot: await spotOf(contact, payload, account, time, now),
     },
   };

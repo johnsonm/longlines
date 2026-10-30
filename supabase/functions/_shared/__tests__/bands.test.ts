@@ -31,3 +31,15 @@ Deno.test("BANDS lists 3cm_qo100 before 3cm", function (): void {
   const threeCm = names.indexOf("3cm");
   assertEquals(qo100 >= 0 && threeCm > qo100, true);
 });
+
+Deno.test("goal_bands() in SQL lists BANDS' names in order", function (): void {
+  const sql = Deno.readTextFileSync(
+    new URL("../../../migrations/20261029001100_goals.sql", import.meta.url),
+  );
+  const body = /function public\.goal_bands\(\)[\s\S]*?array\[([^\]]*)\]/.exec(sql);
+  if (body === null || body[1] === undefined) {
+    throw new Error("the migration defines no goal_bands()");
+  }
+  const names = Array.from(body[1].matchAll(/'([^']+)'/g)).map((m) => m[1]);
+  assertEquals(names, BANDS.map((b) => b.band));
+});

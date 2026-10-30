@@ -232,6 +232,42 @@ Deno.test("logger_app absent or null is null", async function (): Promise<void> 
   assertEquals((await applied(item(3), NOW)).logger_app, null);
 });
 
+Deno.test("state and gridsquare ride on the item, trimmed and upper-cased, outside the hash", async function (): Promise<
+  void
+> {
+  const plain = await applied(item(0), NOW);
+  assertEquals(plain.us_state, null, "absent is null");
+  assertEquals(plain.gridsquare, null, "absent is null");
+  const sent = await applied(upsert({ state: " nc ", gridsquare: "fm05ox" }), NOW);
+  assertEquals(sent.us_state, "NC");
+  assertEquals(sent.gridsquare, "FM05OX");
+  assertEquals((await applied(upsert({ gridsquare: "EM73" }), NOW)).gridsquare, "EM73");
+  assertEquals((await applied(upsert({ gridsquare: "EM73tu42" }), NOW)).gridsquare, "EM73TU42");
+  const sentSpot = await spotOf(upsert({ state: " nc ", gridsquare: "fm05ox" }));
+  assertEquals(sentSpot.content_hash, (await spotOf(item(0))).content_hash, "neither is content");
+  assertEquals(sentSpot.raw_payload["state"], " nc ", "raw_payload keeps the item as sent");
+});
+
+Deno.test("a malformed state or gridsquare reads as not sent and never rejects the contact", async function (): Promise<
+  void
+> {
+  const bad: JsonObject[] = [
+    { state: "North Carolina" },
+    { state: "N" },
+    { state: 7 },
+    { state: null },
+    { gridsquare: "ZZ99" },
+    { gridsquare: "FM05O" },
+    { gridsquare: "FM05OX123" },
+    { gridsquare: ["FM05"] },
+  ];
+  for (const change of bad) {
+    const out = await applied(upsert(change), NOW);
+    assertEquals([out.us_state, out.gridsquare], [null, null], JSON.stringify(change));
+    assertEquals(out.op, "upsert");
+  }
+});
+
 Deno.test("a delete needs only its id, op and time and carries no spot", async function (): Promise<
   void
 > {
@@ -240,6 +276,8 @@ Deno.test("a delete needs only its id, op and time and carries no spot", async f
     external_id: "0b9c8d7e6f5a4b3c2d1e0f9a8b7c6d5e",
     logger_app: null,
     relay_version: VERSION,
+    us_state: null,
+    gridsquare: null,
     spot: null,
   });
   const noisy = await applied(

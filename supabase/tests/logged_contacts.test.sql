@@ -2,11 +2,12 @@
 -- every branch of apply_logged_contacts (created, unchanged, updated, retracted, unknown, created
 -- again, rejected), the retraction marker in each reader (spot_stream, recent spots, the preview,
 -- callsign groups' on-air check, the matcher), opt-in matching, rendering, archiving, the rollups
--- labelling the operator's role logged, and access.
+-- labelling the operator's role logged, access, and the state and grid a newer relay sends
+-- (20261029001100).
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(68);
+select plan(81);
 
 create function pg_temp.d(p_offset int) returns date language sql as $$
   select (now() at time zone 'utc')::date + p_offset;
@@ -286,6 +287,35 @@ select is(apply_logged_contacts('77777777-7777-7777-7777-777777777777', jsonb_bu
 select is(apply_logged_contacts('78787878-7878-7878-7878-787878787878', jsonb_build_array(
             pg_temp.up('78787878-7878-7878-7878-787878787878', 'x2', 'hx2', 'N5LL/P', 'K1ABC', 14025))) #>> '{0,status}',
   'created', 'the longest holder of the base call still can');
+
+-- ---------------------------------------------------------------------------
+-- State and grid from the relay (20261029001100): stored, never content
+-- ---------------------------------------------------------------------------
+
+create function pg_temp.sg(p_ext text, p_hash text, p_state text, p_grid text) returns jsonb language sql as $$
+  select pg_temp.up('11111111-1111-1111-1111-111111111111', p_ext, p_hash, 'KK4PWJ', 'W4STA', 14030)
+         || jsonb_build_object('us_state', p_state, 'gridsquare', p_grid);
+$$;
+create function pg_temp.sgrow(p_ext text) returns text language sql as $$
+  select (coalesce(us_state, '-'), coalesce(gridsquare, '-'), content_hash)::text from logged_contacts
+  where user_id = '11111111-1111-1111-1111-111111111111' and external_id = p_ext;
+$$;
+select col_is_null('logged_contacts', 'us_state', 'logged_contacts.us_state is nullable');
+select col_is_null('logged_contacts', 'gridsquare', 'logged_contacts.gridsquare is nullable');
+select is(pg_temp.a(pg_temp.sg('s1', 'hs1', 'NC', 'FM05OX')), array['created'], 'an upsert with a state and a grid');
+select is(pg_temp.sgrow('s1'), '(NC,FM05OX,hs1)', 'both are stored on the contact');
+select is(pg_temp.a(pg_temp.sg('s1', 'hs1', 'VA', null)), array['unchanged'], 'a resend with another state is unchanged');
+select is(pg_temp.sgrow('s1'), '(VA,-,hs1)', 'and updates the stored state and grid');
+select is((select count(*) from raw_spots where source = 'logged' and content_hash = 'hs1'), 1::bigint,
+  'without storing another spot');
+select is(pg_temp.a(pg_temp.sg('s2', 'hs2', 'nc', 'ZZ99')), array['created'], 'an upsert with a malformed state and grid');
+select is(pg_temp.sgrow('s2'), '(-,-,hs2)', 'stores neither: they read as not sent');
+select is(pg_temp.a(pg_temp.sg('s2', 'hs3', 'GA', 'EM73')), array['updated'], 'an edit');
+select is(pg_temp.sgrow('s2'), '(GA,EM73,hs3)', 'stores the edit''s state and grid');
+select throws_ok($$ update logged_contacts set us_state = 'North Carolina' where external_id = 's1' $$, '23514', null,
+  'us_state is two capital letters');
+select throws_ok($$ update logged_contacts set gridsquare = 'fm05' where external_id = 's1' $$, '23514', null,
+  'gridsquare is a Maidenhead locator in capitals');
 
 select * from finish();
 rollback;

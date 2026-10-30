@@ -561,6 +561,116 @@ isOneToOne: true
                   Relationships: [
                     
                   ]
+                },"goal_entries": {
+                  Row: {
+                    "contact_spot_id": number | null,"hand_needed_at": string | null,"matched_spot_id": number | null,"position": number,"requirement_id": string,"value": string,"worked_at": string | null,"worked_how": string | null
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "contact_spot_id"?: number | null,"hand_needed_at"?: string | null,"matched_spot_id"?: number | null,"position": number,"requirement_id": string,"value": string,"worked_at"?: string | null,"worked_how"?: string | null
+                  }
+                  Update: {
+                    "contact_spot_id"?: number | null,"hand_needed_at"?: string | null,"matched_spot_id"?: number | null,"position"?: number,"requirement_id"?: string,"value"?: string,"worked_at"?: string | null,"worked_how"?: string | null
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "goal_entries_contact_spot_id_fkey"
+      columns: ["contact_spot_id"]
+isOneToOne: false
+      referencedRelation: "raw_spots"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "goal_entries_contact_spot_id_fkey"
+      columns: ["contact_spot_id"]
+isOneToOne: false
+      referencedRelation: "recent_spots"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "goal_entries_matched_spot_id_fkey"
+      columns: ["matched_spot_id"]
+isOneToOne: false
+      referencedRelation: "raw_spots"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "goal_entries_matched_spot_id_fkey"
+      columns: ["matched_spot_id"]
+isOneToOne: false
+      referencedRelation: "recent_spots"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "goal_entries_requirement_id_fkey"
+      columns: ["requirement_id"]
+isOneToOne: false
+      referencedRelation: "goal_requirements"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"goal_requirements": {
+                  Row: {
+                    "at_least": number | null,"complete_when": string,"id": string,"kind": string,"list_id": string,"position": number
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "at_least"?: number | null,"complete_when": string,"id"?: string,"kind": string,"list_id": string,"position": number
+                  }
+                  Update: {
+                    "at_least"?: number | null,"complete_when"?: string,"id"?: string,"kind"?: string,"list_id"?: string,"position"?: number
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "goal_requirements_list_id_fkey"
+      columns: ["list_id"]
+isOneToOne: false
+      referencedRelation: "goals"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"goal_reviews": {
+                  Row: {
+                    "candidates": (string)[],"contact_spot_id": number,"created_at": string,"id": string,"list_id": string,"picked_reference": string | null,"resolved_at": string | null,"status": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "candidates"?: (string)[],"contact_spot_id": number,"created_at"?: string,"id"?: string,"list_id": string,"picked_reference"?: string | null,"resolved_at"?: string | null,"status"?: string
+                  }
+                  Update: {
+                    "candidates"?: (string)[],"contact_spot_id"?: number,"created_at"?: string,"id"?: string,"list_id"?: string,"picked_reference"?: string | null,"resolved_at"?: string | null,"status"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "goal_reviews_contact_spot_id_fkey"
+      columns: ["contact_spot_id"]
+isOneToOne: false
+      referencedRelation: "raw_spots"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "goal_reviews_contact_spot_id_fkey"
+      columns: ["contact_spot_id"]
+isOneToOne: false
+      referencedRelation: "recent_spots"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "goal_reviews_list_id_fkey"
+      columns: ["list_id"]
+isOneToOne: false
+      referencedRelation: "goals"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"goals": {
+                  Row: {
+                    "completed_at": string | null,"created_at": string,"ends_on": string | null,"id": string,"marking": string,"name": string,"starts_on": string | null,"updated_at": string,"user_id": string,"goal_card": Json | null,"goal_status": string | null
+                  }
+                  ComputedFields: "goal_card" | "goal_status"
+                  Insert: {
+                    "completed_at"?: string | null,"created_at"?: string,"ends_on"?: string | null,"id"?: string,"marking"?: string,"name": string,"starts_on"?: string | null,"updated_at"?: string,"user_id": string
+                  }
+                  Update: {
+                    "completed_at"?: string | null,"created_at"?: string,"ends_on"?: string | null,"id"?: string,"marking"?: string,"name"?: string,"starts_on"?: string | null,"updated_at"?: string,"user_id"?: string
+                  }
+                  Relationships: [
+                    
+                  ]
                 },"group_stats_cache": {
                   Row: {
                     "generated_at": string,"group_id": string,"payload": NonNullable<Json>,"period": string,"roster": string
@@ -721,14 +831,14 @@ isOneToOne: false
                   ]
                 },"logged_contacts": {
                   Row: {
-                    "content_hash": string,"created_at": string,"external_id": string,"logger_app": string | null,"relay_version": string | null,"retracted_at": string | null,"spot_id": number,"state": string,"updated_at": string,"user_id": string
+                    "content_hash": string,"created_at": string,"external_id": string,"gridsquare": string | null,"logger_app": string | null,"relay_version": string | null,"retracted_at": string | null,"spot_id": number,"state": string,"updated_at": string,"us_state": string | null,"user_id": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "content_hash": string,"created_at"?: string,"external_id": string,"logger_app"?: string | null,"relay_version"?: string | null,"retracted_at"?: string | null,"spot_id": number,"state": string,"updated_at"?: string,"user_id": string
+                    "content_hash": string,"created_at"?: string,"external_id": string,"gridsquare"?: string | null,"logger_app"?: string | null,"relay_version"?: string | null,"retracted_at"?: string | null,"spot_id": number,"state": string,"updated_at"?: string,"us_state"?: string | null,"user_id": string
                   }
                   Update: {
-                    "content_hash"?: string,"created_at"?: string,"external_id"?: string,"logger_app"?: string | null,"relay_version"?: string | null,"retracted_at"?: string | null,"spot_id"?: number,"state"?: string,"updated_at"?: string,"user_id"?: string
+                    "content_hash"?: string,"created_at"?: string,"external_id"?: string,"gridsquare"?: string | null,"logger_app"?: string | null,"relay_version"?: string | null,"retracted_at"?: string | null,"spot_id"?: number,"state"?: string,"updated_at"?: string,"us_state"?: string | null,"user_id"?: string
                   }
                   Relationships: [
                     {
@@ -1417,6 +1527,9 @@ isOneToOne: true
 "complete_profile":
 { Args: { "p_callsign": string,"p_name": string }; Returns: undefined
                            },
+"copy_goal":
+{ Args: { "p_id": string }; Returns: string
+                           },
 "create_api_token":
 { Args: { "p_lifetime_days"?: number,"p_name": string,"p_scope": string }; Returns: {
               "created_at": string,"expires_at": string,"id": string,"lifetime_days": number,"name": string,"scope": string,"token": string,"token_prefix": string
@@ -1445,6 +1558,9 @@ isOneToOne: true
 { Args: { "p_id": string }; Returns: undefined
                            },
 "delete_destination":
+{ Args: { "p_id": string }; Returns: undefined
+                           },
+"delete_goal":
 { Args: { "p_id": string }; Returns: undefined
                            },
 "delete_push_device":
@@ -1576,6 +1692,9 @@ isOneToOne: true
 "get_discord_destination":
 { Args: { "p_id": string }; Returns: Json
                            },
+"get_goal":
+{ Args: { "p_id": string }; Returns: Json
+                           },
 "get_group_statistics":
 { Args: { "p_id": string,"p_period": string }; Returns: Json
                            },
@@ -1587,6 +1706,58 @@ isOneToOne: true
                            },
 "get_webhook_destination":
 { Args: { "p_id": string }; Returns: Json
+                           },
+"goal_apply_contact":
+{ Args: { "p_spot_id": number,"p_user": string }; Returns: undefined
+                           },
+"goal_bands":
+{ Args: Record<PropertyKey, never>; Returns: (string)[]
+                           },
+"goal_card":
+{ Args: { "p": Omit<Database["public"]['Tables']["goals"]['Row'], Database["public"]['Tables']["goals"]['ComputedFields']> }; Returns: Json
+                           },
+"goal_contact_facts":
+{ Args: { "p_spot_id": number,"p_user": string }; Returns: {
+              "band": string,"candidates": (string)[],"license_state": string,"park": string,"park_spot_id": number,"pick_state": boolean,"pota_that_day": boolean,"spot_id": number,"spot_time": string,"state": string,"state_spot_id": number,"worked_base": string
+            }[]
+                           },
+"goal_date":
+{ Args: { "p_value": string }; Returns: string
+                           },
+"goal_entry_value":
+{ Args: { "p_kind": string,"p_value": string }; Returns: string
+                           },
+"goal_mark":
+{ Args: { "p_lists": (string)[],"p_spot_id": number,"p_user": string }; Returns: undefined
+                           },
+"goal_park_state":
+{ Args: { "p_license": string,"p_location": string }; Returns: string
+                           },
+"goal_picked_location":
+{ Args: { "p_base": string,"p_reference": string,"p_time": string }; Returns: string
+                           },
+"goal_recheck":
+{ Args: { "p_list_id": string }; Returns: undefined
+                           },
+"goal_refresh_completion":
+{ Args: { "p_list_id": string }; Returns: undefined
+                           },
+"goal_requirement_complete":
+{ Args: { "p_requirement_id": string }; Returns: boolean
+                           },
+"goal_requirement_progress":
+{ Args: { "p_list_id": string }; Returns: {
+              "at_least": number,"complete": boolean,"complete_when": string,"entries": number,"id": string,"kind": string,"position": number,"target": number,"worked": number
+            }[]
+                           },
+"goal_status":
+{ Args: { "p": Omit<Database["public"]['Tables']["goals"]['Row'], Database["public"]['Tables']["goals"]['ComputedFields']> }; Returns: string
+                           },
+"goal_sync_reviews":
+{ Args: { "p_lists": (string)[],"p_spot_id": number,"p_user": string }; Returns: undefined
+                           },
+"goals_for_spot":
+{ Args: { "p_spot_id": number }; Returns: (string)[]
                            },
 "group_matches":
 { Args: { "p_base": string,"p_group_ids": (string)[] }; Returns: boolean
@@ -1656,6 +1827,9 @@ isOneToOne: true
             }[]
                            },
 "list_discord_destination_settings":
+{ Args: Record<PropertyKey, never>; Returns: Json
+                           },
+"list_goals":
 { Args: Record<PropertyKey, never>; Returns: Json
                            },
 "list_group_summaries":
@@ -1780,6 +1954,9 @@ isOneToOne: true
 "mark_deliveries_sent":
 { Args: { "p_delivery_ids": (number)[],"p_msg_ids": (number)[] }; Returns: undefined
                            },
+"mark_goal_entry":
+{ Args: { "p_requirement_id": string,"p_value": string,"p_worked": boolean }; Returns: undefined
+                           },
 "match_pending_spots":
 { Args: { "batch_size"?: number }; Returns: number
                            },
@@ -1821,6 +1998,9 @@ isOneToOne: true
                            },
 "preview_discord_message":
 { Args: { "p_settings": Json,"p_spot_id"?: number }; Returns: Json
+                           },
+"preview_goal_window":
+{ Args: { "p_ends_on": string,"p_id": string,"p_marking": string,"p_starts_on": string }; Returns: Json
                            },
 "preview_local_cluster_line":
 { Args: { "p_settings": Json,"p_spot_id"?: number }; Returns: Json
@@ -2003,6 +2183,9 @@ isOneToOne: true
 "reset_cluster_streams":
 { Args: Record<PropertyKey, never>; Returns: number
                            },
+"resolve_goal_review":
+{ Args: { "p_id": string,"p_reference": string }; Returns: undefined
+                           },
 "retire_aprs_day":
 { Args: { "p_day": string }; Returns: undefined
                            },
@@ -2035,6 +2218,9 @@ isOneToOne: true
 "rule_matches":
 { Args: { "p_rule": Json,"spot": Omit<Database["public"]['Tables']["raw_spots"]['Row'], Database["public"]['Tables']["raw_spots"]['ComputedFields']> }; Returns: boolean
                            },
+"rules_goal_ids":
+{ Args: { "p_rules": Json }; Returns: (string)[]
+                           },
 "rules_name_stations":
 { Args: { "p_rules": Json }; Returns: boolean
                            },
@@ -2046,6 +2232,9 @@ isOneToOne: true
                            },
 "save_discord_destination":
 { Args: { "p_enabled": boolean,"p_id": string,"p_name": string,"p_settings": Json,"p_url": string }; Returns: string
+                           },
+"save_goal":
+{ Args: { "payload": Json }; Returns: string
                            },
 "save_local_cluster_destination":
 { Args: { "p_enabled": boolean,"p_id": string,"p_name": string,"p_settings": Json }; Returns: string
@@ -2119,6 +2308,9 @@ isOneToOne: true
                            },
 "update_destination":
 { Args: { "p_enabled"?: boolean,"p_id": string,"p_name": string,"p_url": string }; Returns: undefined
+                           },
+"us_states":
+{ Args: Record<PropertyKey, never>; Returns: (string)[]
                            },
 "validate_destination_url":
 { Args: { "p_type": string,"p_url": string }; Returns: undefined
