@@ -8,15 +8,15 @@ import AddIcon from "@mui/icons-material/Add";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import { Link as RouterLink, useNavigate } from "react-router";
 import { PageTitle } from "../layout/PageTitle";
-import { loadGoal, saveGoal } from "../lib/api";
+import { loadGoal, previewGoalWindow, saveGoal } from "../lib/api";
 import { errorText, useNotify } from "../app/hooks";
 import {
-  KINDS, MARKINGS, MAX_REQUIREMENTS, NAME_ERRORS, REQUIREMENTS_HELP, WINDOWS, WINDOW_HELP, dateWarning, draftOf, inputOf,
-  knownSince, markingHelp, markingWarning, newRequirement, nextKind, parkNames, yearWindow, type GoalDraft, type Notice,
-  type RequirementDraft, type WindowKind,
+  KINDS, MARKINGS, MAX_REQUIREMENTS, NAME_ERRORS, REQUIREMENTS_HELP, WINDOWS, WINDOW_HELP, WINDOW_PREVIEW_DELAY_MS, dateWarning,
+  draftOf, inputOf, knownSince, markingHelp, markingWarning, newRequirement, nextKind, parkNames, windowChange, yearWindow,
+  type GoalDraft, type Notice, type RequirementDraft, type WindowKind,
 } from "./editModel";
 import { RequirementEditor, type ParkSearchCache } from "./RequirementEditor";
-import type { GoalKind, GoalProgress, GoalMarking } from "./types";
+import type { GoalKind, GoalProgress, GoalMarking, GoalWindowLoss } from "./types";
 import { useDeleteGoal } from "./useDeleteGoal";
 
 /** /goals/new (id null) and /goals/:id/edit: the list's name, time window, marking and requirements. */
@@ -105,8 +105,9 @@ function Editor({ progress, reload }: EditorProps) {
   const cancel = () => void navigate(back);
   const canSave = !busy && draft.name.trim() !== "";
 
-  const datesWarning = dateWarning(progress, draft);
-  const handWarning = markingWarning(progress, draft);
+  const losses = useWindowLosses(progress, draft);
+  const datesWarning = dateWarning(progress, draft, losses);
+  const handWarning = markingWarning(progress, draft, losses);
   const since = knownSince(progress, draft);
   const full = draft.requirements.length >= MAX_REQUIREMENTS;
 
@@ -260,6 +261,44 @@ function Editor({ progress, reload }: EditorProps) {
       </Stack>
     </Stack>
   );
+}
+
+/**
+ * What a save would send back to needed, from preview_goal_window, asked once the window
+ * or marking has stayed changed from the loaded list for WINDOW_PREVIEW_DELAY_MS. Empty while
+ * nothing changed, for a new list, while the answer for the draft's window is pending, and when
+ * the preview fails (Save then reports the error). An answer for an older window is never used.
+ */
+function useWindowLosses(progress: GoalProgress | null, draft: GoalDraft): readonly GoalWindowLoss[] {
+  const change = windowChange(progress, draft);
+  const id = progress?.list.id ?? null;
+  const startsOn = change?.startsOn ?? null;
+  const endsOn = change?.endsOn ?? null;
+  const marking = change?.marking ?? null;
+  const key = id && marking ? `${id}|${startsOn ?? ""}|${endsOn ?? ""}|${marking}` : null;
+  const [answer, setAnswer] = useState<{ key: string; losses: GoalWindowLoss[] } | null>(null);
+
+  useEffect(() => {
+    if (!id || !marking || !key) return;
+    let current = true;
+    const timer = setTimeout(() => {
+      previewGoalWindow(id, startsOn, endsOn, marking).then(
+        (losses) => {
+          if (current) setAnswer({ key, losses });
+        },
+        // Advisory only: without an answer the page shows no warning.
+        () => {
+          if (current) setAnswer({ key, losses: [] });
+        },
+      );
+    }, WINDOW_PREVIEW_DELAY_MS);
+    return () => {
+      current = false;
+      clearTimeout(timer);
+    };
+  }, [id, key, startsOn, endsOn, marking]);
+
+  return answer !== null && answer.key === key ? answer.losses : [];
 }
 
 const markingOf = (value: string): GoalMarking => (value === "hand" ? "hand" : "relay");

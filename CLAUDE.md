@@ -983,8 +983,12 @@ rule in the connection editor.
   `save_goal` and leaves every check to SQL (the name's two errors go on the field, the rest
   are a toast); `editModel.ts` only builds the draft and the payload. `US_STATES` mirrors
   `us_states()` and `editModel.test.ts` compares them (and that `BANDS` is within `goal_bands()`).
-  Its warnings read the loaded entries only: a contact mark (never a hand mark) the new dates leave
-  out, contact marks a switch to By hand only clears, and `first_contact_at`. A requirement whose
+  What a save with new dates or By hand only would undo is SQL's: while the window or marking
+  differs from the loaded list (never on a new list), the page asks `previewGoalWindow`
+  (`preview_goal_window`) once the change has settled for `WINDOW_PREVIEW_DELAY_MS`, shows
+  only the answer for the draft's current window, and `dateWarning` / `markingWarning` only word
+  it; never guess from the entries' stored contacts. "Long Lines only knows contacts since" reads
+  `first_contact_at`. A requirement whose
   kind changes is sent without its id. Parks come from `searchReferences(q, "pota")`, which only
   suggests; a typed POTA reference goes in as typed. A phone gets a full-screen dialog with Save in
   its top bar.

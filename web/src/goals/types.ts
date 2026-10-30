@@ -105,6 +105,19 @@ export interface GoalProgress {
   first_contact_at: string | null;
 }
 
+/**
+ * preview_goal_window: one entry a contact marks worked now that a save with the new window
+ * or marking would send back to needed. before_start and after_end go by the UTC day of the
+ * contact that marks it now; by_hand is a switch to "By hand only".
+ */
+export interface GoalWindowLoss {
+  requirement_id: string;
+  kind: GoalKind;
+  value: string;
+  worked_at: string;
+  reason: "before_start" | "after_end" | "by_hand";
+}
+
 /** save_goal's payload: a whole list, created without an id, else replaced. */
 export type GoalRequirementInput = {
   id?: string;

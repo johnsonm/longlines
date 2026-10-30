@@ -3,10 +3,11 @@ import { act, screen, waitFor, within } from "@testing-library/react";
 import { renderPage } from "../test/render";
 import { setMobile } from "../test/media";
 import { NOW, bands, card, parks, progress, states } from "../test/goals";
-import { ApiError, deleteGoal, loadGoal, saveGoal, searchReferences } from "../lib/api";
+import { ApiError, deleteGoal, loadGoal, previewGoalWindow, saveGoal, searchReferences } from "../lib/api";
 import type { ReferenceSearchResult } from "../references/types";
 import { GoalEditPage } from "./GoalEditPage";
-import type { GoalEntry, GoalInput, GoalProgress } from "./types";
+import { WINDOW_PREVIEW_DELAY_MS } from "./editModel";
+import type { GoalEntry, GoalInput, GoalProgress, GoalWindowLoss } from "./types";
 
 vi.mock("../lib/api", () => ({
   ApiError: class ApiError extends Error {
@@ -18,6 +19,7 @@ vi.mock("../lib/api", () => ({
   },
   loadGoal: vi.fn(),
   saveGoal: vi.fn(),
+  previewGoalWindow: vi.fn(),
   deleteGoal: vi.fn(),
   searchReferences: vi.fn(),
 }));
@@ -30,7 +32,8 @@ function park(reference: string, name: string | null, active = true): ReferenceS
 }
 
 beforeEach(() => {
-  for (const fn of [loadGoal, saveGoal, deleteGoal, searchReferences]) vi.mocked(fn).mockReset();
+  for (const fn of [loadGoal, saveGoal, previewGoalWindow, deleteGoal, searchReferences]) vi.mocked(fn).mockReset();
+  vi.mocked(previewGoalWindow).mockResolvedValue([]);
   vi.mocked(saveGoal).mockResolvedValue("n1");
   vi.mocked(deleteGoal).mockResolvedValue();
   vi.mocked(searchReferences).mockResolvedValue({ results: [park("US-2741", "Mount Mitchell State Park"), park("US-9000", null, false)], more: false });
@@ -55,6 +58,31 @@ const saved = (): GoalInput => vi.mocked(saveGoal).mock.calls.at(-1)![0];
 const advance = (ms: number) => act(async () => {
   await vi.advanceTimersByTimeAsync(ms);
 });
+
+/** preview_goal_window's answers for the fixture list. */
+const CAPE_LOOKOUT_EARLY: GoalWindowLoss = {
+  requirement_id: "r-parks", kind: "park", value: "US-0002", worked_at: "2026-02-20T13:00:00Z", reason: "before_start",
+};
+const GA_EARLY: GoalWindowLoss = { requirement_id: "r-states", kind: "state", value: "GA", worked_at: "2026-01-14T15:00:00Z", reason: "before_start" };
+const FROM_LOG: GoalWindowLoss[] = [
+  { requirement_id: "r-parks", kind: "park", value: "US-0001", worked_at: "2026-10-03T21:14:00Z", reason: "by_hand" },
+  { requirement_id: "r-parks", kind: "park", value: "US-0002", worked_at: "2026-10-12T14:02:00Z", reason: "by_hand" },
+];
+
+/** A promise the test settles by hand. */
+function deferred<T>() {
+  let resolve: (value: T) => void = () => undefined;
+  const promise = new Promise<T>((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
+}
+
+async function setStart(user: ReturnType<typeof edit>["user"], day: string) {
+  const start = screen.getByLabelText("Starts");
+  await user.clear(start);
+  if (day) await user.type(start, day);
+}
 
 /** Open a select by its label and pick an option. */
 async function choose(user: ReturnType<typeof edit>["user"], label: string, option: string, within_: HTMLElement = document.body) {
@@ -136,23 +164,78 @@ describe("GoalEditPage on a desktop", () => {
     expect(screen.getByRole("button", { name: "Save goal" })).toBeEnabled();
   });
 
-  it("warns before a new start date sends contact marks back to needed", async () => {
-    const pk = parks();
-    pk.entries[1] = {
-      ...pk.entries[1]!, worked_at: "2026-02-20T13:00:00Z",
-      evidence: { worked_call: "N4DEF", contact_time: "2026-02-20T13:00:00Z", logger_app: "N1MM", matched_spot_time: null },
-    };
-    const { user } = edit(progress({ requirements: [states(), pk, bands()] }));
-    const start = await screen.findByLabelText("Starts");
-    await user.clear(start);
-    await user.type(start, "2026-03-01");
+  it("warns before a new start date sends contact marks back to needed, from SQL's answer", async () => {
+    vi.mocked(previewGoalWindow).mockResolvedValue([CAPE_LOOKOUT_EARLY]);
+    const { user } = edit();
+    await screen.findByLabelText("Starts");
+    await setStart(user, "2026-03-01");
+    // Debounced: nothing is asked until the window has stayed changed for the delay.
+    expect(previewGoalWindow).not.toHaveBeenCalled();
+    await advance(WINDOW_PREVIEW_DELAY_MS);
+    expect(previewGoalWindow).toHaveBeenCalledTimes(1);
+    expect(previewGoalWindow).toHaveBeenCalledWith("n1", "2026-03-01", "2026-12-31", "relay");
     const window = within(section("Time window"));
-    expect(window.getByText("1 worked entry falls before the new start date")).toBeInTheDocument();
-    expect(window.getByText(/^Cape Lookout National Seashore was worked in February\. When you save, it goes back to needed/)).toBeInTheDocument();
+    expect(await window.findByText("1 worked entry falls before the new start date")).toBeInTheDocument();
+    expect(window.getByText(
+      "Cape Lookout National Seashore was worked in February. When you save, it goes back to needed and your connections start alerting for it again.",
+    )).toBeInTheDocument();
     // Mar 1 is before the first contact, Oct 16: the notice stays.
     expect(screen.getByText("Long Lines only knows contacts since Oct 16, 2026")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Save goal" }));
     await waitFor(() => expect(saved().starts_on).toBe("2026-03-01"));
+  });
+
+  it("asks once per settled change, and not while the window is as loaded or can't be saved", async () => {
+    const { user } = edit();
+    await screen.findByLabelText("Starts");
+    await advance(WINDOW_PREVIEW_DELAY_MS);
+    expect(previewGoalWindow).not.toHaveBeenCalled();
+    await setStart(user, "2026-03-01");
+    await advance(WINDOW_PREVIEW_DELAY_MS / 2);
+    await setStart(user, "2026-04-01");
+    await advance(WINDOW_PREVIEW_DELAY_MS / 2);
+    expect(previewGoalWindow).not.toHaveBeenCalled();
+    await advance(WINDOW_PREVIEW_DELAY_MS);
+    expect(vi.mocked(previewGoalWindow).mock.calls).toEqual([["n1", "2026-04-01", "2026-12-31", "relay"]]);
+    // An empty start can't be saved; back to Jan 1 is the list as loaded.
+    await setStart(user, "");
+    await advance(WINDOW_PREVIEW_DELAY_MS);
+    await setStart(user, "2026-01-01");
+    await advance(WINDOW_PREVIEW_DELAY_MS);
+    expect(previewGoalWindow).toHaveBeenCalledTimes(1);
+  });
+
+  it("never shows an answer for an older window", async () => {
+    const first = deferred<GoalWindowLoss[]>();
+    const second = deferred<GoalWindowLoss[]>();
+    vi.mocked(previewGoalWindow).mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    const { user } = edit();
+    await screen.findByLabelText("Starts");
+    await setStart(user, "2026-03-01");
+    await advance(WINDOW_PREVIEW_DELAY_MS);
+    await setStart(user, "2026-02-01");
+    await advance(WINDOW_PREVIEW_DELAY_MS);
+    expect(previewGoalWindow).toHaveBeenCalledTimes(2);
+    // Mar 1's answer arrives after Feb 1 was asked: it is dropped.
+    await act(async () => first.resolve([GA_EARLY, CAPE_LOOKOUT_EARLY]));
+    expect(screen.queryByText(/worked entr(y|ies) falls? before the new start date/)).not.toBeInTheDocument();
+    await act(async () => second.resolve([GA_EARLY]));
+    expect(await screen.findByText("1 worked entry falls before the new start date")).toBeInTheDocument();
+    expect(screen.getByText(/^GA was worked in January\./)).toBeInTheDocument();
+    // A change hides the answer at once, before the next one is asked.
+    await setStart(user, "2026-01-15");
+    expect(screen.queryByText("1 worked entry falls before the new start date")).not.toBeInTheDocument();
+  });
+
+  it("shows no warning when the preview fails", async () => {
+    vi.mocked(previewGoalWindow).mockRejectedValue(new ApiError("Couldn't check the new dates."));
+    const { user, app } = edit();
+    await screen.findByLabelText("Starts");
+    await setStart(user, "2026-03-01");
+    await advance(WINDOW_PREVIEW_DELAY_MS);
+    expect(previewGoalWindow).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText(/before the new start date/)).not.toBeInTheDocument();
+    expect(app.notify).not.toHaveBeenCalled();
   });
 
   it("switches to no end date and back, and to marking by hand", async () => {
@@ -164,10 +247,16 @@ describe("GoalEditPage on a desktop", () => {
     expect(screen.getByLabelText("Starts")).toHaveValue("2026-01-01");
     await choose(user, "Counts contacts", "No end date");
 
+    vi.mocked(previewGoalWindow).mockResolvedValue(FROM_LOG);
     await choose(user, "Mark entries worked", "By hand only");
     const marking = within(section("How entries get marked"));
     expect(marking.getByText("Spots never mark an entry on their own.")).toBeInTheDocument();
-    expect(marking.getByText("2 worked entries came from your log")).toBeInTheDocument();
+    await advance(WINDOW_PREVIEW_DELAY_MS);
+    expect(vi.mocked(previewGoalWindow).mock.calls.at(-1)).toEqual(["n1", null, null, "hand"]);
+    expect(await marking.findByText("2 worked entries came from your log")).toBeInTheDocument();
+    expect(marking.getByText(
+      "Great Smoky Mountains National Park and Cape Lookout National Seashore were marked from contacts you logged. When you save, they go back to needed and your connections start alerting for them again. Mark them worked by hand from the progress page.",
+    )).toBeInTheDocument();
     expect(screen.queryByText(/^Long Lines only knows contacts since/)).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Save goal" }));
     await waitFor(() => expect(saved()).toMatchObject({ starts_on: null, ends_on: null, marking: "hand" }));
@@ -336,6 +425,14 @@ describe("a new goal", () => {
     expect(app.notify).toHaveBeenCalledWith("Created WAS 2026");
   });
 
+  it("never asks what the dates or marking would undo", async () => {
+    const { user } = add();
+    await setStart(user, "2026-03-01");
+    await choose(user, "Mark entries worked", "By hand only");
+    await advance(WINDOW_PREVIEW_DELAY_MS * 2);
+    expect(previewGoalWindow).not.toHaveBeenCalled();
+  });
+
   it("cancels back to the index", async () => {
     const { user } = add();
     await user.click(screen.getByRole("button", { name: "Cancel" }));
@@ -387,8 +484,10 @@ describe("GoalEditPage on a phone", () => {
 
     await user.click(d.getByRole("radio", { name: "No end date" }));
     expect(d.queryByLabelText("Start")).not.toBeInTheDocument();
+    vi.mocked(previewGoalWindow).mockResolvedValue(FROM_LOG);
     await user.click(d.getByRole("radio", { name: "By hand only" }));
-    expect(d.getByText("2 worked entries came from your log")).toBeInTheDocument();
+    await advance(WINDOW_PREVIEW_DELAY_MS);
+    expect(await d.findByText("2 worked entries came from your log")).toBeInTheDocument();
     await user.click(d.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(saved()).toMatchObject({ starts_on: null, marking: "hand" }));
     expect(saved().requirements.map((r) => r.kind)).toEqual(["state", "park", "band"]);

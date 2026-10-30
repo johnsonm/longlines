@@ -1,14 +1,15 @@
 // The goal editor's form: the draft it edits, the save_goal payload it sends, and the
 // warnings it shows before a save. Pure, so it is tested in node. SQL validates and stores the
-// list (save_goal) and rechecks every contact mark afterwards (goal_recheck); the warnings
-// here only read the loaded entries' marks to say what a save will undo. Copy comes from the Copy
+// list (save_goal) and rechecks every contact mark afterwards (goal_recheck); what a save
+// with a new window or marking would undo is SQL's too (preview_goal_window), and the
+// warnings here only word its answer. Copy comes from the Copy
 // section of docs/superpowers/specs/2026-10-29-goals-design.md.
 
 import { plural } from "../profile/format";
 import { BANDS } from "../sources/sources";
 import { chipLabel, joinNames, utcDay } from "./model";
 import type {
-  CompleteWhen, GoalKind, GoalInput, GoalProgress, GoalMarking, GoalRelay, GoalRequirementInput,
+  CompleteWhen, GoalKind, GoalInput, GoalProgress, GoalMarking, GoalRelay, GoalRequirementInput, GoalWindowLoss,
 } from "./types";
 
 /** us_states() in its order (by name, no DC); editModel.test.ts compares the two. */
@@ -240,40 +241,64 @@ const DATE = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", 
 /** Names a warning lists before "and N more". */
 const NAMED = 5;
 
-interface ContactMark {
+/**
+ * The window and marking a save would send, while they differ from the loaded list's and SQL would
+ * take them; else null, with nothing to ask preview_goal_window. Never for a new list.
+ */
+export interface WindowChange {
+  startsOn: string | null;
+  endsOn: string | null;
+  marking: GoalMarking;
+}
+
+export function windowChange(progress: GoalProgress | null, draft: GoalDraft): WindowChange | null {
+  if (!progress) return null;
+  const dates = draft.window === "dates";
+  const startsOn = dates && draft.startsOn ? draft.startsOn : null;
+  const endsOn = dates && draft.endsOn ? draft.endsOn : null;
+  // A window save_goal refuses: it says why on Save.
+  if ((startsOn === null) !== (endsOn === null) || (startsOn !== null && endsOn !== null && endsOn < startsOn)) return null;
+  const l = progress.list;
+  if (startsOn === l.starts_on && endsOn === l.ends_on && draft.marking === l.marking) return null;
+  return { startsOn, endsOn, marking: draft.marking };
+}
+
+/** How long the editor waits after the last change to the window or marking before asking SQL. */
+export const WINDOW_PREVIEW_DELAY_MS = 400;
+
+interface LostMark {
   name: string;
-  /** The contact's UTC day and time. */
-  day: string;
   at: Date;
+  reason: GoalWindowLoss["reason"];
 }
 
 /**
- * The entries a contact marked worked that the draft keeps: same requirement (id and kind) and
- * value. Hand marks are left out: a save never sends them back. In requirement, then entry order.
+ * SQL's losses with these reasons that the draft keeps: same requirement (id and kind) and value.
+ * An entry the draft removes goes anyway, and a requirement whose kind changed is made anew. In
+ * SQL's order (requirement, then entry). Hand marks are never among them.
  */
-function contactMarks(progress: GoalProgress, draft: GoalDraft): ContactMark[] {
-  const marks: ContactMark[] = [];
-  for (const r of draft.requirements) {
-    const loaded = progress.requirements.find((x) => x.id === r.id && x.kind === r.kind);
-    if (!loaded) continue;
-    for (const value of r.entries) {
-      const e = loaded.entries.find((x) => x.value === value);
-      if (!e || e.worked_how !== "contact" || !e.worked_at) continue;
-      const at = new Date(e.worked_at);
-      marks.push({ name: chipLabel(r.kind, e), day: utcDay(at), at });
-    }
+function lostMarks(
+  progress: GoalProgress, draft: GoalDraft, losses: readonly GoalWindowLoss[], reasons: readonly GoalWindowLoss["reason"][],
+): LostMark[] {
+  const marks: LostMark[] = [];
+  for (const loss of losses) {
+    if (!reasons.includes(loss.reason)) continue;
+    const kept = draft.requirements.find((r) => r.id === loss.requirement_id && r.kind === loss.kind);
+    if (!kept?.entries.includes(loss.value)) continue;
+    const loaded = progress.requirements.find((r) => r.id === loss.requirement_id)?.entries.find((e) => e.value === loss.value);
+    marks.push({ name: chipLabel(loss.kind, loaded ?? { value: loss.value, label: null }), at: new Date(loss.worked_at), reason: loss.reason });
   }
   return marks;
 }
 
 /** "GA, SC and Cape Lookout National Seashore", or the first five "and 3 more". */
-function names(marks: ContactMark[]): string {
+function names(marks: LostMark[]): string {
   const all = marks.map((m) => m.name);
   return all.length <= NAMED ? joinNames(all) : `${all.slice(0, NAMED).join(", ")} and ${all.length - NAMED} more`;
 }
 
 /** "January and February", with years when the contacts span more than one. */
-function months(marks: ContactMark[]): string {
+function months(marks: LostMark[]): string {
   const sorted = [...marks].sort((a, b) => a.at.getTime() - b.at.getTime());
   const years = new Set(sorted.map((m) => m.at.getUTCFullYear()));
   const format = years.size > 1 ? MONTH_YEAR : MONTH;
@@ -286,15 +311,16 @@ const goBack = (n: number): string =>
     : "When you save, they go back to needed and your connections start alerting for them again.";
 
 /**
- * The warning under the dates: entries a contact marked that the new dates leave out. A save
- * rechecks every contact (goal_recheck), so they go back to needed; hand marks stay.
+ * The warning under the dates, from preview_goal_window's answer for the draft's window:
+ * the entries a contact marks now that the save would send back to needed. SQL decides which
+ * (it rechecks every contact as the save would); this only words them.
  */
-export function dateWarning(progress: GoalProgress | null, draft: GoalDraft): Notice | null {
-  if (!progress || draft.marking !== "relay" || draft.window !== "dates" || !draft.startsOn || !draft.endsOn) return null;
-  const out = contactMarks(progress, draft).filter((m) => m.day < draft.startsOn || m.day > draft.endsOn);
+export function dateWarning(progress: GoalProgress | null, draft: GoalDraft, losses: readonly GoalWindowLoss[]): Notice | null {
+  if (!progress || draft.marking !== "relay") return null;
+  const out = lostMarks(progress, draft, losses, ["before_start", "after_end"]);
   if (out.length === 0) return null;
-  const before = out.every((m) => m.day < draft.startsOn);
-  const after = out.every((m) => m.day > draft.endsOn);
+  const before = out.every((m) => m.reason === "before_start");
+  const after = out.every((m) => m.reason === "after_end");
   const where = before ? "before the new start date" : after ? "after the new end date" : "outside the new dates";
   const n = out.length;
   return {
@@ -303,10 +329,13 @@ export function dateWarning(progress: GoalProgress | null, draft: GoalDraft): No
   };
 }
 
-/** The warning under "Mark entries worked" when a relay list turns to "By hand only": its contact marks go. */
-export function markingWarning(progress: GoalProgress | null, draft: GoalDraft): Notice | null {
+/**
+ * The warning under "Mark entries worked" when a relay list turns to "By hand only", from
+ * preview_goal_window's answer: the contact marks the save would send back to needed.
+ */
+export function markingWarning(progress: GoalProgress | null, draft: GoalDraft, losses: readonly GoalWindowLoss[]): Notice | null {
   if (!progress || progress.list.marking !== "relay" || draft.marking !== "hand") return null;
-  const marks = contactMarks(progress, draft);
+  const marks = lostMarks(progress, draft, losses, ["by_hand"]);
   if (marks.length === 0) return null;
   const n = marks.length;
   return {

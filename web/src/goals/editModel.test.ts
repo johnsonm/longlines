@@ -3,10 +3,10 @@ import { NOW, bands, card, parks, progress, states } from "../test/goals";
 import { BANDS } from "../sources/sources";
 import {
   US_STATES, addEntries, allStates, atLeastHint, dateWarning, defaultEntries, draftOf, inputOf, knownSince, markingHelp,
-  markingWarning, newRequirement, nextKind, parkNames, parkReference, removeEntry, withCompleteWhen, withKind, yearWindow,
-  type GoalDraft,
+  markingWarning, newRequirement, nextKind, parkNames, parkReference, removeEntry, windowChange, withCompleteWhen, withKind,
+  yearWindow, type GoalDraft,
 } from "./editModel";
-import type { GoalEntry, GoalProgress } from "./types";
+import type { GoalEntry, GoalKind, GoalProgress, GoalWindowLoss } from "./types";
 
 // Migration sources, read at transform time by Vite, as states.test.ts reads them.
 const MIGRATIONS: Record<string, string> = import.meta.glob("../../../supabase/migrations/*.sql", {
@@ -179,40 +179,77 @@ describe("markingHelp", () => {
   });
 });
 
+/** preview_goal_window's item. */
+const loss = (requirement_id: string, kind: GoalKind, value: string, worked_at: string, reason: GoalWindowLoss["reason"]): GoalWindowLoss => ({
+  requirement_id, kind, value, worked_at, reason,
+});
+
+/** SQL's answer for the canvas's edge frame, start moved to Mar 1. */
+const EARLY: GoalWindowLoss[] = [
+  loss("r-states", "state", "GA", "2026-01-14T15:00:00Z", "before_start"),
+  loss("r-states", "state", "SC", "2026-02-02T18:30:00Z", "before_start"),
+  loss("r-parks", "park", "US-0002", "2026-02-20T13:00:00Z", "before_start"),
+];
+
+describe("windowChange", () => {
+  const p = earlyContacts();
+  const moved = (over: Partial<GoalDraft>): GoalDraft => ({ ...draftOf(p, NOW), ...over });
+
+  it("is null for a new list and while the window and marking are as loaded", () => {
+    expect(windowChange(null, draftOf(null, NOW))).toBeNull();
+    expect(windowChange(p, draftOf(p, NOW))).toBeNull();
+    // Requirements and the name don't change what the window undoes.
+    expect(windowChange(p, moved({ name: "Other", requirements: [] }))).toBeNull();
+    const open = progress({ list: card({ starts_on: null, ends_on: null }) });
+    expect(windowChange(open, draftOf(open, NOW))).toBeNull();
+  });
+
+  it("gives the window and marking a save would send once one differs", () => {
+    expect(windowChange(p, moved({ startsOn: "2026-03-01" }))).toEqual({ startsOn: "2026-03-01", endsOn: "2026-12-31", marking: "relay" });
+    expect(windowChange(p, moved({ endsOn: "2026-09-30" }))).toEqual({ startsOn: "2026-01-01", endsOn: "2026-09-30", marking: "relay" });
+    expect(windowChange(p, moved({ window: "open" }))).toEqual({ startsOn: null, endsOn: null, marking: "relay" });
+    expect(windowChange(p, moved({ marking: "hand" }))).toEqual({ startsOn: "2026-01-01", endsOn: "2026-12-31", marking: "hand" });
+  });
+
+  it("is null for a window the save would refuse", () => {
+    expect(windowChange(p, moved({ startsOn: "" }))).toBeNull();
+    expect(windowChange(p, moved({ endsOn: "" }))).toBeNull();
+    expect(windowChange(p, moved({ startsOn: "2026-12-01", endsOn: "2026-11-01" }))).toBeNull();
+  });
+});
+
 describe("dateWarning", () => {
   const moved = (p: GoalProgress, over: Partial<GoalDraft>): GoalDraft => ({ ...draftOf(p, NOW), ...over });
 
-  it("names the contact marks before the new start date, as the canvas does", () => {
+  it("words SQL's answer before the new start date, as the canvas does", () => {
     const p = earlyContacts();
-    expect(dateWarning(p, moved(p, { startsOn: "2026-03-01" }))).toEqual({
+    expect(dateWarning(p, moved(p, { startsOn: "2026-03-01" }), EARLY)).toEqual({
       title: "3 worked entries fall before the new start date",
       text:
         "GA, SC and Cape Lookout National Seashore were worked in January and February. When you save, they go back to needed and your connections start alerting for them again.",
     });
   });
 
-  it("says nothing while every contact mark stays inside the dates", () => {
+  it("says nothing while SQL undoes nothing, and never guesses from the marks", () => {
     const p = earlyContacts();
-    expect(dateWarning(p, draftOf(p, NOW))).toBeNull();
-    expect(dateWarning(p, moved(p, { window: "open" }))).toBeNull();
-    expect(dateWarning(p, moved(p, { startsOn: "" }))).toBeNull();
-    expect(dateWarning(null, draftOf(null, NOW))).toBeNull();
-  });
-
-  it("never counts hand marks", () => {
-    // Blue Ridge Parkway, twelve states and three bands were marked by hand on Oct 20 and 21; two parks by contact.
-    const p = progress();
-    expect(dateWarning(p, moved(p, { startsOn: "2026-10-25" }))?.title).toBe("2 worked entries fall before the new start date");
+    // The earliest contacts fall before Mar 1, but SQL found later ones inside the dates.
+    expect(dateWarning(p, moved(p, { startsOn: "2026-03-01" }), [])).toBeNull();
+    expect(dateWarning(null, draftOf(null, NOW), EARLY)).toBeNull();
   });
 
   it("words one entry, entries after the end, and both sides", () => {
     const p = earlyContacts();
-    expect(dateWarning(p, moved(p, { startsOn: "2026-02-01" }))).toEqual({
+    expect(dateWarning(p, moved(p, { startsOn: "2026-02-01" }), [EARLY[0]!])).toEqual({
       title: "1 worked entry falls before the new start date",
       text: "GA was worked in January. When you save, it goes back to needed and your connections start alerting for it again.",
     });
-    expect(dateWarning(p, moved(p, { endsOn: "2026-09-30" }))?.title).toBe("1 worked entry falls after the new end date");
-    expect(dateWarning(p, moved(p, { startsOn: "2026-02-01", endsOn: "2026-09-30" }))?.title).toBe("2 worked entries fall outside the new dates");
+    const late = loss("r-parks", "park", "US-0001", "2026-10-03T21:14:00Z", "after_end");
+    expect(dateWarning(p, moved(p, { endsOn: "2026-09-30" }), [late])).toEqual({
+      title: "1 worked entry falls after the new end date",
+      text: "Great Smoky Mountains National Park was worked in October. When you save, it goes back to needed and your connections start alerting for it again.",
+    });
+    expect(dateWarning(p, moved(p, { startsOn: "2026-02-01", endsOn: "2026-09-30" }), [EARLY[0]!, late])?.title)
+      .toBe("2 worked entries fall outside the new dates");
   });
 
   it("leaves out entries and requirements the draft removes or changes", () => {
@@ -220,33 +257,45 @@ describe("dateWarning", () => {
     const d = moved(p, { startsOn: "2026-03-01" });
     d.requirements[0] = { ...d.requirements[0]!, entries: removeEntry(d.requirements[0]!.entries, "GA") };
     d.requirements[1] = withKind(d.requirements[1]!, "band");
-    expect(dateWarning(p, d)?.text).toBe("SC was worked in February. When you save, it goes back to needed and your connections start alerting for it again.");
+    expect(dateWarning(p, d, EARLY)?.text).toBe("SC was worked in February. When you save, it goes back to needed and your connections start alerting for it again.");
   });
 
-  it("is quiet for a list marked by hand only", () => {
+  it("names a park outside the catalog by its reference", () => {
     const p = earlyContacts();
-    expect(dateWarning(p, moved(p, { startsOn: "2026-03-01", marking: "hand" }))).toBeNull();
+    const d = moved(p, { startsOn: "2026-03-01" });
+    d.requirements[1] = { ...d.requirements[1]!, entries: [...d.requirements[1]!.entries, "US-9999"] };
+    expect(dateWarning(p, d, [loss("r-parks", "park", "US-9999", "2026-02-20T13:00:00Z", "before_start")])?.text)
+      .toBe("US-9999 was worked in February. When you save, it goes back to needed and your connections start alerting for it again.");
+  });
+
+  it("is quiet for a list marked by hand only, whose losses are the marking warning's", () => {
+    const p = earlyContacts();
+    const byHand = EARLY.map((l) => ({ ...l, reason: "by_hand" as const }));
+    expect(dateWarning(p, moved(p, { startsOn: "2026-03-01", marking: "hand" }), byHand)).toBeNull();
+    expect(dateWarning(p, moved(p, { startsOn: "2026-03-01" }), byHand)).toBeNull();
   });
 
   it("names five entries, then how many more, with years across a new year", () => {
     const st = states();
     const codes = ["AK", "AZ", "AR", "CA", "CO", "CT", "DE"];
-    st.entries = st.entries.map((e) => {
-      const i = codes.indexOf(e.value);
-      return i < 0 ? e : contact(e, i === 0 ? "2025-12-30T12:00:00Z" : "2026-01-05T12:00:00Z");
-    });
     const p = progress({ list: card({ starts_on: "2025-12-01" }), requirements: [st] });
-    expect(dateWarning(p, moved(p, { startsOn: "2026-02-01" }))?.text).toBe(
+    const losses = codes.map((c, i) => loss("r-states", "state", c, i === 0 ? "2025-12-30T12:00:00Z" : "2026-01-05T12:00:00Z", "before_start"));
+    expect(dateWarning(p, moved(p, { startsOn: "2026-02-01" }), losses)?.text).toBe(
       "AK, AZ, AR, CA, CO and 2 more were worked in December 2025 and January 2026. When you save, they go back to needed and your connections start alerting for them again.",
     );
   });
 });
 
 describe("markingWarning", () => {
-  it("warns when a relay list turns to By hand only and has contact marks", () => {
+  const BY_HAND: GoalWindowLoss[] = [
+    loss("r-parks", "park", "US-0001", "2026-10-03T21:14:00Z", "by_hand"),
+    loss("r-parks", "park", "US-0002", "2026-10-12T14:02:00Z", "by_hand"),
+  ];
+
+  it("words SQL's answer when a relay list turns to By hand only", () => {
     const p = progress();
     const d = { ...draftOf(p, NOW), marking: "hand" as const };
-    expect(markingWarning(p, d)).toEqual({
+    expect(markingWarning(p, d, BY_HAND)).toEqual({
       title: "2 worked entries came from your log",
       text:
         "Great Smoky Mountains National Park and Cape Lookout National Seashore were marked from contacts you logged. When you save, they go back to needed and your connections start alerting for them again. Mark them worked by hand from the progress page.",
@@ -255,19 +304,18 @@ describe("markingWarning", () => {
 
   it("is quiet otherwise", () => {
     const p = progress();
-    expect(markingWarning(p, draftOf(p, NOW))).toBeNull();
-    expect(markingWarning(null, { ...draftOf(null, NOW), marking: "hand" })).toBeNull();
+    expect(markingWarning(p, draftOf(p, NOW), BY_HAND)).toBeNull();
+    expect(markingWarning(p, { ...draftOf(p, NOW), marking: "hand" }, [])).toBeNull();
+    expect(markingWarning(null, { ...draftOf(null, NOW), marking: "hand" }, BY_HAND)).toBeNull();
     const handList = progress({ list: card({ marking: "hand" }) });
-    expect(markingWarning(handList, { ...draftOf(handList, NOW), marking: "hand" })).toBeNull();
-    const none = progress({ requirements: [states()] });
-    expect(markingWarning(none, { ...draftOf(none, NOW), marking: "hand" })).toBeNull();
+    expect(markingWarning(handList, { ...draftOf(handList, NOW), marking: "hand" }, BY_HAND)).toBeNull();
+    // Losses from the dates aren't the marking's.
+    expect(markingWarning(p, { ...draftOf(p, NOW), marking: "hand" }, EARLY)).toBeNull();
   });
 
   it("words one entry", () => {
-    const pk = parks();
-    pk.entries[1] = { ...pk.entries[1]!, worked_at: null, worked_how: null, evidence: null };
-    const p = progress({ requirements: [pk] });
-    expect(markingWarning(p, { ...draftOf(p, NOW), marking: "hand" })?.text).toBe(
+    const p = progress();
+    expect(markingWarning(p, { ...draftOf(p, NOW), marking: "hand" }, [BY_HAND[0]!])?.text).toBe(
       "Great Smoky Mountains National Park was marked from contacts you logged. When you save, it goes back to needed and your connections start alerting for it again. Mark it worked by hand from the progress page.",
     );
   });

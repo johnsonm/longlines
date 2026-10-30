@@ -305,10 +305,13 @@ states show as one "All 50 states" chip (removing it removes them all) and the s
 "All 50 states" first; bands are added from an "Add a band" field over `sources.ts` `BANDS`; the
 park field searches `searchReferences(q, "pota")` after 300 ms, and Enter adds any typed POTA
 reference; phones show three park chips or twelve others, then "+ N more", and open each add field
-from "Add states" / "Add parks" / "Add bands". The date warning counts the entries a contact marked
-(never a hand mark) whose contact day the new dates leave out; a later contact inside the new
-dates may still mark one again on save. Turning a relay list to By hand only warns too, since the
-recheck clears its contact marks. "Long Lines only knows contacts since" shows while a relay list's
+from "Add states" / "Add parks" / "Add bands". The date warning words `preview_goal_window`'s answer
+for the draft's window: the entries a contact marks now (never a hand mark) that the save's
+recheck would leave needed, so an entry a later contact inside the new dates marks again is not
+named. Turning a relay list to By hand only warns from the same answer (`by_hand`). The page asks
+only while the window or marking differs from the loaded list (never for a new list), 400 ms
+after the last change, and never shows an answer for an older window; a failed preview shows no
+warning. "Long Lines only knows contacts since" shows while a relay list's
 window reaches back before `first_contact_at`; a new list has no `first_contact_at`, so it never
 shows there. The relay sentence of the marking help shows only while the relay is recent. "Delete
 goal" is at the foot of the edit page on a desktop too, so an active list can be deleted.
