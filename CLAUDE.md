@@ -923,10 +923,14 @@ rule in the connection editor.
   only when the station had a POTA spot that UTC day. The state layers are each final once they
   apply: the contact's `us_state` when sent (DC or any non-state gives none); else, when the
   window has any POTA candidate, the park (`goal_park_state`: its one US state, or the license
-  state only when it is one of a multi-state park's; none for a non-US park, and none for two
-  parks until the review is picked, when the picked park's location decides the same way, in
-  `goal_mark` for both the live path and a recheck); else the license state. Change the layers
-  only with the matcher's `spot_us_states` (PR 2). Never mark or derive any of it in TypeScript.
+  state only when it is one of a multi-state park's; none for a non-US park; with two or more
+  parks, each candidate's own location the same way, giving the one state they all give, and
+  when they differ none until the review is picked, when the picked park's location decides the
+  same way, in `goal_mark` for both the live path and a recheck); else the license state. A
+  review opens only while a park requirement is incomplete, so on any other list a rove across
+  states marks no state: the one exception to the canvas's "States and bands never need a look".
+  Change the layers only with the matcher's `spot_us_states` (PR 2). Never mark or derive any of
+  it in TypeScript.
 - `preview_goal_window(id, starts_on, ends_on, marking)` tells the editor what a save would
   undo (contact-worked entries that would be needed, with `before_start`, `after_end` or
   `by_hand`) by applying the window and running `goal_recheck` in a block that always raises a

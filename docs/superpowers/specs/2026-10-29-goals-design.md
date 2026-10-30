@@ -66,18 +66,27 @@ Ours, made while building PR 1 (Brad may revisit any of them):
    never takes a state from a station it was not with.
    1. The contact's own `us_state` when the relay sent one: one of the 50 states, else (DC, a
       province) no state, never a later layer.
-   2. Else, when the 30-minute window has any POTA candidate for the worked station, the park:
-      one US state gives that state; several (`US-NC,US-VA`, a trail) give the license state only
-      when it is one of them, else none; none (a park outside the US) gives none. Two or more
-      candidate parks (a review) give no state until the review is picked; the picked park's
-      location (its spot's `pota_location` in the window, else `reference_catalog.location`) then
-      decides by the same rule, the contact as evidence, and a recheck does the same.
+   2. Else, when the 30-minute window has any POTA candidate for the worked station, the park,
+      by `goal_park_state` of each candidate's nearest spot's `pota_location` and the license
+      state: one US state gives that state; several (`US-NC,US-VA`, a trail) give the license
+      state only when it is one of them, else none; none (a park outside the US) gives none. Two
+      or more candidate parks (a two-fer, a rove) give the state they all give when every one
+      gives the same one, with no pick needed for the state (a park review still opens while the
+      list has a park requirement that isn't complete). When they give different states, or one
+      gives none, the state waits for the review's pick; the picked park's location (its spot's
+      `pota_location` in the window, else `reference_catalog.location`) then decides by the same
+      rule, the contact as evidence, and a recheck does the same. A review opens only while the
+      list has a park requirement that isn't complete, so on any other list such a contact (a
+      rove across states) marks no state. That is the one exception to the canvas's "States and
+      bands never need a look": the state of a rove across states can be told only by the park,
+      and on a list without an open park requirement it is not asked for.
    3. Else (no POTA candidate in the window) the license state of the worked base call. A pick
       for a contact with no candidate (spotted that day, not within 30 minutes) leaves its state
       to this layer.
-   One contact never marks two states. On the matching side a POTA spot gives only its
-   `pota_location`'s US states (none for a park outside the US; a state-line park passes for
-   either state), and the license state is used only for a spot without a POTA reference.
+   One contact never marks two states. On the matching side (PR 2) a POTA spot gives its state
+   by the same rule as one candidate, `goal_park_state(pota_location, license state)`: zero or
+   one state, so a connection alerts only for a state working the station can mark. The license
+   state alone is used only for a spot without a POTA reference.
 5. A contact counts toward a list when its UTC day is inside the window, whatever the list's
    status when it arrives, so a contact logged at 23:59 on the last day and posted after midnight
    counts, as a recheck would count it. A complete list takes no new contact marks.
@@ -143,8 +152,8 @@ All in SQL.
 - `goal_mark(lists, user, spot)` marks needed entries of the given relay lists from contacts in
   each list's window: each entry takes its earliest contact (after `hand_needed_at`, when set),
   and an "at least" requirement takes only as many entries as it still lacks, earliest contacts
-  first. A picked review gives its contact's park, and its state when the window had two or more
-  parks. A mark sets `worked_at` to the contact's time.
+  first. A picked review gives its contact's park, and its state when the window's parks give
+  different states (`pick_state`). A mark sets `worked_at` to the contact's time.
 - `goal_sync_reviews(lists, user, spot)` opens a review for each such contact whose park can't be
   told (none within 30 minutes but a POTA spot that UTC day, or two parks) while the list has a
   park requirement that isn't complete; an open review's candidates follow the spots, and a

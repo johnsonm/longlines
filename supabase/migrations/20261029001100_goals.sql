@@ -391,10 +391,16 @@ revoke all on function public.goal_picked_location(text, timestamptz, text) from
 --   state          in layers, each one final when it applies:
 --                  1. the contact's own us_state, when the relay sent one (DC or any other code
 --                     that is not one of the 50 states gives no state, never a later layer);
---                  2. else, when the window has a POTA candidate, the park: with one candidate,
---                     goal_park_state of the matched spot's location (state_spot_id is that
---                     spot); with two or more, none until the review is picked (pick_state), and
---                     goal_mark then takes goal_park_state of the picked park's location;
+--                  2. else, when the window has a POTA candidate, the park: goal_park_state of
+--                     each candidate's nearest spot's location. One candidate gives its state
+--                     (state_spot_id is that spot). Two or more (a two-fer, a rove) give the state
+--                     they all give, when every one gives the same one (state_spot_id is the
+--                     nearest of their spots); when they differ, or one gives none, no state until
+--                     the review is picked (pick_state), and goal_mark then takes
+--                     goal_park_state of the picked park's location. Reviews open only while a
+--                     list has a park requirement that isn't complete, so on any other list such a
+--                     contact (a rove across states) marks no state: the one case where a state
+--                     needs a look;
 --                  3. else (no POTA candidate) the FCC license state of the worked base call.
 --   license_state  that license state, which goal_park_state uses for a park in several states
 create function public.goal_contact_facts(p_user uuid, p_spot_id bigint)
@@ -407,8 +413,11 @@ set search_path = public
 as $$
   select c.id, c.spot_time, c.band, c.base_callsign, m.reference, m.id, w.candidates, d.pota_that_day,
          st.state,
-         case when c.us_state is null and cardinality(w.candidates) = 1 and st.state is not null then m.id end,
-         c.us_state is null and cardinality(w.candidates) > 1,
+         case when c.us_state is null and st.state is not null then
+           case when cardinality(w.candidates) = 1 then m.id
+                when cardinality(w.candidates) > 1 then ws.nearest_id end
+         end,
+         c.us_state is null and cardinality(w.candidates) > 1 and ws.state is null,
          lic.state
   from (
     select r.id, r.spot_time, r.band, r.base_callsign, lc.us_state
@@ -428,6 +437,10 @@ as $$
       and p.pota_reference is not null
       and p.retracted_at is null
   ) w
+  left join lateral (
+    select l.state from callsign_licenses l
+    where l.callsign = c.base_callsign and l.country = 'US' and l.state = any (public.us_states())
+  ) lic on true
   left join lateral (
     select p.id, upper(p.pota_reference) as reference, p.pota_location
     from raw_spots p
@@ -450,14 +463,30 @@ as $$
         and p.retracted_at is null) as pota_that_day
   ) d
   left join lateral (
-    select l.state from callsign_licenses l
-    where l.callsign = c.base_callsign and l.country = 'US' and l.state = any (public.us_states())
-  ) lic on true
+    -- Two or more candidates: the state when each candidate's nearest spot gives the same one, and
+    -- the nearest of those spots as its evidence.
+    select case when bool_and(k.state is not null) and count(distinct k.state) = 1 then min(k.state) end as state,
+           (array_agg(k.id order by k.distance, k.spot_time, k.id))[1] as nearest_id
+    from (
+      select distinct on (upper(p.pota_reference))
+             p.id, p.spot_time, abs(extract(epoch from p.spot_time - c.spot_time)) as distance,
+             public.goal_park_state(p.pota_location, lic.state) as state
+      from raw_spots p
+      where cardinality(w.candidates) > 1
+        and p.base_callsign = c.base_callsign
+        and p.spot_time between c.spot_time - interval '30 minutes' and c.spot_time + interval '30 minutes'
+        and p.source = 'pota'
+        and p.pota_reference is not null
+        and p.retracted_at is null
+      order by upper(p.pota_reference), abs(extract(epoch from p.spot_time - c.spot_time)), p.spot_time, p.id
+    ) k
+  ) ws on true
   cross join lateral (
     select case
       when c.us_state is not null then case when c.us_state = any (public.us_states()) then c.us_state end
       when cardinality(w.candidates) = 0 then lic.state
       when cardinality(w.candidates) = 1 then public.goal_park_state(m.pota_location, lic.state)
+      else ws.state
     end as state
   ) st
 $$;
@@ -469,7 +498,7 @@ revoke all on function public.goal_contact_facts(uuid, bigint) from public;
 -- list's window, and an entry set back to needed by hand only from a contact logged after that.
 -- Each entry takes its earliest contact; under "at least", only as many entries as the
 -- requirement still lacks, earliest contacts first. A picked review gives its contact's park, and
--- its state when the window had two or more parks (goal_contact_facts' pick_state).
+-- its state when the window's parks give different states (goal_contact_facts' pick_state).
 create function public.goal_mark(p_lists uuid[], p_user uuid, p_spot_id bigint)
 returns void
 language sql
@@ -507,7 +536,7 @@ as $$
     join goal_requirements r on r.list_id = fl.list_id and r.kind = 'state'
     join goal_entries e on e.requirement_id = r.id and e.value = fl.state
     union all
-    -- A contact whose window had two or more parks takes its state from the park picked for it.
+    -- A contact whose window's parks give different states takes its state from the park picked for it.
     select r.id, e.value, fl.spot_id, fl.spot_time, null::bigint
     from fl
     join goal_reviews v on v.list_id = fl.list_id and v.contact_spot_id = fl.spot_id and v.status = 'picked'
@@ -1211,8 +1240,8 @@ revoke all on function public.mark_goal_entry(uuid, text, boolean) from public;
 grant execute on function public.mark_goal_entry(uuid, text, boolean) to authenticated;
 
 -- Resolves an open review: a reference picks the park (marking it where the list still needs
--- it, the contact as evidence, and, when the contact's window had two or more parks, the state
--- of the picked park's location, as goal_mark's layers say); null is "Not a park contact".
+-- it, the contact as evidence, and, when the contact's window had parks in different states, the
+-- state of the picked park's location, as goal_mark's layers say); null is "Not a park contact".
 create function public.resolve_goal_review(p_id uuid, p_reference text)
 returns void
 language plpgsql

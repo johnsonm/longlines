@@ -9,7 +9,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(182);
+select plan(196);
 
 -- Today and yesterday noon in UTC. Every contact is on yesterday's UTC day, 12:00 to 20:20.
 create function pg_temp.d(p_offset int) returns date language sql as $$
@@ -91,8 +91,8 @@ on conflict (program, reference) do update set name = excluded.name;
 delete from callsign_licenses where callsign in ('N4LIC', 'K4ABC', 'N4DEF', 'W8XYZ', 'W3OUT', 'W4DAY', 'W1EDG', 'W2EDG',
                                                 'K9TRL', 'K9VAL', 'K9CAN', 'K9TWO', 'K9CAT', 'K9DC', 'K9WA', 'K9WB',
                                                 'K9WC', 'K9WD');
--- W8XYZ's license state (VA) is on L1 and needed when c8 comes, so 'a contact with two parks marks
--- no state' would see a fall through to the license.
+-- W8XYZ's license state (VA) is on L1 and needed when c8 comes, so 'two parks in one state give
+-- that state' would see a fall through to the license.
 insert into callsign_licenses (callsign, authority, country, state, loaded_at)
 values ('N4LIC', 'FCC', 'US', 'TX', now()), ('K4ABC', 'FCC', 'US', 'SC', now()), ('W8XYZ', 'FCC', 'US', 'VA', now()),
        ('K9TRL', 'FCC', 'US', 'TX', now()), ('K9VAL', 'FCC', 'US', 'VA', now()), ('K9CAN', 'FCC', 'US', 'OH', now()),
@@ -268,7 +268,10 @@ select is((select array_agg(s.callsign || ':' || v.status || ':' || array_to_str
 select is((select count(*) from goal_reviews v where v.contact_spot_id = pg_temp.cid('c3')), 0::bigint,
   'a station with no POTA spot is not a park contact');
 select is(pg_temp.worked((select id from l1), 'state'), array['GA', 'NC', 'TX'],
-  'a contact with two parks marks no state, not even the license state (VA), until a park is picked');
+  'a contact with two parks marks no other state, not even the license state (VA)');
+select is((select (state, pick_state, (select pota_reference from raw_spots where id = state_spot_id))::text
+           from goal_contact_facts('11111111-1111-1111-1111-111111111111', pg_temp.cid('c8'))),
+  '(NC,f,US-0003)', 'two parks in one state give that state with no pick, the nearest park spot (the earlier on a tie) as evidence');
 
 -- ---------------------------------------------------------------------------
 -- get_goal and list_goals
@@ -632,6 +635,75 @@ select is(pg_temp.worked((select id from ls), 'state'), array['NC', 'SC', 'VA'],
   'the recheck gives the same states as the live path, picks included');
 select is((select (contact_spot_id = pg_temp.cid('s5'))::text from pg_temp.entry((select id from ls), 'state', 'NC')), 'true',
   'NC still comes from the K9CAT pick');
+
+-- ---------------------------------------------------------------------------
+-- Two-fers and roves (lists T and U, 45 to 40 days ago; contacts 42 days ago)
+-- ---------------------------------------------------------------------------
+
+select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
+create temp table lt as
+select save_goal(jsonb_build_object('name', 'States only', 'starts_on', pg_temp.d(-45), 'ends_on', pg_temp.d(-40),
+  'requirements', '[{"kind": "state", "entries": ["NC", "VA", "GA", "SC", "MI", "TX"]}]'::jsonb)) as id;
+create temp table lu as
+select save_goal(jsonb_build_object('name', 'States and a park', 'starts_on', pg_temp.d(-45), 'ends_on', pg_temp.d(-40),
+  'requirements', '[{"kind": "state", "entries": ["NC", "VA", "GA", "SC", "MI", "TX"]},
+                    {"kind": "park", "entries": ["US-9998"]}]'::jsonb)) as id;
+reset role;
+delete from callsign_licenses where callsign in ('K9TWF', 'K9TWV', 'K9ROV');
+insert into callsign_licenses (callsign, authority, country, state, loaded_at)
+values ('K9TWF', 'FCC', 'US', 'MI', now()), ('K9TWV', 'FCC', 'US', 'VA', now()), ('K9ROV', 'FCC', 'US', 'TX', now());
+-- t1: K9TWF (licensed MI) at two NC parks: a two-fer in one state.
+select pg_temp.pota('K9TWF', 'US-4580', 'US-NC', pg_temp.at(-42, -5));
+select pg_temp.pota('K9TWF', 'US-4581', 'US-NC', pg_temp.at(-42, 5));
+-- t2: K9TWV (licensed VA) at a trail in NC and VA and at a VA park: each gives VA.
+select pg_temp.pota('K9TWV', 'US-4582', 'US-NC,US-VA', pg_temp.at(-42, 55));
+select pg_temp.pota('K9TWV', 'US-4583', 'US-VA', pg_temp.at(-42, 65));
+-- t3: K9ROV (licensed TX) roving from a GA park to an SC park: two states.
+select pg_temp.pota('K9ROV', 'US-4584', 'US-GA', pg_temp.at(-42, 115));
+select pg_temp.pota('K9ROV', 'US-4585', 'US-SC', pg_temp.at(-42, 125));
+select is(pg_temp.log(pg_temp.up('t1', 'K9TWF', 14071, '20m', 'cw', pg_temp.at(-42, 0), null),
+                      pg_temp.up('t2', 'K9TWV', 14072, '20m', 'cw', pg_temp.at(-42, 60), null),
+                      pg_temp.up('t3', 'K9ROV', 14073, '20m', 'cw', pg_temp.at(-42, 120), null)),
+  array['created', 'created', 'created'], 't1 to t3 are stored');
+select is(pg_temp.worked((select id from lt), 'state'), array['NC', 'VA'],
+  'states only: a two-fer in one state marks it, never the license state (MI); a rove across states (GA, SC) marks none');
+select is((select count(*) from goal_reviews where list_id = (select id from lt)), 0::bigint,
+  'states only: no review opens, so the rove''s state is never marked');
+select is((select (select pota_reference from raw_spots where id = matched_spot_id)
+           from pg_temp.entry((select id from lt), 'state', 'NC')),
+  'US-4580', 'the two-fer''s state keeps the nearest park spot as evidence');
+select is(pg_temp.worked((select id from lu), 'state'), array['NC', 'VA'],
+  'with a park requirement: the same states before any pick');
+select is((select array_agg(s.callsign order by s.callsign) from goal_reviews v join raw_spots s on s.id = v.contact_spot_id
+           where v.list_id = (select id from lu) and v.status = 'open'),
+  array['K9ROV', 'K9TWF', 'K9TWV'], 'with a park requirement: every two-park contact needs a look for its park');
+create temp table ru as
+select v.id, s.callsign from goal_reviews v join raw_spots s on s.id = v.contact_spot_id where v.list_id = (select id from lu);
+grant select on ru to authenticated;
+select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
+select lives_ok(format('select resolve_goal_review(%L, %L)', (select id from ru where callsign = 'K9ROV'), 'US-4585'),
+  'pick the SC park for K9ROV');
+select lives_ok(format('select resolve_goal_review(%L, %L)', (select id from ru where callsign = 'K9TWF'), 'US-4581'),
+  'pick a park for K9TWF');
+reset role;
+select is(pg_temp.worked((select id from lu), 'state'), array['NC', 'SC', 'VA'],
+  'the rove''s pick marks the picked park''s state (SC), not the other (GA)');
+select is((select (contact_spot_id = pg_temp.cid('t3'), matched_spot_id is null)::text
+           from pg_temp.entry((select id from lu), 'state', 'SC')),
+  '(t,t)', 'with the contact as evidence');
+select is((select (select pota_reference from raw_spots where id = matched_spot_id)
+           from pg_temp.entry((select id from lu), 'state', 'NC')),
+  'US-4580', 'a pick on a one-state two-fer leaves its state as it was');
+select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
+select lives_ok(format('select save_goal(%L)', jsonb_build_object('id', (select id from lu), 'name', 'States and a park',
+  'starts_on', pg_temp.d(-45), 'ends_on', pg_temp.d(-40), 'requirements', jsonb_build_array(
+    jsonb_build_object('id', pg_temp.req((select id from lu), 'state'), 'kind', 'state',
+                       'entries', array['NC', 'VA', 'GA', 'SC', 'MI', 'TX']),
+    jsonb_build_object('id', pg_temp.req((select id from lu), 'park'), 'kind', 'park', 'entries', array['US-9998'])))),
+  'save list U unchanged: a recheck');
+reset role;
+select is(pg_temp.worked((select id from lu), 'state'), array['NC', 'SC', 'VA'],
+  'the recheck gives the same states as the live path');
 
 -- ---------------------------------------------------------------------------
 -- The marking RPCs share apply_logged_contacts' lock
