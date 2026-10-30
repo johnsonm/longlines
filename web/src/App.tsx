@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type ComponentProps, type ReactNode } from "react";
 import { Alert, Box, Button, createTheme, CssBaseline, LinearProgress, Snackbar, ThemeProvider, useMediaQuery } from "@mui/material";
 import { Navigate, Route, Routes, useLocation, useParams, useSearchParams } from "react-router";
+import { withSentryReactRouterV7Routing } from "@sentry/react";
 import { SpeedInsights } from "@vercel/speed-insights/react";
 import { Analytics } from "@vercel/analytics/react";
 import { AppProvider } from "./app/AppContext";
@@ -40,6 +41,9 @@ import type { TimePrefs } from "./lib/time";
 import { pushCleanup } from "./pwa/push";
 import { withoutQueryOrHash } from "./lib/analytics";
 
+// Names Sentry's navigation traces by route pattern (/call/*), never by the URL.
+const SentryRoutes = withSentryReactRouterV7Routing(Routes);
+
 // Both schemes, so useColorScheme() can pick light, dark or system; MUI keeps the choice in localStorage.
 const theme = createTheme({ colorSchemes: { light: true, dark: true } });
 
@@ -66,7 +70,7 @@ function Toast() {
 
 function Router() {
   return (
-    <Routes>
+    <SentryRoutes>
       <Route path="/signin" element={<PublicOnly><AppShell><SignInPage /></AppShell></PublicOnly>} />
       <Route path="/check-email" element={<CheckEmailPage />} />
       <Route path="/reset-password" element={<ResetPasswordPage />} />
@@ -97,7 +101,7 @@ function Router() {
       <Route path="/relay" element={<ToRelayApprove />} />
       <Route path="/relay/approve" element={<RequireAuth page="relay-approve" />} />
       <Route path="*" element={<ToHome />} />
-    </Routes>
+    </SentryRoutes>
   );
 }
 

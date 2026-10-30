@@ -1,6 +1,7 @@
 /// <reference types="vitest/config" />
 import { defineConfig, loadEnv, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
+import { sentryVitePlugin } from "@sentry/vite-plugin";
 
 // /sw.js is registered as a classic worker, which cannot load other chunks. If
 // the app ever imports from src/pwa/sw-handlers.ts, Rolldown would split the
@@ -32,6 +33,15 @@ export default defineConfig(({ mode }) => {
   // The VAPID public key is public by design (the browser hands it to the push
   // service); the private key stays in the sender's and the Edge Functions' env.
   const vapidPublicKey = env.VITE_VAPID_PUBLIC_KEY ?? env.VAPID_PUBLIC_KEY ?? env.LONGLINES_VAPID_PUBLIC_KEY ?? "";
+  // The Sentry DSN is public too (it can only send events). Vercel's build env
+  // supplies the commit and VERCEL_ENV, so events carry the release and
+  // production vs preview; without a DSN the app never starts Sentry.
+  const sentryDsn = env.VITE_SENTRY_DSN ?? env.SENTRY_DSN ?? "";
+  const sentryRelease = env.SENTRY_RELEASE ?? env.VERCEL_GIT_COMMIT_SHA ?? "";
+  const sentryEnvironment = env.SENTRY_ENVIRONMENT ?? env.VERCEL_ENV ?? mode;
+  // Build-time only, never in the bundle: with a token the build uploads its
+  // source maps to Sentry and deletes them, so Vercel never serves them.
+  const sentryAuthToken = env.SENTRY_AUTH_TOKEN ?? "";
   if (!url || !anonKey) {
     console.warn("vite: SUPABASE_URL / SUPABASE_ANON_KEY (or VITE_ equivalents) are not set; the app will fail at startup.");
   }
@@ -39,16 +49,34 @@ export default defineConfig(({ mode }) => {
     console.warn("vite: VAPID_PUBLIC_KEY (or LONGLINES_VAPID_PUBLIC_KEY) is not set; push notifications will be unsupported.");
   }
   return {
-    plugins: [react(), standaloneServiceWorker()],
+    plugins: [
+      react(),
+      standaloneServiceWorker(),
+      ...(sentryAuthToken
+        ? [sentryVitePlugin({
+          org: env.SENTRY_ORG ?? "long-lines",
+          project: env.SENTRY_PROJECT ?? "longlines-web",
+          authToken: sentryAuthToken,
+          release: { name: sentryRelease || undefined },
+          sourcemaps: { filesToDeleteAfterUpload: ["dist/**/*.map"] },
+          telemetry: false,
+        })]
+        : []),
+    ],
     define: {
       "import.meta.env.VITE_SUPABASE_URL": JSON.stringify(url),
       "import.meta.env.VITE_SUPABASE_ANON_KEY": JSON.stringify(anonKey),
       "import.meta.env.VITE_CONTACT_EMAIL": JSON.stringify(contactEmail),
       "import.meta.env.VITE_VAPID_PUBLIC_KEY": JSON.stringify(vapidPublicKey),
+      "import.meta.env.VITE_SENTRY_DSN": JSON.stringify(sentryDsn),
+      "import.meta.env.VITE_SENTRY_RELEASE": JSON.stringify(sentryRelease),
+      "import.meta.env.VITE_SENTRY_ENVIRONMENT": JSON.stringify(sentryEnvironment),
     },
     // In dev the app registers /src/pwa/sw.ts; this lets it take the root scope.
     server: { headers: { "Service-Worker-Allowed": "/" } },
     build: {
+      // "hidden": maps for the Sentry upload, with no sourceMappingURL comment in the bundle.
+      sourcemap: sentryAuthToken ? "hidden" : false,
       // Every flag-icons SVG stays a file of its own, fetched only when a
       // profile shows it (src/profile/flags.ts); inlining would put hundreds
       // of flags into the main bundle.
@@ -88,6 +116,8 @@ export default defineConfig(({ mode }) => {
           "src/lib/database.types.ts",
           // Mounts <App /> into index.html; nothing to assert.
           "src/main.tsx",
+          // Calls Sentry.init with lib/sentry.ts's options, which are tested.
+          "src/instrument.ts",
           // Event listeners that hand the real worker globals to sw-handlers.ts, which is tested.
           "src/pwa/sw.ts",
         ],
