@@ -647,9 +647,14 @@ describe("goals", () => {
     )).toBeInTheDocument();
     // The rule still saves.
     expect(save()).toBeEnabled();
-    await user.click(screen.getByRole("link", { name: "Create a Parks on the Air connection" }));
-    expect(screen.getByTestId("location")).toHaveTextContent("/connections/new");
-    expect(screen.getByTestId("location")).toHaveAttribute("data-search", `?source=pota&goal=${LIST_ID}`);
+    // It opens in a new tab, so the connection being edited stays as it is.
+    const create = screen.getByRole("link", { name: "Create a Parks on the Air connection" });
+    expect(create).toHaveAttribute("href", `/connections/new?source=pota&goal=${LIST_ID}`);
+    expect(create).toHaveAttribute("target", "_blank");
+    expect(create).toHaveAttribute("rel", "noopener noreferrer");
+    await user.click(create);
+    expect(screen.getByTestId("location")).toHaveTextContent("/connections/x");
+    expect(screen.getByText("Parks in this goal can't match here")).toBeInTheDocument();
   });
 
   it("starts a new connection with the goal it was given", async () => {

@@ -285,9 +285,11 @@ export function FilterStep({
                   <AlertTitle>{warning.title}</AlertTitle>
                   {warning.text}
                   <Box sx={{ mt: 0.5 }}>
+                    {/* A new tab, so the connection being edited here is never lost. */}
                     <Button
                       size="small" color="inherit" component={RouterLink}
                       to={`/connections/new?source=pota&goal=${encodeURIComponent(list.id)}`}
+                      target="_blank" rel="noopener noreferrer"
                     >
                       Create a Parks on the Air connection
                     </Button>

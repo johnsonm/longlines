@@ -325,8 +325,8 @@ included, loaded once per visit like groups; "N entries still needed" is the car
 worked` and "across M requirements" its `requirement_count`; the source warning shows only for
 parks (the one kind a source can lack), with "SOTAwatch spots" from the source's name ("Logged
 contacts" for logged, and "POTA parks" for WWFF and WWBOTA), and spans the rule row under the helper; "Create a Parks on the Air
-connection" opens `/connections/new?source=pota&goal=<id>`, a new POTA connection with only
-that rule and no name; a complete or ended list's rule says it is off instead of counting, with
+connection" opens `/connections/new?source=pota&goal=<id>` in a new tab (so the draft being
+edited is never lost), a new POTA connection with only that rule and no name; a complete or ended list's rule says it is off instead of counting, with
 no warning; the preview line shows only when `skipped_worked` is more than zero; connection cards
 show "Goal is in" with the list's name once the lists load.
 

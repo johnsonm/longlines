@@ -998,7 +998,8 @@ rule in the connection editor.
   `skipped_worked` only: parks are the one kind a source can lack (`parksCanMatch`: only `pota`, or
   any source, carries `pota_reference`, which `goal_matches` reads), so change the two
   together. A finished list's rule says it is off and never warns. "Create a Parks on the Air
-  connection" opens `/connections/new?source=pota&goal=<id>` (`blankSub`'s goal).
+  connection" opens `/connections/new?source=pota&goal=<id>` (`blankSub`'s goal) in a
+  new tab, so the connection being edited is never lost.
 
 ## Group statistics rules
 
