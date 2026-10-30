@@ -330,3 +330,56 @@ export function neededParks(requirements: GoalRequirement[]): { reference: strin
   }
   return [...seen].map(([reference, name]) => ({ reference, name }));
 }
+
+// ---- The rule in the connection editor --------------------------------------
+
+/**
+ * Whether a connection's sources can carry a park: goal_matches reads only a spot's
+ * pota_reference, which only POTA spots have ("any source" includes POTA). States and bands match
+ * on every source, so parks are the one kind that can never match.
+ */
+export function parksCanMatch(sources: string[]): boolean {
+  return sources.length === 0 || sources.includes("pota");
+}
+
+/** How many of a list's still-needed entries the connection's sources can never alert for. */
+export function unmatchableEntries(list: Pick<GoalCard, "status" | "needed_by_kind">, sources: string[]): number {
+  return list.status === "active" && !parksCanMatch(sources) ? list.needed_by_kind.park : 0;
+}
+
+/**
+ * The helper under a goal rule: "46 entries still needed across 3 requirements. This rule
+ * updates itself as you work them.", or "7 can't match on this source." in place of the second
+ * sentence. A finished list's rule is off, and the helper says so.
+ */
+export function ruleHelperText(list: Pick<GoalCard, "status" | "worked" | "total" | "requirement_count" | "needed_by_kind">, sources: string[]): string {
+  if (list.status === "complete") return "You worked everything on this goal, so this rule is off.";
+  if (list.status === "ended") return "This goal ended, so this rule is off. Change its dates to turn it back on.";
+  const needed = `${plural(Math.max(0, list.total - list.worked), "entry", "entries")} still needed across ${plural(list.requirement_count, "requirement", "requirements")}.`;
+  const unmatched = unmatchableEntries(list, sources);
+  return unmatched > 0 ? `${needed} ${unmatched} can't match on this source.` : `${needed} This rule updates itself as you work them.`;
+}
+
+/** "SOTAwatch spots", "Logged contacts": what the sources send, as the source warning names it. */
+function spotsNoun(sources: string[]): string {
+  if (sources.length === 1 && sources[0] === "logged") return "Logged contacts";
+  return `${joinNames(sources.map(sourceName))} spots`;
+}
+
+/** The warning under a goal rule whose parks can never match the connection's sources; null when they can. */
+export function sourceWarning(list: Pick<GoalCard, "status" | "needed_by_kind">, sources: string[]): { title: string; text: string } | null {
+  const parks = unmatchableEntries(list, sources);
+  if (parks === 0) return null;
+  return {
+    title: "Parks in this goal can't match here",
+    text: `The Parks requirement has ${plural(parks, "park", "parks")} still needed. ${spotsNoun(sources)} don't include parks, so those entries will never alert on this connection.`,
+  };
+}
+
+/** The preview's line under the bar, from preview_subscription's skipped_worked; null when there is nothing to say. */
+export function skippedWorkedText(skipped: number | null): string | null {
+  if (skipped === null || skipped <= 0) return null;
+  return skipped === 1
+    ? "1 more matched your other rules but was skipped. You've already worked it."
+    : `${skipped} more matched your other rules but were skipped. You've already worked those.`;
+}
