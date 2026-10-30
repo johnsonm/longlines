@@ -11,9 +11,9 @@
 -- 2. spot_us_states and goal_matches. A spot passes the rule when the list is missing,
 --    complete or ended (the rule is off, so the connection alerts for everything its other rules
 --    allow), or when some requirement that is not complete has a needed entry the spot matches:
---    its band, its POTA park, or one of its US states (a POTA spot's location's states, none for a
---    park outside the US; the license state of the spotted base call only for a spot without a
---    POTA reference: the matcher's side of goal_contact_facts' layers). How a list
+--    its band, its POTA park, or its US state (a POTA spot's by goal_park_state over its
+--    location and the spotted base call's license state, as marking gives a contact with one
+--    park; the license state alone only for a spot without a POTA reference). How a list
 --    is marked (relay or by hand) has no effect on matching. A goal names no stations, so
 --    rules_name_stations, watched_among and the RBN guard are unchanged.
 -- 3. rule_matches: as in 20261027001200, with the goal field.
@@ -179,29 +179,28 @@ $$;
 -- 2. Matching a spot against a list
 -- ---------------------------------------------------------------------------
 
--- The US states a spot is in. A spot with a POTA reference is where its park is: every US-XX code
--- of its pota_location (a park on a state line serves both states' needs), none for a park outside
--- the US. Only a spot without a POTA reference takes the FCC license state of the spotted base
--- call. Only us_states() codes, so DC and territories never match. Marking's layers
--- (goal_contact_facts) make the same split.
+-- The US state a spot is in, as zero or one us_states() code. A spot with a POTA reference is
+-- where its park is, by marking's rule for a contact with one park (goal_park_state over its
+-- pota_location and the FCC license state of the spotted base call): a park in one US state gives
+-- that state; a park on a state line gives the license state only when it is one of the park's,
+-- else none; a park outside the US, or a spot without a location, gives none. Only a spot without
+-- a POTA reference takes the license state alone. So a connection alerts only for a state that
+-- working the station could mark. DC and territories never match.
 create function public.spot_us_states(spot raw_spots)
 returns text[]
 language sql
 stable
 set search_path = ''
 as $$
-  select case
-    when spot.pota_reference is not null then coalesce(
-      (select array_agg(distinct x[1] order by x[1])
-       from regexp_matches(spot.pota_location, 'US-([A-Z]{2})', 'g') as x
-       where x[1] = any (public.us_states())),
-      '{}'::text[])
-    else coalesce(
-      (select array[l.state]
-       from public.callsign_licenses l
-       where l.callsign = spot.base_callsign and l.country = 'US' and l.state = any (public.us_states())),
-      '{}'::text[])
-  end
+  select coalesce(array_remove(array[
+           case when spot.pota_reference is not null
+                then public.goal_park_state(spot.pota_location, lic.state)
+                else lic.state end], null),
+         '{}'::text[])
+  from (select (select l.state
+                from public.callsign_licenses l
+                where l.callsign = spot.base_callsign and l.country = 'US' and l.state = any (public.us_states()))
+               as state) lic
 $$;
 
 revoke all on function public.spot_us_states(raw_spots) from public;

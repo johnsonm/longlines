@@ -197,11 +197,13 @@ a hand mark or a retraction).
   needed entry the spot matches (band = `spot.band`; park = upper(`spot.pota_reference`); state in
   `spot_us_states(spot)`). `marking` has no effect on matching. A goal names no stations, so
   `rules_name_stations`, `watched_among` and the RBN guard stay as they are.
-- `spot_us_states(spot)`: a spot with a POTA reference gives every US state (`us_states()` codes)
-  in its `pota_location`, so a park on a state line serves both states' needs, and none for a park
-  outside the US (or without a location). Only a spot without a POTA reference gives the US license
-  state of the spotted base call. This is marking's split (decision 4): a park decides, the license
-  only without one.
+- `spot_us_states(spot)`: zero or one state. A spot with a POTA reference gives
+  `goal_park_state(pota_location, license state of the spotted base call)`, marking's rule for a
+  contact with one park (decision 4): a park in one US state gives it; a park on a state line gives
+  the license state only when it is one of the park's, else none, so a `US-NC,US-VA` trail
+  activated by a station licensed in TX alerts for neither; a park outside the US (or without a
+  location) gives none. Only a spot without a POTA reference gives the US license state alone. A
+  connection so alerts only for a state working the station could mark.
 - `save_subscription` locks the named lists `for key share`; `delete_goal` takes `for
   update` and refuses with LL409 'Remove it from its connections first.'
 - `preview_subscription` gains `skipped_worked`: spots its other rules pass that the goal

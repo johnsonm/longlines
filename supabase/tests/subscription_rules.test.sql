@@ -6,7 +6,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(169);
+select plan(173);
 
 -- Start from empty tables so watched_among and preview see only these rows.
 delete from deliveries;
@@ -464,7 +464,7 @@ create function pg_temp.potaspot(p_call text, p_band text, p_ref text, p_loc tex
   select pg_temp.spot('pota', p_call, p_band, 'cw', 14062, null, p_ref, p_loc);
 $$;
 insert into callsign_licenses (callsign, authority, country, state, loaded_at)
-values ('K4LIC', 'FCC', 'US', 'GA', now()), ('K5TEX', 'FCC', 'US', 'TX', now()),
+values ('K4LIC', 'FCC', 'US', 'GA', now()), ('K5TEX', 'FCC', 'US', 'TX', now()), ('K4VAL', 'FCC', 'US', 'VA', now()),
        ('VE3LIC', 'ISED', 'CA', 'NC', now())
 on conflict (callsign) do update set authority = excluded.authority, country = excluded.country, state = excluded.state;
 
@@ -524,8 +524,10 @@ select ok(not spot_matches(pg_temp.nl((select chase from nl)), pg_temp.spot('sot
 -- States: a POTA spot's location only; the license only for a spot without a POTA reference.
 select ok(spot_matches(pg_temp.nl((select chase from nl)), pg_temp.potaspot('W7JZ', '20m', 'US-9999', 'US-NC')),
   'goal state: a POTA spot in NC passes by its location');
-select ok(spot_matches(pg_temp.nl((select chase from nl)), pg_temp.potaspot('K5TEX', '20m', 'US-9998', 'US-SC,US-VA')),
-  'goal state: a park on a state line passes for either state, before the license');
+select ok(not spot_matches(pg_temp.nl((select chase from nl)), pg_temp.potaspot('K5TEX', '20m', 'US-9998', 'US-NC,US-VA')),
+  'goal state: a station licensed in TX at a trail in NC and VA passes neither need, as marking gives it no state');
+select ok(spot_matches(pg_temp.nl((select chase from nl)), pg_temp.potaspot('K4VAL', '20m', 'US-9998', 'US-NC,US-VA')),
+  'goal state: a station licensed in VA at the same trail passes the VA need');
 select ok(not spot_matches(pg_temp.nl((select chase from nl)), pg_temp.potaspot('K4LIC', '20m', 'US-9997', 'US-TX')),
   'goal state: the location wins over the license (TX, though licensed in GA)');
 select ok(spot_matches(pg_temp.nl((select chase from nl)), pg_temp.spot('sotawatch', 'K4LIC/P', '20m', 'cw')),
@@ -542,8 +544,14 @@ select ok(not spot_matches(pg_temp.nl((select chase from nl)), pg_temp.spot('sot
   'goal state: a license state not on the list is kept out');
 select ok(not spot_matches(pg_temp.nl((select chase from nl)), pg_temp.spot('sotawatch', 'VE3LIC', '20m', 'cw')),
   'goal state: a license from outside the US gives no state');
-select is(spot_us_states(pg_temp.potaspot('W7JZ', '20m', 'US-9996', 'US-VA,US-NC,US-DC')), array['NC', 'VA'],
-  'spot_us_states: the location''s states, sorted, without DC');
+select is(spot_us_states(pg_temp.potaspot('K4VAL', '20m', 'US-9996', 'US-VA,US-NC,US-DC')), array['VA'],
+  'spot_us_states: a park in several states gives the license state when it is one of them, never DC');
+select is(spot_us_states(pg_temp.potaspot('K5TEX', '20m', 'US-9996', 'US-VA,US-NC')), '{}'::text[],
+  'spot_us_states: none when the license state is not one of the park''s');
+select is(spot_us_states(pg_temp.potaspot('W7JZ', '20m', 'US-9996', 'US-VA,US-NC')), '{}'::text[],
+  'spot_us_states: none for an unlicensed call at a park in several states');
+select is(spot_us_states(pg_temp.potaspot('K5TEX', '20m', 'US-9994', 'US-NC')), array['NC'],
+  'spot_us_states: a park in one state gives it, whatever the license');
 select ok(not spot_matches(pg_temp.nl((select bands from nl)), pg_temp.potaspot('W7JZ', '6m', 'US-2763', 'US-NC')),
   'goal: a park and a state never match a list of bands only');
 
