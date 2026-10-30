@@ -57,7 +57,7 @@ const HOURLY = Array.from({ length: 168 }, (_, i) => ({
   hour: new Date(Date.UTC(2026, 9, 7, i)).toISOString(), pota: 36, sota: 5, rbn: 192, dx: 56, aprs: 0,
 }));
 
-const preview = (p: Partial<Preview> = {}): Preview => ({ count: 7, spots: [], station_count: 0, window_size: 42, ...p });
+const preview = (p: Partial<Preview> = {}): Preview => ({ count: 7, spots: [], station_count: 0, window_size: 42, skipped_worked: null, ...p });
 
 beforeEach(() => {
   vi.mocked(saveSubscription).mockReset().mockResolvedValue("s9");
