@@ -239,6 +239,12 @@ describe("the rule in the connection editor", () => {
     expect(sourceWarning(card({ needed_by_kind: { state: 0, park: 1, band: 0 } }), ["logged"])?.text)
       .toBe("The Parks requirement has 1 park still needed. Logged contacts don't include parks, so those entries will never alert on this connection.");
     expect(sourceWarning(card(), ["sotawatch", "dxcluster"])?.text).toContain("SOTAwatch and DX Cluster spots don't include parks");
+    // WWFF and WWBOTA spots are park-like activations: they lack POTA parks, not parks.
+    expect(sourceWarning(card(), ["wwff"])?.text)
+      .toBe("The Parks requirement has 7 parks still needed. WWFF spots don't include POTA parks, so those entries will never alert on this connection.");
+    expect(sourceWarning(card(), ["wwbota"])?.text)
+      .toBe("The Parks requirement has 7 parks still needed. WWBOTA spots don't include POTA parks, so those entries will never alert on this connection.");
+    expect(sourceWarning(card(), ["sotawatch", "wwff"])?.text).toContain("SOTAwatch and WWFF spots don't include POTA parks");
     expect(sourceWarning(card(), ["pota"])).toBeNull();
     expect(sourceWarning(card({ needed_by_kind: { state: 38, park: 0, band: 1 } }), ["sotawatch"])).toBeNull();
   });

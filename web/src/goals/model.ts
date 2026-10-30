@@ -366,13 +366,21 @@ function spotsNoun(sources: string[]): string {
   return `${joinNames(sources.map(sourceName))} spots`;
 }
 
+/**
+ * Sources whose spots are park-like activations with their own references (WWFF's flora and fauna
+ * parks, WWBOTA's bunkers): saying they "don't include parks" would be false, so their warning
+ * says POTA parks.
+ */
+const OWN_PARKS = ["wwff", "wwbota"];
+
 /** The warning under a goal rule whose parks can never match the connection's sources; null when they can. */
 export function sourceWarning(list: Pick<GoalCard, "status" | "needed_by_kind">, sources: string[]): { title: string; text: string } | null {
   const parks = unmatchableEntries(list, sources);
   if (parks === 0) return null;
+  const what = sources.some((s) => OWN_PARKS.includes(s)) ? "POTA parks" : "parks";
   return {
     title: "Parks in this goal can't match here",
-    text: `The Parks requirement has ${plural(parks, "park", "parks")} still needed. ${spotsNoun(sources)} don't include parks, so those entries will never alert on this connection.`,
+    text: `The Parks requirement has ${plural(parks, "park", "parks")} still needed. ${spotsNoun(sources)} don't include ${what}, so those entries will never alert on this connection.`,
   };
 }
 
