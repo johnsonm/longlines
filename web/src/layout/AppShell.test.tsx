@@ -88,7 +88,7 @@ describe("AppShell", () => {
   it("lists the sections in order and keeps Callsign lookup highlighted on profiles", () => {
     renderPage(shell(), { route: "/call/KK4PWJ" });
     const labels = screen.getAllByRole("button").map((b) => b.textContent);
-    const order = ["Home", "Sources", "Connections", "Destinations", "Groups", "Band map", "Callsign lookup", "Reference lookup", "Stats", "API tokens"];
+    const order = ["Home", "Sources", "Connections", "Destinations", "Groups", "Goals", "Band map", "Callsign lookup", "Reference lookup", "Stats", "API tokens"];
     expect(labels.filter((l) => order.includes(l ?? ""))).toEqual(order);
     expect(screen.getByRole("button", { name: "Callsign lookup" })).toHaveClass("Mui-selected");
     expect(screen.getByRole("button", { name: "Reference lookup" })).not.toHaveClass("Mui-selected");
@@ -150,7 +150,7 @@ describe("AppShell", () => {
 
 describe("AppShell signed out", () => {
   const signedOut = { app: { session: null, profile: null } };
-  const LOCKED = ["Home", "Sources", "Connections", "Destinations", "Groups", "API tokens"];
+  const LOCKED = ["Home", "Sources", "Connections", "Destinations", "Groups", "Goals", "API tokens"];
   const OPEN = ["Band map", "Callsign lookup", "Reference lookup", "Stats", "Health"];
 
   it("shows every section, with the account ones disabled and explained", async () => {
