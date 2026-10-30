@@ -545,11 +545,14 @@ editor.
   builds it as a PR check.
 - `docs/` stays the internal docs (architecture, operations, specs) and is not the site.
 - The site is for end users of Long Lines and Long Lines Relay and imports nothing from the app.
+- There is no landing page: `/` redirects to Getting started (`redirects` in `astro.config.mjs`).
+  Never add an `index` page or a splash template back.
 - The look is the web app's: `docs-site/src/styles/theme.css` sets only Starlight's theme variables
   (`--sl-color-*`, `--sl-font`) to MUI's stock palette (the app's theme is stock, so its values are
   MUI's defaults: blue 700 / blue 200 primary, neutral greys, `#121212` dark background) and Roboto
-  (`@fontsource/roboto`). The favicon is the app's. Never override Starlight components or style its
-  elements; if the app's theme stops being stock, change `theme.css` with it.
+  (`@fontsource/roboto`). The favicon and `apple-touch-icon.png` are copies of the app's (change
+  them with `web/public`). Never override Starlight components or style its elements; if the app's
+  theme stops being stock, change `theme.css` with it.
 - Content comes in a later phase.
 
 ## Source catalog rules

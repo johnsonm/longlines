@@ -5,6 +5,8 @@ import starlight from '@astrojs/starlight';
 // https://astro.build/config
 export default defineConfig({
 	site: 'https://docs.longlines.io',
+	// No landing page: the root opens Getting started.
+	redirects: { '/': '/getting-started/' },
 	integrations: [
 		starlight({
 			title: 'Long Lines',
@@ -68,8 +70,9 @@ export default defineConfig({
 				'@fontsource/roboto/700.css',
 				'./src/styles/theme.css',
 			],
-			// Same browser bar colors as the web app's index.html.
+			// Same browser bar colors and home screen icon as the web app's index.html.
 			head: [
+				{ tag: 'link', attrs: { rel: 'apple-touch-icon', href: '/apple-touch-icon.png' } },
 				{
 					tag: 'meta',
 					attrs: { name: 'theme-color', content: '#1976d2', media: '(prefers-color-scheme: light)' },
