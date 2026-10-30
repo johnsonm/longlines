@@ -14,3 +14,25 @@ hero:
       icon: external
       variant: minimal
 ---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+<CardGrid>
+	<Card title="Spots in">
+		[Sources](/sources/) covers POTA, SOTA, WWFF, WWBOTA, DX Cluster, RBN, IOTA and logged contacts.
+		[Long Lines Relay](/relay/) posts the contacts you log.
+	</Card>
+	<Card title="Filter">
+		[Connections](/connections/) pick spots with [filter rules](/filter-rules/),
+		[callsign groups](/callsign-groups/) and [goals](/goals/).
+	</Card>
+	<Card title="Spots out">
+		[Destinations](/destinations/): Discord, webhooks, push notifications and your logger's
+		bandmap.
+	</Card>
+	<Card title="Look things up">
+		[Band map](/band-map/), [Callsign lookup](/callsign-lookup/),
+		[Reference lookup](/reference-lookup/), [Stats](/stats/) and [Health](/health/), no account
+		needed.
+	</Card>
+</CardGrid>
