@@ -33,6 +33,7 @@ import {
   referenceRowsReplySchema,
   referenceStatusReplySchema,
 } from "../supabase/functions/_shared/reference_catalog.ts";
+import { reportError } from "../supabase/functions/_shared/sentry.ts";
 import { parseWith } from "../supabase/functions/_shared/validate.ts";
 import type { CatalogUrls } from "./config.ts";
 import { readWithin } from "./licenses.ts";
@@ -468,6 +469,7 @@ export async function checkCatalogs(
       }
       if (!isAborted(options.signal)) {
         log(`${program}: load failed: ${error.message}`);
+        reportError(`catalogs: ${program}: load failed: ${error.message}`, error);
       }
     }
   }
@@ -498,6 +500,7 @@ export async function runCatalogImports(
       }
       if (!isAborted(signal)) {
         options.log(`check failed: ${error.message}`);
+        reportError(`catalogs: check failed: ${error.message}`, error);
       }
     }
     await abortableSleep(checkMs, signal);

@@ -1086,6 +1086,26 @@ screens and for notification text.
   `failing`. A spot skipped for quiet hours ("Don't send") is marked sent, never retried or
   counted as a failure.
 
+## Error reporting rules
+
+- The Edge Functions, the inbound worker and the sender report to Sentry (projects
+  `longlines-functions`, `longlines-inbound`, `longlines-sender`) only through `_shared/sentry.ts`.
+  Errors only: `defaultIntegrations: false`, no tracing and no `Deno.serve` or `fetch`
+  instrumentation, because the sender's requests carry Discord webhook tokens and destination
+  URLs. Never turn on tracing, a default integration or console capture there without asking.
+- A report holds what its log line holds plus the error's own message, stack and causes:
+  `logError(line, error)` replaces a failure's `console.error`, and `reportError(line, error)`
+  goes beside a worker's own `log`. Never pass a request, headers, a body, a URL, a token, a
+  device code, a contact or a search query to either.
+- Not reported: a user's destination failing (`run.ts` per destination), upstream feed trouble
+  (an unusable epoch, telnet sessions), best-effort heartbeats and retry notices. A retry loop
+  reports only the first failure of a streak (sender claims, inbound pushes).
+- Off without `SENTRY_DSN`. The workers read `SENTRY_ENV` through `loadConfig` (so the
+  Dockerfiles' `--allow-env` and `deno.json`'s test permissions list them), call `startSentry`
+  first in `main` and `flushErrors` before exiting; the Edge Functions start it from the
+  environment on their first report. `prepareEvent` drops the server name and marks
+  `sentry.ts`'s frames out of the app.
+
 ## Conventions
 
 - Time-dependent functions take `now: Date` so tests pin the clock. The POTA and SOTAwatch

@@ -17,6 +17,7 @@ import {
   type ReferenceStatusReply,
 } from "../reference_catalog.ts";
 import { type JsonObject, jsonObjectSchema, type ReferenceDb } from "../types.ts";
+import { logError } from "../sentry.ts";
 
 export interface LoadReferencesDeps {
   /** LONGLINES_INBOUND_SECRET; undefined when unset. */
@@ -180,7 +181,7 @@ export async function handleLoadReferences(
   deps: LoadReferencesDeps,
 ): Promise<Response> {
   if (deps.secret === undefined || deps.secret === "") {
-    console.error("load-references: missing environment variable LONGLINES_INBOUND_SECRET");
+    logError("load-references: missing environment variable LONGLINES_INBOUND_SECRET", undefined);
     return Response.json({ error: "inbound secret is not configured" }, { status: 500 });
   }
   let header = req.headers.get("x-inbound-secret");
@@ -203,7 +204,7 @@ export async function handleLoadReferences(
       return Response.json({ error: "request body is not JSON" }, { status: 400 });
     }
     const message = errorMessage(error);
-    console.error(`load-references: reading the request body failed: ${message}`);
+    logError(`load-references: reading the request body failed: ${message}`, error);
     return Response.json({ error: message }, { status: 500 });
   }
   const request = parseLoadReferencesRequest(body);
@@ -221,7 +222,7 @@ export async function handleLoadReferences(
     // The boundary: a failed RPC (FunctionCallError), a result of the wrong shape
     // (ValidationError) or anything else answers 500 with its message.
     const message = errorMessage(err);
-    console.error(`load-references ${request.action}: ${message}`);
+    logError(`load-references ${request.action}: ${message}`, err);
     return Response.json({ error: message }, { status: 500 });
   }
 }

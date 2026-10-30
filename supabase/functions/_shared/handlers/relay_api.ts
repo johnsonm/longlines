@@ -62,6 +62,7 @@ import {
 import { hmacSha256Hex } from "../hmac.ts";
 import { readBody } from "./api.ts";
 import { countClientRequest, countRequest } from "./callsign_profile.ts";
+import { logError } from "../sentry.ts";
 
 /** Contract section 1: bodies over 256 KiB are refused with 400 invalid_request. */
 export const MAX_BODY_BYTES = 256 * 1024;
@@ -335,7 +336,7 @@ function reply(body: unknown, status: number, headers: Record<string, string>): 
 }
 
 function serverError(step: string, message: string): Response {
-  console.error(`relay-api: ${step} failed: ${message}`);
+  logError(`relay-api: ${step} failed: ${message}`, undefined);
   return relayError(500, "server_error", null, {});
 }
 
@@ -446,7 +447,7 @@ export async function handleRelayApi(
   }
 
   if (deps.key === undefined) {
-    console.error("relay-api: missing environment variable SUPABASE_SERVICE_ROLE_KEY");
+    logError("relay-api: missing environment variable SUPABASE_SERVICE_ROLE_KEY", undefined);
     return relayError(500, "server_error", null, {});
   }
   const db = deps.db();
@@ -657,7 +658,7 @@ async function meV2(
 ): Promise<Response> {
   const spotsUrl = resolveSpotsUrl(spotsUrlSetting);
   if (spotsUrl === null) {
-    console.error("relay-api: LONGLINES_SPOTS_URL is not an https or loopback http URL");
+    logError("relay-api: LONGLINES_SPOTS_URL is not an https or loopback http URL", undefined);
     return relayError(500, "server_error", null, {});
   }
   const result = await db.rpc("relay_account", {
@@ -755,7 +756,10 @@ async function contacts(
     });
     if (applied.error !== null) {
       if (errorStatus(applied.error) === 400) {
-        console.error(`relay-api: apply_logged_contacts refused a batch: ${applied.error.message}`);
+        logError(
+          `relay-api: apply_logged_contacts refused a batch: ${applied.error.message}`,
+          applied.error,
+        );
         return relayError(400, "invalid_request", "A contact could not be stored.", {});
       }
       return serverError("apply_logged_contacts", applied.error.message);
@@ -782,7 +786,7 @@ async function contacts(
       if (!(error instanceof FunctionCallError) && !(error instanceof ValidationError)) {
         throw error;
       }
-      console.error(`relay-api: matcher failed: ${error.message}`);
+      logError(`relay-api: matcher failed: ${error.message}`, error);
     }
   }
   return reply({ results }, 200, {});

@@ -126,6 +126,7 @@ Deno.test(
       healthPort: 0,
       licenseZipUrl: null,
       catalogUrls: null,
+      sentry: null,
     };
     const logs: string[] = [];
     const inbound = startInbound(config, [feed], {
@@ -191,6 +192,7 @@ Deno.test(
         healthPort: 0,
         licenseZipUrl: null,
         catalogUrls: null,
+        sentry: null,
       },
       [localFeed(RBN_FEED, telnet.port)],
       { hostname: "127.0.0.1", log: noop },
@@ -222,6 +224,7 @@ Deno.test(
         healthPort: 0,
         licenseZipUrl: null,
         catalogUrls: null,
+        sentry: null,
       },
       [feed],
       { hostname: "127.0.0.1", log: noop },
@@ -286,6 +289,7 @@ Deno.test(
         healthPort: 0,
         licenseZipUrl: null,
         catalogUrls: null,
+        sentry: null,
       },
       [feed],
       { hostname: "127.0.0.1", log: noop },

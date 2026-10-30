@@ -17,6 +17,7 @@ import {
   runDeliveryBatch,
 } from "../supabase/functions/_shared/delivery/run.ts";
 import { type ErrorContext, ValidationError } from "../supabase/functions/_shared/errors.ts";
+import { reportError } from "../supabase/functions/_shared/sentry.ts";
 import { parseWith } from "../supabase/functions/_shared/validate.ts";
 import { RETRY_MAX_MS, RETRY_MIN_MS, type SenderConfig } from "./config.ts";
 import type { SenderDb } from "./db.ts";
@@ -244,6 +245,10 @@ export function startSender(
         }
         lastError = `claim_deliveries: ${error.message}`;
         log(`claim failed: ${error.message}; retrying in ${String(retryMs)} ms`);
+        // One report per streak: the backoff would repeat it every minute of an outage.
+        if (retryMs === RETRY_MIN_MS) {
+          reportError(`claim failed: ${error.message}`, error);
+        }
         await sleep(retryMs, signal);
         retryMs = Math.min(retryMs * 2, RETRY_MAX_MS);
         continue;

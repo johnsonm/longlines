@@ -11,6 +11,7 @@ import { createArchiveDb } from "../db.ts";
 import { ValidationError } from "../errors.ts";
 import { performanceClock, timed } from "../timing.ts";
 import type { ArchiveStore, Source } from "../types.ts";
+import { logError } from "../sentry.ts";
 
 export interface ArchiveDeps {
   serviceRoleKey: string | undefined;
@@ -49,7 +50,7 @@ async function archive(req: Request, deps: ArchiveDeps, now: Date): Promise<Resp
     if (error instanceof SyntaxError || error instanceof ValidationError) {
       return Response.json({ error: `Bad request: ${message}` }, { status: 400 });
     }
-    console.error(`archive: reading the request body failed: ${message}`);
+    logError(`archive: reading the request body failed: ${message}`, error);
     return Response.json({ error: message }, { status: 500 });
   }
   let store: ArchiveStore;
@@ -59,7 +60,7 @@ async function archive(req: Request, deps: ArchiveDeps, now: Date): Promise<Resp
     // A ConfigError when the LONGLINES_ARCHIVE_S3_* secrets are missing or bad; any failure is a
     // 500. Nothing is lost: every slice stays pending until a run can upload it.
     const message = errorMessage(error);
-    console.error(message);
+    logError(message, error);
     return Response.json({ error: message }, { status: 500 });
   }
   const summary = await runArchive(createArchiveDb(deps.db()), store, now, sources);

@@ -34,6 +34,7 @@ function config(overrides: Partial<SenderConfig>): SenderConfig {
     statsMs: 60_000,
     vapid: undefined,
     allowInsecure: true,
+    sentry: null,
   }, overrides);
 }
 

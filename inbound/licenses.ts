@@ -26,6 +26,7 @@ import {
   UlsRecords,
   type UlsRow,
 } from "../supabase/functions/_shared/uls.ts";
+import { reportError } from "../supabase/functions/_shared/sentry.ts";
 import { parseWith } from "../supabase/functions/_shared/validate.ts";
 import { abortableSleep } from "./telnet.ts";
 import {
@@ -376,6 +377,7 @@ export async function runLicenseImports(options: LicenseImportLoop): Promise<voi
       }
       if (!isAborted(signal)) {
         log(`load failed: ${error.message}`);
+        reportError(`licenses: load failed: ${error.message}`, error);
       }
     }
     let checkMs = 6 * 3_600_000;

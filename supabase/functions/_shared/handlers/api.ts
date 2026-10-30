@@ -25,6 +25,7 @@ import { json, preflightResponse } from "../cors.ts";
 import { ValidationError } from "../errors.ts";
 import { parseWith } from "../validate.ts";
 import { type SendTestDeps, sendTestTo } from "./test_delivery.ts";
+import { logError } from "../sentry.ts";
 
 export const MAX_REQUESTS_PER_MINUTE = 60;
 /** Large enough for 2,000 callsigns with room to spare. */
@@ -213,6 +214,6 @@ export async function readBody(req: Request, limit: number): Promise<string | nu
 }
 
 function serverError(step: string, message: string): Response {
-  console.error(`api: ${step} failed: ${message}`);
+  logError(`api: ${step} failed: ${message}`, undefined);
   return json({ error: SERVER_ERROR }, 500, {});
 }

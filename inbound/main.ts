@@ -4,9 +4,13 @@
 // docs/OPERATIONS.md has the deploy steps. The inbound worker itself is inbound.ts; this
 // file is only the process shell.
 
+import { flushErrors, reportError, startSentry } from "../supabase/functions/_shared/sentry.ts";
 import { loadConfig } from "./config.ts";
 import { aprsFeed, dxclusterFeed, type Feed, RBN_FEED } from "./feeds.ts";
 import { startInbound } from "./inbound.ts";
+
+// How long a fatal exit waits for its report to reach Sentry.
+const FLUSH_MS = 2_000;
 
 function env(name: string): string | undefined {
   return Deno.env.get(name);
@@ -26,7 +30,9 @@ function defaultFeeds(): Feed[] {
 export async function main(
   feedList: readonly Feed[],
 ): Promise<void> {
-  const inbound = startInbound(loadConfig(env), feedList, {});
+  const config = loadConfig(env);
+  startSentry(config.sentry);
+  const inbound = startInbound(config, feedList, {});
 
   // Fly sends SIGINT (the default kill_signal) on deploy and restart. Push what
   // is buffered before exiting so a deploy does not lose spots.
@@ -43,7 +49,7 @@ export async function main(
   await inbound.done;
 }
 
-function exitOnFailure(error: unknown): void {
+async function exitOnFailure(error: unknown): Promise<void> {
   let message: string;
   if (error instanceof Error) {
     message = error.message;
@@ -51,6 +57,8 @@ function exitOnFailure(error: unknown): void {
     message = String(error);
   }
   console.error(`inbound failed: ${message}`);
+  reportError(`inbound failed: ${message}`, error);
+  await flushErrors(FLUSH_MS);
   // Exit non-zero so Fly restarts the machine.
   Deno.exit(1);
 }

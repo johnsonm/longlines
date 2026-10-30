@@ -22,6 +22,7 @@ import type {
   Source,
 } from "./types.ts";
 import { parseWith } from "./validate.ts";
+import { logError } from "./sentry.ts";
 
 /** Slices a run takes when the request names no limit, and the most it may name. */
 export const DEFAULT_SLICES_PER_RUN = 10;
@@ -435,7 +436,7 @@ async function convertSlice(
     if (!(error instanceof Error)) {
       throw error;
     }
-    console.error(error.message);
+    logError(error.message, error);
     return { bytes: parquet.length, undeleted: slice.object_path };
   }
 }

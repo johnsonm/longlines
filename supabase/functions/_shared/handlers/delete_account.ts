@@ -3,6 +3,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { userFromRequest } from "../auth.ts";
 import { DEFAULT_METHODS, json, preflightResponse } from "../cors.ts";
+import { logError } from "../sentry.ts";
 
 export interface DeleteAccountDeps {
   admin: () => SupabaseClient;
@@ -29,7 +30,7 @@ export async function handleDeleteAccount(
   const result = await admin.auth.admin.deleteUser(user.id);
   const error = result.error;
   if (error !== null) {
-    console.error(`delete-account: ${error.message}`);
+    logError(`delete-account: ${error.message}`, error);
     return json({ error: "Couldn't delete your account. Try again." }, 500, {});
   }
   return json({ ok: true }, 200, {});

@@ -27,6 +27,7 @@ import { ValidationError } from "../errors.ts";
 import { hmacSha256Hex } from "../hmac.ts";
 import { type JsonObject, jsonObjectSchema } from "../types.ts";
 import { parseWith } from "../validate.ts";
+import { logError } from "../sentry.ts";
 
 export const MAX_LOOKUPS_PER_MINUTE = 30;
 export const INVALID_CALLSIGN = "Enter a callsign, like KK4PWJ.";
@@ -152,7 +153,7 @@ export async function countRequest(
 ): Promise<number | null> {
   const lookups = await db.rpc("record_profile_lookup", { p_client: client });
   if (lookups.error !== null) {
-    console.error(`${fn}: rate limit failed: ${lookups.error.message}`);
+    logError(`${fn}: rate limit failed: ${lookups.error.message}`, lookups.error);
     return null;
   }
   try {
@@ -165,7 +166,7 @@ export async function countRequest(
     if (!(error instanceof ValidationError)) {
       throw error;
     }
-    console.error(`${fn}: rate limit failed: ${error.message}`);
+    logError(`${fn}: rate limit failed: ${error.message}`, error);
     return null;
   }
 }
@@ -207,7 +208,7 @@ export async function lookupLimit(
   headers: Record<string, string>,
 ): Promise<Response | null> {
   if (deps.key === undefined) {
-    console.error(`${fn}: missing environment variable SUPABASE_SERVICE_ROLE_KEY`);
+    logError(`${fn}: missing environment variable SUPABASE_SERVICE_ROLE_KEY`, undefined);
     return json({ error: unavailable }, 500, headers);
   }
   const count = await countClientRequest(req, db, deps.clientIpHeader, deps.key, fn, "");
@@ -247,7 +248,7 @@ export async function handleProfile(req: Request, deps: ProfileDeps): Promise<Re
 
   const profile = await db.rpc("cached_callsign_profile", { p_callsign: callsign });
   if (profile.error !== null) {
-    console.error(`callsign-profile: ${callsign}: ${profile.error.message}`);
+    logError(`callsign-profile: ${callsign}: ${profile.error.message}`, profile.error);
     return json({ error: LOOKUP_UNAVAILABLE }, 500, {});
   }
   let payload: JsonObject | null;
@@ -261,7 +262,7 @@ export async function handleProfile(req: Request, deps: ProfileDeps): Promise<Re
     if (!(error instanceof ValidationError)) {
       throw error;
     }
-    console.error(`callsign-profile: ${callsign}: ${error.message}`);
+    logError(`callsign-profile: ${callsign}: ${error.message}`, error);
     return json({ error: LOOKUP_UNAVAILABLE }, 500, {});
   }
   // Null: SQL found no base call in it (P/1).

@@ -14,6 +14,7 @@ import { DEFAULT_METHODS, json, preflightResponse } from "../cors.ts";
 import { ValidationError } from "../errors.ts";
 import { type JsonObject, jsonObjectSchema } from "../types.ts";
 import { parseWith } from "../validate.ts";
+import { logError } from "../sentry.ts";
 
 export const HEALTH_UNAVAILABLE = "Health is unavailable right now.";
 export const HEALTH_RANGES = ["1h", "24h", "7d"] as const;
@@ -45,7 +46,7 @@ export async function handleHealth(req: Request, deps: HealthDeps): Promise<Resp
 
   const result = await deps.db().rpc("cached_health", { p_range: range });
   if (result.error !== null) {
-    console.error(`health: ${result.error.message}`);
+    logError(`health: ${result.error.message}`, result.error);
     return json({ error: HEALTH_UNAVAILABLE }, 500, {});
   }
   // cached_health returns the HealthPayload object, relayed as built (its shape is pinned by
@@ -57,7 +58,7 @@ export async function handleHealth(req: Request, deps: HealthDeps): Promise<Resp
     if (!(error instanceof ValidationError)) {
       throw error;
     }
-    console.error(`health: ${error.message}`);
+    logError(`health: ${error.message}`, error);
     return json({ error: HEALTH_UNAVAILABLE }, 500, {});
   }
   return json(payload, 200, { "Cache-Control": HEALTH_CACHE_CONTROL });

@@ -19,6 +19,7 @@ import {
 } from "./db.ts";
 import type { RbnPushDb } from "./rbn_push.ts";
 import type { IngestSummary, Source } from "./types.ts";
+import { logError } from "./sentry.ts";
 
 const INBOUND_SECRET_ENV = "LONGLINES_INBOUND_SECRET";
 
@@ -39,7 +40,7 @@ export async function respond(
     return Response.json(summary);
   } catch (error) {
     const message = errorMessage(error);
-    console.error(`ingest-${source} failed: ${message}`);
+    logError(`ingest-${source} failed: ${message}`, error);
     return Response.json({ source, error: message }, { status: 500 });
   }
 }
@@ -59,7 +60,7 @@ export function pushIngestHandler<D>(
     const expected = deps.secret();
     if (expected === undefined || expected === "") {
       const message = `missing environment variable ${INBOUND_SECRET_ENV}`;
-      console.error(`ingest-${source}: ${message}`);
+      logError(`ingest-${source}: ${message}`, undefined);
       return Response.json({ source, error: message }, { status: 500 });
     }
     let provided = req.headers.get("x-inbound-secret");
@@ -80,7 +81,7 @@ export function pushIngestHandler<D>(
           return Response.json({ source, error: "request body is not JSON" }, { status: 400 });
         }
         const message = errorMessage(error);
-        console.error(`ingest-${source}: reading the request body failed: ${message}`);
+        logError(`ingest-${source}: reading the request body failed: ${message}`, error);
         return Response.json({ source, error: message }, { status: 500 });
       }
       return respond(source, () => run(body, deps.db(), new Date()));

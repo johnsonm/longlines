@@ -6,6 +6,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { secretsMatch } from "../auth.ts";
+import { logError } from "../sentry.ts";
 
 /** One feed's connection in a heartbeat. */
 export interface InboundFeedStatus {
@@ -78,7 +79,7 @@ export async function handleInboundStatus(
   deps: InboundStatusDeps,
 ): Promise<Response> {
   if (deps.secret === undefined || deps.secret === "") {
-    console.error("inbound-status: missing environment variable LONGLINES_INBOUND_SECRET");
+    logError("inbound-status: missing environment variable LONGLINES_INBOUND_SECRET", undefined);
     return Response.json({ error: "inbound secret is not configured" }, { status: 500 });
   }
   let header = req.headers.get("x-inbound-secret");
@@ -104,7 +105,7 @@ export async function handleInboundStatus(
     if (error instanceof Error) {
       message = error.message;
     }
-    console.error(`inbound-status: reading the request body failed: ${message}`);
+    logError(`inbound-status: reading the request body failed: ${message}`, error);
     return Response.json({ error: message }, { status: 500 });
   }
   const status = parseInboundStatus(body);
@@ -120,7 +121,7 @@ export async function handleInboundStatus(
   });
   const error = result.error;
   if (error !== null) {
-    console.error(`inbound-status: ${error.message}`);
+    logError(`inbound-status: ${error.message}`, error);
     return Response.json({ error: error.message }, { status: 500 });
   }
   return Response.json({ ok: true });

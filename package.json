@@ -2,6 +2,7 @@
   "private": true,
   "type": "module",
   "devDependencies": {
+    "@sentry/deno": "11.10.0",
     "@std/assert": "npm:@jsr/std__assert@1.0.19",
     "@std/yaml": "npm:@jsr/std__yaml@1.3.0",
     "@supabase/supabase-js": "2.117.2",

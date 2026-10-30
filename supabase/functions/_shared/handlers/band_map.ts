@@ -14,6 +14,7 @@ import { DEFAULT_METHODS, json, preflightResponse } from "../cors.ts";
 import { ValidationError } from "../errors.ts";
 import { type JsonObject, jsonObjectSchema } from "../types.ts";
 import { parseWith } from "../validate.ts";
+import { logError } from "../sentry.ts";
 
 export const BAND_MAP_UNAVAILABLE = "The band map is unavailable right now.";
 /** Browsers and CDNs may keep a payload for 15 seconds; the database cache holds it for 30. */
@@ -35,7 +36,7 @@ export async function handleBandMap(req: Request, deps: BandMapDeps): Promise<Re
 
   const result = await deps.db().rpc("cached_band_map");
   if (result.error !== null) {
-    console.error(`band-map: ${result.error.message}`);
+    logError(`band-map: ${result.error.message}`, result.error);
     return json({ error: BAND_MAP_UNAVAILABLE }, 500, {});
   }
   // cached_band_map returns the BandMapPayload object, relayed as built (its shape is pinned by
@@ -47,7 +48,7 @@ export async function handleBandMap(req: Request, deps: BandMapDeps): Promise<Re
     if (!(error instanceof ValidationError)) {
       throw error;
     }
-    console.error(`band-map: ${error.message}`);
+    logError(`band-map: ${error.message}`, error);
     return json({ error: BAND_MAP_UNAVAILABLE }, 500, {});
   }
   return json(payload, 200, { "Cache-Control": BAND_MAP_CACHE_CONTROL });

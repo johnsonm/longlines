@@ -8,6 +8,7 @@ import {
   vapidKeysFromEnv,
 } from "../supabase/functions/_shared/delivery/webpush.ts";
 import { ConfigError } from "../supabase/functions/_shared/errors.ts";
+import { type SentryConfig, sentryConfigFromEnv } from "../supabase/functions/_shared/sentry.ts";
 
 export const DEFAULT_HEALTH_PORT = 8080;
 /** The spots stream's port (cluster_stream.ts), behind Fly's http_service. */
@@ -57,6 +58,8 @@ export interface SenderConfig {
   vapid: VapidKeys | undefined;
   /** Plain-http destinations, for a local receiver; honoured only with a local database. */
   allowInsecure: boolean;
+  /** SENTRY_DSN (project longlines-sender) and friends; null when error reporting is off. */
+  sentry: SentryConfig | null;
 }
 
 /** Hosts that stand for this machine: no TLS to the database, insecure destinations allowed. */
@@ -265,5 +268,6 @@ export function loadConfig(env: (name: string) => string | undefined): SenderCon
     ),
     vapid: vapidKeysFromEnv(env),
     allowInsecure,
+    sentry: sentryConfigFromEnv(env),
   };
 }

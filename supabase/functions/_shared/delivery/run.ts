@@ -15,6 +15,7 @@ import { parseWith } from "../validate.ts";
 import { backoffSeconds } from "./format.ts";
 import { pushBookkeeping, type SendResult } from "./send.ts";
 import { type DeliveryDestination, type PendingDelivery, pendingDeliverySchema } from "./types.ts";
+import { logError } from "../sentry.ts";
 
 export const CLAIM_LIMIT = 200;
 export const VISIBILITY_SECONDS = 60;
@@ -380,7 +381,7 @@ function claimedRows(data: unknown, result: DeliveryBatchResult): PendingDeliver
       }
       result.unattempted++;
       result.malformed.push(error.message);
-      console.error(`deliver: ${error.message}; left for the visibility timeout`);
+      logError(`deliver: ${error.message}; left for the visibility timeout`, error);
     }
   }
   return rows;
@@ -444,7 +445,7 @@ async function rpcOrLog(
     const wait = waits[attempt];
     if (wait === undefined) {
       result.errors.push(`${fn}: ${error}`);
-      console.error(`deliver: ${fn} failed: ${error}`);
+      logError(`deliver: ${fn} failed: ${error}`, error);
       return;
     }
     console.error(`deliver: ${fn} failed: ${error}; retrying in ${String(wait)} ms`);

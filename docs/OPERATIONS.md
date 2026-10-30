@@ -606,6 +606,27 @@ After the first deploy, make sure Supabase Auth → URL configuration lists
 `https://longlines.io/set-password` in the redirect URLs, or confirmation
 and reset links will not land in the app.
 
+## Sentry
+
+Four projects in the `long-lines` org (https://long-lines.sentry.io), one per runtime, each with
+its own DSN (Settings → Projects → the project → Client Keys). Every one is off until its DSN is
+set, so local development, tests and CI send nothing.
+
+| Project | Runtime | DSN set as |
+| --- | --- | --- |
+| `longlines-web` | web app (Vercel) | `SENTRY_DSN`, from Sentry's Vercel integration, which also sets `SENTRY_AUTH_TOKEN` for the source map upload |
+| `longlines-functions` | Edge Functions | `supabase secrets set SENTRY_DSN=<dsn>` |
+| `longlines-inbound` | inbound worker | `fly secrets set -a longlines-inbound SENTRY_DSN=<dsn>` |
+| `longlines-sender` | sender | `fly secrets set -a longlines-sender SENTRY_DSN=<dsn>` |
+
+`SENTRY_ENVIRONMENT` is optional everywhere (production when unset). The workers' release is
+Fly's `FLY_IMAGE_REF`, so an issue names the image it came from; the Edge Functions have no
+release. Setting a Supabase secret takes effect without a redeploy; `fly secrets set` restarts
+the machine. The Deno side reports errors only (`_shared/sentry.ts`), with no traces.
+
+Sentry's "Prevent Storing of IP Addresses" (Organization Settings → Security & Privacy) should
+be on: without it Sentry stores the sending server's address, or, for the web app, a visitor's.
+
 ## Regenerating database types
 
 Whenever a migration changes a table, view or RPC the app uses:

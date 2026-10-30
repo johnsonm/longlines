@@ -18,6 +18,7 @@ import {
   type UlsKind,
   type UlsRow,
 } from "../uls.ts";
+import { logError } from "../sentry.ts";
 
 export interface LoadLicensesDeps {
   /** LONGLINES_INBOUND_SECRET; undefined when unset. */
@@ -171,7 +172,7 @@ async function run(request: LoadLicensesRequest, db: LicenseDb): Promise<unknown
 
 export async function handleLoadLicenses(req: Request, deps: LoadLicensesDeps): Promise<Response> {
   if (deps.secret === undefined || deps.secret === "") {
-    console.error("load-licenses: missing environment variable LONGLINES_INBOUND_SECRET");
+    logError("load-licenses: missing environment variable LONGLINES_INBOUND_SECRET", undefined);
     return Response.json({ error: "inbound secret is not configured" }, { status: 500 });
   }
   let header = req.headers.get("x-inbound-secret");
@@ -194,7 +195,7 @@ export async function handleLoadLicenses(req: Request, deps: LoadLicensesDeps): 
       return Response.json({ error: "request body is not JSON" }, { status: 400 });
     }
     const message = errorMessage(error);
-    console.error(`load-licenses: reading the request body failed: ${message}`);
+    logError(`load-licenses: reading the request body failed: ${message}`, error);
     return Response.json({ error: message }, { status: 500 });
   }
   const request = parseLoadRequest(body);
@@ -212,7 +213,7 @@ export async function handleLoadLicenses(req: Request, deps: LoadLicensesDeps): 
     // The boundary: a failed RPC (FunctionCallError), a result of the wrong shape
     // (ValidationError) or anything else answers 500 with its message.
     const message = errorMessage(err);
-    console.error(`load-licenses ${request.action}: ${message}`);
+    logError(`load-licenses ${request.action}: ${message}`, err);
     return Response.json({ error: message }, { status: 500 });
   }
 }

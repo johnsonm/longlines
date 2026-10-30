@@ -50,6 +50,7 @@ Deno.test("loadConfig reads the environment and normalises values", function ():
     healthPort: 8080,
     licenseZipUrl: FCC_AMATEUR_ZIP,
     catalogUrls: CATALOG_URLS,
+    sentry: null,
   });
 });
 

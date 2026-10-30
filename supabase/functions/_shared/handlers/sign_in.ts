@@ -27,6 +27,7 @@ import {
 } from "../signin.ts";
 import { parseWith } from "../validate.ts";
 import { rateLimitKey } from "./callsign_profile.ts";
+import { logError } from "../sentry.ts";
 
 export const EMAIL_NOT_CONFIRMED = "Check your email to confirm your account first.";
 export const SIGN_IN_UNAVAILABLE = "Sign-in is unavailable right now.";
@@ -85,7 +86,7 @@ export async function handleSignIn(req: Request, deps: SignInDeps): Promise<Resp
     if (error instanceof SyntaxError || error instanceof ValidationError) {
       return json({ error: "Send an identifier and a password." }, 400, {});
     }
-    console.error(`sign-in: reading the request body failed: ${errorText(error)}`);
+    logError(`sign-in: reading the request body failed: ${errorText(error)}`, error);
     return json({ error: SIGN_IN_UNAVAILABLE }, 500, {});
   }
   const email = normalizeIdentifier(body.identifier);
@@ -94,7 +95,7 @@ export async function handleSignIn(req: Request, deps: SignInDeps): Promise<Resp
   }
 
   if (deps.key === undefined) {
-    console.error("sign-in: missing environment variable SUPABASE_SERVICE_ROLE_KEY");
+    logError("sign-in: missing environment variable SUPABASE_SERVICE_ROLE_KEY", undefined);
     return json({ error: SIGN_IN_UNAVAILABLE }, 500, {});
   }
   const client = await rateLimitKey(req, deps.clientIpHeader, deps.key, "sign-in");
@@ -105,7 +106,7 @@ export async function handleSignIn(req: Request, deps: SignInDeps): Promise<Resp
     p_client: client,
   });
   if (attempt.error !== null) {
-    console.error(`sign-in: attempt log failed: ${attempt.error.message}`);
+    logError(`sign-in: attempt log failed: ${attempt.error.message}`, attempt.error);
     return json({ error: SIGN_IN_UNAVAILABLE }, 500, {});
   }
   let attempted: number | null;
@@ -127,7 +128,7 @@ export async function handleSignIn(req: Request, deps: SignInDeps): Promise<Resp
   async function forget(): Promise<void> {
     const result = await admin.rpc("forget_sign_in_attempt", { p_attempt_id: attemptId });
     if (result.error !== null) {
-      console.error(`sign-in: forgetting an attempt failed: ${result.error.message}`);
+      logError(`sign-in: forgetting an attempt failed: ${result.error.message}`, result.error);
     }
   }
 
@@ -169,7 +170,7 @@ export async function handleSignIn(req: Request, deps: SignInDeps): Promise<Resp
       }
       why = `${code}: ${error.message}`;
     }
-    console.error(`sign-in: auth failed: ${why}`);
+    logError(`sign-in: auth failed: ${why}`, error);
     return json({ error: SIGN_IN_UNAVAILABLE }, 500, {});
   }
 
@@ -197,6 +198,6 @@ function unavailable(error: unknown): Response {
   if (!(error instanceof ValidationError)) {
     throw error;
   }
-  console.error(`sign-in: ${error.message}`);
+  logError(`sign-in: ${error.message}`, error);
   return json({ error: SIGN_IN_UNAVAILABLE }, 500, {});
 }

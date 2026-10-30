@@ -6,6 +6,7 @@
 // deploy steps. The sender itself is sender.ts; this file is only the process
 // shell.
 
+import { flushErrors, reportError, startSentry } from "../supabase/functions/_shared/sentry.ts";
 import { sendToDestination } from "../supabase/functions/_shared/delivery/send.ts";
 import { TimeoutError } from "../supabase/functions/_shared/errors.ts";
 import {
@@ -21,6 +22,9 @@ import { loadConfig } from "./config.ts";
 import { openSenderDb, withTimeout } from "./db.ts";
 import { startSender } from "./sender.ts";
 
+// How long a fatal exit waits for its report to reach Sentry.
+const FLUSH_MS = 2_000;
+
 function logLine(message: string): void {
   console.log(message);
 }
@@ -28,6 +32,7 @@ function logLine(message: string): void {
 /** Run the sender until SIGINT/SIGTERM, or until the watchdog gives up. */
 export async function main(): Promise<void> {
   const config = loadConfig((name) => Deno.env.get(name));
+  startSentry(config.sentry);
   // openSenderDb retries with backoff for a few minutes; a pool that still
   // cannot open is exit 1, like invalid config.
   const db = await openSenderDb(config, {});
@@ -93,7 +98,7 @@ export async function main(): Promise<void> {
   }
 }
 
-function exitOnFailure(error: unknown): void {
+async function exitOnFailure(error: unknown): Promise<void> {
   let message: string;
   if (error instanceof Error) {
     message = error.message;
@@ -101,6 +106,8 @@ function exitOnFailure(error: unknown): void {
     message = String(error);
   }
   console.error(`sender failed: ${message}`);
+  reportError(`sender failed: ${message}`, error);
+  await flushErrors(FLUSH_MS);
   // Exit non-zero so Fly restarts the machine.
   Deno.exit(1);
 }
