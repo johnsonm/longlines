@@ -28,7 +28,7 @@ import { GroupPage } from "./groups/GroupPage";
 import { PublicGroupPage } from "./groups/PublicGroupPage";
 import { GoalsPage } from "./goals/GoalsPage";
 import { GoalPage } from "./goals/GoalPage";
-import { GoalEditStub } from "./goals/GoalEditStub";
+import { GoalEditPage } from "./goals/GoalEditPage";
 import { StatsPage } from "./stats/StatsPage";
 import { BandMapPage } from "./bandmap/BandMapPage";
 import { HealthPage } from "./health/HealthPage";
@@ -228,7 +228,7 @@ function GroupRoute({ tab }: { tab: "statistics" | "settings" }) {
 function GoalRoute({ edit }: { edit: boolean }) {
   const { id } = useParams();
   if (!id) return <Navigate to="/goals" replace />;
-  return edit ? <GoalEditStub key={id} id={id} /> : <GoalPage key={id} id={id} />;
+  return edit ? <GoalEditPage key={id} id={id} /> : <GoalPage key={id} id={id} />;
 }
 
 /** The editor takes its id or source as props, so its tests need no router params. */
@@ -337,7 +337,7 @@ function SignedIn({ page }: { page: Page }) {
       {/* One slot for both tabs, so switching tabs keeps the page and its loaded statistics. */}
       {(page === "group" || page === "group-settings") && <GroupRoute tab={page === "group" ? "statistics" : "settings"} />}
       {page === "goals" && <GoalsPage />}
-      {page === "goal-new" && <GoalEditStub id={null} />}
+      {page === "goal-new" && <GoalEditPage id={null} />}
       {(page === "goal" || page === "goal-edit") && <GoalRoute edit={page === "goal-edit"} />}
       {page === "destinations" && <DestinationsPage dests={dests} subs={subs} loading={loading} reload={reload} />}
       {(page === "destination-new" || page === "destination") && (
