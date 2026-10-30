@@ -1,8 +1,9 @@
--- pgTAP: API tokens and the management API's SQL (20261013000300; group sharing keys 20261019000400).
+-- pgTAP: API tokens and the management API's SQL (20261013000300; group sharing keys 20261019000400;
+-- goals 20261029001300).
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(81);
+select plan(106);
 
 -- ---------------------------------------------------------------------------
 -- Tokens
@@ -256,6 +257,99 @@ select is(pg_temp.call('update_destination', jsonb_build_object('id', (select j 
 select is((pg_temp.call('get_destination', jsonb_build_object('id', (select id from dest))) -> 'enabled'), 'true'::jsonb,
   'destinations start enabled');
 
+-- Goals (20261029001300): CRUD, hand marks and reviews, each change answering with the list.
+select is(pg_temp.read_call('list_goals'), '[]'::jsonb, 'a read token lists goals');
+select throws_ok($$ select pg_temp.read_call('create_goal', '{"body": {"name": "x"}}') $$, 'LL403',
+  'This token is read only.', 'a read token cannot create a goal');
+create temp table nl as
+  select pg_temp.call('create_goal', '{"body": {"id": "0e7db3d0-52fa-4690-8f4a-79e468d6cf67",
+    "name": " 2026 chase ", "marking": "hand", "requirements": [
+      {"kind": "state", "complete_when": "all", "entries": ["nc", "VA"]},
+      {"kind": "band", "complete_when": "at_least", "at_least": 1, "entries": ["20m", "40m"]}]}}') as j;
+create temp table nl2 as
+  select pg_temp.call('create_goal', '{"body": {"name": "Other",
+    "requirements": [{"kind": "park", "entries": ["us-2763"]}]}}') as j;
+grant all on nl, nl2 to authenticated;
+select is((select j ->> 'name' from nl), '2026 chase', 'create_goal saves through save_goal');
+select isnt((select j ->> 'id' from nl), '0e7db3d0-52fa-4690-8f4a-79e468d6cf67', 'a create ignores an id in the body');
+select is((select array(select k from jsonb_object_keys(j) k order by k collate "C") from nl),
+  array['completed_at', 'connection_count', 'ends_on', 'first_contact_at', 'id', 'marking', 'name', 'needed_by_kind',
+        'relay', 'requirement_count', 'requirements', 'reviews', 'starts_on', 'status', 'total', 'updated_at', 'used_by',
+        'worked'],
+  'a goal is its card''s fields beside get_goal''s progress, with no list key');
+select is((select j = pg_temp.call('get_goal', jsonb_build_object('id', j ->> 'id')) from nl), true,
+  'get_goal answers with the object the create did');
+select is((select array_agg(c ->> 'name' order by c ->> 'name') from jsonb_array_elements(pg_temp.call('list_goals')) c),
+  array['2026 chase', 'Other'], 'list_goals lists the cards');
+
+create temp table marked as
+  select pg_temp.call('mark_goal_entry', jsonb_build_object('id', (select j ->> 'id' from nl),
+    'requirement_id', upper((select j #>> '{requirements,0,id}' from nl)), 'value', 'nc', 'worked', true)) as j;
+grant all on marked to authenticated;
+select is((select e ->> 'worked_how' from marked, jsonb_array_elements(j #> '{requirements,0,entries}') e
+           where e ->> 'value' = 'NC'), 'hand', 'POST entries marks an entry by hand');
+select is((select (j ->> 'worked')::int from marked), 1, 'and answers with the new counts');
+select throws_ok(format($$ select pg_temp.call('mark_goal_entry', '{"id": "%s", "requirement_id": "%s", "value": "US-2763", "worked": true}') $$,
+  (select j ->> 'id' from nl), (select j #>> '{requirements,0,id}' from nl2)), 'P0001', 'Requirement not found.',
+  'a requirement of another list is a plain 400');
+select throws_ok(format($$ select pg_temp.call('mark_goal_entry', '{"id": "%s", "requirement_id": "nope", "value": "NC", "worked": true}') $$,
+  (select j ->> 'id' from nl)), 'P0001', 'Requirement not found.', 'and so is one that is not a UUID');
+select throws_ok(format($$ select pg_temp.call('mark_goal_entry', '{"id": "%s", "requirement_id": "%s", "value": "NC", "worked": null}') $$,
+  (select j ->> 'id' from nl), (select j #>> '{requirements,0,id}' from nl)), 'Say whether the entry is worked.');
+
+create temp table replaced as
+  select pg_temp.call('replace_goal', jsonb_build_object('id', (select j ->> 'id' from nl), 'body', jsonb_build_object(
+    'id', (select j ->> 'id' from nl2), 'name', '2026 states', 'marking', 'hand', 'requirements', jsonb_build_array(
+      jsonb_build_object('id', (select j #>> '{requirements,0,id}' from nl), 'kind', 'state', 'entries', '["NC", "SC"]'::jsonb))))) as j;
+grant all on replaced to authenticated;
+select is((select (j ->> 'id', j ->> 'name', (j ->> 'requirement_count')::int) from replaced),
+  ((select j ->> 'id' from nl), '2026 states'::text, 1), 'PUT replaces the path''s list whole, whatever id the body names');
+select is((select array_agg((e ->> 'value') || ':' || coalesce(e ->> 'worked_how', '-') order by e ->> 'value')
+           from replaced, jsonb_array_elements(j #> '{requirements,0,entries}') e),
+  array['NC:hand', 'SC:-'], 'a requirement sent with its id keeps its worked entries');
+select is((select j ->> 'name' from nl2), (pg_temp.call('get_goal', jsonb_build_object('id', (select j ->> 'id' from nl2))) ->> 'name'),
+  'the list the body named is untouched');
+
+-- Two reviews of the first list, as marking would open them.
+create temp table rev_spots (n int, spot_id bigint);
+with ins as (
+  insert into raw_spots (source, source_spot_id, content_hash, spot_time, callsign, spotter, frequency_khz, band, mode,
+                         comment, raw_payload)
+  select 'logged', 'api-needs-' || g, md5('api-needs-' || g), now(), 'K4ABC', 'KK4PWJ', 14062, '20m', 'cw', '', '{}'
+  from generate_series(1, 2) g
+  returning id, source_spot_id)
+insert into rev_spots select right(source_spot_id, 1)::int, id from ins;
+insert into goal_reviews (list_id, contact_spot_id, candidates)
+  select (select (j ->> 'id')::uuid from nl), spot_id, array['US-2763', 'US-2764'] from rev_spots;
+select throws_ok(format($$ select pg_temp.call('resolve_goal_review', '{"id": "%s", "review_id": "%s", "reference": null}') $$,
+  (select j ->> 'id' from nl2), (select v.id from goal_reviews v join rev_spots r on r.spot_id = v.contact_spot_id where r.n = 1)),
+  'P0001', 'Review not found.', 'a review of another list is a plain 400');
+select pg_temp.call('resolve_goal_review', jsonb_build_object('id', (select j ->> 'id' from nl),
+  'review_id', (select v.id from goal_reviews v join rev_spots r on r.spot_id = v.contact_spot_id where r.n = 1), 'reference', null));
+select pg_temp.call('resolve_goal_review', jsonb_build_object('id', (select j ->> 'id' from nl),
+  'review_id', (select v.id from goal_reviews v join rev_spots r on r.spot_id = v.contact_spot_id where r.n = 2), 'reference', 'us-2764'));
+select results_eq($$ select v.status, v.picked_reference from goal_reviews v join rev_spots r on r.spot_id = v.contact_spot_id order by r.n $$,
+  $$ values ('not_park'::text, null::text), ('picked', 'US-2764') $$,
+  'POST reviews resolves a review: a null reference is not a park contact, a reference picks the park');
+select throws_ok(format($$ select pg_temp.call('resolve_goal_review', '{"id": "%s", "review_id": "%s", "reference": null}') $$,
+  (select j ->> 'id' from nl), (select v.id from goal_reviews v join rev_spots r on r.spot_id = v.contact_spot_id where r.n = 1)),
+  'P0001', 'Review not found.', 'a resolved review is not found');
+
+select pg_temp.call('create_subscription', jsonb_build_object('body', jsonb_build_object('name', 'Chasing',
+  'rules', jsonb_build_array(jsonb_build_array(jsonb_build_object('field', 'goal', 'op', 'is',
+    'values', jsonb_build_array((select j ->> 'id' from nl))))))));
+select is((pg_temp.call('get_goal', jsonb_build_object('id', (select j ->> 'id' from nl))) -> 'connection_count'), '1'::jsonb,
+  'a connection the API saves with a goal rule counts');
+select throws_ok(format($$ select pg_temp.call('delete_goal', '{"id": "%s"}') $$, (select j ->> 'id' from nl)),
+  'LL409', 'Remove it from its connections first.', 'a goal in use is LL409');
+select is(pg_temp.call('delete_goal', jsonb_build_object('id', (select j ->> 'id' from nl2))), '{"deleted": true}'::jsonb,
+  'an unused goal is deleted');
+select throws_ok(format($$ select pg_temp.call('get_goal', '{"id": "%s"}') $$, (select j ->> 'id' from nl2)),
+  'LL404', 'Goal not found.', 'a missing goal is LL404');
+select throws_ok(format($$ select pg_temp.call('mark_goal_entry', '{"id": "%s", "requirement_id": "%s", "value": "US-2763", "worked": true}') $$,
+  (select j ->> 'id' from nl2), (select j #>> '{requirements,0,id}' from nl2)), 'LL404', 'Goal not found.',
+  'and so is one under entries');
+
 -- Another user's token cannot see or change user 1's rows.
 reset role;
 select pg_temp.as_user('22222222-2222-2222-2222-222222222222');
@@ -266,6 +360,11 @@ select throws_ok(format($$ select api_call((select id from other), 'get_subscrip
   (select id from sub)), 'Connection not found.');
 select throws_ok(format($$ select api_call((select id from other), 'patch_subscription', '{"id": "%s", "body": {"rules": []}}') $$,
   (select id from sub)), 'Connection not found.');
+select throws_ok(format($$ select api_call((select id from other), 'replace_goal', '{"id": "%s", "body": {}}') $$,
+  (select j ->> 'id' from nl)), 'LL404', 'Goal not found.', 'another user''s goal is LL404');
+select throws_ok(format($$ select api_call((select id from other), 'resolve_goal_review', '{"id": "%s", "review_id": "%s", "reference": null}') $$,
+  (select j ->> 'id' from nl), (select v.id from goal_reviews v join rev_spots r on r.spot_id = v.contact_spot_id where r.n = 1)),
+  'LL404', 'Goal not found.', 'and so is a review of it');
 
 select * from finish();
 rollback;

@@ -969,6 +969,14 @@ rule in the connection editor.
 - `get_goal`'s shape is `GoalProgress` (`web/src/goals/types.ts`), pinned by
   `supabase/tests/goals.test.sql`; change the SQL, the type and the test together. Every
   count is SQL's (`goal_requirement_progress`: a requirement's worked count up to its target).
+- The management API (`/v1/goals`, `20261029001300`) shows a list as
+  `api_goal_json(get_goal(id))`: the card's keys at the top beside the progress, and a
+  list of `list_goals`' cards. `openapi.test.ts` compares the `GoalCard` and `Goal`
+  schemas with `goal_card` and `get_goal`, so a key added to either goes in
+  `docs/openapi.yaml` too. `mark_goal_entry` and `resolve_goal_review` only check the owner, so
+  `api_call` checks that the body's requirement or review is the path's list's ("Requirement not
+  found.", "Review not found.", a 400). The reviews route requires `reference`, because null is
+  "Not a park contact". There is no copy route.
 
 ## Group statistics rules
 

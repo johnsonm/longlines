@@ -29,7 +29,10 @@ export interface Route {
   lists?: readonly string[];
   /** Scalar keys and their JSON type. Null is allowed: SQL reads it as left out. */
   scalars?: Readonly<Record<string, Scalar>>;
-  /** Lists the body must have, with at least one item. Without one an add or remove would do nothing and still succeed. */
+  /**
+   * Keys the body must have. A list among them needs at least one item: without one an add or
+   * remove would do nothing and still succeed. A scalar among them may be null, but not left out.
+   */
   required?: readonly string[];
   /** 201 for creates, 200 otherwise. */
   status: 200 | 201;
@@ -84,6 +87,21 @@ const DEST = { scalars: { type: "string", name: "string", url: "string" } } as c
 const DEST_PATCH = { scalars: { name: "string", url: "string", enabled: "boolean" } } as const;
 const GROUP = { arrays: CALLSIGN_ARRAYS, scalars: { name: "string" } } as const;
 const CALLS = { arrays: CALLSIGN_ARRAYS, required: CALLSIGN_ARRAYS };
+// requirements is a list of objects; save_goal checks each one.
+const GOAL_BODY = {
+  lists: ["requirements"],
+  scalars: { name: "string", starts_on: "string", ends_on: "string", marking: "string" },
+} as const;
+// Every key is required. A null reference is "Not a park contact", so leaving it out must not be
+// read as one; the entry's keys are required for the same plain message.
+const ENTRY = {
+  scalars: { requirement_id: "string", value: "string", worked: "boolean" },
+  required: ["requirement_id", "value", "worked"],
+} as const;
+const REVIEW = {
+  scalars: { review_id: "string", reference: "string" },
+  required: ["review_id", "reference"],
+} as const;
 const CREATED = { status: 201 } as const;
 
 // deno-fmt-ignore
@@ -110,6 +128,14 @@ export const ROUTES: ReadonlyArray<readonly [string, string, Route]> = [
   ["DELETE", "/v1/groups/:id",                     write("delete_group", "none", {})],
   ["POST",   "/v1/groups/:id/members",             write("add_group_members", "fields", CALLS)],
   ["POST",   "/v1/groups/:id/members/remove",      write("remove_group_members", "fields", CALLS)],
+
+  ["GET",    "/v1/goals",                    read("list_goals")],
+  ["POST",   "/v1/goals",                    write("create_goal", "body", { lists: GOAL_BODY.lists, scalars: GOAL_BODY.scalars, status: CREATED.status })],
+  ["GET",    "/v1/goals/:id",                read("get_goal")],
+  ["PUT",    "/v1/goals/:id",                write("replace_goal", "body", GOAL_BODY)],
+  ["DELETE", "/v1/goals/:id",                write("delete_goal", "none", {})],
+  ["POST",   "/v1/goals/:id/entries",        write("mark_goal_entry", "fields", ENTRY)],
+  ["POST",   "/v1/goals/:id/reviews",        write("resolve_goal_review", "fields", REVIEW)],
 ];
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
