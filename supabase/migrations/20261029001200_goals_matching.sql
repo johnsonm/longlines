@@ -11,8 +11,9 @@
 -- 2. spot_us_states and goal_matches. A spot passes the rule when the list is missing,
 --    complete or ended (the rule is off, so the connection alerts for everything its other rules
 --    allow), or when some requirement that is not complete has a needed entry the spot matches:
---    its band, its POTA park, or one of its US states (the POTA location's states, else the license
---    state of the spotted base call, the matcher's side of goal_contact_facts' layers). How a list
+--    its band, its POTA park, or one of its US states (a POTA spot's location's states, none for a
+--    park outside the US; the license state of the spotted base call only for a spot without a
+--    POTA reference: the matcher's side of goal_contact_facts' layers). How a list
 --    is marked (relay or by hand) has no effect on matching. A goal names no stations, so
 --    rules_name_stations, watched_among and the RBN guard are unchanged.
 -- 3. rule_matches: as in 20261027001200, with the goal field.
@@ -20,7 +21,8 @@
 --    as it does on groups, so delete_goal (for update, then the connections check) can't
 --    pass between the check and the save.
 -- 5. preview_subscription: as in 20261028000300 (20261029000800 did not change it), with one more
---    column, skipped_worked: how many of the recent spots that pass every other rule the goal rule kept out; null when the rules name no list. A new return type, so it is dropped,
+--    column, skipped_worked: how many of the recent spots that pass every other rule the goal rule kept out because of work already done (goal_skips_worked), never a spot the
+--    list does not chase; null when the rules name no list. A new return type, so it is dropped,
 --    recreated and granted again.
 
 -- ---------------------------------------------------------------------------
@@ -177,26 +179,52 @@ $$;
 -- 2. Matching a spot against a list
 -- ---------------------------------------------------------------------------
 
--- The US states a spot is in: the US-XX codes of a POTA spot's location (every one of them, so a
--- park on a state line serves both states' needs), else the FCC license state of the spotted base
--- call. Only us_states() codes, so DC and territories never match.
+-- The US states a spot is in. A spot with a POTA reference is where its park is: every US-XX code
+-- of its pota_location (a park on a state line serves both states' needs), none for a park outside
+-- the US. Only a spot without a POTA reference takes the FCC license state of the spotted base
+-- call. Only us_states() codes, so DC and territories never match. Marking's layers
+-- (goal_contact_facts) make the same split.
 create function public.spot_us_states(spot raw_spots)
 returns text[]
 language sql
 stable
 set search_path = ''
 as $$
-  select coalesce(
-    (select array_agg(distinct x[1] order by x[1])
-     from regexp_matches(spot.pota_location, 'US-([A-Z]{2})', 'g') as x
-     where x[1] = any (public.us_states())),
-    (select array[l.state]
-     from public.callsign_licenses l
-     where l.callsign = spot.base_callsign and l.country = 'US' and l.state = any (public.us_states())),
-    '{}'::text[])
+  select case
+    when spot.pota_reference is not null then coalesce(
+      (select array_agg(distinct x[1] order by x[1])
+       from regexp_matches(spot.pota_location, 'US-([A-Z]{2})', 'g') as x
+       where x[1] = any (public.us_states())),
+      '{}'::text[])
+    else coalesce(
+      (select array[l.state]
+       from public.callsign_licenses l
+       where l.callsign = spot.base_callsign and l.country = 'US' and l.state = any (public.us_states())),
+      '{}'::text[])
+  end
 $$;
 
 revoke all on function public.spot_us_states(raw_spots) from public;
+
+-- The goal entries a spot could work, as (kind, value): its band, its upper-cased POTA park
+-- and its US states (spot_us_states). The one statement of what a spot hits, for
+-- goal_matches and goal_skips_worked.
+create function public.goal_spot_values(spot raw_spots)
+returns table (kind text, value text)
+language sql
+stable
+set search_path = ''
+as $$
+  select c.kind, c.value
+  from (select 'band' as kind, spot.band as value
+        union all
+        select 'park', upper(spot.pota_reference)
+        union all
+        select 'state', s from unnest(public.spot_us_states(spot)) as s) c
+  where c.value is not null
+$$;
+
+revoke all on function public.goal_spot_values(raw_spots) from public;
 
 -- Whether a spot passes a goal rule naming p_list_id. True when the list is missing,
 -- complete or ended. Otherwise true when an entry the spot matches is still needed in a
@@ -214,21 +242,43 @@ as $$
     select public.goal_status(l) <> 'active'
         or exists (
              select 1
-             from (select 'band' as kind, spot.band as value
-                   union all
-                   select 'park', upper(spot.pota_reference)
-                   union all
-                   select 'state', s from unnest(public.spot_us_states(spot)) as s) c
+             from public.goal_spot_values(spot) c
              join public.goal_requirements r on r.list_id = l.id and r.kind = c.kind
              join public.goal_entries e on e.requirement_id = r.id and e.value = c.value
-             where c.value is not null
-               and e.worked_at is null
+             where e.worked_at is null
                and not public.goal_requirement_complete(r.id))
     from public.goals l
     where l.id = p_list_id), true)
 $$;
 
 revoke all on function public.goal_matches(uuid, raw_spots) from public;
+
+-- Whether a goal rule naming p_list_id rejects a spot only because of work already done: the
+-- list is active, the spot matches no still-needed entry of an incomplete requirement (so
+-- goal_matches is false), but it matches an entry that is worked or sits in a complete
+-- requirement. False for a spot the list never chased (a band, park or state not on it), so the
+-- preview's skipped_worked counts only what "You've already worked those." says.
+create function public.goal_skips_worked(p_list_id uuid, spot raw_spots)
+returns boolean
+language sql
+stable
+set search_path = ''
+as $$
+  select coalesce((
+    select public.goal_status(l) = 'active'
+       and not public.goal_matches(l.id, spot)
+       and exists (
+             select 1
+             from public.goal_spot_values(spot) c
+             join public.goal_requirements r on r.list_id = l.id and r.kind = c.kind
+             join public.goal_entries e on e.requirement_id = r.id and e.value = c.value
+             where e.worked_at is not null
+                or public.goal_requirement_complete(r.id))
+    from public.goals l
+    where l.id = p_list_id), false)
+$$;
+
+revoke all on function public.goal_skips_worked(uuid, raw_spots) from public;
 
 -- ---------------------------------------------------------------------------
 -- 3. rule_matches
@@ -454,16 +504,18 @@ as $$
   matched as (
     select r.* from recent r, sub where public.spot_matches(sub.s, r)
   ),
-  -- The same connection with its goal rules taken out (a group left empty passes, as [[]]
-  -- does), only when the rules name a list.
+  -- Each group of the connection with its goal rules taken out (a group left empty passes,
+  -- as [[]] does) as a one-group connection, beside the goal rules it held; only when the
+  -- rules name a list.
   unlisted as (
-    select jsonb_populate_record(sub.s, jsonb_build_object('rules', (
-             select jsonb_agg(coalesce((
-                      select jsonb_agg(r order by rn)
-                      from jsonb_array_elements(g) with ordinality as x(r, rn)
-                      where r ->> 'field' <> 'goal'), '[]'::jsonb) order by gn)
-             from jsonb_array_elements((sub.s).rules) with ordinality as y(g, gn)))) as s
+    select jsonb_populate_record(sub.s, jsonb_build_object('rules', jsonb_build_array(coalesce((
+             select jsonb_agg(r order by rn)
+             from jsonb_array_elements(g) with ordinality as x(r, rn)
+             where r ->> 'field' <> 'goal'), '[]'::jsonb)))) as s,
+           coalesce((select jsonb_agg(r) from jsonb_array_elements(g) as r where r ->> 'field' = 'goal'),
+                    '[]'::jsonb) as lists
     from sub
+    cross join lateral jsonb_array_elements((sub.s).rules) as g
     where cardinality(public.rules_goal_ids((sub.s).rules)) > 0
   )
   select
@@ -484,9 +536,20 @@ as $$
     ), '[]'::jsonb),
     (select n from stations),
     (select count(*) from recent),
-    -- The spots the goal rule alone kept out: they pass every other rule. Null without one.
-    (select ((select count(*) from recent r where public.spot_matches(u.s, r)) - (select count(*) from matched))::int
-     from unlisted u)
+    -- The spots skipped only for work already done: not matched, but in some group whose other
+    -- rules pass, every goal rule that rejects the spot rejects it by
+    -- goal_skips_worked. Null when the rules name no list.
+    case when exists (select 1 from unlisted) then (
+      select count(*)::int
+      from recent r
+      where not exists (select 1 from matched m where m.id = r.id)
+        and exists (
+              select 1 from unlisted u
+              where public.spot_matches(u.s, r)
+                and not exists (
+                      select 1 from jsonb_array_elements(u.lists) as n
+                      where not public.rule_matches(n, r)
+                        and not public.goal_skips_worked((n -> 'values' ->> 0)::uuid, r)))) end
   where auth.uid() is not null;
 $$;
 

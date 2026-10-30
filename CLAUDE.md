@@ -955,12 +955,16 @@ rule in the connection editor.
   keeps only an owned id) is matched only by `goal_matches` from `rule_matches`. A missing,
   complete or ended list passes every spot (the rule is off); otherwise a spot passes when it
   matches a still-needed entry of a requirement that is not complete: `band`, upper-cased
-  `pota_reference`, or a state in `spot_us_states` (every US state of a POTA spot's location, else
-  the base call's US license state). `marking` never affects matching. A goal names no
-  stations: `rules_name_stations`, `watched_among` and the RBN guard ignore it.
-- `preview_subscription.skipped_worked` is SQL's: the recent spots that pass the rules with every
-  `goal` rule taken out (a group left empty passes), minus the matched ones; null when the
-  rules name no list. The web only words it.
+  `pota_reference`, or a state in `spot_us_states` (a POTA spot: every US state of its location,
+  none for a park outside the US; only a spot without a POTA reference takes the base call's US
+  license state). `marking` never affects matching. A goal names no stations:
+  `rules_name_stations`, `watched_among` and the RBN guard ignore it. `goal_spot_values` is the
+  one statement of the entries a spot could work.
+- `preview_subscription.skipped_worked` is SQL's: the recent spots not matched that some group
+  passes with its `goal` rules taken out (a group left empty passes), where every
+  `goal` rule rejecting the spot does so by `goal_skips_worked` (an active list, no
+  still-needed entry hit, but a worked entry or a complete requirement hit); never a spot the list
+  does not chase. Null when the rules name no list. The web only words it.
 - `get_goal`'s shape is `GoalProgress` (`web/src/goals/types.ts`), pinned by
   `supabase/tests/goals.test.sql`; change the SQL, the type and the test together. Every
   count is SQL's (`goal_requirement_progress`: a requirement's worked count up to its target).

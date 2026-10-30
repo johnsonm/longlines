@@ -6,7 +6,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(161);
+select plan(169);
 
 -- Start from empty tables so watched_among and preview see only these rows.
 delete from deliveries;
@@ -521,7 +521,7 @@ reset role;
 select ok(not spot_matches(pg_temp.nl((select chase from nl)), pg_temp.spot('sotawatch', 'W7JZ', '80m', 'cw')),
   'goal: 2 of 3 bands worked completes the requirement, so 80m is kept out');
 
--- States: the POTA location, else the license.
+-- States: a POTA spot's location only; the license only for a spot without a POTA reference.
 select ok(spot_matches(pg_temp.nl((select chase from nl)), pg_temp.potaspot('W7JZ', '20m', 'US-9999', 'US-NC')),
   'goal state: a POTA spot in NC passes by its location');
 select ok(spot_matches(pg_temp.nl((select chase from nl)), pg_temp.potaspot('K5TEX', '20m', 'US-9998', 'US-SC,US-VA')),
@@ -530,8 +530,14 @@ select ok(not spot_matches(pg_temp.nl((select chase from nl)), pg_temp.potaspot(
   'goal state: the location wins over the license (TX, though licensed in GA)');
 select ok(spot_matches(pg_temp.nl((select chase from nl)), pg_temp.spot('sotawatch', 'K4LIC/P', '20m', 'cw')),
   'goal state: a spot without a location passes by the base call''s license state (GA)');
-select ok(spot_matches(pg_temp.nl((select chase from nl)), pg_temp.potaspot('K4LIC', '20m', 'CA-0001', 'CA-ON')),
-  'goal state: a park outside the US falls back to the license, as marking does');
+select ok(not spot_matches(pg_temp.nl((select chase from nl)), pg_temp.potaspot('K4LIC', '6m', 'CA-0001', 'CA-ON')),
+  'goal state: a park outside the US gives no state, never the license (GA), as marking does');
+select is(spot_us_states(pg_temp.potaspot('K4LIC', '20m', 'CA-0001', 'CA-ON')), '{}'::text[],
+  'spot_us_states: none for a park outside the US');
+select is(spot_us_states(pg_temp.potaspot('K4LIC', '20m', 'US-9995', null)), '{}'::text[],
+  'spot_us_states: none for a POTA spot without a location');
+select is(spot_us_states(pg_temp.spot('sotawatch', 'K4LIC/P', '20m', 'cw')), array['GA'],
+  'spot_us_states: the license state for a spot without a POTA reference');
 select ok(not spot_matches(pg_temp.nl((select chase from nl)), pg_temp.spot('sotawatch', 'K5TEX', '20m', 'cw')),
   'goal state: a license state not on the list is kept out');
 select ok(not spot_matches(pg_temp.nl((select chase from nl)), pg_temp.spot('sotawatch', 'VE3LIC', '20m', 'cw')),
@@ -592,16 +598,17 @@ select ok(position('for key share of l' in p.prosrc) > 0
   'save_subscription takes a key-share lock on the goals it names')
 from pg_proc p where p.oid = 'public.save_subscription(jsonb)'::regprocedure;
 
--- preview_subscription: skipped_worked counts what only the goal rule kept out. Five
--- recent POTA spots: US-0001 (needed), US-2763 (worked) twice, 20m in GA by license (needed
--- state), 6m at a park and state not on the list.
+-- preview_subscription: skipped_worked counts what the goal rule kept out because of work
+-- already done. Five recent POTA spots: US-0001 (needed), US-2763 (worked, on 20m and 40m, both
+-- worked bands) twice, 20m in GA (a needed state), 6m at a park and in a state the list does not
+-- chase (kept out, but never "already worked").
 reset role;
 insert into raw_spots (source, source_spot_id, content_hash, spot_time, callsign, spotter, frequency_khz, band, mode,
                        mode_family, pota_reference, pota_location, raw_payload)
 values ('pota', 'nl-a', 'nl-a', now() - interval '1 hour', 'W1AW', 'K4SWL', 14062, '20m', 'cw', 'cw', 'US-0001', 'US-TX', '{}'),
        ('pota', 'nl-b', 'nl-b', now() - interval '1 hour', 'N0ONE', 'K4SWL', 14062, '20m', 'cw', 'cw', 'US-2763', 'US-TX', '{}'),
        ('pota', 'nl-c', 'nl-c', now() - interval '1 hour', 'N0TWO', 'K4SWL', 7030, '40m', 'ssb', 'phone', 'US-2763', 'US-TX', '{}'),
-       ('pota', 'nl-d', 'nl-d', now() - interval '1 hour', 'K4LIC', 'K4SWL', 14062, '20m', 'cw', 'cw', 'US-9999', 'CA-ON', '{}'),
+       ('pota', 'nl-d', 'nl-d', now() - interval '1 hour', 'K4LIC', 'K4SWL', 14062, '20m', 'cw', 'cw', 'US-9999', 'US-GA', '{}'),
        ('pota', 'nl-e', 'nl-e', now() - interval '1 hour', 'N0SIX', 'K4SWL', 50313, '6m', 'cw', 'cw', 'US-9998', 'US-TX', '{}');
 create function pg_temp.preview(p_rules jsonb)
 returns table (count bigint, window_size bigint, skipped_worked int) language sql as $$
@@ -611,15 +618,15 @@ $$;
 select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
 select is((select row(p.*)::text from pg_temp.preview(jsonb_build_array(jsonb_build_array(
     jsonb_build_object('field', 'goal', 'op', 'is', 'values', array[(select chase from nl)])))) p),
-  '(2,5,3)', 'preview: 2 of 5 pass the goal, 3 matched the other rules and were skipped');
+  '(2,5,2)', 'preview: 2 of 5 pass the goal; of the 3 kept out, only the 2 at a worked park count as already worked');
 select is((select row(p.*)::text from pg_temp.preview(jsonb_build_array(jsonb_build_array(
     jsonb_build_object('field', 'goal', 'op', 'is', 'values', array[(select chase from nl)]),
     jsonb_build_object('field', 'mode', 'op', 'is', 'values', array['cw'])))) p),
-  '(2,5,2)', 'preview: skipped_worked counts only spots the other rules pass');
+  '(2,5,1)', 'preview: skipped_worked counts only spots the other rules pass');
 select is((select row(p.*)::text from pg_temp.preview(jsonb_build_array(
     jsonb_build_array(jsonb_build_object('field', 'goal', 'op', 'is', 'values', array[(select chase from nl)])),
     jsonb_build_array(jsonb_build_object('field', 'band', 'op', 'is', 'values', array['40m'])))) p),
-  '(3,5,2)', 'preview: a spot another group passes is matched, not skipped');
+  '(3,5,1)', 'preview: a spot another group passes is matched, not skipped');
 select is((select row(p.*)::text from pg_temp.preview(jsonb_build_array(jsonb_build_array(
     jsonb_build_object('field', 'goal', 'op', 'is', 'values', array[(select done from nl)])))) p),
   '(5,5,0)', 'preview: a complete list skips nothing');
@@ -628,11 +635,26 @@ select is((select row(p.*)::text from pg_temp.preview('[[{"field":"band","op":"i
 select is((select row(p.*)::text from pg_temp.preview(jsonb_build_array(jsonb_build_array(
     jsonb_build_object('field', 'goal', 'op', 'is', 'values', array[(select id from other_nl)])))) p),
   '(5,5,)', 'preview: another user''s list is dropped, so the rule passes everything and nothing is skipped');
+select is((select row(p.*)::text from pg_temp.preview(jsonb_build_array(jsonb_build_array(
+    jsonb_build_object('field', 'goal', 'op', 'is', 'values', array[(select chase from nl)]),
+    jsonb_build_object('field', 'goal', 'op', 'is', 'values', array[(select later from nl)])))) p),
+  '(2,5,1)', 'preview: with two lists in a group, a spot counts only when each list that rejects it does so for work done (40m at US-2763: Later does not chase 40m)');
 reset role;
+select ok((select goal_skips_worked((select chase from nl), r) from raw_spots r where r.source_spot_id = 'nl-b'),
+  'goal_skips_worked: a spot at a worked park');
+select ok((select not goal_skips_worked((select chase from nl), r) from raw_spots r where r.source_spot_id = 'nl-e'),
+  'goal_skips_worked: not a spot the list does not chase');
+select ok((select not goal_skips_worked((select chase from nl), r) from raw_spots r where r.source_spot_id = 'nl-a'),
+  'goal_skips_worked: not a spot the list still needs');
+select ok((select not goal_skips_worked((select done from nl), r) from raw_spots r where r.source_spot_id = 'nl-b')
+          and not goal_skips_worked(gen_random_uuid(), pg_temp.potaspot('W7JZ', '20m', 'US-2763', null)),
+  'goal_skips_worked: never for a list that is off (complete) or missing');
 delete from raw_spots where source_spot_id like 'nl-_';
 
 select ok(not has_function_privilege('authenticated', 'public.goal_matches(uuid, raw_spots)', 'execute')
           and not has_function_privilege('authenticated', 'public.spot_us_states(raw_spots)', 'execute')
+          and not has_function_privilege('authenticated', 'public.goal_skips_worked(uuid, raw_spots)', 'execute')
+          and not has_function_privilege('authenticated', 'public.goal_spot_values(raw_spots)', 'execute')
           and not has_function_privilege('anon', 'public.goal_matches(uuid, raw_spots)', 'execute'),
   'clients cannot call the goal matchers');
 

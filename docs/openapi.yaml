@@ -1018,7 +1018,7 @@ components:
         | `reference` | `contains`, `not_contains` | Text to look for in a POTA reference or location, a SOTA summit code, a WWFF reference, any of a WWBOTA spot's bunkers or a DX Cluster spot's IOTA reference, such as `US-NC`, `KFF-`, `B/G-` or `EU-005`. Ignores case. |
         | `frequency` | `is`, `is_not`, `gt`, `lt` | One number, in kHz. `gt` is greater than and `lt` less than. |
         | `island` | `is`, `is_not` | IOTA references (`EU-005`) or continents (`EU`, every island on it), uppercased for you. Only DX Cluster spots name an island, read from the comment; a spot without one passes `is_not`. |
-        | `goal` | `is` | One goal id, of your own. A spot passes while it matches an entry still needed (its band, its POTA park, or its US state: the park's location, else the license state of the call) in a requirement that is not complete. A complete or ended list passes every spot. |
+        | `goal` | `is` | One goal id, of your own. A spot passes while it matches an entry still needed (its band, its POTA park, or its US state: a POTA spot's park location, or the license state of the call for a spot without a park) in a requirement that is not complete. A complete or ended list passes every spot. |
       required: [field, op, values]
       properties:
         field: { type: string, enum: [callsign, group, band, mode, reference, frequency, island, goal] }

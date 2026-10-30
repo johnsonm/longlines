@@ -246,7 +246,9 @@ select match_pending_spots();
 select is(pg_temp.goal_delivered(), array['n1', 'n2', 'n5'],
   'goal: once worked, the park stops alerting on the next run; the other still alerts');
 
--- The preview: every recent POTA spot is either matched (US-0817) or skipped, since the goal is the only rule.
+-- The preview: the goal is the only rule, so the recent POTA spots at US-0817 match and the
+-- ones at the worked US-2763 are skipped as already worked. Spots at parks the list does not
+-- chase (US-5555, the other sections' spots) are neither.
 select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
 create temp table nl_preview as
   select array[p.count, p.skipped_worked, p.window_size - p.count] as got
@@ -254,10 +256,10 @@ create temp table nl_preview as
     jsonb_build_object('field', 'goal', 'op', 'is', 'values', array[(select id from nl)]))))) p;
 reset role;
 select is((select got from nl_preview),
-  (select array[count(*) filter (where pota_reference = 'US-0817'), count(*) filter (where pota_reference is distinct from 'US-0817'),
+  (select array[count(*) filter (where pota_reference = 'US-0817'), count(*) filter (where upper(pota_reference) = 'US-2763'),
                 count(*) filter (where pota_reference is distinct from 'US-0817')]
-   from raw_spots where source = 'pota' and spot_time > now() - interval '24 hours'),
-  'goal preview: the needed park''s spots match and every other one is skipped_worked');
+   from raw_spots where source = 'pota' and spot_time > now() - interval '24 hours' and retracted_at is null),
+  'goal preview: the needed park''s spots match, and only the worked park''s are skipped_worked');
 
 -- Marking the last park by hand completes the list: the rule is off and the connection alerts for
 -- everything its other rules allow.
