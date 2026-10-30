@@ -109,3 +109,21 @@ jobs:
         env:
           SUPABASE_URL: https://example.supabase.co
           SUPABASE_ANON_KEY: placeholder
+
+  docs:
+    name: Docs site
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: docs-site
+    steps:
+      - uses: actions/checkout@v4
+      # Node 24, as the deploy workflow's withastro/action uses; Astro needs 22.12 or later.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: docs-site/package-lock.json
+      - run: npm ci
+      # Only builds; deploy-docs.yml is the only thing that publishes the site.
+      - run: npm run build

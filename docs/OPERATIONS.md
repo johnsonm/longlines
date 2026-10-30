@@ -606,6 +606,37 @@ After the first deploy, make sure Supabase Auth → URL configuration lists
 `https://longlines.io/set-password` in the redirect URLs, or confirmation
 and reset links will not land in the app.
 
+## Documentation site on GitHub Pages
+
+The user documentation site is `docs-site/`, built with Starlight. `.github/workflows/deploy-docs.yml`
+(Astro's stock GitHub Pages workflow) deploys it on every push to main: `withastro/action` builds
+and uploads it, and `actions/deploy-pages` publishes it. It can also be run by hand from the
+Actions tab. `ci.yml`'s `docs` job builds it as a PR check and publishes nothing.
+
+Set it up once, in this order, so the first deploy lands on the domain:
+
+1. DNS: `docs.longlines.io CNAME sonyccd.github.io` in `longlines.io`'s zone. If the zone is
+   behind Cloudflare, keep the record DNS only until GitHub has issued the certificate.
+2. Turn on Pages with source "GitHub Actions" (Settings → Pages), or:
+
+   ```sh
+   gh api -X POST repos/sonyccd/longlines/pages -f build_type=workflow
+   ```
+
+3. Merge. The first `deploy-docs.yml` run creates the `github-pages` environment and deploys.
+4. Set the custom domain and enforce HTTPS (Settings → Pages), or:
+
+   ```sh
+   gh api -X PUT repos/sonyccd/longlines/pages -f cname=docs.longlines.io -F https_enforced=true
+   ```
+
+   HTTPS can be enforced only once GitHub has issued the certificate.
+5. Verify `longlines.io` as a Pages domain for the account (account Settings → Pages), so no one
+   else can claim a subdomain of it.
+
+`docs-site/public/CNAME` holds `docs.longlines.io`, but for an Actions deploy the Pages setting in
+step 4 is what binds the domain. Check it with `curl -I https://docs.longlines.io` (200).
+
 ## Sentry
 
 Four projects in the `long-lines` org (https://long-lines.sentry.io), one per runtime, each with

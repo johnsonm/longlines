@@ -54,7 +54,7 @@ const zodSyntax = [
 const deno = ["supabase/functions/**/*.ts", "inbound/**/*.ts", "sender/**/*.ts", "scripts/**/*.ts"];
 
 export default tseslint.config(
-  { ignores: ["deno.d.ts", "node_modules/", "web/"] },
+  { ignores: ["deno.d.ts", "node_modules/", "web/", "docs-site/"] },
   ...tseslint.configs.strictTypeChecked,
   {
     files: deno,
