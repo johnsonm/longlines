@@ -94,6 +94,8 @@ Local invocation: `curl -X POST http://127.0.0.1:54321/functions/v1/ingest-pota 
 `.github/workflows/ci.yml` runs on every PR and push to main: Deno fmt/lint/check/test, ESLint
 and typecheck (`npm run lint`, `npm run typecheck`), then
 `supabase db start` + `supabase db lint` + `scripts/smoke-test.sql` on a fresh Postgres.
+The Deno and web jobs upload their lcov to Codecov (`CODECOV_TOKEN`, flags `deno` and `web`,
+`codecov.yml`); its statuses are informational and the 80% gates in CI stay the check.
 Migrations already applied to the hosted project must not be edited; add a new migration instead
 (see `20261005000009_*`). Fly's GitHub integration (configured in the Fly dashboard, one binding
 per app with its own `fly.toml`) deploys the inbound worker and the sender on pushes to main; nothing else

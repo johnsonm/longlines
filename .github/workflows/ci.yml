@@ -6,6 +6,7 @@ on:
     branches: [main]
 
 # Every job only checks out and runs checks; nothing writes to the repo or calls the API.
+# The one outside call is the coverage upload to Codecov, which is best effort.
 permissions:
   contents: read
 
@@ -23,6 +24,13 @@ jobs:
       - run: deno task check
       # Runs the tests and fails below 80% line coverage or when a module is never loaded.
       - run: deno task coverage
+      # The 80% gate above is the check; Codecov only reports. Paths in this lcov are absolute.
+      - uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: coverage/lcov.info
+          disable_search: true
+          flags: deno
 
   deno-eslint:
     name: Deno ESLint
@@ -89,6 +97,13 @@ jobs:
       - run: npm run lint
       # Runs the tests and fails below 80% lines, statements, functions or branches.
       - run: npm run coverage
+      # `uses` steps ignore the job's working-directory, so the path is from the repo root.
+      - uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: web/coverage/lcov.info
+          disable_search: true
+          flags: web
       # Build needs the public Supabase values; placeholders are fine for type-checking and bundling.
       - run: npm run build
         env:
