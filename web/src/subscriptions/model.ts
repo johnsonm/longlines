@@ -1,12 +1,13 @@
 import type { Destination, SubscriptionInput, SubscriptionWithLinks } from "../lib/api";
 import { splitCallsigns } from "../groups/parse";
 import type { CallsignGroup } from "../groups/types";
+import type { GoalCard } from "../goals/types";
 import { sourceProgram } from "../references/paths";
 import { searchWords, validSearch } from "../references/search";
 import type { ReferenceProgram, ReferenceSearchResult } from "../references/types";
 import { LIVE_SOURCES, modeLabel, SOURCES, type SourceInfo } from "../sources/sources";
 
-export type RuleField = "callsign" | "group" | "band" | "mode" | "reference" | "frequency" | "island";
+export type RuleField = "callsign" | "group" | "goal" | "band" | "mode" | "reference" | "frequency" | "island";
 export type RuleOp = "is" | "is_not" | "contains" | "not_contains" | "gt" | "lt";
 export type Join = "and" | "or";
 
@@ -43,6 +44,8 @@ export interface FieldInfo {
 export const FIELDS: readonly FieldInfo[] = [
   { id: "callsign", label: "Callsign", ops: ["is", "is_not"] },
   { id: "group", label: "Callsign group", ops: ["is", "is_not"] },
+  // One list, op is only: normalize_subscription_rules refuses anything else.
+  { id: "goal", label: "Goal", ops: ["is"] },
   { id: "band", label: "Band", ops: ["is", "is_not"] },
   { id: "mode", label: "Mode", ops: ["is", "is_not"] },
   // `is` first, so a new reference row matches one reference exactly; `contains` keeps partial text such as US-NC.
@@ -83,7 +86,8 @@ export function fieldInfo(id: RuleField): FieldInfo {
 
 /** "is", "is not in", "is greater than": the condition as the builder and the cards show it. */
 export function opLabel(field: RuleField, op: RuleOp): string {
-  const group = field === "group";
+  // A goal, like a group, is a set the spot is in.
+  const group = field === "group" || field === "goal";
   switch (op) {
     case "is": return group ? "is in" : "is";
     case "is_not": return group ? "is not in" : "is not";
@@ -110,9 +114,13 @@ export const MAX_RULES = 50;
 
 let nextKey = 1;
 
-/** A new row: the first field not used yet (or the first field), its first condition, no values. */
+/**
+ * A new row: the first field not used yet (or the first field), its first condition, no values. A
+ * goal is never picked for it: it is chosen from the Field menu.
+ */
 export function newRow(available: RuleField[], rows: RuleRow[], join: Join = "and"): RuleRow {
-  const field = available.find((f) => !rows.some((r) => r.field === f)) ?? available[0] ?? "callsign";
+  const pickable = available.filter((f) => f !== "goal");
+  const field = pickable.find((f) => !rows.some((r) => r.field === f)) ?? pickable[0] ?? available[0] ?? "callsign";
   return { key: nextKey++, join, field, op: fieldInfo(field).ops[0]!, values: [] };
 }
 
@@ -175,6 +183,9 @@ const REFERENCE_VALUE = /^[A-Z0-9/-]{1,64}$/;
 
 const exactReference = (row: RuleRow) => row.field === "reference" && (row.op === "is" || row.op === "is_not");
 
+/** A goal id as normalize_subscription_rules takes it (it lower-cases the value). */
+const GOAL_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /** A row's values ready to store, or null when it has none yet (or no valid frequency). */
 function storedValues(row: RuleRow): (string | number)[] | null {
   if (row.field === "frequency") {
@@ -190,16 +201,20 @@ function storedValues(row: RuleRow): (string | number)[] | null {
     return references.length ? references : null;
   }
   const values = row.values.map((v) => v.trim()).filter(Boolean);
+  // A goal rule takes one goal.
+  if (row.field === "goal") return values.length ? values.slice(0, 1) : null;
   return values.length ? values : null;
 }
 
 /**
  * A frequency row with text that isn't a number, an island row with a value that is neither a
- * reference nor a continent, or an exact reference row with a value outside the reference shape:
- * shown as an error, and the page won't save.
+ * reference nor a continent, an exact reference row with a value outside the reference shape, or a
+ * goal row naming more than one list or something that isn't a list id: shown as an error,
+ * and the page won't save.
  */
 export function rowInvalid(row: RuleRow): boolean {
   if (row.field === "island") return islandValues(row.values).some((v) => !ISLAND_VALUE.test(v));
+  if (row.field === "goal") return row.values.length > 1 || row.values.some((v) => !GOAL_ID.test(v.trim()));
   if (exactReference(row)) return referenceValues(row.values).some((v) => !REFERENCE_VALUE.test(v));
   return row.field === "frequency" && (row.values[0] ?? "").trim() !== "" && storedValues(row) === null;
 }
@@ -259,8 +274,13 @@ export interface RuleSummary {
   values: string[];
 }
 
-/** "Band is 20m", "or Callsign group is in Friends": the card's filter lines. Group names need the group list. */
-export function ruleSummaries(rules: Rules, groups: Pick<CallsignGroup, "id" | "name">[] | null): RuleSummary[] {
+/**
+ * "Band is 20m", "or Callsign group is in Friends", "and Goal is in 2026 chase": the card's
+ * filter lines. Group and goal names need those lists.
+ */
+export function ruleSummaries(
+  rules: Rules, groups: Pick<CallsignGroup, "id" | "name">[] | null, goals: Pick<GoalCard, "id" | "name">[] | null,
+): RuleSummary[] {
   const out: RuleSummary[] = [];
   rules.forEach((group, g) => {
     group.forEach((r, i) => {
@@ -268,6 +288,10 @@ export function ruleSummaries(rules: Rules, groups: Pick<CallsignGroup, "id" | "
       if (r.field === "group") {
         // Ids aren't shown: until the names load the group's values are left out.
         values = (groups ?? []).filter((x) => values.includes(x.id)).map((x) => x.name);
+      }
+      if (r.field === "goal") {
+        // Likewise for a goal's id.
+        values = (goals ?? []).filter((x) => values.includes(x.id)).map((x) => x.name);
       }
       if (r.field === "mode") values = values.map(modeLabel);
       out.push({ join: out.length === 0 ? null : g > 0 && i === 0 ? "or" : "and", label: `${fieldInfo(r.field).label} ${opLabel(r.field, r.op)}`, values });
@@ -309,18 +333,19 @@ export function needsCallsign(sources: string[], rules: Rules): boolean {
 
 /**
  * A new subscription on one source, filtered to a callsign (a profile's Get alerts), else a group id (a group's),
- * else one reference exactly (a reference page's).
+ * else one reference exactly (a reference page's). IOTA starts on DX Cluster, its carrier, with an island rule for
+ * every continent (Any island) beside any of those, and a goal id (the source warning's "Create a Parks on
+ * the Air connection") adds a goal rule beside them too.
  */
-/**
- * A new subscription on one source. IOTA starts on DX Cluster, its carrier, with an island rule for
- * every continent (Any island) beside any callsign, group or reference it starts with.
- */
-export function blankSub(source: string, callsign?: string | null, group?: string | null, reference?: string | null): SubscriptionInput {
+export function blankSub(
+  source: string, callsign?: string | null, group?: string | null, reference?: string | null, goal?: string | null,
+): SubscriptionInput {
   const iota = source === "iota";
   const start: Rule[] = callsign ? [{ field: "callsign", op: "is", values: [callsign] }]
     : group ? [{ field: "group", op: "is", values: [group] }]
     : reference ? [{ field: "reference", op: "is", values: [reference] }] : [];
-  const rules: Rule[] = iota ? [...start, { field: "island", op: "is", values: islandValues([ANY_ISLAND]) }] : start;
+  const listed: Rule[] = goal ? [...start, { field: "goal", op: "is", values: [goal] }] : start;
+  const rules: Rule[] = iota ? [...listed, { field: "island", op: "is", values: islandValues([ANY_ISLAND]) }] : listed;
   return {
     name: callsign ? `${callsign} on the air` : reference && !group ? `Activators at ${reference}` : "", enabled: true,
     sources: [iota ? "dxcluster" : source], rules: rules.length ? [rules] : [], quiet_minutes: 10, destinations: [],

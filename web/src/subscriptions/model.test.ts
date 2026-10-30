@@ -7,6 +7,8 @@ import {
 } from "./model";
 
 const GROUPS = [{ id: "g1", name: "Friends" }, { id: "g2", name: "RARS members" }, { id: "g3", name: "Unused" }];
+const LIST_ID = "6f1c2a9e-0b7d-4c3e-9a51-2d8f4e6b7c10";
+const LISTS = [{ id: LIST_ID, name: "2026 chase" }, { id: "1a2b3c4d-0000-4000-8000-000000000001", name: "POTA hunter award" }];
 
 describe("blankSub and toInput", () => {
   it("starts a new subscription on one source with no rules or destinations", () => {
@@ -44,6 +46,13 @@ describe("blankSub and toInput", () => {
     expect(blankSub("iota", "KK4PWJ").rules).toEqual([[{ field: "callsign", op: "is", values: ["KK4PWJ"] }, every]]);
     expect(blankSub("iota", null, "g1").rules).toEqual([[{ field: "group", op: "is", values: ["g1"] }, every]]);
     expect(blankSub("dxcluster").rules).toEqual([]);
+  });
+
+  it("starts the source warning's new connection with its goal, beside anything else it starts with", () => {
+    const listed: Rule = { field: "goal", op: "is", values: [LIST_ID] };
+    expect(blankSub("pota", null, null, null, LIST_ID)).toMatchObject({ name: "", sources: ["pota"], rules: [[listed]] });
+    expect(blankSub("pota", "KK4PWJ", null, null, LIST_ID).rules).toEqual([[{ field: "callsign", op: "is", values: ["KK4PWJ"] }, listed]]);
+    expect(blankSub("pota", null, null, null, null).rules).toEqual([]);
   });
 
   it("reads exact reference values trimmed and upper-cased, each once", () => {
@@ -118,6 +127,9 @@ describe("rows and rules", () => {
     const rows = [row("and", "callsign", "is", "W1AW")];
     expect(newRow(["callsign", "band"], rows, "or")).toMatchObject({ field: "band", op: "is", join: "or", values: [] });
     expect(newRow(["callsign"], rows).field).toBe("callsign");
+    // A goal is picked from the Field menu, never by Add rule.
+    expect(newRow(["callsign", "goal", "band"], rows).field).toBe("band");
+    expect(newRow(["goal"], []).field).toBe("goal");
   });
 
   it("offers each field its own conditions", () => {
@@ -127,6 +139,26 @@ describe("rows and rules", () => {
     expect(opLabel("group", "is_not")).toBe("is not in");
     expect(opLabel("frequency", "gt")).toBe("is greater than");
     expect(opLabel("reference", "not_contains")).toBe("does not contain");
+    expect(fieldInfo("goal")).toEqual({ id: "goal", label: "Goal", ops: ["is"] });
+    expect(opLabel("goal", "is")).toBe("is in");
+  });
+
+  it("offers the goal rule on every source, after Callsign group", () => {
+    expect(fieldsFor(["pota"]).slice(0, 3)).toEqual(["callsign", "group", "goal"]);
+    expect(fieldsFor(["sotawatch"])).toContain("goal");
+    expect(fieldsFor([])).toContain("goal");
+  });
+
+  it("stores one goal and flags anything else", () => {
+    const list = (...values: string[]): RuleRow => ({ key: 1, join: "and", field: "goal", op: "is", values });
+    expect(rulesOf([list(` ${LIST_ID} `)])).toEqual([[{ field: "goal", op: "is", values: [LIST_ID] }]]);
+    expect(rulesOf([list()])).toEqual([]);
+    expect(rowInvalid(list())).toBe(false);
+    expect(rowInvalid(list(LIST_ID))).toBe(false);
+    expect(rowInvalid(list(LIST_ID.toUpperCase()))).toBe(false);
+    expect(rowInvalid(list("2026 chase"))).toBe(true);
+    expect(rowInvalid(list(LIST_ID, LISTS[1]!.id))).toBe(true);
+    expect(rulesOf([list(LIST_ID, LISTS[1]!.id)])).toEqual([[{ field: "goal", op: "is", values: [LIST_ID] }]]);
   });
 
   it("offers references only on POTA, SOTAwatch and WWFF", () => {
@@ -136,12 +168,12 @@ describe("rows and rules", () => {
     expect(fieldsFor(["dxcluster", "wwff"])).toContain("reference");
     expect(fieldsFor(["wwbota"])).toContain("reference");
     expect(fieldsFor([])).toContain("reference");
-    expect(fieldsFor(["rbn"])).toEqual(["callsign", "group", "band", "mode", "frequency"]);
-    expect(fieldsFor(["logged"])).toEqual(["callsign", "group", "band", "mode", "frequency"]);
+    expect(fieldsFor(["rbn"])).toEqual(["callsign", "group", "goal", "band", "mode", "frequency"]);
+    expect(fieldsFor(["logged"])).toEqual(["callsign", "group", "goal", "band", "mode", "frequency"]);
   });
 
   it("offers the island rule only on DX Cluster, whose spots carry IOTA references", () => {
-    expect(fieldsFor(["dxcluster"])).toEqual(["callsign", "group", "band", "mode", "reference", "frequency", "island"]);
+    expect(fieldsFor(["dxcluster"])).toEqual(["callsign", "group", "goal", "band", "mode", "reference", "frequency", "island"]);
     expect(fieldsFor([])).not.toContain("island");
     expect(fieldsFor(["pota", "wwff"])).not.toContain("island");
     expect(opLabel("island", "is_not")).toBe("is not");
@@ -170,21 +202,23 @@ describe("rows and rules", () => {
 describe("rule summaries", () => {
   const rules = [
     [rule("callsign", "is", "W1AW"), rule("group", "is", "g2", "g1"), rule("mode", "is_not", "digital")],
-    [rule("reference", "contains", "US-NC"), rule("frequency", "lt", 7100)],
+    [rule("reference", "contains", "US-NC"), rule("frequency", "lt", 7100), rule("goal", "is", LIST_ID)],
   ];
 
   it("joins each rule to the one before, groups by name in the list's order", () => {
-    expect(ruleSummaries(rules, GROUPS)).toEqual([
+    expect(ruleSummaries(rules, GROUPS, LISTS)).toEqual([
       { join: null, label: "Callsign is", values: ["W1AW"] },
       { join: "and", label: "Callsign group is in", values: ["Friends", "RARS members"] },
       { join: "and", label: "Mode is not", values: ["Any digital"] },
       { join: "or", label: "Park, summit, or location contains", values: ["US-NC"] },
       { join: "and", label: "Frequency (kHz) is less than", values: ["7100"] },
+      { join: "and", label: "Goal is in", values: ["2026 chase"] },
     ]);
   });
 
-  it("leaves group names out until they load", () => {
-    expect(ruleSummaries([[rule("group", "is", "g1")]], null)).toEqual([{ join: null, label: "Callsign group is in", values: [] }]);
+  it("leaves group and goal names out until they load", () => {
+    expect(ruleSummaries([[rule("group", "is", "g1")]], null, LISTS)).toEqual([{ join: null, label: "Callsign group is in", values: [] }]);
+    expect(ruleSummaries([[rule("goal", "is", LIST_ID)]], GROUPS, null)).toEqual([{ join: null, label: "Goal is in", values: [] }]);
   });
 
   it("finds rules that pick a call or a group outright", () => {

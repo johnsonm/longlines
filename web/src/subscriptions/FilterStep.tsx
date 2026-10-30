@@ -7,6 +7,8 @@ import DeleteIcon from "@mui/icons-material/Delete";
 import { Link as RouterLink } from "react-router";
 import type { SubscriptionInput } from "../lib/api";
 import type { CallsignGroup } from "../groups/types";
+import { ruleHelperText, sourceWarning } from "../goals/model";
+import type { GoalCard } from "../goals/types";
 import { splitCallsigns } from "../groups/parse";
 import { BANDS, MODES, modeLabel, type SourceInfo } from "../sources/sources";
 import {
@@ -36,6 +38,10 @@ interface Props {
   groups: CallsignGroup[] | null;
   /** Loading the groups failed, as opposed to still loading. */
   groupsFailed: boolean;
+  /** null while loading or when loading failed: the goal rule is shown but can't be edited. */
+  goals: GoalCard[] | null;
+  /** Loading the goals failed, as opposed to still loading. */
+  goalsFailed: boolean;
   /** The source's spots per day, for the high volume warning; null until the stats load. */
   perDay: string | null;
   source: SourceInfo | null;
@@ -44,7 +50,9 @@ interface Props {
   mobile: boolean;
 }
 
-export function FilterStep({ sub, setSub, rows, setRows, groups, groupsFailed, perDay, source, stationCount, mobile }: Props) {
+export function FilterStep({
+  sub, setSub, rows, setRows, groups, groupsFailed, goals, goalsFailed, perDay, source, stationCount, mobile,
+}: Props) {
   const available = fieldsFor(sub.sources);
   // The reference picker's answers, kept while the editor is open and shared by every reference row.
   const [searchCache] = useState(newReferenceSearchCache);
@@ -63,6 +71,9 @@ export function FilterStep({ sub, setSub, rows, setRows, groups, groupsFailed, p
   const addRule = () => setRows([...rows, newRow(available, rows, rows.at(-1)?.join ?? "and")]);
 
   const stations = stationCount ?? 0;
+  // The list a goal row names, once the lists load.
+  const pickedList = (row: RuleRow): GoalCard | null =>
+    row.field === "goal" ? ((goals ?? []).find((l) => l.id === row.values[0]) ?? null) : null;
   const helper = (row: RuleRow): ReactNode => {
     switch (row.field) {
       case "callsign":
@@ -78,6 +89,16 @@ export function FilterStep({ sub, setSub, rows, setRows, groups, groupsFailed, p
           return <>No callsign groups yet. <Link component={RouterLink} to="/groups">Create a group</Link> to watch a club roster or an award list.</>;
         }
         return stationCount === null ? "" : `Matches ${stations} ${stations === 1 ? "station" : "stations"} from your groups and callsigns.`;
+      case "goal": {
+        if (goals === null) return goalsFailed ? "Couldn't load your goals." : "";
+        if (goals.length === 0) {
+          return <>No goals yet. <Link component={RouterLink} to="/goals/new">Add a goal</Link> to alert only for what you still need.</>;
+        }
+        if (rowInvalid(row)) return "Pick one goal.";
+        const list = pickedList(row);
+        if (!list) return "";
+        return <>{ruleHelperText(list, sub.sources)} <Link component={RouterLink} to={`/goals/${list.id}`}>View progress</Link></>;
+      }
       case "band":
         return "";
       case "mode":
@@ -116,6 +137,16 @@ export function FilterStep({ sub, setSub, rows, setRows, groups, groupsFailed, p
             value={(groups ?? []).filter((g) => row.values.includes(g.id))}
             onChange={(_e, v) => set(v.map((g) => g.id))}
             renderInput={(p) => <TextField {...p} label={label} />}
+          />
+        );
+      case "goal":
+        // One list: normalize_subscription_rules refuses a goal rule with more.
+        return (
+          <Autocomplete
+            disabled={goals === null} options={goals ?? []} getOptionLabel={(l) => l.name} isOptionEqualToValue={(a, b) => a.id === b.id}
+            value={pickedList(row)}
+            onChange={(_e, v) => set(v ? [v.id] : [])}
+            renderInput={(p) => <TextField {...p} label={label} error={rowInvalid(row)} />}
           />
         );
       case "band":
@@ -218,6 +249,8 @@ export function FilterStep({ sub, setSub, rows, setRows, groups, groupsFailed, p
         );
         const help = helper(row);
         const helpError = (row.field === "callsign" && missingCall) || rowInvalid(row);
+        const list = pickedList(row);
+        const warning = list ? sourceWarning(list, sub.sources) : null;
         return (
           <Box key={row.key}>
             {mobile ? (
@@ -245,6 +278,22 @@ export function FilterStep({ sub, setSub, rows, setRows, groups, groupsFailed, p
               <Typography variant="caption" color={helpError ? "error" : "text.secondary"} sx={{ display: "block", mt: 0.5, ml: mobile ? 0 : "480px" }}>
                 {help}
               </Typography>
+            )}
+            {list && warning && (
+              <Box sx={{ mt: 2, ml: mobile ? 0 : "104px", mr: mobile ? 0 : 6 }}>
+                <Alert severity="warning">
+                  <AlertTitle>{warning.title}</AlertTitle>
+                  {warning.text}
+                  <Box sx={{ mt: 0.5 }}>
+                    <Button
+                      size="small" color="inherit" component={RouterLink}
+                      to={`/connections/new?source=pota&goal=${encodeURIComponent(list.id)}`}
+                    >
+                      Create a Parks on the Air connection
+                    </Button>
+                  </Box>
+                </Alert>
+              </Box>
             )}
           </Box>
         );

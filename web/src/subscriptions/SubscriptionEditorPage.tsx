@@ -10,9 +10,11 @@ import SendIcon from "@mui/icons-material/Send";
 import { Navigate, Link as RouterLink, useNavigate } from "react-router";
 import { PageTitle } from "../layout/PageTitle";
 import {
-  listGroups, previewSubscription, saveSubscription, type Destination, type Preview, type SubscriptionInput, type SubscriptionWithLinks,
+  listGroups, listGoals, previewSubscription, saveSubscription, type Destination, type Preview, type SubscriptionInput, type SubscriptionWithLinks,
 } from "../lib/api";
 import type { CallsignGroup } from "../groups/types";
+import { skippedWorkedText } from "../goals/model";
+import type { GoalCard } from "../goals/types";
 import { formatSpotTime, type TimePrefs } from "../lib/time";
 import { errorText, useNotify } from "../app/hooks";
 import { sourceName, type SourceInfo } from "../sources/sources";
@@ -41,6 +43,8 @@ interface Props {
   group?: string | null;
   /** With `source` and neither of those: the reference a reference page's Get alerts starts the filter with. */
   reference?: string | null;
+  /** With `source`: the goal the source warning's "Create a Parks on the Air connection" starts the filter with. */
+  goal?: string | null;
   subs: SubscriptionWithLinks[];
   dests: Destination[];
   loading: boolean;
@@ -49,8 +53,11 @@ interface Props {
   mobile: boolean;
 }
 
-/** /connections/new?source=…[&callsign=…|&group=…|&reference=…] and /connections/:id. An unknown id or source goes back to the list. */
-export function SubscriptionEditorPage({ id, source, callsign, group, reference, subs, loading, ...rest }: Props) {
+/**
+ * /connections/new?source=…[&callsign=…|&group=…|&reference=…][&goal=…] and /connections/:id. An unknown id or
+ * source goes back to the list.
+ */
+export function SubscriptionEditorPage({ id, source, callsign, group, reference, goal, subs, loading, ...rest }: Props) {
   if (id) {
     const existing = subs.find((s) => s.id === id);
     if (!existing) return loading ? <LinearProgress /> : <Navigate to="/connections" replace />;
@@ -62,9 +69,12 @@ export function SubscriptionEditorPage({ id, source, callsign, group, reference,
   const startGroup = call ? null : group?.trim() || null;
   // Upper case, as normalize_subscription_rules stores an exact reference.
   const ref = call || startGroup ? null : reference?.trim().toUpperCase() || null;
+  // Lower case, as normalize_subscription_rules stores a goal id.
+  const list = goal?.trim().toLowerCase() || null;
   return (
     <Editor
-      key={`${picked.id}:${call ?? ""}:${startGroup ?? ""}:${ref ?? ""}`} initial={blankSub(picked.id, call, startGroup, ref)} startGroup={startGroup}
+      key={`${picked.id}:${call ?? ""}:${startGroup ?? ""}:${ref ?? ""}:${list ?? ""}`}
+      initial={blankSub(picked.id, call, startGroup, ref, list)} startGroup={startGroup}
       {...rest}
     />
   );
@@ -113,6 +123,8 @@ function Editor({ initial, startGroup = null, dests, reload, prefs, mobile }: Ed
   });
   const [groups, setGroups] = useState<CallsignGroup[] | null>(null);
   const [groupsFailed, setGroupsFailed] = useState(false);
+  const [goals, setGoals] = useState<GoalCard[] | null>(null);
+  const [goalsFailed, setGoalsFailed] = useState(false);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -141,6 +153,21 @@ function Editor({ initial, startGroup = null, dests, reload, prefs, mobile }: Ed
       active = false;
     };
   }, [startGroup]);
+
+  // Goals, like groups, change only on their own pages, so one load per visit is enough.
+  useEffect(() => {
+    let active = true;
+    listGoals()
+      .then((l) => {
+        if (active) setGoals(l);
+      })
+      .catch(() => {
+        if (active) setGoalsFailed(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const filterKey = useMemo(() => JSON.stringify({ sources: sub.sources, rules }), [sub.sources, rules]);
 
@@ -237,6 +264,7 @@ function Editor({ initial, startGroup = null, dests, reload, prefs, mobile }: Ed
               <Step n={2} title="Filter" subheader={source?.volume === "high" ? "Required for this source" : "Optional. Leave it empty to pass every spot"}>
                 <FilterStep
                   sub={sub} setSub={setSub} rows={rows} setRows={setRows} groups={groups} groupsFailed={groupsFailed} source={source} mobile={mobile}
+                  goals={goals} goalsFailed={goalsFailed}
                   perDay={rates ? formatPerDay(rates.perDay) : null}
                   stationCount={preview && picksStations(rules) ? preview.station_count : null}
                 />
@@ -346,6 +374,7 @@ function PreviewCard({ preview, error, source, missingCall, prefs }: PreviewProp
   const size = preview?.window_size ?? 0;
   const count = preview?.count ?? 0;
   const shown = (preview?.spots ?? []).slice(0, PREVIEW_SHOWN);
+  const skipped = skippedWorkedText(preview?.skipped_worked ?? null);
 
   let headline: string;
   if (missingCall) headline = "Add a callsign to see a preview";
@@ -366,6 +395,7 @@ function PreviewCard({ preview, error, source, missingCall, prefs }: PreviewProp
           ) : (
             <>
               <LinearProgress variant={preview ? "determinate" : "indeterminate"} value={size ? (count / size) * 100 : 0} />
+              {skipped && <Typography variant="body2">{skipped}</Typography>}
               {error && <Alert severity="error">{error}</Alert>}
               {preview && size > 0 && count === size && (
                 <Alert severity="warning">This passes everything. Add a filter or expect a lot of messages.</Alert>

@@ -2,14 +2,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import { renderPage } from "../test/render";
 import {
-  listGroups, previewSubscription, saveSubscription, searchReferences, type Destination, type Preview, type RecentSpot, type SubscriptionWithLinks,
+  listGroups, listGoals, previewSubscription, saveSubscription, searchReferences, type Destination, type Preview, type RecentSpot, type SubscriptionWithLinks,
 } from "../lib/api";
 import type { CallsignGroup } from "../groups/types";
+import { card } from "../test/goals";
 import { useStats } from "../stats/useStats";
 import { SubscriptionEditorPage } from "./SubscriptionEditorPage";
 
 vi.mock("../lib/api", () => ({
   listGroups: vi.fn(),
+  listGoals: vi.fn(),
   previewSubscription: vi.fn(),
   saveSubscription: vi.fn(),
   searchReferences: vi.fn(),
@@ -39,6 +41,9 @@ function rule(field: string, op: string, ...values: (string | number)[]) {
 
 const BAND = rule("band", "is", "20m");
 const GROUP = rule("group", "is", "g1");
+const LIST_ID = "6f1c2a9e-0b7d-4c3e-9a51-2d8f4e6b7c10";
+const OTHER_ID = "1a2b3c4d-0000-4000-8000-000000000001";
+const GOAL_RULE = rule("goal", "is", LIST_ID);
 
 function group(id: string, name: string): CallsignGroup {
   return {
@@ -66,6 +71,9 @@ beforeEach(() => {
   }));
   vi.mocked(searchReferences).mockReset().mockResolvedValue({ results: [], more: false });
   vi.mocked(listGroups).mockReset().mockResolvedValue([group("g1", "Friends"), group("g2", "RARS members")]);
+  vi.mocked(listGoals).mockReset().mockResolvedValue([
+    card({ id: LIST_ID }), card({ id: OTHER_ID, name: "POTA hunter award", requirement_count: 1, worked: 41, total: 100 }),
+  ]);
   vi.mocked(useStats).mockReset().mockReturnValue({
     stats: { generatedAt: "2026-10-14T13:00:00Z", payload: { hourly: HOURLY } } as never, loading: false, error: null,
   });
@@ -77,6 +85,7 @@ interface Opts {
   callsign?: string | null;
   group?: string | null;
   reference?: string | null;
+  goal?: string | null;
   subs?: SubscriptionWithLinks[];
   dests?: Destination[];
   loading?: boolean;
@@ -84,12 +93,16 @@ interface Opts {
 }
 
 function render(
-  { id, source = null, callsign = null, group: startGroup = null, reference = null, subs = [sub()], dests = DESTS, loading = false, mobile = false }: Opts,
+  {
+    id, source = null, callsign = null, group: startGroup = null, reference = null, goal = null, subs = [sub()], dests = DESTS, loading = false,
+    mobile = false,
+  }: Opts,
 ) {
   const reload = vi.fn(() => Promise.resolve());
   const r = renderPage(
     <SubscriptionEditorPage
-      id={id} source={source} callsign={callsign} group={startGroup} reference={reference} subs={subs} dests={dests} loading={loading}
+      id={id} source={source} callsign={callsign} group={startGroup} reference={reference} goal={goal} subs={subs} dests={dests}
+      loading={loading}
       reload={reload} prefs={PREFS} mobile={mobile}
     />,
     { route: "/connections/x" },
@@ -309,7 +322,7 @@ describe("edit subscription", () => {
     await user.click(screen.getByRole("button", { name: "Add rule" }));
     // Every row offers every field, used or not.
     await user.click(screen.getAllByRole("combobox", { name: "Field" })[2]!);
-    expect(screen.getAllByRole("option")).toHaveLength(6);
+    expect(screen.getAllByRole("option")).toHaveLength(7);
     await user.click(await screen.findByRole("option", { name: "Park, summit, or location" }));
     // A new reference rule matches one reference exactly; Contains keeps partial text.
     expect(screen.getAllByRole("combobox", { name: "Condition" })[2]).toHaveTextContent("is");
@@ -594,5 +607,103 @@ describe("callsign groups", () => {
     expect(await screen.findByText("Couldn't load your groups.")).toBeInTheDocument();
     await user.click(save());
     expect(saveSubscription).toHaveBeenCalledWith(expect.objectContaining({ rules: [[GROUP]] }));
+  });
+});
+
+describe("goals", () => {
+  it("picks one goal, says what it still needs and links to its progress", async () => {
+    const { user } = render({ id: "s1" });
+    await waitFor(() => expect(listGoals).toHaveBeenCalled());
+    await user.click(screen.getByRole("button", { name: "Add rule" }));
+    await user.click(screen.getAllByRole("combobox", { name: "Field" })[1]!);
+    await user.click(await screen.findByRole("option", { name: "Goal" }));
+    expect(screen.getAllByRole("combobox", { name: "Condition" })[1]).toHaveTextContent("is in");
+    await user.click(screen.getAllByRole("combobox", { name: "Condition" })[1]!);
+    expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual(["is in"]);
+    await user.keyboard("{Escape}");
+    await user.click(screen.getAllByLabelText("Values")[1]!);
+    await user.click(await screen.findByRole("option", { name: "2026 chase" }));
+    expect(screen.getByText(/46 entries still needed across 3 requirements\. This rule updates itself as you work them\./)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "View progress" })).toHaveAttribute("href", `/goals/${LIST_ID}`);
+    // A POTA connection can match parks: no warning.
+    expect(screen.queryByText("Parks in this goal can't match here")).not.toBeInTheDocument();
+
+    // One list at a time: picking another replaces it.
+    await user.click(screen.getAllByLabelText("Values")[1]!);
+    await user.click(await screen.findByRole("option", { name: "POTA hunter award" }));
+    expect(screen.getByText(/59 entries still needed across 1 requirement\./)).toBeInTheDocument();
+    const rules = [[BAND, rule("goal", "is", OTHER_ID)]];
+    await waitFor(() => expect(previewSubscription).toHaveBeenLastCalledWith({ sources: ["pota"], rules }));
+    await user.click(save());
+    expect(saveSubscription).toHaveBeenCalledWith(expect.objectContaining({ rules }));
+  });
+
+  it("warns when the source can't carry parks, and offers a POTA connection with the list", async () => {
+    const { user } = render({ id: "s1", subs: [sub({ sources: ["sotawatch"], rules: [[GOAL_RULE, rule("mode", "is", "cw")]] })] });
+    expect(await screen.findByText(/46 entries still needed across 3 requirements\. 7 can't match on this source\./)).toBeInTheDocument();
+    expect(screen.getByText("Parks in this goal can't match here")).toBeInTheDocument();
+    expect(screen.getByText(
+      "The Parks requirement has 7 parks still needed. SOTAwatch spots don't include parks, so those entries will never alert on this connection.",
+    )).toBeInTheDocument();
+    // The rule still saves.
+    expect(save()).toBeEnabled();
+    await user.click(screen.getByRole("link", { name: "Create a Parks on the Air connection" }));
+    expect(screen.getByTestId("location")).toHaveTextContent("/connections/new");
+    expect(screen.getByTestId("location")).toHaveAttribute("data-search", `?source=pota&goal=${LIST_ID}`);
+  });
+
+  it("starts a new connection with the goal it was given", async () => {
+    const { user } = render({ source: "pota", goal: ` ${LIST_ID.toUpperCase()} ` });
+    expect(await screen.findByText(/46 entries still needed/)).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Values" })).toHaveValue("2026 chase");
+    await user.type(screen.getByLabelText(/^Name/), "Parks I need");
+    await user.click(save());
+    expect(saveSubscription).toHaveBeenCalledWith(expect.objectContaining({ sources: ["pota"], rules: [[GOAL_RULE]] }));
+  });
+
+  it("says a finished goal's rule is off, with no warning", async () => {
+    vi.mocked(listGoals).mockResolvedValue([card({ id: LIST_ID, status: "ended" })]);
+    render({ id: "s1", subs: [sub({ sources: ["sotawatch"], rules: [[GOAL_RULE]] })] });
+    expect(await screen.findByText(/This goal ended, so this rule is off\./)).toBeInTheDocument();
+    expect(screen.queryByText("Parks in this goal can't match here")).not.toBeInTheDocument();
+  });
+
+  it("links to a new goal when the account has none", async () => {
+    vi.mocked(listGoals).mockResolvedValue([]);
+    const { user } = render({ id: "s1", subs: [sub({ rules: [[GOAL_RULE]] })] });
+    await user.click(await screen.findByRole("link", { name: "Add a goal" }));
+    expect(screen.getByTestId("location")).toHaveTextContent("/goals/new");
+  });
+
+  it("says nothing while the lists load, and keeps the rule when they don't", async () => {
+    vi.mocked(listGoals).mockReturnValue(new Promise(() => undefined));
+    const { unmount } = render({ id: "s1", subs: [sub({ rules: [[GOAL_RULE]] })] });
+    expect(screen.getByRole("combobox", { name: "Values" })).toBeDisabled();
+    expect(screen.queryByText("Couldn't load your goals.")).not.toBeInTheDocument();
+    unmount();
+
+    vi.mocked(listGoals).mockRejectedValue(new Error("x"));
+    const { user } = render({ id: "s1", subs: [sub({ rules: [[GOAL_RULE]] })] });
+    expect(await screen.findByText("Couldn't load your goals.")).toBeInTheDocument();
+    await user.click(save());
+    expect(saveSubscription).toHaveBeenCalledWith(expect.objectContaining({ rules: [[GOAL_RULE]] }));
+  });
+
+  it("refuses a stored rule naming more than one list", async () => {
+    render({ id: "s1", subs: [sub({ rules: [[rule("goal", "is", LIST_ID, OTHER_ID)]] })] });
+    expect(await screen.findByText("Pick one goal.")).toBeInTheDocument();
+    expect(save()).toBeDisabled();
+  });
+
+  it("shows the spots the list skipped in the preview", async () => {
+    vi.mocked(previewSubscription).mockResolvedValue(preview({ count: 6, window_size: 200, skipped_worked: 29 }));
+    render({ id: "s1", subs: [sub({ rules: [[GOAL_RULE]] })] });
+    expect(await screen.findByText("6 of the last 200 POTA spots would pass")).toBeInTheDocument();
+    expect(screen.getByText("29 more matched your other rules but were skipped. You've already worked those.")).toBeInTheDocument();
+  });
+
+  it("puts the source warning under the rule on a phone", async () => {
+    render({ id: "s1", mobile: true, subs: [sub({ sources: ["sotawatch"], rules: [[GOAL_RULE]] })] });
+    expect(await screen.findByText("Parks in this goal can't match here")).toBeInTheDocument();
   });
 });

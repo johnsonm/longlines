@@ -232,13 +232,15 @@ function GoalRoute({ edit }: { edit: boolean }) {
 }
 
 /** The editor takes its id or source as props, so its tests need no router params. */
-function SubscriptionRoute(props: Omit<ComponentProps<typeof SubscriptionEditorPage>, "id" | "source" | "callsign" | "group" | "reference">) {
+function SubscriptionRoute(
+  props: Omit<ComponentProps<typeof SubscriptionEditorPage>, "id" | "source" | "callsign" | "group" | "reference" | "goal">,
+) {
   const { id } = useParams();
   const [search] = useSearchParams();
   return (
     <SubscriptionEditorPage
       {...props} id={id} source={search.get("source")} callsign={search.get("callsign")} group={search.get("group")}
-      reference={search.get("reference")}
+      reference={search.get("reference")} goal={search.get("goal")}
     />
   );
 }

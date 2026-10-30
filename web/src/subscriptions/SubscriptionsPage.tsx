@@ -10,9 +10,10 @@ import WarningIcon from "@mui/icons-material/Warning";
 import { Link as RouterLink, useNavigate } from "react-router";
 import { PageTitle } from "../layout/PageTitle";
 import {
-  deleteSubscription, listGroups, previewSubscription, setSubscriptionEnabled, type Destination, type Preview, type SubscriptionWithLinks,
+  deleteSubscription, listGroups, listGoals, previewSubscription, setSubscriptionEnabled, type Destination, type Preview, type SubscriptionWithLinks,
 } from "../lib/api";
 import type { CallsignGroup } from "../groups/types";
+import type { GoalCard } from "../goals/types";
 import { errorText, useNotify } from "../app/hooks";
 import { ConfirmDeleteDialog } from "../layout/ConfirmDeleteDialog";
 import { sourceName } from "../sources/sources";
@@ -73,13 +74,20 @@ export function SubscriptionsPage({ subs, dests, loading, reload, mobile }: Prop
   const [previews, setPreviews] = useState<Record<string, Preview>>({});
   // Names for the group rule lines. null until loaded, and if loading fails.
   const [groups, setGroups] = useState<CallsignGroup[] | null>(null);
+  // Names for the goal rule lines, likewise.
+  const [goals, setGoals] = useState<GoalCard[] | null>(null);
 
-  // Groups change only on the Groups page, which is another route, so one load per visit is enough.
+  // Groups and goals change only on their own pages, which are other routes, so one load per visit is enough.
   useEffect(() => {
     let active = true;
     listGroups()
       .then((g) => {
         if (active) setGroups(g);
+      })
+      .catch(() => undefined);
+    listGoals()
+      .then((l) => {
+        if (active) setGoals(l);
       })
       .catch(() => undefined);
     return () => {
@@ -148,7 +156,7 @@ export function SubscriptionsPage({ subs, dests, loading, reload, mobile }: Prop
       {loading && <LinearProgress />}
       <Grid container spacing={2}>
         {subs.map((s) => {
-          const rules = ruleSummaries(toInput(s).rules, groups);
+          const rules = ruleSummaries(toInput(s).rules, groups, goals);
           const hits = hitsText(s, previews[s.id]);
           return (
             <Grid size={{ xs: 12, md: 6 }} key={s.id}>

@@ -2,15 +2,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import { renderPage } from "../test/render";
 import {
-  deleteSubscription, listGroups, previewSubscription, setSubscriptionEnabled, type Destination, type SubscriptionWithLinks,
+  deleteSubscription, listGroups, listGoals, previewSubscription, setSubscriptionEnabled, type Destination, type SubscriptionWithLinks,
 } from "../lib/api";
 import type { CallsignGroup } from "../groups/types";
+import { card } from "../test/goals";
 import { useStats } from "../stats/useStats";
 import { SubscriptionsPage } from "./SubscriptionsPage";
 
 vi.mock("../lib/api", () => ({
   deleteSubscription: vi.fn(),
   listGroups: vi.fn(),
+  listGoals: vi.fn(),
   previewSubscription: vi.fn(),
   setSubscriptionEnabled: vi.fn(),
 }));
@@ -54,6 +56,7 @@ beforeEach(() => {
   for (const fn of [deleteSubscription, setSubscriptionEnabled]) vi.mocked(fn).mockReset().mockResolvedValue(undefined);
   vi.mocked(previewSubscription).mockReset().mockResolvedValue({ count: 3, spots: [], station_count: 0, window_size: 42, skipped_worked: null });
   vi.mocked(listGroups).mockReset().mockResolvedValue([group("g1", "Friends"), group("g2", "RARS members")]);
+  vi.mocked(listGoals).mockReset().mockResolvedValue([card({ id: "n1", name: "2026 chase" })]);
   vi.mocked(useStats).mockReset().mockReturnValue({
     stats: { generatedAt: "2026-10-14T13:00:00Z", payload: { hourly: HOURLY } } as never, loading: false, error: null,
   });
@@ -107,6 +110,20 @@ describe("SubscriptionsPage", () => {
     expect(screen.getByText("All sources")).toBeInTheDocument();
     expect(screen.getByText("SOTAwatch")).toBeInTheDocument();
     expect(await screen.findAllByText("Once per 10 min · 3 of the last 42 spots passed")).toHaveLength(2);
+  });
+
+  it("names the goal rule once the lists load", async () => {
+    render([sub({ rules: [[rule("goal", "is", "n1"), rule("mode", "is", "cw")]] })]);
+    expect(await screen.findByText("2026 chase")).toBeInTheDocument();
+    expect(screen.getByText("Goal is in")).toBeInTheDocument();
+  });
+
+  it("keeps the goal rule's line when the lists don't load", async () => {
+    vi.mocked(listGoals).mockRejectedValue(new Error("x"));
+    render([sub({ rules: [[rule("goal", "is", "n1")]] })]);
+    expect(await screen.findByText("Goal is in")).toBeInTheDocument();
+    await waitFor(() => expect(listGoals).toHaveBeenCalled());
+    expect(screen.queryByText("2026 chase")).not.toBeInTheDocument();
   });
 
   it("leaves the passes out when the preview fails", async () => {
