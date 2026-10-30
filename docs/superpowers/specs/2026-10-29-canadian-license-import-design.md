@@ -25,6 +25,7 @@ Proposed in this revision; the ones marked (Brad) are product calls to confirm b
 | Qualifications (Brad) | `operator_class` reads, in this order: `Advanced` if D; then `Basic with Honours` if E, else `Basic` if A; then `12 WPM` if C, else `5 WPM` if B; joined with ", ". Examples: "Advanced, Basic with Honours", "Basic, 5 WPM". The longest is "Advanced, Basic with Honours, 12 WPM" (36 characters), which still fits the header chip. The mapping is SQL's (`ised_operator_class`); TypeScript passes the letters. |
 | Status, dates | Null. The file has no status and no dates (Canadian certificates do not expire); a status we did not read is not stored. |
 | Province | `state` holds `prov_cd` (null when blank: 1,992 rows). The card labels it Province for ISED. |
+| Special callsigns | `https://apc-cap.ic.gc.ca/datafiles/special_callsign.zip` (`special_callsign.txt`). Staged in `ised_special_stage` and swapped into its own `ised_special_callsigns` table keyed by `(callsign, beg_date, end_date)` (`on conflict do nothing` for exact source duplicates), preserving historical and upcoming time-bounded events without modifying `callsign_licenses`. Loaded via a separate `load-ised-special` edge function and isolated inbound loop. 2-character RIC-9 special event prefixes are skipped (deferred to general prefix/suffix handling). |
 | Profile copy (Brad) | See "Profile". |
 
 ## Upstream
@@ -119,5 +120,7 @@ push, Discord and webhook bodies, with no delivery code change. Clubs get none.
 
 ## Out of scope
 
-Other countries' registries, ISED's accredited examiner and special event call sign lists, any
-address, and the Stats page.
+Other countries' registries, ISED's accredited examiner list, RIC-9 2-character special event
+prefixes (deferred to general prefix/suffix handling), any address, and the Stats page.
+Historical and time-bounded special callsign records are ingested into `ised_special_callsigns`;
+surfacing them in `callsign_profile` and the profile UI is deferred to a trailing task.
