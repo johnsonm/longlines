@@ -302,3 +302,29 @@ Deno.test("the LocalClusterField enum is local_cluster_fields()", function (): v
   assertEquals(resolve(schemas.LocalClusterField).enum, fields);
   assertEquals(fields, ["reference", "source", "comment"]);
 });
+
+/** The keys a function's jsonb_build_object names at one indentation, in the newest body of it. */
+function builtKeys(name: string, indent: number): string[] {
+  const sql = newestMigration(`function public.${name}(`);
+  const start = sql.indexOf(`function public.${name}(`);
+  const body = sql.slice(start, sql.indexOf("\n$$;", start));
+  const pattern = new RegExp(`^ {${indent}}'(\\w+)',`, "gm");
+  return Array.from(body.matchAll(pattern), (m) => m[1]!);
+}
+
+// A goal in the API is api_goal_json(get_goal(id)): the card's keys at the top,
+// beside get_goal's other keys.
+Deno.test("the goal schemas have the keys SQL builds", function (): void {
+  const schemas = resolve((spec.components as Node).schemas);
+  const card = builtKeys("goal_card", 4);
+  assert(card.includes("connection_count"), "goal_card's keys are found");
+  const cardSchema = flatten(schemas.GoalCard);
+  assertEquals(Object.keys(cardSchema.properties).sort(), card.slice().sort());
+  assertEquals(Array.from(cardSchema.required).sort(), card.slice().sort());
+  const top = builtKeys("get_goal", 4);
+  assert(top.includes("list"), "get_goal's keys are found");
+  const list = flatten(schemas.Goal);
+  const expected = card.concat(top.filter((k) => k !== "list")).sort();
+  assertEquals(Object.keys(list.properties).sort(), expected);
+  assertEquals(Array.from(list.required).sort(), expected);
+});
