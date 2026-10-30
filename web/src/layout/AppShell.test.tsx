@@ -94,6 +94,15 @@ describe("AppShell", () => {
     expect(screen.getByRole("button", { name: "Reference lookup" })).not.toHaveClass("Mui-selected");
   });
 
+  it("ends the nav with Docs, which opens the docs site in a new tab", () => {
+    renderPage(shell(), { route: "/sources" });
+    const docs = screen.getByRole("link", { name: "Docs" });
+    expect(docs).toHaveAttribute("href", "https://docs.longlines.io");
+    expect(docs).toHaveAttribute("target", "_blank");
+    expect(docs).toHaveAttribute("rel", "noopener noreferrer");
+    expect(docs.parentElement!.lastElementChild).toBe(docs);
+  });
+
   it("highlights Reference lookup on the lookup page and on every reference page, and opens it", async () => {
     const { unmount } = renderPage(shell(), { route: "/ref" });
     expect(screen.getByRole("button", { name: "Reference lookup" })).toHaveClass("Mui-selected");
@@ -159,6 +168,7 @@ describe("AppShell signed out", () => {
     expect(screen.getByRole("contentinfo")).toHaveTextContent("Brad Bazemore");
     for (const name of LOCKED) expect(screen.getByRole("button", { name })).toHaveAttribute("aria-disabled", "true");
     for (const name of OPEN) expect(screen.getByRole("button", { name })).not.toHaveAttribute("aria-disabled");
+    expect(screen.getByRole("link", { name: "Docs" })).not.toHaveAttribute("aria-disabled");
     expect(screen.getByRole("button", { name: "Stats" })).toHaveClass("Mui-selected");
     await user.hover(screen.getByRole("button", { name: "Connections" }).parentElement!);
     expect(await screen.findByRole("tooltip")).toHaveTextContent("Create an account or sign in to use Connections.");
