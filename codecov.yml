@@ -1,0 +1,38 @@
+# Codecov reports coverage on PRs; CI's own 80% gates (`deno task coverage`, `npm run coverage`)
+# decide pass or fail, so Codecov's statuses are informational.
+codecov:
+  require_ci_to_pass: false
+
+coverage:
+  status:
+    project:
+      default:
+        informational: true
+    patch:
+      default:
+        informational: true
+
+# Vitest writes paths relative to web/; Deno writes absolute runner paths.
+fixes:
+  - "src/::web/src/"
+  - "/home/runner/work/longlines/longlines/::"
+
+flags:
+  deno:
+    paths:
+      - supabase/functions/
+      - inbound/
+      - sender/
+    carryforward: true
+  web:
+    paths:
+      - web/src/
+    carryforward: true
+
+ignore:
+  - "**/__tests__/**"
+  - "web/src/lib/database.types.ts"
+
+comment:
+  layout: "condensed_header, diff, flags, files"
+  require_changes: true

@@ -1,5 +1,7 @@
 # Long Lines
 
+[![codecov](https://codecov.io/gh/sonyccd/longlines/graph/badge.svg)](https://codecov.io/gh/sonyccd/longlines)
+
 Long Lines collects amateur radio spots from public feeds, stores them in one shape, and sends the
 ones you ask for to Discord, a webhook or your phone, usually within a minute.
 
