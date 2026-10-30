@@ -987,6 +987,19 @@ rule in the connection editor.
   (`longlines.goalRelayDismissed.<id>`), read and written through guarded helpers; never put list
   state there. Delete goes through `useDeleteGoal`: the "Can't delete" dialog while `used_by`
   is not empty, `ConfirmDeleteDialog` otherwise, and an LL409 reloads and shows the dialog.
+- The edit page (`/goals/new`, `/goals/:id/edit`) sends the whole list to
+  `save_goal` and leaves every check to SQL (the name's two errors go on the field, the rest
+  are a toast); `editModel.ts` only builds the draft and the payload. `US_STATES` mirrors
+  `us_states()` and `editModel.test.ts` compares them (and that `BANDS` is within `goal_bands()`).
+  What a save with new dates or By hand only would undo is SQL's: while the window or marking
+  differs from the loaded list (never on a new list), the page asks `previewGoalWindow`
+  (`preview_goal_window`) once the change has settled for `WINDOW_PREVIEW_DELAY_MS`, shows
+  only the answer for the draft's current window, and `dateWarning` / `markingWarning` only word
+  it; never guess from the entries' stored contacts. "Long Lines only knows contacts since" reads
+  `first_contact_at`. A requirement whose
+  kind changes is sent without its id. Parks come from `searchReferences(q, "pota")`, which only
+  suggests; a typed POTA reference goes in as typed. A phone gets a full-screen dialog with Save in
+  its top bar.
 
 ## Group statistics rules
 

@@ -13,7 +13,7 @@ import type { GroupPeriod, GroupSummary, OwnerGroupStatistics, PublicGroupStatis
 import type { Rules } from "../subscriptions/model";
 import type { HomeFlow } from "../home/types";
 import type { RelayAnswer, RelayPairing } from "../relay/types";
-import type { GoalCard, GoalInput, GoalProgress } from "../goals/types";
+import type { GoalCard, GoalInput, GoalProgress, GoalMarking, GoalWindowLoss } from "../goals/types";
 
 type Tables = Database["public"]["Tables"];
 type Views = Database["public"]["Views"];
@@ -1046,6 +1046,21 @@ export async function saveGoal(input: GoalInput): Promise<string> {
   const { data, error } = await supabase.rpc("save_goal", { payload });
   if (error) fail(error, "Couldn't save the goal.");
   return data;
+}
+
+/**
+ * What saving the list with this window (both null for "No end date") and marking would send back
+ * to needed, changing nothing (preview_goal_window); in requirement, then entry order.
+ */
+export async function previewGoalWindow(
+  id: string, startsOn: string | null, endsOn: string | null, marking: GoalMarking,
+): Promise<GoalWindowLoss[]> {
+  const { data, error } = await supabase.rpc("preview_goal_window", withNulls<"preview_goal_window">({
+    p_id: id, p_starts_on: startsOn, p_ends_on: endsOn, p_marking: marking,
+  }));
+  if (error) fail(error, "Couldn't check the new dates.");
+  // jsonb in the generated types; always an array of {requirement_id, kind, value, worked_at, reason}.
+  return data as unknown as GoalWindowLoss[];
 }
 
 /** Refused with code LL409 while a connection's rules name the list. */

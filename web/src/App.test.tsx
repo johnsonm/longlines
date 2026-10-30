@@ -76,7 +76,7 @@ vi.mock("./groups/GroupsPage", () => ({ GroupsPage: () => <p>groups page</p> }))
 vi.mock("./groups/GroupPage", () => ({ GroupPage: ({ id, tab }: { id: string; tab: string }) => <p>group page {id} {tab}</p> }));
 vi.mock("./goals/GoalsPage", () => ({ GoalsPage: () => <p>goals page</p> }));
 vi.mock("./goals/GoalPage", () => ({ GoalPage: ({ id }: { id: string }) => <p>goal page {id}</p> }));
-vi.mock("./goals/GoalEditStub", () => ({ GoalEditStub: ({ id }: { id: string | null }) => <p>goal edit {id ?? "new"}</p> }));
+vi.mock("./goals/GoalEditPage", () => ({ GoalEditPage: ({ id }: { id: string | null }) => <p>goal edit {id ?? "new"}</p> }));
 vi.mock("./groups/PublicGroupPage", () => ({ PublicGroupPage: ({ slug }: { slug: string }) => <p>public group page {slug}</p> }));
 vi.mock("./stats/StatsPage", () => ({ StatsPage: () => <p>stats page</p> }));
 vi.mock("./health/HealthPage", () => ({ HealthPage: () => <p>health page</p> }));

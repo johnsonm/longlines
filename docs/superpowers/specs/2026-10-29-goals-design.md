@@ -302,8 +302,31 @@ buttons); "Pick park" on a contact with no spot nearby offers the list's parks s
 "Choose park" the parks spotted around it; the Complete and Ended banners' actions work as drawn
 (Review connections opens `/connections`, Change dates the edit page, Copy for <year> opens the
 copy's edit page); a list no connection uses gets "Delete goal" on the success banner, since
-the "rule is now off" banner has nothing to say. Until PR 5, `/goals/new` and
-`/goals/:id/edit` show a placeholder (`GoalEditStub.tsx`).
+the "rule is now off" banner has nothing to say.
+
+PR 5 (the edit page, `GoalEditPage.tsx`, `RequirementEditor.tsx`, the pure `editModel.ts`),
+decisions Brad may revisit: the desktop follows the "Edit goal" frame (selects for Counts
+contacts and Mark entries worked, whose menus carry the edge frame's and the phone frame's captions)
+and the phone follows its frame (radios, a full-screen dialog with Back, the title and Save in the
+top bar); dates are native date fields holding UTC days; a new list starts as "New goal",
+Between dates for this UTC year, from the relay, with one US states requirement of all 50 states;
+Add requirement adds the first kind the list lacks on a desktop and offers a menu of the three kinds
+on a phone; a new band requirement starts with the canvas's six bands, a park requirement empty;
+changing a requirement's kind makes it anew; "At least" starts one short of the entries; every 50
+states show as one "All 50 states" chip (removing it removes them all) and the state field offers
+"All 50 states" first; bands are added from an "Add a band" field over `sources.ts` `BANDS`; the
+park field searches `searchReferences(q, "pota")` after 300 ms, and Enter adds any typed POTA
+reference; phones show three park chips or twelve others, then "+ N more", and open each add field
+from "Add states" / "Add parks" / "Add bands". The date warning words `preview_goal_window`'s answer
+for the draft's window: the entries a contact marks now (never a hand mark) that the save's
+recheck would leave needed, so an entry a later contact inside the new dates marks again is not
+named. Turning a relay list to By hand only warns from the same answer (`by_hand`). The page asks
+only while the window or marking differs from the loaded list (never for a new list), 400 ms
+after the last change, and never shows an answer for an older window; a failed preview shows no
+warning. "Long Lines only knows contacts since" shows while a relay list's
+window reaches back before `first_contact_at`; a new list has no `first_contact_at`, so it never
+shows there. The relay sentence of the marking help shows only while the relay is recent. "Delete
+goal" is at the foot of the edit page on a desktop too, so an active list can be deleted.
 
 ## PR order
 
@@ -514,6 +537,18 @@ Frame "Edge: changing dates, and contacts from before the relay" (desktop):
   Anything you worked before then isn't counted. Mark those entries worked by hand from the
   progress page.`
 - `[Cancel]` `[Save]`
+
+New copy on the edit page (PR 5; not on the canvas, Brad has not seen it): title and breadcrumb
+`New goal`; `(Add a band)`; the park search's `Not in the POTA list. Press Enter to add it
+anyway.` and `No parks match.`; `+ N more` with any count; `Created {name}` and `Saved changes`
+toasts; the date warning's variants `1 worked entry falls before the new start date`, `N worked
+entries fall after the new end date`, `N worked entries fall outside the new dates`, `{name} was
+worked in {month}. When you save, it goes back to needed and your connections start alerting for
+it again.`, five names then `and N more`, months with years across a new year; the switch to By
+hand only: `N worked entries came from your log` / `{names} were marked from contacts you logged.
+When you save, they go back to needed and your connections start alerting for them again. Mark
+them worked by hand from the progress page.`; the marking help without the relay sentence, and
+`Spots never mark an entry on their own.` alone for By hand only.
 
 ### Connection editor (PR 6)
 
