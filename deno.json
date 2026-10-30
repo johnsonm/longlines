@@ -24,6 +24,7 @@
   "lint": {
     "exclude": [
       "deno.d.ts",
+      "docs-site/",
       "node_modules/"
     ],
     "rules": {
@@ -35,6 +36,7 @@
   "fmt": {
     "exclude": [
       "deno.d.ts",
+      "docs-site/",
       "node_modules/"
     ],
     "lineWidth": 100

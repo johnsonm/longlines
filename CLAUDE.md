@@ -46,6 +46,8 @@ cd web && npm run build                # tsc -b + vite build; zero TS errors req
 cd web && npm run lint                 # oxlint
 cd web && npm run sender               # the outbound sender against the local stack (opt in; not part of dev:full)
 supabase gen types typescript --local > web/src/lib/database.types.ts   # after schema changes
+cd docs-site && npm run dev            # user docs site on http://localhost:4321 (npm ci first)
+cd docs-site && npm run build          # the docs site build CI runs
 
 SENDER_TEST_DATABASE_URL="$DB_URL" deno test -P sender/__tests__/db.test.ts   # the sender's RPC adapter against the local db (CI does this)
 PROFILE_LOCK_TEST_DATABASE_URL="$DB_URL" deno test -P supabase/functions/_shared/__tests__/profile_lock_db.test.ts   # the profile build lock with two sessions (CI does this)
@@ -533,6 +535,17 @@ editor.
 - `web/scripts/*.ts` are local-dev helpers behind the npm scripts, run by Node's built-in type
   stripping (erasable syntax only, `.ts` import extensions). They only talk to the local stack;
   `local-stack.ts` refuses a non-local API URL. Never add a script that deploys or pushes.
+
+## Documentation site rules
+
+- The user documentation site lives in `docs-site/` (Starlight), with its own `package.json` and
+  lockfile, outside every Deno and ESLint check.
+- Only `.github/workflows/deploy-docs.yml` deploys it: Astro's stock GitHub Pages workflow, kept
+  stock, publishing to GitHub Pages at docs.longlines.io on pushes to main. `ci.yml`'s `docs` job
+  builds it as a PR check.
+- `docs/` stays the internal docs (architecture, operations, specs) and is not the site.
+- The site is for end users of Long Lines and Long Lines Relay and imports nothing from the app.
+- Content and theming come in later phases.
 
 ## Source catalog rules
 

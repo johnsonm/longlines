@@ -38,6 +38,7 @@ feeds and `sender/` delivers.
 | `inbound/`, `sender/` | The two Fly.io processes |
 | `web/` | Vite, React and MUI web app |
 | `docs/` | Architecture, operations, webhooks and API |
+| `docs-site/` | User documentation site (Starlight), deployed to docs.longlines.io |
 
 ## Running it locally
 
@@ -52,6 +53,21 @@ npm run test:all     # every CI check, with a summary
 
 `web/package.json` lists the other scripts (`invoke:pota`, `db:match`, `sender`, `supabase:reset`
 and so on).
+
+## Documentation site
+
+`docs-site/` is the user documentation site, built with Starlight. It has its own `package.json`
+and lockfile, and nothing in it imports app code.
+
+```sh
+cd docs-site
+npm ci
+npm run dev          # the site on http://localhost:4321
+npm run build        # what CI builds on every PR
+```
+
+Every push to main deploys it to GitHub Pages at https://docs.longlines.io
+(`.github/workflows/deploy-docs.yml`).
 
 ## Linting the Deno code
 
