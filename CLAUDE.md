@@ -545,8 +545,9 @@ editor.
   builds it as a PR check.
 - `docs/` stays the internal docs (architecture, operations, specs) and is not the site.
 - The site is for end users of Long Lines and Long Lines Relay and imports nothing from the app.
-- There is no landing page: `/` redirects to Getting started (`redirects` in `astro.config.mjs`).
-  Never add an `index` page or a splash template back.
+- There is no landing page: Getting started is `index.md`, a plain doc page served at `/`. Never
+  make `/` a redirect (on GitHub Pages it is a meta-refresh page that flashes) or give it the
+  splash template. `/getting-started/` redirects to `/` for old links.
 - The look is the web app's: `docs-site/src/styles/theme.css` sets only Starlight's theme variables
   (`--sl-color-*`, `--sl-font`) to MUI's stock palette (the app's theme is stock, so its values are
   MUI's defaults: blue 700 / blue 200 primary, neutral greys, `#121212` dark background) and Roboto
