@@ -917,6 +917,9 @@ export interface Preview {
   station_count: number;
   // How many recent spots of the filter's sources were checked: "7 of the last 42 POTA spots".
   window_size: number;
+  // How many of those passed every other rule but were kept out by the goal rule ("29 more
+  // matched your other rules but were skipped"); null when the rules name no goal.
+  skipped_worked: number | null;
 }
 
 export async function previewSubscription(filter: SubscriptionFilter): Promise<Preview> {
@@ -928,6 +931,8 @@ export async function previewSubscription(filter: SubscriptionFilter): Promise<P
     spots: (row?.spots ?? []) as unknown as RecentSpot[],
     station_count: Number(row?.station_count ?? 0),
     window_size: Number(row?.window_size ?? 0),
+    // The generated type says number, but SQL returns null without a goal rule.
+    skipped_worked: row?.skipped_worked == null ? null : Number(row.skipped_worked),
   };
 }
 

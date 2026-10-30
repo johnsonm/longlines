@@ -52,7 +52,7 @@ const HOURLY = Array.from({ length: 168 }, (_, i) => ({
 
 beforeEach(() => {
   for (const fn of [deleteSubscription, setSubscriptionEnabled]) vi.mocked(fn).mockReset().mockResolvedValue(undefined);
-  vi.mocked(previewSubscription).mockReset().mockResolvedValue({ count: 3, spots: [], station_count: 0, window_size: 42 });
+  vi.mocked(previewSubscription).mockReset().mockResolvedValue({ count: 3, spots: [], station_count: 0, window_size: 42, skipped_worked: null });
   vi.mocked(listGroups).mockReset().mockResolvedValue([group("g1", "Friends"), group("g2", "RARS members")]);
   vi.mocked(useStats).mockReset().mockReturnValue({
     stats: { generatedAt: "2026-10-14T13:00:00Z", payload: { hourly: HOURLY } } as never, loading: false, error: null,

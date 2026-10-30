@@ -945,9 +945,11 @@ isOneToOne: true
                   ]
                 },"raw_spots": {
                   Row: {
-                    "band": string | null,"base_callsign": string | null,"callsign": string,"comment": string,"content_hash": string,"frequency_khz": number,"id": number,"ingested_at": string,"iota_reference": string | null,"iota_reference_name": string | null,"mode": string | null,"mode_family": string | null,"pota_location": string | null,"pota_park_name": string | null,"pota_reference": string | null,"raw_payload": NonNullable<Json>,"retracted_at": string | null,"sota_summit_ref": string | null,"source": string,"source_spot_id": string,"spot_time": string,"spotter": string | null,"wwbota_reference_name": string | null,"wwbota_references": (string)[] | null,"wwff_reference": string | null,"wwff_reference_name": string | null,"delivery_spot_json": Json | null
+                    "band": string | null,"base_callsign": string | null,"callsign": string,"comment": string,"content_hash": string,"frequency_khz": number,"id": number,"ingested_at": string,"iota_reference": string | null,"iota_reference_name": string | null,"mode": string | null,"mode_family": string | null,"pota_location": string | null,"pota_park_name": string | null,"pota_reference": string | null,"raw_payload": NonNullable<Json>,"retracted_at": string | null,"sota_summit_ref": string | null,"source": string,"source_spot_id": string,"spot_time": string,"spotter": string | null,"wwbota_reference_name": string | null,"wwbota_references": (string)[] | null,"wwff_reference": string | null,"wwff_reference_name": string | null,"delivery_spot_json": Json | null,"goal_spot_values": {
+              "kind": string,"value": string
+            } | null,"spot_us_states": (string)[] | null
                   }
-                  ComputedFields: "delivery_spot_json"
+                  ComputedFields: "delivery_spot_json" | "goal_spot_values" | "spot_us_states"
                   Insert: {
                     "band"?: string | null,"base_callsign"?: never,"callsign": string,"comment"?: string,"content_hash": string,"frequency_khz": number,"id"?: number,"ingested_at"?: string,"iota_reference"?: string | null,"iota_reference_name"?: string | null,"mode"?: string | null,"mode_family"?: string | null,"pota_location"?: string | null,"pota_park_name"?: string | null,"pota_reference"?: string | null,"raw_payload": NonNullable<Json>,"retracted_at"?: string | null,"sota_summit_ref"?: string | null,"source": string,"source_spot_id": string,"spot_time": string,"spotter"?: string | null,"wwbota_reference_name"?: string | null,"wwbota_references"?: (string)[] | null,"wwff_reference"?: string | null,"wwff_reference_name"?: string | null
                   }
@@ -1730,6 +1732,9 @@ isOneToOne: true
 "goal_mark":
 { Args: { "p_lists": (string)[],"p_spot_id": number,"p_user": string }; Returns: undefined
                            },
+"goal_matches":
+{ Args: { "p_list_id": string,"spot": Omit<Database["public"]['Tables']["raw_spots"]['Row'], Database["public"]['Tables']["raw_spots"]['ComputedFields']> }; Returns: boolean
+                           },
 "goal_park_state":
 { Args: { "p_license": string,"p_location": string }; Returns: string
                            },
@@ -1748,6 +1753,14 @@ isOneToOne: true
 "goal_requirement_progress":
 { Args: { "p_list_id": string }; Returns: {
               "at_least": number,"complete": boolean,"complete_when": string,"entries": number,"id": string,"kind": string,"position": number,"target": number,"worked": number
+            }[]
+                           },
+"goal_skips_worked":
+{ Args: { "p_list_id": string,"spot": Omit<Database["public"]['Tables']["raw_spots"]['Row'], Database["public"]['Tables']["raw_spots"]['ComputedFields']> }; Returns: boolean
+                           },
+"goal_spot_values":
+{ Args: { "spot": Omit<Database["public"]['Tables']["raw_spots"]['Row'], Database["public"]['Tables']["raw_spots"]['ComputedFields']> }; Returns: {
+              "kind": string,"value": string
             }[]
                            },
 "goal_status":
@@ -2012,7 +2025,7 @@ isOneToOne: true
                            },
 "preview_subscription":
 { Args: { "filter": Json }; Returns: {
-              "count": number,"spots": Json,"station_count": number,"window_size": number
+              "count": number,"skipped_worked": number,"spots": Json,"station_count": number,"window_size": number
             }[]
                            },
 "preview_webhook_request":
@@ -2279,6 +2292,9 @@ isOneToOne: true
                            },
 "spot_source_url":
 { Args: { "p_spot": Json }; Returns: string
+                           },
+"spot_us_states":
+{ Args: { "spot": Omit<Database["public"]['Tables']["raw_spots"]['Row'], Database["public"]['Tables']["raw_spots"]['ComputedFields']> }; Returns: (string)[]
                            },
 "stage_reference_rows":
 { Args: { "p_load": number,"p_rows": Json }; Returns: number

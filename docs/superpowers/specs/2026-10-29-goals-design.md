@@ -197,10 +197,25 @@ a hand mark or a retraction).
   needed entry the spot matches (band = `spot.band`; park = upper(`spot.pota_reference`); state in
   `spot_us_states(spot)`). `marking` has no effect on matching. A goal names no stations, so
   `rules_name_stations`, `watched_among` and the RBN guard stay as they are.
+- `spot_us_states(spot)`: zero or one state. A spot with a POTA reference gives
+  `goal_park_state(pota_location, license state of the spotted base call)`, marking's rule for a
+  contact with one park (decision 4): a park in one US state gives it; a park on a state line gives
+  the license state only when it is one of the park's, else none, so a `US-NC,US-VA` trail
+  activated by a station licensed in TX alerts for neither; a park outside the US (or without a
+  location) gives none. Only a spot without a POTA reference gives the US license state alone. A
+  connection so alerts only for a state working the station could mark.
 - `save_subscription` locks the named lists `for key share`; `delete_goal` takes `for
   update` and refuses with LL409 'Remove it from its connections first.'
 - `preview_subscription` gains `skipped_worked`: spots its other rules pass that the goal
   rule skipped ("N more matched your other rules but were skipped. You've already worked those.").
+  It counts only what the copy says, work already done: a recent spot that is not matched, but
+  that some group passes with its `goal` rules taken out (a group left empty passes, through
+  `spot_matches`, so the RBN guard holds), where every `goal` rule of that group that
+  rejects the spot does so by `goal_skips_worked(list, spot)`: the list is active, the spot
+  hits no still-needed entry of an incomplete requirement, but hits an entry that is worked or in
+  a complete requirement. A spot at a park, band or state the list does not chase is never
+  counted. Null when the rules name no list. A new return type, so the function is dropped,
+  recreated and granted again.
 
 ## RPCs (PR 1)
 

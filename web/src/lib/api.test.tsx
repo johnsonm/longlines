@@ -731,11 +731,13 @@ describe("subscriptions", () => {
   });
 
   it("previewSubscription normalizes the RPC row", async () => {
-    fake.rpcs.set("preview_subscription", { data: [{ count: "7", spots: [{ id: 1 }], station_count: "12", window_size: "42" }] });
-    expect(await api.previewSubscription(input)).toEqual({ count: 7, spots: [{ id: 1 }], station_count: 12, window_size: 42 });
+    fake.rpcs.set("preview_subscription", { data: [{ count: "7", spots: [{ id: 1 }], station_count: "12", window_size: "42", skipped_worked: "29" }] });
+    expect(await api.previewSubscription(input)).toEqual({ count: 7, spots: [{ id: 1 }], station_count: 12, window_size: 42, skipped_worked: 29 });
     expect(fake.client.rpc).toHaveBeenCalledWith("preview_subscription", { filter: input });
+    fake.rpcs.set("preview_subscription", { data: [{ count: "3", spots: [], station_count: "0", window_size: "5", skipped_worked: null }] });
+    expect((await api.previewSubscription(input)).skipped_worked).toBeNull();
     fake.rpcs.set("preview_subscription", { data: [] });
-    expect(await api.previewSubscription(input)).toEqual({ count: 0, spots: [], station_count: 0, window_size: 0 });
+    expect(await api.previewSubscription(input)).toEqual({ count: 0, spots: [], station_count: 0, window_size: 0, skipped_worked: null });
     fake.rpcs.set("preview_subscription", { error: boom });
     await expect(api.previewSubscription(input)).rejects.toThrow("boom");
   });
