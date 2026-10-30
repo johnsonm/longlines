@@ -284,6 +284,15 @@ editor offers the `goal` field with op `is` labelled "is in", a source warning w
 can never match the connection's source (parks match only `pota`), and the preview line from
 `skipped_worked`.
 
+PR 4 (index and progress page), decisions Brad may revisit: a still-needed chip opens a menu with
+"Mark as worked" (the brief asks for marking any entry by hand; the canvas draws the chips as
+buttons); "Pick park" on a contact with no spot nearby offers the list's parks still needed,
+"Choose park" the parks spotted around it; the Complete and Ended banners' actions work as drawn
+(Review connections opens `/connections`, Change dates the edit page, Copy for <year> opens the
+copy's edit page); a list no connection uses gets "Delete goal" on the success banner, since
+the "rule is now off" banner has nothing to say. Until PR 5, `/goals/new` and
+`/goals/:id/edit` show a placeholder (`GoalEditStub.tsx`).
+
 ## PR order
 
 1. Spec + schema + marking (this file, the migration, `logged.ts`, pgTAP). Hosted: db push, then

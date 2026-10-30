@@ -969,6 +969,16 @@ rule in the connection editor.
 - `get_goal`'s shape is `GoalProgress` (`web/src/goals/types.ts`), pinned by
   `supabase/tests/goals.test.sql`; change the SQL, the type and the test together. Every
   count is SQL's (`goal_requirement_progress`: a requirement's worked count up to its target).
+- The web (`web/src/goals/`) only words SQL's payloads: `list_goals` for `/goals`
+  (Finished holds complete and ended lists) and `get_goal` for `/goals/:id`. Every
+  count, status, mark and the Used by list come from them; `model.ts` words them, times in UTC, and
+  never counts entries itself. A change (Mark as worked from a chip, Mark as needed, Pick park /
+  Choose park / Not a park contact) calls its RPC and then reloads the page; Pick park (no spot near
+  the contact) offers the parks still needed in incomplete park requirements, Choose park the
+  review's candidates. The relay banner's Dismiss for 7 days is per viewer in `localStorage`
+  (`longlines.goalRelayDismissed.<id>`), read and written through guarded helpers; never put list
+  state there. Delete goes through `useDeleteGoal`: the "Can't delete" dialog while `used_by`
+  is not empty, `ConfirmDeleteDialog` otherwise, and an LL409 reloads and shows the dialog.
 
 ## Group statistics rules
 
