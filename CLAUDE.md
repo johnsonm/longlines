@@ -929,8 +929,8 @@ rule in the connection editor.
   same way, in `goal_mark` for both the live path and a recheck); else the license state. A
   review opens only while a park requirement is incomplete, so on any other list a rove across
   states marks no state: the one exception to the canvas's "States and bands never need a look".
-  Change the layers only with the matcher's `spot_us_states` (PR 2). Never mark or derive any of
-  it in TypeScript.
+  Change the layers only with the matcher's `spot_us_states`. Never mark or derive any of it in
+  TypeScript.
 - `preview_goal_window(id, starts_on, ends_on, marking)` tells the editor what a save would
   undo (contact-worked entries that would be needed, with `before_start`, `after_end` or
   `by_hand`) by applying the window and running `goal_recheck` in a block that always raises a
@@ -948,7 +948,19 @@ rule in the connection editor.
 - A connection names a list only in its rules (`{field: "goal", op: "is", values: [id]}`);
   there is no `goal_ids` column. `rules_goal_ids` is the one reader (delete guard,
   `connection_count`, `used_by`); `delete_goal` refuses with LL409 while any of the owner's
-  connections names the list.
+  connections names the list, and `save_subscription` takes a `for key share` lock on the lists
+  its rules name (as on groups), so the two cannot cross.
+- The rule (`goal`, op `is` only, exactly one list, the owner's: strict
+  `normalize_subscription_rules` raises "Goal not found.", the preview's non-strict pass
+  keeps only an owned id) is matched only by `goal_matches` from `rule_matches`. A missing,
+  complete or ended list passes every spot (the rule is off); otherwise a spot passes when it
+  matches a still-needed entry of a requirement that is not complete: `band`, upper-cased
+  `pota_reference`, or a state in `spot_us_states` (every US state of a POTA spot's location, else
+  the base call's US license state). `marking` never affects matching. A goal names no
+  stations: `rules_name_stations`, `watched_among` and the RBN guard ignore it.
+- `preview_subscription.skipped_worked` is SQL's: the recent spots that pass the rules with every
+  `goal` rule taken out (a group left empty passes), minus the matched ones; null when the
+  rules name no list. The web only words it.
 - `get_goal`'s shape is `GoalProgress` (`web/src/goals/types.ts`), pinned by
   `supabase/tests/goals.test.sql`; change the SQL, the type and the test together. Every
   count is SQL's (`goal_requirement_progress`: a requirement's worked count up to its target).

@@ -197,10 +197,16 @@ a hand mark or a retraction).
   needed entry the spot matches (band = `spot.band`; park = upper(`spot.pota_reference`); state in
   `spot_us_states(spot)`). `marking` has no effect on matching. A goal names no stations, so
   `rules_name_stations`, `watched_among` and the RBN guard stay as they are.
+- `spot_us_states(spot)` is every US state (`us_states()` codes) in a POTA spot's
+  `pota_location`, so a park on a state line serves both states' needs, else the US license state
+  of the spotted base call. A park outside the US falls back to the license, as marking does.
 - `save_subscription` locks the named lists `for key share`; `delete_goal` takes `for
   update` and refuses with LL409 'Remove it from its connections first.'
 - `preview_subscription` gains `skipped_worked`: spots its other rules pass that the goal
   rule skipped ("N more matched your other rules but were skipped. You've already worked those.").
+  It is the count of recent spots passing the rules with every `goal` rule removed (a group
+  left empty passes), minus the matched count; null when the rules name no list. A new return
+  type, so the function is dropped, recreated and granted again.
 
 ## RPCs (PR 1)
 
