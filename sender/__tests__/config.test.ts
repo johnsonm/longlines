@@ -45,6 +45,7 @@ Deno.test(
       statsMs: DEFAULT_STATS_MS,
       vapid: undefined,
       allowInsecure: false,
+      sentry: null,
     });
     assertEquals([DEFAULT_POLL_MS, DEFAULT_STALE_MS, DEFAULT_STATS_MS], [5_000, 120_000, 60_000]);
     assertEquals(

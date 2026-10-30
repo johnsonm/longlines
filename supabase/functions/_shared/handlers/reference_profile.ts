@@ -20,6 +20,7 @@ import { DEFAULT_METHODS, json, preflightResponse } from "../cors.ts";
 import { ValidationError } from "../errors.ts";
 import { parseWith } from "../validate.ts";
 import { lookupLimit, PROFILE_CACHE_CONTROL } from "./callsign_profile.ts";
+import { logError } from "../sentry.ts";
 
 export const REFERENCE_NOT_FOUND = "Reference not found.";
 export const REFERENCE_UNAVAILABLE = "Reference pages are unavailable right now.";
@@ -378,7 +379,7 @@ export async function handleReferenceProfile(
     p_reference: reference,
   });
   if (found.error !== null) {
-    console.error(`reference-profile: ${found.error.message}`);
+    logError(`reference-profile: ${found.error.message}`, found.error);
     return json({ error: REFERENCE_UNAVAILABLE }, 500, {});
   }
   let profile: ReferenceProfile | null;
@@ -393,7 +394,7 @@ export async function handleReferenceProfile(
       throw error;
     }
     // The message names the reader and the fields, never the reference.
-    console.error(`reference-profile: ${error.message}`);
+    logError(`reference-profile: ${error.message}`, error);
     return json({ error: REFERENCE_UNAVAILABLE }, 500, {});
   }
   // Null: neither in the program's list nor in any spot.

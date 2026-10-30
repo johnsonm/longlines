@@ -89,6 +89,7 @@ export default tseslint.config(
           "ValidationError",
           "FunctionCallError",
           "ConfigError",
+          "LoggedError",
           "TimeoutError",
           "CatalogImportError",
           "ClaimError",

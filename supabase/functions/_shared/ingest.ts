@@ -15,6 +15,7 @@ import type {
   SourceAdapter,
   SpotFailure,
 } from "./types.ts";
+import { logError } from "./sentry.ts";
 
 function errorMessage(error: unknown): string {
   if (error instanceof Error) {
@@ -76,7 +77,7 @@ export async function recordFailureAndThrow(
     if (!(recordError instanceof FunctionCallError)) {
       throw recordError;
     }
-    console.error(`ingest-${source}: recording the failure failed: ${recordError.message}`);
+    logError(`ingest-${source}: recording the failure failed: ${recordError.message}`, recordError);
   }
   throw error;
 }
@@ -170,7 +171,7 @@ export async function runIngest(
           throw error;
         }
         summary.match_error = error.message;
-        console.error(`ingest-${adapter.source}: matcher failed: ${summary.match_error}`);
+        logError(`ingest-${adapter.source}: matcher failed: ${summary.match_error}`, undefined);
       }
     }
 

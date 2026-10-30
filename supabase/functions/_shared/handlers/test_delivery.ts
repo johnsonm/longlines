@@ -31,6 +31,7 @@ import {
 } from "../delivery/types.ts";
 import { ValidationError } from "../errors.ts";
 import { parseWith } from "../validate.ts";
+import { logError } from "../sentry.ts";
 
 export interface SendTestDeps {
   admin: () => SupabaseClient;
@@ -114,7 +115,7 @@ export async function handleSendTest(
       p_destination_id: destinationId,
     });
     if (limit.error !== null) {
-      console.error(`send-test: record_send_test failed: ${limit.error.message}`);
+      logError(`send-test: record_send_test failed: ${limit.error.message}`, limit.error);
       return json({ error: "Couldn't load that destination." }, 500, {});
     }
     let allowed: boolean | null;
@@ -268,7 +269,7 @@ function couldNotLoad(error: unknown): Response {
   if (!(error instanceof ValidationError)) {
     throw error;
   }
-  console.error(`send-test: ${error.message}`);
+  logError(`send-test: ${error.message}`, error);
   return json({ error: "Couldn't load that destination." }, 500, {});
 }
 
@@ -308,7 +309,7 @@ export async function sendTestTo(
   const data: unknown = loaded.data;
   const error = loaded.error;
   if (error !== null) {
-    console.error(`send-test: loading destination ${destinationId} failed: ${error.message}`);
+    logError(`send-test: loading destination ${destinationId} failed: ${error.message}`, error);
     return json({ error: "Couldn't load that destination." }, 500, {});
   }
   if (data === null) {
@@ -349,7 +350,7 @@ export async function sendTestTo(
   const rpc = testRpc.rpc;
   const test = await admin.rpc(rpc, { p_destination_id: destination.id, p_spot_id: spotId });
   if (test.error !== null) {
-    console.error(`send-test: ${rpc} failed: ${test.error.message}`);
+    logError(`send-test: ${rpc} failed: ${test.error.message}`, test.error);
     return json({ error: "Couldn't load that destination." }, 500, {});
   }
   let spot: DeliverySpot | null;
@@ -378,7 +379,7 @@ export async function sendTestTo(
     const bookkeeping = await admin.rpc(fn, args);
     const rpcError = bookkeeping.error;
     if (rpcError !== null) {
-      console.error(`send-test: ${fn} failed: ${rpcError.message}`);
+      logError(`send-test: ${fn} failed: ${rpcError.message}`, rpcError);
     }
   }
 

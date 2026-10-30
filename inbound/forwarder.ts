@@ -4,6 +4,7 @@
 // the buffer is bounded (50,000 lines, about 50 minutes of RBN) so a long
 // Supabase outage cannot exhaust memory.
 
+import { reportError } from "../supabase/functions/_shared/sentry.ts";
 import type { InboundLine } from "./functions.ts";
 
 export interface ForwarderOptions {
@@ -188,7 +189,9 @@ export class Forwarder {
       if (!(error instanceof Error)) {
         throw error;
       }
-      if (this.#retryMs === 0) {
+      // One report per streak: the backoff would repeat it every minute of an outage.
+      const firstFailure = this.#retryMs === 0;
+      if (firstFailure) {
         this.#retryMs = this.#opts.retryMinMs;
       } else {
         this.#retryMs = Math.min(this.#retryMs * 2, this.#opts.retryMaxMs);
@@ -199,6 +202,9 @@ export class Forwarder {
           String(this.#retryMs / 1000)
         } s): ${error.message}`,
       );
+      if (firstFailure) {
+        reportError(`push failed: ${error.message}`, error);
+      }
       return false;
     }
   }

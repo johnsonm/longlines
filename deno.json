@@ -5,6 +5,7 @@
   },
   "nodeModulesDir": "none",
   "imports": {
+    "@sentry/deno": "npm:@sentry/deno@11.10.0",
     "@supabase/supabase-js": "npm:@supabase/supabase-js@2.117.2",
     "@std/assert": "jsr:@std/assert@1",
     "@std/yaml": "jsr:@std/yaml@1",
@@ -45,6 +46,10 @@
       ],
       "env": [
         "LONGLINES_USER_AGENT_URL",
+        "SENTRY_DSN",
+        "SENTRY_ENVIRONMENT",
+        "SENTRY_RELEASE",
+        "FLY_IMAGE_REF",
         "SENDER_TEST_DATABASE_URL",
         "PROFILE_LOCK_TEST_DATABASE_URL",
         "PGAPPNAME",

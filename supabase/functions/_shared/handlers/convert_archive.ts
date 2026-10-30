@@ -10,6 +10,7 @@ import { createConvertDb } from "../db.ts";
 import { ValidationError } from "../errors.ts";
 import { performanceClock, timed } from "../timing.ts";
 import type { ArchiveObjectStore } from "../types.ts";
+import { logError } from "../sentry.ts";
 
 export interface ConvertArchiveDeps {
   serviceRoleKey: string | undefined;
@@ -31,7 +32,7 @@ function failure(error: unknown, status: number, prefix: string): Response {
     message = String(error);
   }
   if (status >= 500) {
-    console.error(message);
+    logError(message, error);
   }
   return Response.json({ error: `${prefix}${message}` }, { status });
 }

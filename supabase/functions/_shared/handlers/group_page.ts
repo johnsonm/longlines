@@ -22,6 +22,7 @@ import { ValidationError } from "../errors.ts";
 import type { JsonObject } from "../types.ts";
 import { parseWith } from "../validate.ts";
 import { inboundedPayloadSchema, lookupLimit } from "./callsign_profile.ts";
+import { logError } from "../sentry.ts";
 
 export const PAGE_PRIVATE = "private";
 export const GROUP_PAGE_UNAVAILABLE = "This page is unavailable right now.";
@@ -72,7 +73,7 @@ export async function handleGroupPage(req: Request, deps: GroupPageDeps): Promis
   const page = await db.rpc("public_group_statistics", { p_slug: slug, p_period: period });
   if (page.error !== null) {
     // The code is a capability: never log it.
-    console.error(`group-page: ${page.error.message}`);
+    logError(`group-page: ${page.error.message}`, page.error);
     return json({ error: GROUP_PAGE_UNAVAILABLE }, 500, NO_STORE);
   }
   let payload: JsonObject | null;
@@ -87,7 +88,7 @@ export async function handleGroupPage(req: Request, deps: GroupPageDeps): Promis
       throw error;
     }
     // The message names the reader and the input, never the code.
-    console.error(`group-page: ${error.message}`);
+    logError(`group-page: ${error.message}`, error);
     return json({ error: GROUP_PAGE_UNAVAILABLE }, 500, NO_STORE);
   }
   // Null: unknown, or not public.

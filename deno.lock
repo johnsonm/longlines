@@ -6,6 +6,7 @@
     "jsr:@std/yaml@1": "1.3.0",
     "npm:@jsr/std__assert@1.0.19": "1.0.19",
     "npm:@jsr/std__yaml@1.3.0": "1.3.0",
+    "npm:@sentry/deno@11.10.0": "11.10.0",
     "npm:@supabase/supabase-js@2.117.2": "2.117.2",
     "npm:@types/node@26.6.5": "26.6.5",
     "npm:eslint@10.13.0": "10.13.0_jiti@2.7.0",
@@ -136,6 +137,43 @@
     },
     "@keyv/serialize@1.1.1": {
       "integrity": "sha512-dXn3FZhPv0US+7dtJsIi2R+c7qWYiReoEh5zUntWCf4oSpMNib8FDhSoed6m3QyZdx5hK7iLFkYk3rNxwt8vTA=="
+    },
+    "@opentelemetry/api@1.9.1": {
+      "integrity": "sha512-gLyJlPHPZYdAk1JENA9LeHejZe1Ti77/pTeFm/nMXmQH/HFZlcS/O2XJB+L8fkbrNSqhdtlvjBVjxwUYanNH5Q=="
+    },
+    "@sentry/conventions@0.29.0": {
+      "integrity": "sha512-kYq9/HJ/l6MYP/srIc20dy1W4mWyJfCF0OWFF+RhBGZwyr/wCmtabRFKyw7kqM+DTwZXQOjSTSZUcJhDowcInQ=="
+    },
+    "@sentry/core@11.10.0": {
+      "integrity": "sha512-l/OtTo1v+TQgZtHG2Q5N4IX+gFdAE1tZ27K/P21UCzJglWk54TPEm+d9T2lulPqMK06kZcLwDgRAhE2GO4YS5w==",
+      "dependencies": [
+        "@sentry/conventions"
+      ]
+    },
+    "@sentry/deno@11.10.0": {
+      "integrity": "sha512-dY7gwFSLS9euiKRQXV5n9QSJPXCeNYch5W3Z/53o13Grptc4TJ+6X/ZDGgdfiIf+pH7iAsYOR64bBvVWbPgtCA==",
+      "dependencies": [
+        "@opentelemetry/api",
+        "@sentry/conventions",
+        "@sentry/core",
+        "@sentry/server-runtime-injection",
+        "@sentry/server-utils"
+      ]
+    },
+    "@sentry/server-runtime-injection@11.10.0": {
+      "integrity": "sha512-1nc+HNPldrPEov16sL5m2cOLVgNJ+FsR7QtaWGOOv8qYFJkSp95lyc2qzLnaG2L72UzSMOv10peGRioAKrrZQQ==",
+      "dependencies": [
+        "@sentry/core",
+        "@sentry/server-utils"
+      ]
+    },
+    "@sentry/server-utils@11.10.0": {
+      "integrity": "sha512-m/MVCvPzQJJZZCTFlVPCrTuoncT7SR80+QKg1K7ul25AsL0byABr5KsHCbXVpOYXLVz04Omk+pOOR5Cv2IAlrA==",
+      "dependencies": [
+        "@opentelemetry/api",
+        "@sentry/conventions",
+        "@sentry/core"
+      ]
     },
     "@supabase/auth-js@2.117.2": {
       "integrity": "sha512-Z3WnGwrphYZubrLbxp5Iv0tLA9A5GhvKzJ/ZXglxqwd2QEH2R4dXRltjVJ8sIn4xEW2BSFIGT0yALVJIgZeDYw==",
@@ -695,6 +733,7 @@
     "dependencies": [
       "jsr:@std/assert@1",
       "jsr:@std/yaml@1",
+      "npm:@sentry/deno@11.10.0",
       "npm:@supabase/supabase-js@2.117.2",
       "npm:hyparquet-writer@0.16.10",
       "npm:hyparquet@1.31.1",
@@ -705,6 +744,7 @@
       "dependencies": [
         "npm:@jsr/std__assert@1.0.19",
         "npm:@jsr/std__yaml@1.3.0",
+        "npm:@sentry/deno@11.10.0",
         "npm:@supabase/supabase-js@2.117.2",
         "npm:@types/node@26.6.5",
         "npm:eslint@10.13.0",

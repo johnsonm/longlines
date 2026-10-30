@@ -9,6 +9,7 @@ import { parseCty } from "../cty.ts";
 import { loadCty } from "../db.ts";
 import { ValidationError } from "../errors.ts";
 import { performanceClock, timed } from "../timing.ts";
+import { logError } from "../sentry.ts";
 
 // cty.dat lists about 340 DXCC entities. Fewer means a truncated or wrong file;
 // loading it would leave spotters without a country.
@@ -59,7 +60,7 @@ async function importCty(req: Request, deps: ImportCtyDeps): Promise<Response> {
     } else {
       message = String(err);
     }
-    console.error(`import-cty: ${message}`);
+    logError(`import-cty: ${message}`, err);
     return Response.json({ error: message }, { status: 500 });
   }
 }

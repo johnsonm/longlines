@@ -570,6 +570,7 @@ Deno.test(
         healthPort: 0,
         licenseZipUrl: url,
         catalogUrls: null,
+        sentry: null,
       },
       [],
       {

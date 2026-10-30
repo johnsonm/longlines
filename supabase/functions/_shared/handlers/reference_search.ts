@@ -26,6 +26,7 @@ import {
   type ReferenceProgram,
   referenceProgramSchema,
 } from "./reference_profile.ts";
+import { logError } from "../sentry.ts";
 
 /** Fewest characters in a trimmed query, as search_references counts them. */
 export const MIN_QUERY_LENGTH = 2;
@@ -154,7 +155,7 @@ export async function handleReferenceSearch(
 
   const found = await db.rpc("search_references", { p_query: query, p_program: program });
   if (found.error !== null) {
-    console.error(`reference-search: ${found.error.message}`);
+    logError(`reference-search: ${found.error.message}`, found.error);
     return json({ error: SEARCH_UNAVAILABLE }, 500, {});
   }
   let search: ReferenceSearch | null;
@@ -169,7 +170,7 @@ export async function handleReferenceSearch(
       throw error;
     }
     // The message names the reader and the fields, never the query.
-    console.error(`reference-search: ${error.message}`);
+    logError(`reference-search: ${error.message}`, error);
     return json({ error: SEARCH_UNAVAILABLE }, 500, {});
   }
   // Null: SQL refused the query after all (its word split differs on some whitespace).

@@ -1,6 +1,7 @@
 // Inbound configuration from the environment (Fly secrets in production).
 
 import { ConfigError } from "../supabase/functions/_shared/errors.ts";
+import { type SentryConfig, sentryConfigFromEnv } from "../supabase/functions/_shared/sentry.ts";
 import type { ReferenceProgram } from "../supabase/functions/_shared/reference_catalog.ts";
 
 /** The FCC's weekly full amateur license file (inbound/licenses.ts). */
@@ -28,6 +29,8 @@ export interface InboundConfig {
   licenseZipUrl: string | null;
   /** The lists the weekly reference load reads (inbound/catalogs.ts); null when it is off. */
   catalogUrls: CatalogUrls | null;
+  /** SENTRY_DSN (project longlines-inbound) and friends; null when error reporting is off. */
+  sentry: SentryConfig | null;
 }
 
 /** Hosts allowed over plain http: local development only. */
@@ -133,5 +136,6 @@ export function loadConfig(env: (name: string) => string | undefined): InboundCo
     healthPort: port,
     licenseZipUrl: licenseZipUrl(env("INBOUND_LICENSES"), local),
     catalogUrls: catalogUrls(env("INBOUND_CATALOGS"), local),
+    sentry: sentryConfigFromEnv(env),
   };
 }

@@ -10,6 +10,7 @@ import { loadIotaGroups } from "../db.ts";
 import { ValidationError } from "../errors.ts";
 import { MIN_IOTA_GROUPS, parseIotaGroups } from "../iota.ts";
 import { performanceClock, timed } from "../timing.ts";
+import { logError } from "../sentry.ts";
 
 export interface ImportIotaDeps {
   serviceRoleKey: string | undefined;
@@ -52,7 +53,7 @@ async function importIota(req: Request, deps: ImportIotaDeps): Promise<Response>
     } else {
       message = String(err);
     }
-    console.error(`import-iota: ${message}`);
+    logError(`import-iota: ${message}`, err);
     return Response.json({ error: message }, { status: 500 });
   }
 }
