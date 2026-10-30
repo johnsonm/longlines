@@ -33,7 +33,9 @@ select set_eq(
         'save_webhook_destination', 'get_webhook_destination', 'list_webhook_destination_settings',
         'preview_webhook_request',
         'save_local_cluster_destination', 'get_local_cluster_destination', 'list_local_cluster_destination_settings',
-        'preview_local_cluster_line'],
+        'preview_local_cluster_line',
+        'list_goals', 'get_goal', 'save_goal', 'delete_goal', 'mark_goal_entry',
+        'resolve_goal_review', 'copy_goal'],
   'authenticated may execute only the client RPCs');
 
 select set_eq(
