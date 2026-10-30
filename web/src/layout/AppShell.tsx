@@ -10,6 +10,7 @@ import SensorsIcon from "@mui/icons-material/Sensors";
 import GraphicEqIcon from "@mui/icons-material/GraphicEq";
 import FilterListIcon from "@mui/icons-material/FilterList";
 import GroupsIcon from "@mui/icons-material/Groups";
+import ChecklistIcon from "@mui/icons-material/Checklist";
 import SendIcon from "@mui/icons-material/Send";
 import InsightsIcon from "@mui/icons-material/Insights";
 import MonitorHeartIcon from "@mui/icons-material/MonitorHeart";
@@ -35,6 +36,7 @@ const NAV = [
   { id: "connections", label: "Connections", icon: <FilterListIcon />, open: false },
   { id: "destinations", label: "Destinations", icon: <SendIcon />, open: false },
   { id: "groups", label: "Groups", icon: <GroupsIcon />, open: false },
+  { id: "goals", label: "Goals", icon: <ChecklistIcon />, open: false },
   { id: "band-map", label: "Band map", icon: <GraphicEqIcon />, open: true },
   { id: "lookup", label: "Callsign lookup", icon: <PersonSearchIcon />, open: true },
   // Its id is the section, so /ref and every /ref/<program>/<reference> page highlight it.

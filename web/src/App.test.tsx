@@ -74,6 +74,9 @@ vi.mock("./subscriptions/SubscriptionEditorPage", () => ({
 }));
 vi.mock("./groups/GroupsPage", () => ({ GroupsPage: () => <p>groups page</p> }));
 vi.mock("./groups/GroupPage", () => ({ GroupPage: ({ id, tab }: { id: string; tab: string }) => <p>group page {id} {tab}</p> }));
+vi.mock("./goals/GoalsPage", () => ({ GoalsPage: () => <p>goals page</p> }));
+vi.mock("./goals/GoalPage", () => ({ GoalPage: ({ id }: { id: string }) => <p>goal page {id}</p> }));
+vi.mock("./goals/GoalEditStub", () => ({ GoalEditStub: ({ id }: { id: string | null }) => <p>goal edit {id ?? "new"}</p> }));
 vi.mock("./groups/PublicGroupPage", () => ({ PublicGroupPage: ({ slug }: { slug: string }) => <p>public group page {slug}</p> }));
 vi.mock("./stats/StatsPage", () => ({ StatsPage: () => <p>stats page</p> }));
 vi.mock("./health/HealthPage", () => ({ HealthPage: () => <p>health page</p> }));
@@ -429,6 +432,10 @@ describe("App routing", () => {
     ["/groups", "groups page"],
     ["/groups/g1", "group page g1 statistics"],
     ["/groups/g1/settings", "group page g1 settings"],
+    ["/goals", "goals page"],
+    ["/goals/new", "goal edit new"],
+    ["/goals/n1", "goal page n1"],
+    ["/goals/n1/edit", "goal edit n1"],
     ["/account", "account page"],
   ])("renders %s", async (path, text) => {
     renderAt(path);

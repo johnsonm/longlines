@@ -26,6 +26,9 @@ import { SubscriptionEditorPage } from "./subscriptions/SubscriptionEditorPage";
 import { GroupsPage } from "./groups/GroupsPage";
 import { GroupPage } from "./groups/GroupPage";
 import { PublicGroupPage } from "./groups/PublicGroupPage";
+import { GoalsPage } from "./goals/GoalsPage";
+import { GoalPage } from "./goals/GoalPage";
+import { GoalEditStub } from "./goals/GoalEditStub";
 import { StatsPage } from "./stats/StatsPage";
 import { BandMapPage } from "./bandmap/BandMapPage";
 import { HealthPage } from "./health/HealthPage";
@@ -85,6 +88,10 @@ function Router() {
       <Route path="/groups" element={<RequireAuth page="groups" />} />
       <Route path="/groups/:id" element={<RequireAuth page="group" />} />
       <Route path="/groups/:id/settings" element={<RequireAuth page="group-settings" />} />
+      <Route path="/goals" element={<RequireAuth page="goals" />} />
+      <Route path="/goals/new" element={<RequireAuth page="goal-new" />} />
+      <Route path="/goals/:id" element={<RequireAuth page="goal" />} />
+      <Route path="/goals/:id/edit" element={<RequireAuth page="goal-edit" />} />
       <Route path="/destinations" element={<RequireAuth page="destinations" />} />
       <Route path="/destinations/new" element={<RequireAuth page="destination-new" />} />
       <Route path="/destinations/:id" element={<RequireAuth page="destination" />} />
@@ -147,7 +154,7 @@ function PublicOnly({ children }: { children: ReactNode }) {
   return children;
 }
 
-type Page = "home" | "sources" | "source" | "band-map" | "subscriptions" | "subscription-new" | "subscription" | "groups" | "group" | "group-settings" | "destinations" | "destination-new" | "destination" | "stats" | "health" | "lookup" | "call" | "ref-lookup" | "ref" | "account" | "api-tokens" | "group-public" | "relay-approve";
+type Page = "home" | "sources" | "source" | "band-map" | "subscriptions" | "subscription-new" | "subscription" | "groups" | "group" | "group-settings" | "goals" | "goal-new" | "goal" | "goal-edit" | "destinations" | "destination-new" | "destination" | "stats" | "health" | "lookup" | "call" | "ref-lookup" | "ref" | "account" | "api-tokens" | "group-public" | "relay-approve";
 type PublicPage = "band-map" | "stats" | "health" | "lookup" | "call" | "ref-lookup" | "ref" | "group-public";
 
 // Signed-out visitors read profiles in UTC.
@@ -215,6 +222,13 @@ function PublicGroupRoute() {
 function GroupRoute({ tab }: { tab: "statistics" | "settings" }) {
   const { id } = useParams();
   return id ? <GroupPage key={id} id={id} tab={tab} /> : <Navigate to="/groups" replace />;
+}
+
+/** A goal's pages take its id as a prop, so their tests need no router params. */
+function GoalRoute({ edit }: { edit: boolean }) {
+  const { id } = useParams();
+  if (!id) return <Navigate to="/goals" replace />;
+  return edit ? <GoalEditStub key={id} id={id} /> : <GoalPage key={id} id={id} />;
 }
 
 /** The editor takes its id or source as props, so its tests need no router params. */
@@ -322,6 +336,9 @@ function SignedIn({ page }: { page: Page }) {
       {page === "groups" && <GroupsPage />}
       {/* One slot for both tabs, so switching tabs keeps the page and its loaded statistics. */}
       {(page === "group" || page === "group-settings") && <GroupRoute tab={page === "group" ? "statistics" : "settings"} />}
+      {page === "goals" && <GoalsPage />}
+      {page === "goal-new" && <GoalEditStub id={null} />}
+      {(page === "goal" || page === "goal-edit") && <GoalRoute edit={page === "goal-edit"} />}
       {page === "destinations" && <DestinationsPage dests={dests} subs={subs} loading={loading} reload={reload} />}
       {(page === "destination-new" || page === "destination") && (
         <DestinationRoute dests={dests} loading={loading} reload={reload} mobile={mobile} />
