@@ -17,6 +17,7 @@ import MonitorHeartIcon from "@mui/icons-material/MonitorHeart";
 import PersonSearchIcon from "@mui/icons-material/PersonSearch";
 import TravelExploreIcon from "@mui/icons-material/TravelExplore";
 import KeyIcon from "@mui/icons-material/Key";
+import MenuBookIcon from "@mui/icons-material/MenuBook";
 import LoginIcon from "@mui/icons-material/Login";
 import LightModeIcon from "@mui/icons-material/LightMode";
 import DarkModeIcon from "@mui/icons-material/DarkMode";
@@ -45,6 +46,8 @@ const NAV = [
   { id: "health", label: "Health", icon: <MonitorHeartIcon />, open: true },
   { id: "api-tokens", label: "API tokens", icon: <KeyIcon />, open: false },
 ];
+// The user docs are a separate site, so the last item opens it in a new tab rather than routing.
+const DOCS_URL = "https://docs.longlines.io";
 const SIGN_IN_TO_USE = "Create an account or sign in to use";
 const DRAWER = 232;
 
@@ -118,6 +121,10 @@ export function AppShell({ children, destinationsFailing = false }: { children: 
             </Tooltip>
           );
         })}
+        <ListItemButton component="a" href={DOCS_URL} target="_blank" rel="noopener noreferrer" onClick={() => setNavOpen(false)}>
+          <ListItemIcon><MenuBookIcon /></ListItemIcon>
+          <ListItemText primary="Docs" />
+        </ListItemButton>
       </List>
     </Box>
   );
