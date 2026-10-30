@@ -899,6 +899,44 @@ picker (PR 5)") is the copy source for `/ref`, `/ref/*` and the reference rule's
   `station_count` from the preview). The web shows group names and SQL's numbers and never tests
   a call against a group's members.
 
+## Goal rules
+
+The design is `docs/superpowers/specs/2026-10-29-goals-design.md` (Brad's canvas "Connection
+with goal", Page 1); its Copy section is the copy source for the goal pages and the
+rule in the connection editor.
+
+- A goal (`goals`, `goal_requirements`, `goal_entries`, `goal_reviews`) is what an
+  account still chases: US states (`us_states()`, the 50 by name, no DC), POTA parks (any
+  `^[A-Z]{1,4}-[0-9]{3,6}$` reference) and bands (`goal_bands()`, which mirrors `_shared/bands.ts`
+  `BANDS`; `bands.test.ts` compares them, so a band goes in both). Clients only read their own
+  rows; every write is a definer RPC (`save_goal`, `delete_goal`, `mark_goal_entry`,
+  `resolve_goal_review`, `copy_goal`). 50 per account (`account_object_cap`).
+- Status is derived, never stored (`goal_status`): complete (`completed_at`, set and cleared
+  only by `goal_refresh_completion`), ended (today in UTC after the inclusive `ends_on`), else
+  active. Every day comparison is `(x at time zone 'utc')::date`; never `::date` or `current_date`.
+- Only a logged contact or a hand mark works an entry; never a spot. Marking is SQL's
+  (`goal_contact_facts`, `goal_mark`, `goal_sync_reviews`): the band from the contact; the park
+  of the worked base call's POTA spots within 30 minutes either side, exactly one, else a review
+  only when the station had a POTA spot that UTC day; the state from `logged_contacts.us_state`,
+  else the matched park's single US state, else the license state. Change the three layers only
+  with the matcher's `spot_us_states` (PR 2). Never mark or derive any of it in TypeScript.
+- `goal_apply_contact` (one new contact) and `goal_recheck` (a list from scratch, set-based, keeping
+  hand marks and `hand_needed_at`) are service role only. `apply_logged_contacts` calls the first
+  for every stored or revived contact and rechecks every list a retracted spot touched
+  (`goals_for_spot`) after its loop; `save_goal`, `mark_goal_entry` and
+  `copy_goal` recheck. A new path that retracts a logged spot or changes a contact's
+  `us_state` rechecks too.
+- `logged_contacts.us_state` and `gridsquare` come from the relay's optional `state` and
+  `gridsquare` (`_shared/logged.ts`, a malformed one dropped, never a rejection) and stay out of
+  the content hash. Nothing reads `gridsquare` yet.
+- A connection names a list only in its rules (`{field: "goal", op: "is", values: [id]}`);
+  there is no `goal_ids` column. `rules_goal_ids` is the one reader (delete guard,
+  `connection_count`, `used_by`); `delete_goal` refuses with LL409 while any of the owner's
+  connections names the list.
+- `get_goal`'s shape is `GoalProgress` (`web/src/goals/types.ts`), pinned by
+  `supabase/tests/goals.test.sql`; change the SQL, the type and the test together. Every
+  count is SQL's (`goal_requirement_progress`: a requirement's worked count up to its target).
+
 ## Group statistics rules
 
 The design is `docs/superpowers/specs/2026-10-19-group-statistics-design.md` (canvas page 10); its
