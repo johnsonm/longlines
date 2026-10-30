@@ -1,8 +1,8 @@
 # Long Lines API
 
-Manage your connections, destinations and callsign groups from your own scripts, bots and club
-tools. Everything the web app can change about these, the API can change too, and the same rules
-and error messages apply.
+Manage your connections, destinations, callsign groups and goals from your own scripts,
+bots and club tools. Everything the web app can change about these, the API can change too, and
+the same rules and error messages apply.
 
 Base URL: `https://api.longlines.io/v1`
 

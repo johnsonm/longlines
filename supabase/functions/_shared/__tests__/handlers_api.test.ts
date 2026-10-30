@@ -216,6 +216,61 @@ Deno.test(
 );
 
 Deno.test(
+  "handleApi routes the goal operations with the path's id",
+  async function (): Promise<void> {
+    const list = { id: ID, name: "2026 chase", requirements: [], reviews: [] };
+    const created = await run(
+      request("POST", "/api/v1/goals", { name: "2026 chase", requirements: [] }, TOKEN),
+      { rpc: { api_call: { data: list } } },
+      SENT_ONE,
+    );
+    assertEquals([created.res.status, created.body], [201, list]);
+    assertEquals(created.calls.rpc[1], {
+      fn: "api_call",
+      args: {
+        p_token_id: "t1",
+        p_op: "create_goal",
+        p_args: { body: { name: "2026 chase", requirements: [] } },
+      },
+    });
+    const resolved = await run(
+      request(
+        "POST",
+        `/api/v1/goals/${ID}/reviews`,
+        { review_id: ID, reference: null },
+        TOKEN,
+      ),
+      { rpc: { api_call: { data: list } } },
+      SENT_ONE,
+    );
+    assertEquals([resolved.res.status, resolved.body], [200, list]);
+    assertEquals(resolved.calls.rpc[1], {
+      fn: "api_call",
+      args: {
+        p_token_id: "t1",
+        p_op: "resolve_goal_review",
+        p_args: { review_id: ID, reference: null, id: ID },
+      },
+    });
+    const unsaid = await run(
+      request("POST", `/api/v1/goals/${ID}/reviews`, { review_id: ID }, TOKEN),
+      {},
+      SENT_ONE,
+    );
+    assertEquals([unsaid.res.status, unsaid.body], [400, { error: "reference is required." }]);
+    assertEquals(unsaid.calls.rpc.map((c) => c.fn), ["authenticate_api_request"]);
+    const inUse = await run(request("DELETE", `/api/v1/goals/${ID}`, undefined, TOKEN), {
+      rpc: {
+        api_call: { error: { message: "Remove it from its connections first.", code: "LL409" } },
+      },
+    }, SENT_ONE);
+    assertEquals([inUse.res.status, inUse.body], [409, {
+      error: "Remove it from its connections first.",
+    }]);
+  },
+);
+
+Deno.test(
   "handleApi wants a JSON object body of the right shape",
   async function (): Promise<void> {
     for (const body of ["not json", "[1]", "null"]) {
