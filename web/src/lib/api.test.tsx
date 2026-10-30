@@ -954,3 +954,57 @@ describe("loadPublicGroup", () => {
     await expect(api.loadPublicGroup("7f3kq6xm2a", "30d")).rejects.toMatchObject({ code: "429" });
   });
 });
+
+describe("goals", () => {
+  it("lists the cards and loads one list's progress", async () => {
+    fake.rpcs.set("list_goals", { data: [{ id: "n1", name: "2026 chase" }] });
+    expect(await api.listGoals()).toEqual([{ id: "n1", name: "2026 chase" }]);
+    expect(fake.client.rpc).toHaveBeenLastCalledWith("list_goals");
+    fake.rpcs.set("get_goal", { data: { list: { id: "n1" } } });
+    expect(await api.loadGoal("n1")).toEqual({ list: { id: "n1" } });
+    expect(fake.client.rpc).toHaveBeenLastCalledWith("get_goal", { p_id: "n1" });
+    fake.rpcs.set("get_goal", { data: null });
+    await expect(api.loadGoal("n1")).rejects.toThrow("Couldn't load the goal.");
+    fake.rpcs.set("get_goal", { error: { message: "Goal not found." } });
+    await expect(api.loadGoal("n1")).rejects.toThrow("Goal not found.");
+    fake.rpcs.set("list_goals", { error: { message: "" } });
+    await expect(api.listGoals()).rejects.toThrow("Couldn't load your goals.");
+  });
+
+  it("saves, copies and deletes a list", async () => {
+    const input = {
+      name: "2026 chase", starts_on: "2026-01-01", ends_on: "2026-12-31", marking: "relay" as const,
+      requirements: [{ kind: "band" as const, complete_when: "at_least" as const, at_least: 2, entries: ["20m", "40m", "80m"] }],
+    };
+    fake.rpcs.set("save_goal", { data: "n1" });
+    expect(await api.saveGoal(input)).toBe("n1");
+    expect(fake.client.rpc).toHaveBeenLastCalledWith("save_goal", { payload: input });
+    fake.rpcs.set("save_goal", { error: { message: "" } });
+    await expect(api.saveGoal(input)).rejects.toThrow("Couldn't save the goal.");
+
+    fake.rpcs.set("copy_goal", { data: "n2" });
+    expect(await api.copyGoal("n1")).toBe("n2");
+    expect(fake.client.rpc).toHaveBeenLastCalledWith("copy_goal", { p_id: "n1" });
+    fake.rpcs.set("copy_goal", { error: boom });
+    await expect(api.copyGoal("n1")).rejects.toThrow("boom");
+
+    await api.deleteGoal("n1");
+    expect(fake.client.rpc).toHaveBeenLastCalledWith("delete_goal", { p_id: "n1" });
+    fake.rpcs.set("delete_goal", { error: { message: "Remove it from its connections first.", code: "LL409" } });
+    await expect(api.deleteGoal("n1")).rejects.toMatchObject({ message: "Remove it from its connections first.", code: "LL409" });
+  });
+
+  it("marks entries and resolves reviews", async () => {
+    await api.markGoalEntry("r1", "NC", true);
+    expect(fake.client.rpc).toHaveBeenLastCalledWith("mark_goal_entry", { p_requirement_id: "r1", p_value: "NC", p_worked: true });
+    fake.rpcs.set("mark_goal_entry", { error: { message: "" } });
+    await expect(api.markGoalEntry("r1", "NC", false)).rejects.toThrow("Couldn't update the entry.");
+
+    await api.resolveGoalReview("v1", "US-2763");
+    expect(fake.client.rpc).toHaveBeenLastCalledWith("resolve_goal_review", { p_id: "v1", p_reference: "US-2763" });
+    await api.resolveGoalReview("v1", null);
+    expect(fake.client.rpc).toHaveBeenLastCalledWith("resolve_goal_review", { p_id: "v1", p_reference: null });
+    fake.rpcs.set("resolve_goal_review", { error: { message: "" } });
+    await expect(api.resolveGoalReview("v1", null)).rejects.toThrow("Couldn't save that.");
+  });
+});

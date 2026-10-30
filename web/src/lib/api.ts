@@ -13,6 +13,7 @@ import type { GroupPeriod, GroupSummary, OwnerGroupStatistics, PublicGroupStatis
 import type { Rules } from "../subscriptions/model";
 import type { HomeFlow } from "../home/types";
 import type { RelayAnswer, RelayPairing } from "../relay/types";
+import type { GoalCard, GoalInput, GoalProgress } from "../goals/types";
 
 type Tables = Database["public"]["Tables"];
 type Views = Database["public"]["Views"];
@@ -1016,6 +1017,60 @@ export async function normalizeCallsigns(values: string[]): Promise<NormalizedCa
   if (error) fail(error, "Couldn't check those callsigns.");
   // jsonb in the generated types; normalize_group_callsigns() always returns both arrays.
   return data as unknown as NormalizedCallsigns;
+}
+
+// ---- Goals ------------------------------------------------------------
+//
+// Every write is a definer RPC; every count, status and mark is SQL's
+// (20261029001100_goals.sql). These only carry them.
+
+/** The index cards, by name (list_goals). */
+export async function listGoals(): Promise<GoalCard[]> {
+  const { data, error } = await supabase.rpc("list_goals");
+  if (error) fail(error, "Couldn't load your goals.");
+  // jsonb in the generated types; each card is goal_card().
+  return data as unknown as GoalCard[];
+}
+
+/** One list's progress page (get_goal); its shape is pinned by supabase/tests/goals.test.sql. */
+export async function loadGoal(id: string): Promise<GoalProgress> {
+  const { data, error } = await supabase.rpc("get_goal", { p_id: id });
+  if (error) fail(error, "Couldn't load the goal.");
+  if (data === null) throw new ApiError("Couldn't load the goal.");
+  return data as unknown as GoalProgress;
+}
+
+/** Creates the list without an id, otherwise replaces it whole; SQL keeps the worked state of entries that stay. Returns the id. */
+export async function saveGoal(input: GoalInput): Promise<string> {
+  const payload: Json = { ...input, requirements: input.requirements.map((r) => ({ ...r })) };
+  const { data, error } = await supabase.rpc("save_goal", { payload });
+  if (error) fail(error, "Couldn't save the goal.");
+  return data;
+}
+
+/** Refused with code LL409 while a connection's rules name the list. */
+export async function deleteGoal(id: string): Promise<void> {
+  const { error } = await supabase.rpc("delete_goal", { p_id: id });
+  if (error) fail(error, "Couldn't delete the goal.");
+}
+
+/** Marks one entry worked by hand, or sets it back to needed. */
+export async function markGoalEntry(requirementId: string, value: string, worked: boolean): Promise<void> {
+  const { error } = await supabase.rpc("mark_goal_entry", { p_requirement_id: requirementId, p_value: value, p_worked: worked });
+  if (error) fail(error, "Couldn't update the entry.");
+}
+
+/** Resolves a "Needs a look" contact: a POTA reference picks its park, null is "Not a park contact". */
+export async function resolveGoalReview(id: string, reference: string | null): Promise<void> {
+  const { error } = await supabase.rpc("resolve_goal_review", withNulls<"resolve_goal_review">({ p_id: id, p_reference: reference }));
+  if (error) fail(error, "Couldn't save that.");
+}
+
+/** "Copy for next year": a fresh list with the same requirements, a year on. Returns the copy's id. */
+export async function copyGoal(id: string): Promise<string> {
+  const { data, error } = await supabase.rpc("copy_goal", { p_id: id });
+  if (error) fail(error, "Couldn't copy the goal.");
+  return data;
 }
 
 // ---- Stats ------------------------------------------------------------------
