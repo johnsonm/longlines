@@ -512,6 +512,14 @@ editor.
 - Env: `web/vite.config.ts` maps `SUPABASE_URL`/`SUPABASE_ANON_KEY` (what the Supabase Vercel
   integration provides) onto `import.meta.env.VITE_*` with an explicit allowlist. Never widen
   `envPrefix` or add the service-role key to that mapping.
+- Sentry (`@sentry/react`, project `longlines-web`) starts in `src/instrument.ts`, main.tsx's first
+  import, only when the build has `SENTRY_DSN`; `sentryOptions` in `src/lib/sentry.ts` is the whole
+  config. Every event, breadcrumb and span goes through its scrubbers, which cut the query string
+  and hash off URLs (auth tokens, PKCE and device codes), and `dataCollection` sends no IPs,
+  headers, cookies or bodies; keep both on any new option. Spans stream in SDK 11, so span
+  scrubbing is `beforeSendSpan`, never `beforeSendTransaction`. Source maps upload only with
+  `SENTRY_AUTH_TOKEN` at build time and are deleted from `dist` after. No Session Replay without
+  Brad asking.
 - Callsigns are not unique across accounts (`20261029000600`), so sign-in is by email only; never
   resolve a callsign to an account (`20261029000900` dropped `callsign_available` and
   `email_for_identifier`).
