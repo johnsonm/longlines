@@ -61,7 +61,7 @@ Files: create `supabase/functions/_shared/ised.ts`,
   - an empty province is null; an empty name is null
   - no row object has any key for address, city, postal code or club address/city/province/postal
     code (assert the exact key set)
-  - a line with a field count other than the header's, or a callsign failing `^[A-Z0-9]{3,10}$`,
+  - a line with a field count other than the header's, or a callsign failing `^(?:C[F-K|Y-Z]|V[A-G|O|X-Y]|X[J-O])[A-Z0-9]{1,7}[A-Z]$`,
     is skipped and counted, not thrown (`IsedRecords.skipped`)
   - a qualification field holding anything but its own letter or empty is skipped and counted
   - the parser streams: feeding the fixture in 7-byte chunks gives the same rows
@@ -78,6 +78,17 @@ Files: create `supabase/functions/_shared/ised.ts`,
 - [x] `deno test -P supabase/functions/_shared/__tests__/ised.test.ts`, then `npm run lint`,
       `npm run typecheck`. Commit.
 
+## Task 1B: Special Callsigns Parser (`_shared/ised_special.ts`)
+
+Files: create `supabase/functions/_shared/ised_special.ts`,
+`supabase/functions/_shared/__tests__/ised_special.test.ts`,
+`supabase/functions/_shared/__tests__/fixtures/ised-special.txt`.
+
+- [ ] Sourced from runtime URL `https://apc-cap.ic.gc.ca/datafiles/special_callsign.zip` containing `special_callsign.txt`.
+- [ ] Header: `Special_call_sign;beg_date;end_date;event_en;event_fr;call_sign_request;use_by`.
+- [ ] Write synthetic fixture `ised-special.txt` following header structure and test parsing of special callsigns with date ranges and event descriptions.
+- [ ] Implement parser `IsedSpecialRecords`, Zod schemas, and unit tests.
+
 ## Task 2: Migration
 
 Files: create `supabase/migrations/<number>_ised_licenses.sql`, `supabase/tests/ised_licenses.test.sql`.
@@ -85,6 +96,10 @@ Files: create `supabase/migrations/<number>_ised_licenses.sql`, `supabase/tests/
 - [ ] `ised_amateur_stage`, unlogged, RLS on, no policies, `anon`/`authenticated` revoked:
       `callsign text primary key, first_name text, last_name text, club_name text, province text,
       qualifications text not null`. No other columns.
+- [ ] Expand `callsign_licenses` table with `license_variant text` and `event_description text`.
+- [ ] `ised_special_stage`, unlogged, RLS on, no policies, `anon`/`authenticated` revoked:
+      `callsign text primary key, beg_date date, end_date date, event_en text, event_fr text, call_sign_request text`.
+- [ ] `ised_special_floor() returns integer` and lifecycle RPCs (`ised_special_load_*`) for special callsigns.
 - [ ] `ised_operator_class(p_letters text) returns text` (immutable, `search_path` pinned): the
       spec's order and words; null for an empty string.
 - [ ] `ised_license_floor() returns integer`: 90% of the current ISED rows of
@@ -103,12 +118,12 @@ Files: create `supabase/migrations/<number>_ised_licenses.sql`, `supabase/tests/
   - `ised_license_load_abandon(p_load, p_error)`: failed, staging truncated
 - [ ] Replace `apply_license_loads()`. Start from its latest body (`20261021000300`) word for word
       and move it into `apply_fcc_license_load()`; add `apply_ised_license_load()`:
-      delete `authority = 'ISED'` rows, insert from staging with
+      delete `authority = 'ISED'` rows, insert regular amateur rows from `ised_amateur_stage` and special callsign rows from `ised_special_stage` (`license_variant = 'special'`, `granted_on = beg_date`, `expires_on = end_date`, `event_description = event_en`),
       `name = coalesce(club_name, nullif(trim(concat_ws(' ', first_name, last_name)), ''))`,
       `first_name`/`last_name`/`operator_class` null when `club_name` is set, else the names and
-      `ised_operator_class(qualifications)`, `status`/`granted_on`/`expires_on`/`grid` null,
+      `ised_operator_class(qualifications)`, `status`/`granted_on`/`expires_on`/`grid` null (except special callsigns which populate `granted_on`/`expires_on`),
       `country 'CA'`, `state = province`, `loaded_at now()`. Its own exception block marks the
-      load failed and truncates `ised_amateur_stage`. `apply_license_loads()` calls the FCC one,
+      load failed and truncates `ised_amateur_stage` and `ised_special_stage`. `apply_license_loads()` calls the FCC one,
       then the ISED one. The cron job stays as it is.
 - [ ] Replace `callsign_profile` from its latest body (`20261019000300_callsign_calendar.sql`)
       word for word, adding `'caPrefix', v_base ~ '^(V[A-GOXY]|C[F-KYZ]|X[J-O])'` beside

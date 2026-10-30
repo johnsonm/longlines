@@ -25,6 +25,8 @@ Proposed in this revision; the ones marked (Brad) are product calls to confirm b
 | Qualifications (Brad) | `operator_class` reads, in this order: `Advanced` if D; then `Basic with Honours` if E, else `Basic` if A; then `12 WPM` if C, else `5 WPM` if B; joined with ", ". Examples: "Advanced, Basic with Honours", "Basic, 5 WPM". The longest is "Advanced, Basic with Honours, 12 WPM" (36 characters), which still fits the header chip. The mapping is SQL's (`ised_operator_class`); TypeScript passes the letters. |
 | Status, dates | Null. The file has no status and no dates (Canadian certificates do not expire); a status we did not read is not stored. |
 | Province | `state` holds `prov_cd` (null when blank: 1,992 rows). The card labels it Province for ISED. |
+| Special callsigns | `https://apc-cap.ic.gc.ca/datafiles/special_callsign.zip` (`special_callsign.txt`). Staged in `ised_special_stage`, imported into `callsign_licenses` with `authority = 'ISED'`, `country = 'CA'`, `license_variant = 'special'`, `granted_on = beg_date`, `expires_on = end_date`, and `event_description = event_en`. (`use_by` is administrative and dropped). |
+| Schema expansion | `callsign_licenses` gains optional `license_variant` (null = regular, `'special'` = special callsign) and `event_description` (null for regular, event description for specials). |
 | Profile copy (Brad) | See "Profile". |
 
 ## Upstream
