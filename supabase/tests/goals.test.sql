@@ -9,7 +9,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(153);
+select plan(182);
 
 -- Today and yesterday noon in UTC. Every contact is on yesterday's UTC day, 12:00 to 20:20.
 create function pg_temp.d(p_offset int) returns date language sql as $$
@@ -17,6 +17,10 @@ create function pg_temp.d(p_offset int) returns date language sql as $$
 $$;
 create function pg_temp.t(p_minutes int) returns timestamptz language sql as $$
   select ((pg_temp.d(-1))::timestamp + time '12:00') at time zone 'utc' + make_interval(mins => p_minutes);
+$$;
+-- p_minutes after noon (UTC) p_day days from today.
+create function pg_temp.at(p_day int, p_minutes int) returns timestamptz language sql as $$
+  select ((pg_temp.d(p_day))::timestamp + time '12:00') at time zone 'utc' + make_interval(mins => p_minutes);
 $$;
 -- One upsert item for user A (KK4PWJ) as the relay-api function sends it.
 create function pg_temp.up(p_ext text, p_call text, p_khz numeric, p_band text, p_mode text,
@@ -84,9 +88,15 @@ insert into reference_catalog (program, reference, name, active, location)
 values ('pota', 'US-2763', 'Hanging Rock State Park', true, 'US-NC'),
        ('pota', 'US-0003', 'Pilot Mountain State Park', true, 'US-NC')
 on conflict (program, reference) do update set name = excluded.name;
-delete from callsign_licenses where callsign in ('N4LIC', 'K4ABC', 'N4DEF', 'W8XYZ', 'W3OUT', 'W4DAY', 'W1EDG', 'W2EDG');
+delete from callsign_licenses where callsign in ('N4LIC', 'K4ABC', 'N4DEF', 'W8XYZ', 'W3OUT', 'W4DAY', 'W1EDG', 'W2EDG',
+                                                'K9TRL', 'K9VAL', 'K9CAN', 'K9TWO', 'K9CAT', 'K9DC', 'K9WA', 'K9WB',
+                                                'K9WC', 'K9WD');
+-- W8XYZ's license state (VA) is on L1 and needed when c8 comes, so 'a contact with two parks marks
+-- no state' would see a fall through to the license.
 insert into callsign_licenses (callsign, authority, country, state, loaded_at)
-values ('N4LIC', 'FCC', 'US', 'TX', now()), ('K4ABC', 'FCC', 'US', 'SC', now());
+values ('N4LIC', 'FCC', 'US', 'TX', now()), ('K4ABC', 'FCC', 'US', 'SC', now()), ('W8XYZ', 'FCC', 'US', 'VA', now()),
+       ('K9TRL', 'FCC', 'US', 'TX', now()), ('K9VAL', 'FCC', 'US', 'VA', now()), ('K9CAN', 'FCC', 'US', 'OH', now()),
+       ('K9TWO', 'FCC', 'US', 'MI', now()), ('K9CAT', 'FCC', 'US', 'TX', now()), ('K9DC', 'FCC', 'US', 'CA', now());
 
 -- ---------------------------------------------------------------------------
 -- Grants and helpers
@@ -257,7 +267,8 @@ select is((select array_agg(s.callsign || ':' || v.status || ':' || array_to_str
   'Needs a look: no spot within 30 minutes of a station spotted that day, and two parks; never a station not on POTA that day');
 select is((select count(*) from goal_reviews v where v.contact_spot_id = pg_temp.cid('c3')), 0::bigint,
   'a station with no POTA spot is not a park contact');
-select is(pg_temp.worked((select id from l1), 'state'), array['GA', 'NC', 'TX'], 'a contact with two parks marks no state');
+select is(pg_temp.worked((select id from l1), 'state'), array['GA', 'NC', 'TX'],
+  'a contact with two parks marks no state, not even the license state (VA), until a park is picked');
 
 -- ---------------------------------------------------------------------------
 -- get_goal and list_goals
@@ -554,6 +565,149 @@ select '22222222-2222-2222-2222-222222222222', 'Cap ' || g from generate_series(
 select pg_temp.as_user('22222222-2222-2222-2222-222222222222');
 select throws_ok($$ select save_goal('{"name": "One more", "requirements": [{"kind": "band", "entries": ["20m"]}]}') $$,
   'P0001', 'You can have up to 50 goals.', 'an account holds at most 50 goals');
+reset role;
+
+-- ---------------------------------------------------------------------------
+-- State layers with licensed calls (list S, 60 to 50 days ago; contacts 55 days ago)
+-- ---------------------------------------------------------------------------
+
+select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
+create temp table ls as
+select save_goal(jsonb_build_object('name', 'State layers', 'starts_on', pg_temp.d(-60), 'ends_on', pg_temp.d(-50),
+  'requirements', '[{"kind": "state", "entries": ["NC", "VA", "TX", "OH", "MI", "SC", "GA", "CA"]},
+                    {"kind": "park", "entries": ["US-9999"]}]'::jsonb)) as id;
+reset role;
+-- s1: K9TRL (licensed TX) at a trail in NC and VA: TX is not one of the park's states, so none.
+select pg_temp.pota('K9TRL', 'US-4567', 'US-NC,US-VA', pg_temp.at(-55, -5));
+-- s2: K9VAL (licensed VA) at the same kind of park: VA is one of its states.
+select pg_temp.pota('K9VAL', 'US-4568', 'US-NC,US-VA', pg_temp.at(-55, 55));
+-- s3: K9CAN (licensed OH) at a park in Ontario: no US state, so none.
+select pg_temp.pota('K9CAN', 'CA-0123', 'CA-ON', pg_temp.at(-55, 115));
+-- s4: K9TWO (licensed MI) at two parks, in GA and SC: none until a park is picked.
+select pg_temp.pota('K9TWO', 'US-4570', 'US-GA', pg_temp.at(-55, 175));
+select pg_temp.pota('K9TWO', 'US-4571', 'US-SC', pg_temp.at(-55, 185));
+-- s5: K9CAT (licensed TX) at US-2763 (a spot without a location; the list says NC) and a GA park.
+select pg_temp.pota('K9CAT', 'US-2763', null, pg_temp.at(-55, 235));
+select pg_temp.pota('K9CAT', 'US-4572', 'US-GA', pg_temp.at(-55, 245));
+select is(pg_temp.log(pg_temp.up('s1', 'K9TRL', 14061, '20m', 'cw', pg_temp.at(-55, 0), null),
+                      pg_temp.up('s2', 'K9VAL', 14062, '20m', 'cw', pg_temp.at(-55, 60), null),
+                      pg_temp.up('s3', 'K9CAN', 14063, '20m', 'cw', pg_temp.at(-55, 120), null),
+                      pg_temp.up('s4', 'K9TWO', 14064, '20m', 'cw', pg_temp.at(-55, 180), null),
+                      pg_temp.up('s5', 'K9CAT', 14065, '20m', 'cw', pg_temp.at(-55, 240), null),
+                      -- s6: K9DC (licensed CA), no POTA spot, and the relay says DC: not a state, and
+                      -- no fall through to the license.
+                      pg_temp.up('s6', 'K9DC', 14066, '20m', 'cw', pg_temp.at(-55, 300), 'DC')),
+  array['created', 'created', 'created', 'created', 'created', 'created'], 's1 to s6 are stored');
+select is(pg_temp.worked((select id from ls), 'state'), array['VA'],
+  'licensed calls: a multi-state park gives the license state only when it is one of the park''s, a non-US park and two parks give none, a contact''s DC gives none');
+select is((select (select pota_reference from raw_spots where id = matched_spot_id) from pg_temp.entry((select id from ls), 'state', 'VA')),
+  'US-4568', 'the state from a multi-state park keeps the park''s spot as evidence');
+select is((select array_agg(s.callsign order by s.callsign) from goal_reviews v join raw_spots s on s.id = v.contact_spot_id
+           where v.list_id = (select id from ls) and v.status = 'open'),
+  array['K9CAT', 'K9TWO'], 'the two-park contacts need a look');
+
+create temp table rs as
+select v.id, s.callsign from goal_reviews v join raw_spots s on s.id = v.contact_spot_id where v.list_id = (select id from ls);
+grant select on rs to authenticated;
+select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
+select lives_ok(format('select resolve_goal_review(%L, %L)', (select id from rs where callsign = 'K9TWO'), 'US-4571'),
+  'pick the SC park for K9TWO');
+select lives_ok(format('select resolve_goal_review(%L, %L)', (select id from rs where callsign = 'K9CAT'), 'US-2763'),
+  'pick US-2763 for K9CAT');
+reset role;
+select is(pg_temp.worked((select id from ls), 'state'), array['NC', 'SC', 'VA'],
+  'a pick marks the picked park''s state: from its spot''s location (SC), else the list''s (NC for US-2763)');
+select is((select (worked_how, worked_at = pg_temp.at(-55, 180), contact_spot_id = pg_temp.cid('s4'), matched_spot_id is null)::text
+           from pg_temp.entry((select id from ls), 'state', 'SC')),
+  '(contact,t,t,t)', 'with the contact as evidence');
+select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
+select lives_ok(format('select save_goal(%L)', jsonb_build_object('id', (select id from ls), 'name', 'State layers',
+  'starts_on', pg_temp.d(-60), 'ends_on', pg_temp.d(-50), 'requirements', jsonb_build_array(
+    jsonb_build_object('id', pg_temp.req((select id from ls), 'state'), 'kind', 'state',
+                       'entries', array['NC', 'VA', 'TX', 'OH', 'MI', 'SC', 'GA', 'CA']),
+    jsonb_build_object('id', pg_temp.req((select id from ls), 'park'), 'kind', 'park', 'entries', array['US-9999'])))),
+  'save the list unchanged: a recheck');
+reset role;
+select is(pg_temp.worked((select id from ls), 'state'), array['NC', 'SC', 'VA'],
+  'the recheck gives the same states as the live path, picks included');
+select is((select (contact_spot_id = pg_temp.cid('s5'))::text from pg_temp.entry((select id from ls), 'state', 'NC')), 'true',
+  'NC still comes from the K9CAT pick');
+
+-- ---------------------------------------------------------------------------
+-- The marking RPCs share apply_logged_contacts' lock
+-- ---------------------------------------------------------------------------
+
+select is((select array_agg(p.proname::text order by p.proname) from pg_proc p
+           where p.pronamespace = 'public'::regnamespace
+             and p.prosrc like '%pg_advisory_xact_lock(hashtextextended(''logged_contacts:'' || v_user::text, 0))%'),
+  array['copy_goal', 'delete_goal', 'mark_goal_entry', 'preview_goal_window', 'resolve_goal_review',
+        'save_goal'],
+  'every goal RPC that writes marks takes the account''s logged_contacts lock');
+select ok((select position('pg_advisory_xact_lock' in p.prosrc) < position('for update' in p.prosrc)
+           from pg_proc p where p.proname = 'mark_goal_entry'),
+  'mark_goal_entry takes it before the list''s row lock');
+
+-- ---------------------------------------------------------------------------
+-- preview_goal_window (list W, 200 to 100 days ago)
+-- ---------------------------------------------------------------------------
+
+select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
+create temp table lw as
+select save_goal(jsonb_build_object('name', 'Window', 'starts_on', pg_temp.d(-200), 'ends_on', pg_temp.d(-100),
+  'requirements', '[{"kind": "band", "entries": ["17m", "12m", "60m", "30m"]}]'::jsonb)) as id;
+reset role;
+-- 17 m is worked by w1 (180 days ago) and again by w2 (120 days ago); 12 m only by w3 (180 days
+-- ago); 60 m by w4 (110 days ago); 30 m by hand.
+select is(pg_temp.log(pg_temp.up('w1', 'K9WA', 18080, '17m', 'cw', pg_temp.at(-180, 0), null),
+                      pg_temp.up('w2', 'K9WB', 18081, '17m', 'cw', pg_temp.at(-120, 0), null),
+                      pg_temp.up('w3', 'K9WC', 24900, '12m', 'cw', pg_temp.at(-180, 10), null),
+                      pg_temp.up('w4', 'K9WD', 5354, '60m', 'cw', pg_temp.at(-110, 0), null)),
+  array['created', 'created', 'created', 'created'], 'w1 to w4 are stored');
+select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
+select lives_ok(format('select mark_goal_entry(%L, %L, true)', pg_temp.req((select id from lw), 'band'), '30m'),
+  'mark 30 m by hand');
+reset role;
+create temp table lw_before as
+select (select md5(string_agg(e::text, ',' order by e.value)) from goal_entries e
+        where e.requirement_id = pg_temp.req((select id from lw), 'band')) as entries,
+       (select md5(l::text) from goals l where l.id = (select id from lw)) as list,
+       (select count(*) from goal_reviews) as reviews;
+select is(pg_temp.worked((select id from lw), 'band'), array['12m', '17m', '30m', '60m'], 'every band is worked');
+
+select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
+create temp table pw as
+select preview_goal_window((select id from lw), pg_temp.d(-150), pg_temp.d(-100), 'relay') as start_moved,
+       preview_goal_window((select id from lw), pg_temp.d(-200), pg_temp.d(-115), 'relay') as end_moved,
+       preview_goal_window((select id from lw), pg_temp.d(-200), pg_temp.d(-100), 'hand') as by_hand,
+       preview_goal_window((select id from lw), pg_temp.d(-200), pg_temp.d(-100), 'relay') as unchanged,
+       preview_goal_window((select id from lw), null, null, 'relay') as no_window;
+select throws_ok(format('select preview_goal_window(%L, %L, null, %L)', (select id from lw), pg_temp.d(-1), 'relay'),
+  'P0001', 'Give the time window a start and an end date.', 'preview: a window needs both dates');
+select throws_ok(format('select preview_goal_window(%L, %L, %L, %L)', (select id from lw), pg_temp.d(-1), pg_temp.d(-2), 'relay'),
+  'P0001', 'The end date can''t be before the start date.', 'preview: the end may not come before the start');
+select throws_ok(format('select preview_goal_window(%L, null, null, %L)', (select id from lw), 'spots'),
+  'P0001', 'Not a way to mark entries: spots.', 'preview: marking is relay or hand');
+reset role;
+select is((select jsonb_agg(x - 'requirement_id') from pw, jsonb_array_elements(start_moved) x),
+  jsonb_build_array(jsonb_build_object('kind', 'band', 'value', '12m', 'worked_at', pg_temp.at(-180, 10), 'reason', 'before_start')),
+  'start moved: 12 m (worked only before it) is returned; 17 m (worked again inside it) is not');
+select is((select (start_moved -> 0 ->> 'requirement_id')::uuid from pw), pg_temp.req((select id from lw), 'band'),
+  'each entry names its requirement');
+select is((select jsonb_agg(jsonb_build_array(x ->> 'value', x ->> 'reason')) from pw, jsonb_array_elements(end_moved) x),
+  '[["60m", "after_end"]]'::jsonb, 'end moved: 60 m, worked after it');
+select is((select jsonb_agg(jsonb_build_array(x ->> 'value', x ->> 'reason') order by x ->> 'value') from pw, jsonb_array_elements(by_hand) x),
+  '[["12m", "by_hand"], ["17m", "by_hand"], ["60m", "by_hand"]]'::jsonb,
+  'by hand only: every contact mark, never the hand mark (30 m)');
+select is((select unchanged from pw), '[]'::jsonb, 'the same window undoes nothing');
+select is((select no_window from pw), '[]'::jsonb, 'no window undoes nothing');
+select is((select (md5(string_agg(e::text, ',' order by e.value)) = (select entries from lw_before)) from goal_entries e
+           where e.requirement_id = pg_temp.req((select id from lw), 'band')), true, 'the previews changed no entry');
+select is((select md5(l::text) = (select list from lw_before) from goals l where l.id = (select id from lw)), true,
+  'nor the list');
+select is((select count(*) = (select reviews from lw_before) from goal_reviews), true, 'nor any review');
+select pg_temp.as_user('22222222-2222-2222-2222-222222222222');
+select throws_ok(format('select preview_goal_window(%L, null, null, %L)', (select id from lw), 'relay'),
+  'P0001', 'Goal not found.', 'preview: only the owner''s list');
 reset role;
 
 select * from finish();

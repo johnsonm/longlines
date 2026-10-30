@@ -910,16 +910,28 @@ rule in the connection editor.
   `^[A-Z]{1,4}-[0-9]{3,6}$` reference) and bands (`goal_bands()`, which mirrors `_shared/bands.ts`
   `BANDS`; `bands.test.ts` compares them, so a band goes in both). Clients only read their own
   rows; every write is a definer RPC (`save_goal`, `delete_goal`, `mark_goal_entry`,
-  `resolve_goal_review`, `copy_goal`). 50 per account (`account_object_cap`).
+  `resolve_goal_review`, `copy_goal`). 50 per account (`account_object_cap`). Each of them,
+  and `preview_goal_window`, takes `apply_logged_contacts`' advisory lock
+  (`'logged_contacts:' || user`) before any row lock, so the lock order is always that lock, the
+  list, its entries; a new RPC that writes marks takes it too.
 - Status is derived, never stored (`goal_status`): complete (`completed_at`, set and cleared
   only by `goal_refresh_completion`), ended (today in UTC after the inclusive `ends_on`), else
   active. Every day comparison is `(x at time zone 'utc')::date`; never `::date` or `current_date`.
 - Only a logged contact or a hand mark works an entry; never a spot. Marking is SQL's
   (`goal_contact_facts`, `goal_mark`, `goal_sync_reviews`): the band from the contact; the park
   of the worked base call's POTA spots within 30 minutes either side, exactly one, else a review
-  only when the station had a POTA spot that UTC day; the state from `logged_contacts.us_state`,
-  else the matched park's single US state, else the license state. Change the three layers only
-  with the matcher's `spot_us_states` (PR 2). Never mark or derive any of it in TypeScript.
+  only when the station had a POTA spot that UTC day. The state layers are each final once they
+  apply: the contact's `us_state` when sent (DC or any non-state gives none); else, when the
+  window has any POTA candidate, the park (`goal_park_state`: its one US state, or the license
+  state only when it is one of a multi-state park's; none for a non-US park, and none for two
+  parks until the review is picked, when the picked park's location decides the same way, in
+  `goal_mark` for both the live path and a recheck); else the license state. Change the layers
+  only with the matcher's `spot_us_states` (PR 2). Never mark or derive any of it in TypeScript.
+- `preview_goal_window(id, starts_on, ends_on, marking)` tells the editor what a save would
+  undo (contact-worked entries that would be needed, with `before_start`, `after_end` or
+  `by_hand`) by applying the window and running `goal_recheck` in a block that always raises a
+  private error and catches it, so nothing changes. Never write a second copy of the marking
+  predicate for it, in SQL or the web.
 - `goal_apply_contact` (one new contact) and `goal_recheck` (a list from scratch, set-based, keeping
   hand marks and `hand_needed_at`) are service role only. `apply_logged_contacts` calls the first
   for every stored or revived contact and rechecks every list a retracted spot touched

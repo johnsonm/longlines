@@ -35,7 +35,8 @@ Brad, 2026-10-29, during planning:
    item's state when it is one of the 50 states, else the matched POTA park's `pota_location`,
    else the FCC license state of the worked base call (`callsign_licenses.state`, `country =
    'US'`). The grid is stored, not resolved. Spots match the same way: a POTA spot's
-   `pota_location` states, else the spotted base call's license state.
+   `pota_location` states, else the spotted base call's license state. Decision 4 below refines how the layers
+   apply.
 2. **Needs a look only for POTA-active stations.** A contact needs a look only when the worked
    station had a POTA spot that UTC day but none within 30 minutes of the logged time, or spots
    at two different parks within it. A station with no POTA spot that day is silently not a park
@@ -61,8 +62,22 @@ requirement alerting once N are worked.
 
 Ours, made while building PR 1 (Brad may revisit any of them):
 
-4. A park in several states (`US-NC,US-VA`, a trail) gives no state from its location; the
-   license state is tried next. One contact never marks two states.
+4. The state layers, refined after review: each layer is final once it applies, so a contact
+   never takes a state from a station it was not with.
+   1. The contact's own `us_state` when the relay sent one: one of the 50 states, else (DC, a
+      province) no state, never a later layer.
+   2. Else, when the 30-minute window has any POTA candidate for the worked station, the park:
+      one US state gives that state; several (`US-NC,US-VA`, a trail) give the license state only
+      when it is one of them, else none; none (a park outside the US) gives none. Two or more
+      candidate parks (a review) give no state until the review is picked; the picked park's
+      location (its spot's `pota_location` in the window, else `reference_catalog.location`) then
+      decides by the same rule, the contact as evidence, and a recheck does the same.
+   3. Else (no POTA candidate in the window) the license state of the worked base call. A pick
+      for a contact with no candidate (spotted that day, not within 30 minutes) leaves its state
+      to this layer.
+   One contact never marks two states. On the matching side a POTA spot gives only its
+   `pota_location`'s US states (none for a park outside the US; a state-line park passes for
+   either state), and the license state is used only for a spot without a POTA reference.
 5. A contact counts toward a list when its UTC day is inside the window, whatever the list's
    status when it arrives, so a contact logged at 23:59 on the last day and posted after midnight
    counts, as a recheck would count it. A complete list takes no new contact marks.
@@ -122,11 +137,14 @@ All in SQL.
   its band; the distinct POTA references of POTA spots of the worked base call within 30 minutes
   either side of the logged time (`raw_spots_base_callsign_time_idx`), the one park when there is
   exactly one and the nearest of its spots; whether the station had a POTA spot that UTC day; and
-  its state by the three layers. Retracted spots are left out on both sides.
+  its state by the three layers (decision 4; `goal_park_state(location, license)` is the park
+  layer's rule, `goal_picked_location` a picked park's location). Retracted spots are left out on
+  both sides.
 - `goal_mark(lists, user, spot)` marks needed entries of the given relay lists from contacts in
   each list's window: each entry takes its earliest contact (after `hand_needed_at`, when set),
   and an "at least" requirement takes only as many entries as it still lacks, earliest contacts
-  first. A picked review gives its contact's park. A mark sets `worked_at` to the contact's time.
+  first. A picked review gives its contact's park, and its state when the window had two or more
+  parks. A mark sets `worked_at` to the contact's time.
 - `goal_sync_reviews(lists, user, spot)` opens a review for each such contact whose park can't be
   told (none within 30 minutes but a POTA spot that UTC day, or two parks) while the list has a
   park requirement that isn't complete; an open review's candidates follow the spots, and a
@@ -145,6 +163,13 @@ All in SQL.
   a spot (a delete, or an update's old spot) collects the lists whose entries or reviews name it
   (`goals_for_spot`), rechecking each once after the loop. The per-account advisory lock
   already serialises an account's batches.
+- Every client RPC that writes marks (`save_goal`, `preview_goal_window`,
+  `delete_goal`, `mark_goal_entry`, `resolve_goal_review`, `copy_goal`) takes the
+  same lock (`hashtextextended('logged_contacts:' || user, 0)`) before any row lock, so an
+  account's marking writes apply one at a time with its contact batches and lock in one order:
+  the advisory lock, the list, its entries. Without it a hand mark racing a batch (which marks
+  entries before it locks a list to recheck it) could deadlock, or a batch's marks could
+  overwrite a mark made since its snapshot.
 - `_shared/logged.ts` reads the optional `state` (two letters) and `gridsquare` (Maidenhead),
   trimmed and upper-cased, and drops a malformed one rather than rejecting the contact. They ride
   on the apply item as `us_state` and `gridsquare`, beside the spot and out of the hash.
@@ -189,6 +214,15 @@ Authenticated, security definer, `search_path` pinned, listed in `advisor.test.s
   contact); `used_by[] {id, name, sources, destination_count}`; `first_contact_at`.
 - `save_goal(payload)`: create or replace, returning the id. Entries that stay keep their
   worked state (by requirement id and value); removed ones go; then a recheck.
+- `preview_goal_window(id, starts_on, ends_on, marking)`: what a save with that window and
+  marking would undo, changing nothing, for the edit page's date warning: the entries now worked
+  by a contact that would be needed after the save, each `{requirement_id, kind, value,
+  worked_at, reason}` with `reason` `before_start`, `after_end` (by the UTC day of the contact
+  that marks it now) or `by_hand` (the marking is By hand only). Hand marks are never undone, and
+  an entry whose requirement would still be complete is left out (it does not alert before or after). It
+  applies the window and runs `goal_recheck` inside a block that always raises a private error
+  and catches it, so every change rolls back and the answer comes from the save's own code. An
+  entry worked again by a later contact inside the new window is not in it.
 - `delete_goal(id)`, `mark_goal_entry(requirement_id, value, worked)`,
   `resolve_goal_review(id, reference | null)`, `copy_goal(id)` ("Copy for next year": same
   requirements and entries, all needed, dates a year on, the name's first four-digit year bumped,

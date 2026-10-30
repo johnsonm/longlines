@@ -1718,7 +1718,7 @@ isOneToOne: true
                            },
 "goal_contact_facts":
 { Args: { "p_spot_id": number,"p_user": string }; Returns: {
-              "band": string,"candidates": (string)[],"park": string,"park_spot_id": number,"pota_that_day": boolean,"spot_id": number,"spot_time": string,"state": string,"state_spot_id": number
+              "band": string,"candidates": (string)[],"license_state": string,"park": string,"park_spot_id": number,"pick_state": boolean,"pota_that_day": boolean,"spot_id": number,"spot_time": string,"state": string,"state_spot_id": number,"worked_base": string
             }[]
                            },
 "goal_date":
@@ -1729,6 +1729,12 @@ isOneToOne: true
                            },
 "goal_mark":
 { Args: { "p_lists": (string)[],"p_spot_id": number,"p_user": string }; Returns: undefined
+                           },
+"goal_park_state":
+{ Args: { "p_license": string,"p_location": string }; Returns: string
+                           },
+"goal_picked_location":
+{ Args: { "p_base": string,"p_reference": string,"p_time": string }; Returns: string
                            },
 "goal_recheck":
 { Args: { "p_list_id": string }; Returns: undefined
@@ -1992,6 +1998,9 @@ isOneToOne: true
                            },
 "preview_discord_message":
 { Args: { "p_settings": Json,"p_spot_id"?: number }; Returns: Json
+                           },
+"preview_goal_window":
+{ Args: { "p_ends_on": string,"p_id": string,"p_marking": string,"p_starts_on": string }; Returns: Json
                            },
 "preview_local_cluster_line":
 { Args: { "p_settings": Json,"p_spot_id"?: number }; Returns: Json

@@ -20,8 +20,9 @@
 --    the POTA spot that station had within 30 minutes either side, its state), goal_mark,
 --    goal_sync_reviews, goal_apply_contact (one new contact) and goal_recheck (a whole list,
 --    from scratch, set-based).
--- 6. The client RPCs: list_goals, get_goal, save_goal, delete_goal,
---    mark_goal_entry, resolve_goal_review, copy_goal.
+-- 6. The client RPCs: list_goals, get_goal, save_goal,
+--    preview_goal_window, delete_goal, mark_goal_entry, resolve_goal_review,
+--    copy_goal.
 -- 7. apply_logged_contacts: as in 20261029000600, storing us_state and gridsquare, applying each
 --    stored contact to the account's lists and rechecking the lists a retracted spot had marked.
 
@@ -338,6 +339,48 @@ $$;
 
 revoke all on function public.goal_refresh_completion(uuid) from public;
 
+-- The US state a contact at a park with this POTA location gives: the park's one US state; for a
+-- park in several (a trail on a state line), the license state when it is one of them, else none;
+-- for a park outside the US, none. One contact never marks two states.
+create function public.goal_park_state(p_location text, p_license text)
+returns text
+language sql
+immutable
+set search_path = public
+as $$
+  select case when count(*) = 1 then min(s.code)
+              when p_license = any (array_agg(s.code)) then p_license end
+  from (select distinct x[1] as code from regexp_matches(p_location, 'US-([A-Z]{2})', 'g') as x) s
+  where s.code = any (public.us_states())
+$$;
+
+revoke all on function public.goal_park_state(text, text) from public;
+
+-- The location of a park picked in Needs a look for a contact of p_base at p_time: the nearest
+-- POTA spot of that station at that park within 30 minutes either side that has one (a candidate's
+-- spot), else the reference list's.
+create function public.goal_picked_location(p_base text, p_time timestamptz, p_reference text)
+returns text
+language sql
+stable
+set search_path = public
+as $$
+  select coalesce(
+    (select p.pota_location
+     from raw_spots p
+     where p.base_callsign = p_base
+       and p.spot_time between p_time - interval '30 minutes' and p_time + interval '30 minutes'
+       and p.source = 'pota'
+       and upper(p.pota_reference) = p_reference
+       and p.pota_location is not null
+       and p.retracted_at is null
+     order by abs(extract(epoch from p.spot_time - p_time)), p.spot_time, p.id
+     limit 1),
+    (select rc.location from reference_catalog rc where rc.program = 'pota' and rc.reference = p_reference))
+$$;
+
+revoke all on function public.goal_picked_location(text, timestamptz, text) from public;
+
 -- What each of an account's live logged contacts proves, or only p_spot_id's when it is given:
 --   band           the contact's band
 --   candidates     the distinct POTA references of POTA spots of the worked base call within 30
@@ -345,23 +388,30 @@ revoke all on function public.goal_refresh_completion(uuid) from public;
 --   park           the one candidate when there is exactly one, and park_spot_id the nearest of
 --                  its spots
 --   pota_that_day  whether the station had any POTA spot on the contact's UTC day
---   state          logged_contacts.us_state when it is a state; else the single US state in the
---                  matched POTA spot's pota_location (state_spot_id is that spot); else the FCC
---                  license state of the worked base call. A park in several states gives none of
---                  them, so one contact never marks two states.
+--   state          in layers, each one final when it applies:
+--                  1. the contact's own us_state, when the relay sent one (DC or any other code
+--                     that is not one of the 50 states gives no state, never a later layer);
+--                  2. else, when the window has a POTA candidate, the park: with one candidate,
+--                     goal_park_state of the matched spot's location (state_spot_id is that
+--                     spot); with two or more, none until the review is picked (pick_state), and
+--                     goal_mark then takes goal_park_state of the picked park's location;
+--                  3. else (no POTA candidate) the FCC license state of the worked base call.
+--   license_state  that license state, which goal_park_state uses for a park in several states
 create function public.goal_contact_facts(p_user uuid, p_spot_id bigint)
-returns table (spot_id bigint, spot_time timestamptz, band text, park text, park_spot_id bigint,
-               candidates text[], pota_that_day boolean, state text, state_spot_id bigint)
+returns table (spot_id bigint, spot_time timestamptz, band text, worked_base text, park text, park_spot_id bigint,
+               candidates text[], pota_that_day boolean, state text, state_spot_id bigint, pick_state boolean,
+               license_state text)
 language sql
 stable
 set search_path = public
 as $$
-  select c.id, c.spot_time, c.band, m.reference, m.id, w.candidates, d.pota_that_day,
-         coalesce(c.us_state, loc.state, lic.state),
-         case when c.us_state is null and loc.state is not null then m.id end
+  select c.id, c.spot_time, c.band, c.base_callsign, m.reference, m.id, w.candidates, d.pota_that_day,
+         st.state,
+         case when c.us_state is null and cardinality(w.candidates) = 1 and st.state is not null then m.id end,
+         c.us_state is null and cardinality(w.candidates) > 1,
+         lic.state
   from (
-    select r.id, r.spot_time, r.band, r.base_callsign,
-           case when lc.us_state = any (public.us_states()) then lc.us_state end as us_state
+    select r.id, r.spot_time, r.band, r.base_callsign, lc.us_state
     from logged_contacts lc
     join raw_spots r on r.id = lc.spot_id
     where lc.user_id = p_user
@@ -400,14 +450,16 @@ as $$
         and p.retracted_at is null) as pota_that_day
   ) d
   left join lateral (
-    select case when count(*) = 1 then min(s.code) end as state
-    from (select distinct x[1] as code from regexp_matches(m.pota_location, 'US-([A-Z]{2})', 'g') as x) s
-    where s.code = any (public.us_states())
-  ) loc on true
-  left join lateral (
     select l.state from callsign_licenses l
     where l.callsign = c.base_callsign and l.country = 'US' and l.state = any (public.us_states())
   ) lic on true
+  cross join lateral (
+    select case
+      when c.us_state is not null then case when c.us_state = any (public.us_states()) then c.us_state end
+      when cardinality(w.candidates) = 0 then lic.state
+      when cardinality(w.candidates) = 1 then public.goal_park_state(m.pota_location, lic.state)
+    end as state
+  ) st
 $$;
 
 revoke all on function public.goal_contact_facts(uuid, bigint) from public;
@@ -416,7 +468,8 @@ revoke all on function public.goal_contact_facts(uuid, bigint) from public;
 -- its live contacts, or only p_spot_id. A contact counts toward a list when its UTC day is in the
 -- list's window, and an entry set back to needed by hand only from a contact logged after that.
 -- Each entry takes its earliest contact; under "at least", only as many entries as the
--- requirement still lacks, earliest contacts first. A picked review gives its contact's park.
+-- requirement still lacks, earliest contacts first. A picked review gives its contact's park, and
+-- its state when the window had two or more parks (goal_contact_facts' pick_state).
 create function public.goal_mark(p_lists uuid[], p_user uuid, p_spot_id bigint)
 returns void
 language sql
@@ -453,6 +506,16 @@ as $$
     from fl
     join goal_requirements r on r.list_id = fl.list_id and r.kind = 'state'
     join goal_entries e on e.requirement_id = r.id and e.value = fl.state
+    union all
+    -- A contact whose window had two or more parks takes its state from the park picked for it.
+    select r.id, e.value, fl.spot_id, fl.spot_time, null::bigint
+    from fl
+    join goal_reviews v on v.list_id = fl.list_id and v.contact_spot_id = fl.spot_id and v.status = 'picked'
+    join goal_requirements r on r.list_id = fl.list_id and r.kind = 'state'
+    join goal_entries e on e.requirement_id = r.id
+      and e.value = public.goal_park_state(
+            public.goal_picked_location(fl.worked_base, fl.spot_time, v.picked_reference), fl.license_state)
+    where fl.pick_state
   ),
   earliest as (
     select distinct on (c.requirement_id, c.value) c.*, e.position
@@ -852,6 +915,12 @@ begin
   if v_user is null then
     raise exception 'Not signed in.';
   end if;
+  -- An account's marking writes take apply_logged_contacts' advisory lock first, so they apply
+  -- one at a time with its contact batches and every writer locks in one order: the advisory
+  -- lock, then the list, then its entries. apply_logged_contacts marks entries before it locks a
+  -- list to recheck it; without the shared lock, a hand mark (list, then entries) racing a batch
+  -- would deadlock, and a batch's marks could overwrite a mark made since its snapshot.
+  perform pg_advisory_xact_lock(hashtextextended('logged_contacts:' || v_user::text, 0));
   if jsonb_typeof(payload) is distinct from 'object' then
     raise exception 'Not a goal.';
   end if;
@@ -976,6 +1045,85 @@ $$;
 revoke all on function public.save_goal(jsonb) from public;
 grant execute on function public.save_goal(jsonb) to authenticated;
 
+-- What saving a list with this window and marking would undo, changing nothing: the entries now
+-- worked by a contact that would be needed after save_goal, so the editor can warn before
+-- the save. Each is {requirement_id, kind, value, worked_at, reason}: by_hand when the marking is
+-- 'hand', else before_start or after_end by the UTC day of the contact that marks it now. Hand
+-- marks are never undone. An entry whose requirement would still be complete is left out: it
+-- does not alert either way. The answer comes from the save's own code: the block applies the
+-- window and runs goal_recheck, reads the result, then raises a private error that rolls every
+-- change back, so this never has a second copy of the marking.
+create function public.preview_goal_window(p_id uuid, p_starts_on date, p_ends_on date, p_marking text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_user   uuid := auth.uid();
+  v_before jsonb;
+  v_out    jsonb := '[]'::jsonb;
+begin
+  if v_user is null then
+    raise exception 'Not signed in.';
+  end if;
+  -- Serialised with apply_logged_contacts, as in save_goal: the block below takes the same
+  -- row locks a save does.
+  perform pg_advisory_xact_lock(hashtextextended('logged_contacts:' || v_user::text, 0));
+  perform 1 from goals l where l.id = p_id and l.user_id = v_user;
+  if not found then
+    raise exception 'Goal not found.';
+  end if;
+  if (p_starts_on is null) <> (p_ends_on is null) then
+    raise exception 'Give the time window a start and an end date.';
+  end if;
+  if p_ends_on < p_starts_on then
+    raise exception 'The end date can''t be before the start date.';
+  end if;
+  if p_marking is null or p_marking not in ('relay', 'hand') then
+    raise exception 'Not a way to mark entries: %.', coalesce(p_marking, '');
+  end if;
+
+  -- The contact marks as they stand, kept in a variable so they outlive the rollback below.
+  select coalesce(jsonb_agg(jsonb_build_object('requirement_id', e.requirement_id, 'value', e.value,
+                                               'worked_at', e.worked_at, 'position', e.position)), '[]'::jsonb)
+  into v_before
+  from goal_entries e join goal_requirements r on r.id = e.requirement_id
+  where r.list_id = p_id and e.worked_how = 'contact';
+  if jsonb_array_length(v_before) = 0 then
+    return v_out;
+  end if;
+
+  begin
+    update goals l set starts_on = p_starts_on, ends_on = p_ends_on, marking = p_marking where l.id = p_id;
+    perform public.goal_recheck(p_id);
+    select coalesce(jsonb_agg(jsonb_build_object(
+             'requirement_id', b.requirement_id,
+             'kind', q.kind,
+             'value', b.value,
+             'worked_at', b.worked_at,
+             'reason', case
+               when p_marking = 'hand' then 'by_hand'
+               when (b.worked_at at time zone 'utc')::date < p_starts_on then 'before_start'
+               else 'after_end' end)
+             order by q.position, q.id, b.position), '[]'::jsonb)
+    into v_out
+    from jsonb_to_recordset(v_before) as b(requirement_id uuid, value text, worked_at timestamptz, "position" int)
+    join goal_entries e on e.requirement_id = b.requirement_id and e.value = b.value
+    join public.goal_requirement_progress(p_id) q on q.id = b.requirement_id
+    where e.worked_at is null and not q.complete;
+    raise exception 'preview_goal_window rolls back' using errcode = 'LLPV0';
+  exception
+    when sqlstate 'LLPV0' then
+      null;
+  end;
+  return v_out;
+end;
+$$;
+
+revoke all on function public.preview_goal_window(uuid, date, date, text) from public;
+grant execute on function public.preview_goal_window(uuid, date, date, text) to authenticated;
+
 -- Refused while any of the caller's connections names the list. The row lock pairs with the
 -- key-share lock save_subscription takes on the lists its rules name (the matching migration),
 -- as delete_callsign_group does with groups.
@@ -991,6 +1139,8 @@ begin
   if v_user is null then
     raise exception 'Not signed in.';
   end if;
+  -- Serialised with apply_logged_contacts, as in save_goal.
+  perform pg_advisory_xact_lock(hashtextextended('logged_contacts:' || v_user::text, 0));
   perform 1 from goals l where l.id = p_id and l.user_id = v_user for update;
   if not found then
     raise exception 'Goal not found.';
@@ -1024,6 +1174,8 @@ begin
   if v_user is null then
     raise exception 'Not signed in.';
   end if;
+  -- Serialised with apply_logged_contacts, as in save_goal.
+  perform pg_advisory_xact_lock(hashtextextended('logged_contacts:' || v_user::text, 0));
   if p_worked is null then
     raise exception 'Say whether the entry is worked.';
   end if;
@@ -1059,7 +1211,8 @@ revoke all on function public.mark_goal_entry(uuid, text, boolean) from public;
 grant execute on function public.mark_goal_entry(uuid, text, boolean) to authenticated;
 
 -- Resolves an open review: a reference picks the park (marking it where the list still needs
--- it, the contact as evidence); null is "Not a park contact".
+-- it, the contact as evidence, and, when the contact's window had two or more parks, the state
+-- of the picked park's location, as goal_mark's layers say); null is "Not a park contact".
 create function public.resolve_goal_review(p_id uuid, p_reference text)
 returns void
 language plpgsql
@@ -1074,6 +1227,8 @@ begin
   if v_user is null then
     raise exception 'Not signed in.';
   end if;
+  -- Serialised with apply_logged_contacts, as in save_goal.
+  perform pg_advisory_xact_lock(hashtextextended('logged_contacts:' || v_user::text, 0));
   select v.list_id, v.contact_spot_id into v_list, v_spot
   from goal_reviews v join goals l on l.id = v.list_id
   where v.id = p_id and l.user_id = v_user and v.status = 'open'
@@ -1120,6 +1275,8 @@ begin
   if v_user is null then
     raise exception 'Not signed in.';
   end if;
+  -- Serialised with apply_logged_contacts, as in save_goal.
+  perform pg_advisory_xact_lock(hashtextextended('logged_contacts:' || v_user::text, 0));
   select * into v_src from goals l where l.id = p_id and l.user_id = v_user;
   if not found then
     raise exception 'Goal not found.';
@@ -1171,7 +1328,7 @@ grant execute on function public.copy_goal(uuid) to authenticated;
 -- 2. Every stored or revived contact goes through goal_apply_contact.
 -- 3. Before a spot is retracted (a delete, or an update's old spot), the lists it marked or holds
 --    a review for are collected, and each is rechecked once after the loop. The advisory lock
---    already serialises an account's batches.
+--    already serialises an account's batches; the goal RPCs that write marks take it too.
 create or replace function public.apply_logged_contacts(p_user_id uuid, p_items jsonb)
 returns jsonb
 language plpgsql
