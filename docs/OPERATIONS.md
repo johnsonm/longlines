@@ -609,9 +609,10 @@ and reset links will not land in the app.
 ## Documentation site on GitHub Pages
 
 The user documentation site is `docs-site/`, built with Starlight. `.github/workflows/deploy-docs.yml`
-(Astro's stock GitHub Pages workflow) deploys it on every push to main: `withastro/action` builds
-and uploads it, and `actions/deploy-pages` publishes it. It can also be run by hand from the
-Actions tab. `ci.yml`'s `docs` job builds it as a PR check and publishes nothing.
+(Astro's stock GitHub Pages workflow, plus a `paths` filter) deploys it on every push to main that
+changes `docs-site/`: `withastro/action` builds and uploads it, and `actions/deploy-pages`
+publishes it. It can also be run by hand from the Actions tab, which is how to redeploy without a
+change. `ci.yml`'s `docs` job builds it on PRs that change it and publishes nothing.
 
 Set it up once, in this order, so the first deploy lands on the domain:
 

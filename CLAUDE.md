@@ -93,9 +93,15 @@ Local invocation: `curl -X POST http://127.0.0.1:54321/functions/v1/ingest-pota 
 
 ## CI
 
-`.github/workflows/ci.yml` runs on every PR and push to main: Deno fmt/lint/check/test, ESLint
-and typecheck (`npm run lint`, `npm run typecheck`), then
-`supabase db start` + `supabase db lint` + `scripts/smoke-test.sql` on a fresh Postgres.
+`.github/workflows/ci.yml` runs on PRs (and by hand), never on pushes to main, whose commits
+passed it on their PR: Deno fmt/lint/check/test, ESLint and typecheck (`npm run lint`,
+`npm run typecheck`), then `supabase db start` + `supabase db lint` + `scripts/smoke-test.sql` on
+a fresh Postgres, and the docs site build. Its `changes` job sorts the PR's files: the app jobs
+skip a PR that changes only Markdown, `docs/` (except `docs/openapi.yaml`, which a test reads),
+`docs-site/` or the other workflows, and the docs job runs only for `docs-site/`; a new non-code
+file a test reads must count as code there. `CI passed` (`ci-passed`) always runs and is the one
+check to require: a job skipped by its `if` passes it, so never move the filter back to a
+workflow-level `paths`, which leaves a required check waiting forever.
 The Deno and web jobs upload their lcov to Codecov (`CODECOV_TOKEN`, flags `deno` and `web`,
 `codecov.yml`); its statuses are informational and the 80% gates in CI stay the check.
 Migrations already applied to the hosted project must not be edited; add a new migration instead
@@ -549,8 +555,8 @@ editor.
 - The user documentation site lives in `docs-site/` (Starlight), with its own `package.json` and
   lockfile, outside every Deno and ESLint check.
 - Only `.github/workflows/deploy-docs.yml` deploys it: Astro's stock GitHub Pages workflow, kept
-  stock, publishing to GitHub Pages at docs.longlines.io on pushes to main. `ci.yml`'s `docs` job
-  builds it as a PR check.
+  stock except for its `paths` filter, publishing to GitHub Pages at docs.longlines.io on pushes
+  to main that change `docs-site/`. `ci.yml`'s `docs` job builds it on PRs that change it.
 - `docs/` stays the internal docs (architecture, operations, specs) and is not the site.
 - The site is for end users of Long Lines and Long Lines Relay and imports nothing from the app.
 - There is no landing page: Getting started is `index.md`, a plain doc page served at `/`. Never
