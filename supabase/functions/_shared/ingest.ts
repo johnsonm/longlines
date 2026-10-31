@@ -2,7 +2,7 @@
 // Edge Function index.ts files turn the summary or error into a response.
 
 import { z } from "zod";
-import { FunctionCallError, ValidationError } from "./errors.ts";
+import { type ErrorContext, FunctionCallError, ValidationError } from "./errors.ts";
 import { assertStorableSpot } from "./normalize.ts";
 import { withoutNul } from "./strip_nul.ts";
 import { parseWith } from "./validate.ts";
@@ -22,6 +22,46 @@ function errorMessage(error: unknown): string {
     return error.message;
   }
   return String(error);
+}
+
+/**
+ * The upstream feed could not be read: its fetch failed, timed out, or answered a non-2xx or a
+ * body that is not JSON. The run still fails and is recorded in ingest_state, where /health
+ * shows it, but the handler does not report it to Sentry (upstream feed trouble is not ours).
+ */
+export class UpstreamError extends Error {
+  constructor(message: string, context: ErrorContext) {
+    super(message, { cause: context.cause });
+    this.name = "UpstreamError";
+  }
+}
+
+/**
+ * The error from an upstream fetch when it is the upstream's trouble, else null (a bug):
+ * FunctionCallError (a non-2xx), TypeError (fetch's network error), DOMException (its timeout)
+ * or SyntaxError (a body that is not JSON).
+ */
+function fetchFailure(error: unknown): Error | null {
+  if (
+    error instanceof FunctionCallError || error instanceof TypeError ||
+    error instanceof DOMException || error instanceof SyntaxError
+  ) {
+    return error;
+  }
+  return null;
+}
+
+/** The adapter's feed body; a fetch failure becomes an UpstreamError with the same message. */
+async function fetchFeed(adapter: SourceAdapter): Promise<unknown> {
+  try {
+    return await adapter.fetchSpots();
+  } catch (error) {
+    const failure = fetchFailure(error);
+    if (failure === null) {
+      throw error;
+    }
+    throw new UpstreamError(failure.message, { cause: error });
+  }
 }
 
 /**
@@ -46,16 +86,17 @@ async function upstreamEpoch(adapter: SourceAdapter): Promise<string | null> {
   try {
     return parseWith(epochSchema, await adapter.fetchEpoch(), `ingest-${adapter.source}: epoch`);
   } catch (error) {
-    // FunctionCallError: a non-2xx. TypeError: fetch's network error. DOMException: its
-    // timeout. ValidationError: a malformed value. Anything else is a bug and fails the run.
-    if (
-      !(error instanceof FunctionCallError) && !(error instanceof ValidationError) &&
-      !(error instanceof TypeError) && !(error instanceof DOMException)
-    ) {
+    // A fetch failure, or ValidationError: a malformed value. Anything else is a bug and fails
+    // the run.
+    let unusable = fetchFailure(error);
+    if (error instanceof ValidationError) {
+      unusable = error;
+    }
+    if (unusable === null) {
       throw error;
     }
     console.error(
-      `ingest-${adapter.source}: epoch unusable, fetching spots anyway: ${error.message}`,
+      `ingest-${adapter.source}: epoch unusable, fetching spots anyway: ${unusable.message}`,
     );
     return null;
   }
@@ -124,7 +165,7 @@ export async function runIngest(
       }
     }
 
-    const feed = adapter.parseFeed(await adapter.fetchSpots());
+    const feed = adapter.parseFeed(await fetchFeed(adapter));
     summary.fetched = feed.length;
 
     const spots: NormalizedSpot[] = [];

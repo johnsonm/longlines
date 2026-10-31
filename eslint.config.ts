@@ -100,6 +100,7 @@ export default tseslint.config(
           "RpcAllowlistError",
           "SliceConvertError",
           "UnsafeUrlError",
+          "UpstreamError",
           "WatchdogError",
           "ZipError",
         ],
