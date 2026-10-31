@@ -171,7 +171,7 @@ export async function runIngest(
           throw error;
         }
         summary.match_error = error.message;
-        logError(`ingest-${adapter.source}: matcher failed: ${summary.match_error}`, undefined);
+        logError(`ingest-${adapter.source}: matcher failed: ${summary.match_error}`, error);
       }
     }
 

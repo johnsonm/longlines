@@ -335,8 +335,9 @@ function reply(body: unknown, status: number, headers: Record<string, string>): 
   return json(body, status, merged);
 }
 
-function serverError(step: string, message: string): Response {
-  logError(`relay-api: ${step} failed: ${message}`, undefined);
+/** Logs and reports `error` (the PostgREST error or the Error caught, else undefined). */
+function serverError(step: string, message: string, error: unknown): Response {
+  logError(`relay-api: ${step} failed: ${message}`, error);
   return relayError(500, "server_error", null, {});
 }
 
@@ -532,7 +533,7 @@ async function startPairing(
 ): Promise<Response> {
   const started = await db.rpc("start_relay_pairing", args);
   if (started.error !== null) {
-    return serverError("start_relay_pairing", started.error.message);
+    return serverError("start_relay_pairing", started.error.message, started.error);
   }
   let pairing: DeviceStartReply;
   try {
@@ -545,7 +546,7 @@ async function startPairing(
     if (!(error instanceof ValidationError)) {
       throw error;
     }
-    return serverError("start_relay_pairing", error.message);
+    return serverError("start_relay_pairing", error.message, error);
   }
   return reply(
     {
@@ -574,7 +575,7 @@ async function deviceToken(req: Request, db: SupabaseClient): Promise<Response> 
     p_device_code_hash: await hashApiToken(body.device_code),
   });
   if (polled.error !== null) {
-    return serverError("poll_relay_pairing", polled.error.message);
+    return serverError("poll_relay_pairing", polled.error.message, polled.error);
   }
   let poll: PollReply;
   try {
@@ -583,13 +584,17 @@ async function deviceToken(req: Request, db: SupabaseClient): Promise<Response> 
     if (!(error instanceof ValidationError)) {
       throw error;
     }
-    return serverError("poll_relay_pairing", error.message);
+    return serverError("poll_relay_pairing", error.message, error);
   }
   if (poll.status !== "ok") {
     return relayError(400, poll.status, null, {});
   }
   if (poll.access_token === undefined || poll.scopes === undefined) {
-    return serverError("poll_relay_pairing", "an approved pairing came back without a token");
+    return serverError(
+      "poll_relay_pairing",
+      "an approved pairing came back without a token",
+      undefined,
+    );
   }
   return reply(
     { access_token: poll.access_token, token_type: "bearer", scopes: poll.scopes },
@@ -608,7 +613,7 @@ async function authenticate(req: Request, db: SupabaseClient): Promise<RelayToke
     p_token_hash: await hashApiToken(token),
   });
   if (auth.error !== null) {
-    return serverError("authenticate_relay_token", auth.error.message);
+    return serverError("authenticate_relay_token", auth.error.message, auth.error);
   }
   let rows: RelayTokenRow[] | null;
   try {
@@ -617,7 +622,7 @@ async function authenticate(req: Request, db: SupabaseClient): Promise<RelayToke
     if (!(error instanceof ValidationError)) {
       throw error;
     }
-    return serverError("authenticate_relay_token", error.message);
+    return serverError("authenticate_relay_token", error.message, error);
   }
   let caller: RelayTokenRow | undefined;
   if (rows !== null) {
@@ -632,7 +637,7 @@ async function authenticate(req: Request, db: SupabaseClient): Promise<RelayToke
 async function me(db: SupabaseClient, caller: RelayTokenRow): Promise<Response> {
   const result = await db.rpc("relay_account", { p_user_id: caller.user_id });
   if (result.error !== null) {
-    return serverError("relay_account", result.error.message);
+    return serverError("relay_account", result.error.message, result.error);
   }
   let account: RelayAccount | null;
   try {
@@ -641,11 +646,11 @@ async function me(db: SupabaseClient, caller: RelayTokenRow): Promise<Response> 
     if (!(error instanceof ValidationError)) {
       throw error;
     }
-    return serverError("relay_account", error.message);
+    return serverError("relay_account", error.message, error);
   }
   // A relay is paired only for an account with a callsign (answer_relay_pairing).
   if (account === null) {
-    return serverError("relay_account", "the token's account has no profile");
+    return serverError("relay_account", "the token's account has no profile", undefined);
   }
   return reply({ callsign: account.callsign, email: account.email }, 200, {});
 }
@@ -666,7 +671,7 @@ async function meV2(
     p_token_id: caller.token_id,
   });
   if (result.error !== null) {
-    return serverError("relay_account", result.error.message);
+    return serverError("relay_account", result.error.message, result.error);
   }
   let account: RelayAccountV2 | null;
   try {
@@ -675,12 +680,12 @@ async function meV2(
     if (!(error instanceof ValidationError)) {
       throw error;
     }
-    return serverError("relay_account", error.message);
+    return serverError("relay_account", error.message, error);
   }
   // Null only for a token that is not the user's, which authenticate_relay_token just matched,
   // or an account without a profile, which pairing refuses.
   if (account === null) {
-    return serverError("relay_account", "the token's account or relay was not found");
+    return serverError("relay_account", "the token's account or relay was not found", undefined);
   }
   return reply(
     {
@@ -718,7 +723,7 @@ async function contacts(
     p_count: items.length,
   });
   if (counted.error !== null) {
-    return serverError("record_relay_contacts", counted.error.message);
+    return serverError("record_relay_contacts", counted.error.message, counted.error);
   }
   let retryAfter: number;
   try {
@@ -731,7 +736,7 @@ async function contacts(
     if (!(error instanceof ValidationError)) {
       throw error;
     }
-    return serverError("record_relay_contacts", error.message);
+    return serverError("record_relay_contacts", error.message, error);
   }
   if (retryAfter > 0) {
     return relayError(429, "rate_limited", "Over 120 contacts this minute.", {
@@ -762,7 +767,7 @@ async function contacts(
         );
         return relayError(400, "invalid_request", "A contact could not be stored.", {});
       }
-      return serverError("apply_logged_contacts", applied.error.message);
+      return serverError("apply_logged_contacts", applied.error.message, applied.error);
     }
     try {
       results = mergeLoggedResults(
@@ -773,7 +778,7 @@ async function contacts(
       if (!(error instanceof ValidationError)) {
         throw error;
       }
-      return serverError("apply_logged_contacts", error.message);
+      return serverError("apply_logged_contacts", error.message, error);
     }
   }
 

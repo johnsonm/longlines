@@ -3,7 +3,9 @@
 // longlines-sender). Errors only: the default integrations are off, so nothing instruments
 // Deno.serve or fetch, and no request, header, URL or destination reaches Sentry. A report
 // carries the log line the code already writes and the error's own message, stack and causes,
-// never more than the logs hold. Without SENTRY_DSN nothing starts and nothing is sent.
+// never more than the logs hold. The workers start Sentry from their loaded config; only an Edge
+// Function, inside Supabase's Edge Runtime, starts it from the environment. Without SENTRY_DSN
+// nothing starts and nothing is sent.
 
 import * as Sentry from "@sentry/deno";
 import type { DenoOptions, ErrorEvent } from "@sentry/deno";
@@ -78,6 +80,9 @@ export function sentryOptions(config: SentryConfig): DenoOptions {
     release: config.release,
     // No Deno.serve, fetch, console or global-handler integrations: only what reportError sends.
     defaultIntegrations: false,
+    // Nor the module-load hooks that rewrite CommonJS for diagnostics channels (they read files
+    // the workers have no permission to read, and only the integrations above would use them).
+    enableRuntimeChannelInjection: false,
     integrations: [Sentry.linkedErrorsIntegration(), Sentry.dedupeIntegration()],
     dataCollection: {
       userInfo: false,
@@ -95,7 +100,8 @@ let started = false;
 /**
  * Starts Sentry once per process or isolate; later calls do nothing. The workers call it from
  * main with their loaded config; the Edge Functions start it from the environment on their first
- * report.
+ * report (reportError). Until it runs, reportError sends nothing outside the Edge Runtime, so a
+ * test with SENTRY_DSN in its environment never reports.
  */
 export function startSentry(config: SentryConfig | null): void {
   if (started) {
@@ -111,6 +117,34 @@ function readEnv(name: string): string | undefined {
   return Deno.env.get(name);
 }
 
+// How long an Edge Function's report may take to send after the response.
+const EDGE_FLUSH_MS = 2_000;
+
+/** What reportError needs of Supabase's EdgeRuntime global. */
+interface EdgeRuntimeApi {
+  waitUntil: (promise: Promise<unknown>) => void;
+}
+
+/**
+ * Supabase's `EdgeRuntime` global, or undefined outside the Edge Runtime (the workers, tests).
+ * Its waitUntil keeps the isolate alive for a promise after the response has gone.
+ */
+function edgeRuntime(): EdgeRuntimeApi | undefined {
+  const runtime: unknown = Reflect.get(globalThis, "EdgeRuntime");
+  if (typeof runtime !== "function" && (typeof runtime !== "object" || runtime === null)) {
+    return undefined;
+  }
+  const waitUntil: unknown = Reflect.get(runtime, "waitUntil");
+  if (typeof waitUntil !== "function") {
+    return undefined;
+  }
+  return {
+    waitUntil(promise: Promise<unknown>): void {
+      Reflect.apply(waitUntil, runtime, [promise]);
+    },
+  };
+}
+
 /** A failure logged without an Error object (a PostgREST error, a missing variable). */
 export class LoggedError extends Error {
   constructor(message: string, context: ErrorContext) {
@@ -122,10 +156,15 @@ export class LoggedError extends Error {
 /**
  * Reports a failure the code has already logged as `line`. An Error goes as itself, with the
  * line beside it; anything else becomes a LoggedError whose message is the line, so its stack
- * names the caller. Does nothing while Sentry is off.
+ * names the caller. Does nothing while Sentry is off. In the Edge Runtime it starts Sentry from
+ * the environment and hands the send to waitUntil, since a handler returns its 500 at once and
+ * the isolate may be suspended before the event leaves.
  */
 export function reportError(line: string, error: unknown): void {
-  startSentry(sentryConfigFromEnv(readEnv));
+  const runtime = edgeRuntime();
+  if (runtime !== undefined) {
+    startSentry(sentryConfigFromEnv(readEnv));
+  }
   if (!Sentry.isInitialized()) {
     return;
   }
@@ -133,6 +172,9 @@ export function reportError(line: string, error: unknown): void {
     Sentry.captureException(error, { contexts: { log: { line } } });
   } else {
     Sentry.captureException(new LoggedError(line, { cause: error }));
+  }
+  if (runtime !== undefined) {
+    runtime.waitUntil(Sentry.flush(EDGE_FLUSH_MS));
   }
 }
 

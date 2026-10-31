@@ -102,14 +102,14 @@ export async function handleApi(
     p_token_hash: await hashApiToken(token),
   });
   if (auth.error !== null) {
-    return serverError("authenticate_api_request", auth.error.message);
+    return serverError("authenticate_api_request", auth.error.message, auth.error);
   }
   let rows: TokenRow[] | null;
   try {
     rows = parseWith(tokenRowsSchema, auth.data, "handleApi: authenticate_api_request result");
   } catch (error) {
     if (error instanceof ValidationError) {
-      return serverError("authenticate_api_request", error.message);
+      return serverError("authenticate_api_request", error.message, error);
     }
     throw error;
   }
@@ -161,7 +161,7 @@ export async function handleApi(
   if (result.error !== null) {
     const status = errorStatus(result.error);
     if (status === 500) {
-      return serverError(route.op, result.error.message);
+      return serverError(route.op, result.error.message, result.error);
     }
     return json({ error: result.error.message }, status, {});
   }
@@ -213,7 +213,8 @@ export async function readBody(req: Request, limit: number): Promise<string | nu
   return new TextDecoder().decode(all);
 }
 
-function serverError(step: string, message: string): Response {
-  logError(`api: ${step} failed: ${message}`, undefined);
+/** Logs and reports `error` (the PostgREST error or the Error caught, else undefined). */
+function serverError(step: string, message: string, error: unknown): Response {
+  logError(`api: ${step} failed: ${message}`, error);
   return json({ error: SERVER_ERROR }, 500, {});
 }

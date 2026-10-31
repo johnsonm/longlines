@@ -382,11 +382,13 @@ Deno.test(
     const db = fakeDb(answer);
     const clock = fakeClock(T0);
     const logs: string[] = [];
+    const reports: string[] = [];
     const sender = startSender(config({ staleMs: 120_000 }), { db: db.db, send: allSent }, {
       hostname: "127.0.0.1",
       log: (m) => logs.push(m),
       now: clock.now,
       sleep: clock.sleep,
+      report: (line) => reports.push(line),
     });
     const failing = assertRejects(() => sender.done, WatchdogError, "no progress for 120 s");
 
@@ -408,6 +410,8 @@ Deno.test(
     assertEquals(h.body.healthy, false);
     assertEquals(logs.includes("watchdog: no progress for 120 s"), true);
     assertEquals(logs.filter((m) => m.startsWith("claim failed: connection reset")).length, 5);
+    // One report for the streak, not one per retry.
+    assertEquals(reports, ["claim failed: connection reset"]);
     assertStringIncludes(
       logs.find((m) => m.startsWith("claim failed"))!,
       `retrying in ${RETRY_MIN_MS} ms`,
@@ -577,7 +581,51 @@ Deno.test(
 );
 
 Deno.test(
-  "startSender reports a claimed row that does not parse but keeps polling at pollMs",
+  "startSender reports a claim outage that follows a cycle whose mark failed",
+  async function (): Promise<void> {
+    const d = dest("d1", {});
+    let claims = 0;
+    function answer(call: RpcCall) {
+      if (call.fn === "claim_deliveries") {
+        claims += 1;
+        if (claims === 1) {
+          return { data: [row(1, d)] };
+        }
+        return { error: "connection reset" };
+      }
+      if (call.fn === "mark_deliveries_sent") {
+        return { error: "connection reset" };
+      }
+      return undefined;
+    }
+    const db = fakeDb(answer);
+    const clock = fakeClock(T0);
+    const reports: string[] = [];
+    const sender = startSender(config({ pollMs: 1_000 }), { db: db.db, send: allSent }, {
+      hostname: "127.0.0.1",
+      log: noop,
+      now: clock.now,
+      sleep: clock.sleep,
+      report: (line) => reports.push(line),
+    });
+    // The mark's three tries, then the cycle's backoff (which doubles the shared delay).
+    await waitFor("the first mark", () => db.of("mark_deliveries_sent").length === 1);
+    await clock.advance(500);
+    await waitFor("the second mark", () => db.of("mark_deliveries_sent").length === 2);
+    await clock.advance(1_000);
+    await waitFor("the first cycle", () => sender.status().totals.cycles === 1);
+    await clock.advance(RETRY_MIN_MS);
+    await waitFor("the failed claim", () => db.of("claim_deliveries").length === 2);
+    await clock.advance(RETRY_MIN_MS * 2);
+    await waitFor("the next failed claim", () => db.of("claim_deliveries").length === 3);
+    assertEquals(reports, ["claim failed: connection reset"]);
+    await sender.shutdown();
+    await sender.done;
+  },
+);
+
+Deno.test(
+  "startSender reports a streak of claimed rows that do not parse once and keeps polling at pollMs",
   async function (): Promise<void> {
     const d = dest("d1", {});
     // The bad row comes back at every claim until the expiry sweep drops it.
@@ -593,11 +641,13 @@ Deno.test(
     const db = fakeDb(answer);
     const clock = fakeClock(T0);
     const logs: string[] = [];
+    const reports: string[] = [];
     const sender = startSender(config({ pollMs: 1_000 }), { db: db.db, send: allSent }, {
       hostname: "127.0.0.1",
       log: (line) => logs.push(line),
       now: clock.now,
       sleep: clock.sleep,
+      report: (line) => reports.push(line),
     });
     await waitFor("the first cycle", () => sender.status().totals.cycles === 1);
     const h = await health(sender.addr.port);
@@ -616,6 +666,9 @@ Deno.test(
     assertEquals(sender.status().totals.sent, 4);
     assertEquals(sender.status().totals.malformed, 4);
     assertEquals(db.of("mark_deliveries_sent").length, 4);
+    // Reported once for the streak, not at every claim.
+    assertEquals(reports.length, 1);
+    assertStringIncludes(String(reports[0]), "claimed rows did not parse (1): runDeliveryBatch");
     await sender.shutdown();
     await sender.done;
   },

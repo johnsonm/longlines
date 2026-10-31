@@ -67,6 +67,26 @@ Deno.test(
   },
 );
 
+// The root deno.lock is the only lock. A function's own would pin the versions it was made
+// with, and nothing keeps it in step when the root and the function's deno.json move on.
+Deno.test("no function has a deno.lock of its own", function (): void {
+  const locked: string[] = [];
+  for (const entry of Deno.readDirSync(functionsDir)) {
+    if (!entry.isDirectory) {
+      continue;
+    }
+    try {
+      Deno.statSync(new URL(`${entry.name}/deno.lock`, functionsDir));
+      locked.push(entry.name);
+    } catch (error) {
+      if (!(error instanceof Deno.errors.NotFound)) {
+        throw error;
+      }
+    }
+  }
+  assertEquals(locked, [], "function directories with a deno.lock");
+});
+
 // Zod validates external data (_shared/validate.ts), which every function will load.
 Deno.test("every function's deno.json maps zod like the root one", function (): void {
   for (const entry of Deno.readDirSync(functionsDir)) {

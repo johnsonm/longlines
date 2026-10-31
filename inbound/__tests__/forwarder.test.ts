@@ -278,10 +278,38 @@ Deno.test(
 );
 
 Deno.test(
+  "Forwarder.drain does not report the push its deadline aborted",
+  async function (): Promise<void> {
+    const reports: string[] = [];
+    // Settles only when aborted, as fetch does.
+    function push(_lines: InboundLine[], signal: AbortSignal): Promise<void> {
+      function settle(_resolve: () => void, reject: (error: Error) => void): void {
+        function onAbort(): void {
+          reject(new DOMException("The signal has been aborted", "AbortError"));
+        }
+        signal.addEventListener("abort", onAbort);
+      }
+      return new Promise(settle);
+    }
+    const f = new Forwarder({
+      now: () => 0,
+      log: noop,
+      report: (m) => reports.push(m),
+      push,
+    });
+    f.add(line(0));
+    await f.drain(50);
+    assertEquals(f.buffered, 1);
+    assertEquals(reports, []);
+  },
+);
+
+Deno.test(
   "Forwarder.drain stops after a failed push and keeps the lines",
   async function (): Promise<void> {
     let calls = 0;
     const logs: string[] = [];
+    const reports: string[] = [];
     function push(): Promise<void> {
       calls += 1;
       return Promise.reject(new Error("HTTP 503"));
@@ -290,6 +318,7 @@ Deno.test(
       now: () => 0,
       maxBatch: 2,
       log: (m) => logs.push(m),
+      report: (m) => reports.push(m),
       push,
     });
     for (let i = 0; i < 5; i++) {
@@ -302,6 +331,7 @@ Deno.test(
       "push failed (2 lines, retry in 5 s): HTTP 503",
       "drain stopped with 5 lines unsent",
     ]);
+    assertEquals(reports, ["push failed: HTTP 503"]);
   },
 );
 

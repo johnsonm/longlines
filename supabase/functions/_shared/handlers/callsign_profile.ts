@@ -248,7 +248,7 @@ export async function handleProfile(req: Request, deps: ProfileDeps): Promise<Re
 
   const profile = await db.rpc("cached_callsign_profile", { p_callsign: callsign });
   if (profile.error !== null) {
-    logError(`callsign-profile: ${callsign}: ${profile.error.message}`, profile.error);
+    logError(`callsign-profile: ${profile.error.message}`, profile.error);
     return json({ error: LOOKUP_UNAVAILABLE }, 500, {});
   }
   let payload: JsonObject | null;
@@ -262,7 +262,7 @@ export async function handleProfile(req: Request, deps: ProfileDeps): Promise<Re
     if (!(error instanceof ValidationError)) {
       throw error;
     }
-    logError(`callsign-profile: ${callsign}: ${error.message}`, error);
+    logError(`callsign-profile: ${error.message}`, error);
     return json({ error: LOOKUP_UNAVAILABLE }, 500, {});
   }
   // Null: SQL found no base call in it (P/1).
