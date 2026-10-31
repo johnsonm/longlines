@@ -1,9 +1,30 @@
 name: CI
 
+# Pull requests only: a merge to main ships commits these checks already passed on their PR, so
+# main does not run them again (run it by hand from the Actions tab if needed). A PR that changes
+# only docs, Markdown or the other workflows skips it; the patterns apply in order, so a later
+# one overrides an earlier one. docs/openapi.yaml stays in: openapi.test.ts reads it. The docs
+# site has its own check (docs.yml).
 on:
   pull_request:
-  push:
-    branches: [main]
+    paths:
+      - "**"
+      - ".github/**"
+      - "!**.md"
+      - "!docs/**"
+      - "docs/openapi.yaml"
+      - "!docs-site/**"
+      - "!.github/ISSUE_TEMPLATE/**"
+      - "!.github/workflows/claude.yml"
+      - "!.github/workflows/claude-code-review.yml"
+      - "!.github/workflows/deploy-docs.yml"
+      - "!.github/workflows/docs.yml"
+  workflow_dispatch:
+
+# A new push to a PR cancels the run for the commit it replaces.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 # Every job only checks out and runs checks; nothing writes to the repo or calls the API.
 # The one outside call is the coverage upload to Codecov, which is best effort.
@@ -110,20 +131,3 @@ jobs:
           SUPABASE_URL: https://example.supabase.co
           SUPABASE_ANON_KEY: placeholder
 
-  docs:
-    name: Docs site
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: docs-site
-    steps:
-      - uses: actions/checkout@v4
-      # Node 24, as the deploy workflow's withastro/action uses; Astro needs 22.12 or later.
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: npm
-          cache-dependency-path: docs-site/package-lock.json
-      - run: npm ci
-      # Only builds; deploy-docs.yml is the only thing that publishes the site.
-      - run: npm run build

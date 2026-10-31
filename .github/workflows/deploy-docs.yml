@@ -5,6 +5,10 @@ on:
   # Using a different branch name? Replace `main` with your branch's name
   push:
     branches: [ main ]
+    # Long Lines: only when the site changes (everything else here is the stock workflow).
+    paths:
+      - "docs-site/**"
+      - ".github/workflows/deploy-docs.yml"
   # Allows you to run this workflow manually from the Actions tab on GitHub.
   workflow_dispatch:
 

@@ -10,13 +10,16 @@ on:
     #   - "src/**/*.js"
     #   - "src/**/*.jsx"
 
+# A new push to a PR cancels the review of the commit it replaces, so only the latest is reviewed.
+concurrency:
+  group: claude-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   claude-review:
-    # Optional: Filter by PR author
-    # if: |
-    #   github.event.pull_request.user.login == 'external-contributor' ||
-    #   github.event.pull_request.user.login == 'new-developer' ||
-    #   github.event.pull_request.author_association == 'FIRST_TIME_CONTRIBUTOR'
+    # Not on drafts (marking one ready reviews it), and not on Dependabot's PRs, whose runs get
+    # no repository secrets, so the action could only fail.
+    if: ${{ !github.event.pull_request.draft && github.actor != 'dependabot[bot]' }}
 
     runs-on: ubuntu-latest
     permissions:
