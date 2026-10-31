@@ -1,5 +1,6 @@
 // HTTP shells shared by the ingest functions: run the orchestrator, return the
-// summary as JSON, or a 500 whose body and log line carry the error.
+// summary as JSON, or a 500 whose body and log line carry the error (reported to Sentry unless
+// it is an UpstreamError).
 //
 // Pushed sources (RBN, DX Cluster, APRS-IS) are invoked by the inbound worker, which holds
 // only the inbound secret, with POST batches of lines. Pulled sources (POTA,
@@ -17,6 +18,7 @@ import {
   createServiceClient,
   createWatchlistDb,
 } from "./db.ts";
+import { UpstreamError } from "./ingest.ts";
 import type { RbnPushDb } from "./rbn_push.ts";
 import type { IngestSummary, Source } from "./types.ts";
 import { logError } from "./sentry.ts";
@@ -40,7 +42,13 @@ export async function respond(
     return Response.json(summary);
   } catch (error) {
     const message = errorMessage(error);
-    logError(`ingest-${source} failed: ${message}`, error);
+    const line = `ingest-${source} failed: ${message}`;
+    // Upstream feed trouble is only logged; ingest_state already holds the failed run.
+    if (error instanceof UpstreamError) {
+      console.error(line);
+    } else {
+      logError(line, error);
+    }
     return Response.json({ source, error: message }, { status: 500 });
   }
 }

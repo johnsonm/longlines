@@ -1232,8 +1232,9 @@ screens and for notification text.
   goes beside a worker's own `log`. Never pass a request, headers, a body, a URL, a token, a
   device code, a contact or a search query to either.
 - Not reported: a user's destination failing (`run.ts` per destination), upstream feed trouble
-  (an unusable epoch, telnet sessions), best-effort heartbeats and retry notices. A retry loop
-  reports only the first failure of a streak (sender claims, inbound pushes).
+  (an unusable epoch, a failed spots fetch as `UpstreamError` in `ingest.ts`, telnet sessions),
+  best-effort heartbeats and retry notices. A retry loop reports only the first failure of a
+  streak (sender claims, inbound pushes).
 - Off without `SENTRY_DSN`. The workers read `SENTRY_ENV` through `loadConfig` (so the
   Dockerfiles' `--allow-env` and `deno.json`'s test permissions list them), call `startSentry`
   first in `main` and `flushErrors` before exiting (shutdown included), and report an unhandled

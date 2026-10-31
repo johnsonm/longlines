@@ -6,7 +6,7 @@ import {
   assertStringIncludes,
 } from "@std/assert";
 import { FunctionCallError, ValidationError } from "../errors.ts";
-import { runIngest } from "../ingest.ts";
+import { runIngest, UpstreamError } from "../ingest.ts";
 import { wwff } from "../wwff.ts";
 import type {
   IngestDb,
@@ -325,6 +325,43 @@ Deno.test(
     );
     assertEquals(calls.failure, [["pota", "ECONNRESET"]]);
     assertEquals(calls.success, []);
+  },
+);
+
+const SPOTS_FETCH_FAILURES: Array<[string, Error]> = EPOCH_FETCH_FAILURES.concat([
+  ["a body that is not JSON", new SyntaxError("Unexpected token '<'")],
+]);
+
+for (const entry of SPOTS_FETCH_FAILURES) {
+  const name = entry[0];
+  const failure = entry[1];
+  Deno.test(
+    `runIngest fails the run with an UpstreamError when the spots fetch fails with ${name}`,
+    async function (): Promise<void> {
+      const fake = fakeDb({});
+      const error = await assertRejects(
+        () => runIngest(fakeAdapter(failure, { source: "wwbota" }), fake.db, NOW),
+        UpstreamError,
+        failure.message,
+      );
+      assertEquals(error.cause, failure);
+      // The same text as before the wrap, so ingest_state and the 500 body read as they did.
+      assertEquals(fake.calls.failure, [["wwbota", failure.message]]);
+      assertEquals(fake.calls.success, []);
+    },
+  );
+}
+
+Deno.test(
+  "runIngest keeps a spots fetch error that is not a fetch failure as it is",
+  async function (): Promise<void> {
+    const fake = fakeDb({});
+    await assertRejects(
+      () => runIngest(fakeAdapter(new RangeError("a bug"), {}), fake.db, NOW),
+      RangeError,
+      "a bug",
+    );
+    assertEquals(fake.calls.failure, [["pota", "a bug"]]);
   },
 );
 

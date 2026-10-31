@@ -1,6 +1,8 @@
-import { assertEquals } from "@std/assert";
-import { runIngest } from "../ingest.ts";
-import { createAprsPushDb, createRbnPushDb, pushIngestHandler } from "../serve.ts";
+import { assertEquals, assertStringIncludes } from "@std/assert";
+import * as Sentry from "@sentry/deno";
+import { runIngest, UpstreamError } from "../ingest.ts";
+import { sentryOptions, startSentry } from "../sentry.ts";
+import { createAprsPushDb, createRbnPushDb, pushIngestHandler, respond } from "../serve.ts";
 import { fakeSupabase } from "./fake_supabase.ts";
 import type { IngestDb, SourceAdapter } from "../types.ts";
 
@@ -21,6 +23,55 @@ const db: IngestDb = {
   recordFailure: () => Promise.resolve(),
   matchPendingSpots: () => Promise.resolve(0),
 };
+
+Deno.test(
+  "respond answers 500 with the error and logs it, reporting it unless it is an UpstreamError",
+  async function (): Promise<void> {
+    const bodies: string[] = [];
+    async function receive(req: Request): Promise<Response> {
+      bodies.push(await req.text());
+      return Response.json({});
+    }
+    const server = Deno.serve({ hostname: "127.0.0.1", port: 0, onListen() {} }, receive);
+    const dsn = `http://key@127.0.0.1:${String(server.addr.port)}/1`;
+    // As in sentry.test.ts: another file may have started the module already; init directly.
+    startSentry(null);
+    Sentry.init(sentryOptions({ dsn, environment: "test", release: undefined }));
+    const errors: unknown[] = [];
+    const original = console.error;
+    console.error = (line: unknown) => errors.push(line);
+    const waited: Promise<unknown>[] = [];
+    Reflect.set(globalThis, "EdgeRuntime", {
+      waitUntil(promise: Promise<unknown>): void {
+        waited.push(promise);
+      },
+    });
+    try {
+      const upstream = await respond(
+        "wwbota",
+        () => Promise.reject(new UpstreamError("Signal timed out.", { cause: undefined })),
+      );
+      assertEquals(upstream.status, 500);
+      assertEquals(await upstream.json(), { source: "wwbota", error: "Signal timed out." });
+      const ours = await respond("wwbota", () => Promise.reject(new RangeError("a bug")));
+      assertEquals(ours.status, 500);
+      assertEquals(await ours.json(), { source: "wwbota", error: "a bug" });
+      await Promise.all(waited);
+    } finally {
+      Reflect.deleteProperty(globalThis, "EdgeRuntime");
+      console.error = original;
+      await Sentry.close(2_000);
+      await server.shutdown();
+    }
+    assertEquals(errors, [
+      "ingest-wwbota failed: Signal timed out.",
+      "ingest-wwbota failed: a bug",
+    ]);
+    assertEquals(waited.length, 1);
+    assertEquals(bodies.length, 1);
+    assertStringIncludes(String(bodies[0]), '"RangeError"');
+  },
+);
 
 // Push handler (inbound -> ingest-rbn).
 
