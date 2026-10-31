@@ -15,7 +15,7 @@ function Updated({ generatedAt }: { generatedAt: string }) {
   return <Typography variant="caption" color="text.secondary">{updatedLabel(generatedAt, now)}</Typography>;
 }
 
-/** Public: signed-out visitors see it in AppShell with the account sections disabled. */
+/** Public: signed-out visitors see it under PublicShell's top nav. */
 export function BandMapPage() {
   const mobile = useMediaQuery((t: Theme) => t.breakpoints.down("sm"));
   const { payload, loading, error } = useBandMap();
