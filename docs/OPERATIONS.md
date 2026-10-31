@@ -612,7 +612,7 @@ The user documentation site is `docs-site/`, built with Starlight. `.github/work
 (Astro's stock GitHub Pages workflow, plus a `paths` filter) deploys it on every push to main that
 changes `docs-site/`: `withastro/action` builds and uploads it, and `actions/deploy-pages`
 publishes it. It can also be run by hand from the Actions tab, which is how to redeploy without a
-change. `docs.yml` builds it as a check on PRs that change it and publishes nothing.
+change. `ci.yml`'s `docs` job builds it on PRs that change it and publishes nothing.
 
 Set it up once, in this order, so the first deploy lands on the domain:
 
