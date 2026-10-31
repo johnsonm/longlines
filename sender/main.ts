@@ -73,6 +73,7 @@ export async function main(): Promise<void> {
   async function shutdown(): Promise<void> {
     await stream.close();
     await sender.shutdown();
+    await flushErrors(FLUSH_MS);
     Deno.exit(0);
   }
   function onSignal(): void {
@@ -112,6 +113,13 @@ async function exitOnFailure(error: unknown): Promise<void> {
   Deno.exit(1);
 }
 
+/** A promise nothing awaited rejected: report it and exit 1, as a failed main does. */
+function onUnhandledRejection(event: PromiseRejectionEvent): void {
+  event.preventDefault();
+  void exitOnFailure(event.reason);
+}
+
 if (import.meta.main) {
+  globalThis.addEventListener("unhandledrejection", onUnhandledRejection);
   main().catch(exitOnFailure);
 }

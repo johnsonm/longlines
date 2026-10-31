@@ -1236,9 +1236,14 @@ screens and for notification text.
   reports only the first failure of a streak (sender claims, inbound pushes).
 - Off without `SENTRY_DSN`. The workers read `SENTRY_ENV` through `loadConfig` (so the
   Dockerfiles' `--allow-env` and `deno.json`'s test permissions list them), call `startSentry`
-  first in `main` and `flushErrors` before exiting; the Edge Functions start it from the
-  environment on their first report. `prepareEvent` drops the server name and marks
+  first in `main` and `flushErrors` before exiting (shutdown included), and report an unhandled
+  rejection as a failed `main`. Only inside Supabase's Edge Runtime (the `EdgeRuntime` global)
+  does a report start Sentry from the environment, and it hands the send to
+  `EdgeRuntime.waitUntil`; elsewhere nothing is sent before `startSentry`, so tests never report.
+  `enableRuntimeChannelInjection` stays off. `prepareEvent` drops the server name and marks
   `sentry.ts`'s frames out of the app.
+- A malformed claimed row is logged per row and reported once per streak by the sender, like a
+  failed claim; each streak has its own flag, never the shared backoff.
 
 ## Conventions
 

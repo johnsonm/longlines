@@ -18,6 +18,8 @@ export interface ForwarderOptions {
   retryMinMs?: number;
   retryMaxMs?: number;
   log?: (message: string) => void;
+  /** Where error reports go: reportError, replaced by tests that count them. */
+  report?: (line: string, error: unknown) => void;
 }
 
 /** `value`, or `fallback` when it is undefined. */
@@ -58,6 +60,7 @@ export class Forwarder {
       retryMinMs: orDefault(options.retryMinMs, 5_000),
       retryMaxMs: orDefault(options.retryMaxMs, 5 * 60_000),
       log: orDefault(options.log, consoleLog),
+      report: orDefault(options.report, reportError),
       push: options.push,
     };
     // The first heartbeat goes out right away so a restart shows up quickly.
@@ -202,8 +205,9 @@ export class Forwarder {
           String(this.#retryMs / 1000)
         } s): ${error.message}`,
       );
-      if (firstFailure) {
-        reportError(`push failed: ${error.message}`, error);
+      // A push that drain's deadline aborted at shutdown is not a push failure.
+      if (firstFailure && !this.#stop.signal.aborted) {
+        this.#opts.report(`push failed: ${error.message}`, error);
       }
       return false;
     }

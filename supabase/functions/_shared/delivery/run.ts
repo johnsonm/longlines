@@ -381,7 +381,9 @@ function claimedRows(data: unknown, result: DeliveryBatchResult): PendingDeliver
       }
       result.unattempted++;
       result.malformed.push(error.message);
-      logError(`deliver: ${error.message}; left for the visibility timeout`, error);
+      // Logged, not reported: the row comes back at every claim, so the sender reports a
+      // streak of malformed claims once.
+      console.error(`deliver: ${error.message}; left for the visibility timeout`);
     }
   }
   return rows;

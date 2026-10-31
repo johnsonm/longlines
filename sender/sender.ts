@@ -67,6 +67,8 @@ export interface SenderOptions {
   claimLimit?: number;
   /** The process's resident set size in bytes, for the heartbeat (tests pass a constant). */
   rss?: () => number;
+  /** Where error reports go: reportError, replaced by tests that count them. */
+  report?: (line: string, error: unknown) => void;
 }
 
 export interface Sender {
@@ -137,6 +139,10 @@ export function startSender(
   let rss = processRss;
   if (options.rss !== undefined) {
     rss = options.rss;
+  }
+  let report = reportError;
+  if (options.report !== undefined) {
+    report = options.report;
   }
   const controller = new AbortController();
   const signal = controller.signal;
@@ -228,6 +234,11 @@ export function startSender(
       }
     }
     let retryMs = RETRY_MIN_MS;
+    // One report per streak of failed claims, and one per streak of claims with malformed
+    // rows: each would otherwise repeat at every claim of an outage. Their own flags, since
+    // a cycle's bookkeeping errors raise the shared backoff too.
+    let claimFailing = false;
+    let claimMalformed = false;
     while (!signal.aborted) {
       inFlight = true;
       let result: DeliveryBatchResult;
@@ -245,16 +256,27 @@ export function startSender(
         }
         lastError = `claim_deliveries: ${error.message}`;
         log(`claim failed: ${error.message}; retrying in ${String(retryMs)} ms`);
-        // One report per streak: the backoff would repeat it every minute of an outage.
-        if (retryMs === RETRY_MIN_MS) {
-          reportError(`claim failed: ${error.message}`, error);
+        if (!claimFailing) {
+          claimFailing = true;
+          report(`claim failed: ${error.message}`, error);
         }
         await sleep(retryMs, signal);
         retryMs = Math.min(retryMs * 2, RETRY_MAX_MS);
         continue;
       }
       inFlight = false;
+      claimFailing = false;
       record(result);
+      const firstMalformed = result.malformed[0];
+      if (firstMalformed === undefined) {
+        claimMalformed = false;
+      } else if (!claimMalformed) {
+        claimMalformed = true;
+        report(
+          `claimed rows did not parse (${String(result.malformed.length)}): ${firstMalformed}`,
+          undefined,
+        );
+      }
       if (result.claimed > 0 || result.errors.length > 0 || result.malformed.length > 0) {
         log(JSON.stringify(result));
       }

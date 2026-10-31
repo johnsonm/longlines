@@ -19,6 +19,25 @@ function envOf(values: Record<string, string>): (name: string) => string | undef
   return env;
 }
 
+// First in the file, before any test here starts the module.
+Deno.test(
+  "reportError outside the Edge Runtime starts nothing from the environment",
+  function (): void {
+    const before = Deno.env.get("SENTRY_DSN");
+    Deno.env.set("SENTRY_DSN", "http://key@127.0.0.1:9/1");
+    try {
+      reportError("push failed: boom", new Error("boom"));
+      assertEquals(Sentry.isInitialized(), false);
+    } finally {
+      if (before === undefined) {
+        Deno.env.delete("SENTRY_DSN");
+      } else {
+        Deno.env.set("SENTRY_DSN", before);
+      }
+    }
+  },
+);
+
 Deno.test("sentryConfigFromEnv is null without a DSN", function (): void {
   assertEquals(sentryConfigFromEnv(envOf({})), null);
   assertEquals(sentryConfigFromEnv(envOf({ SENTRY_DSN: "", SENTRY_ENVIRONMENT: "x" })), null);
@@ -68,6 +87,7 @@ Deno.test("sentryOptions turns off every default integration and data collection
     release: "r",
   });
   assertEquals(options.defaultIntegrations, false);
+  assertEquals(options.enableRuntimeChannelInjection, false);
   assertEquals(options.tracesSampleRate, undefined);
   assertEquals(options.dataCollection, {
     userInfo: false,
@@ -116,7 +136,8 @@ function typeAndValue(value: SentException): string[] {
 }
 
 Deno.test(
-  "reportError sends an Error with its log line and cause, and anything else as a LoggedError",
+  "reportError sends an Error with its log line and cause, and anything else as a LoggedError, " +
+    "handing each send to the Edge Runtime's waitUntil",
   async function (): Promise<void> {
     const bodies: string[] = [];
     async function receive(req: Request): Promise<Response> {
@@ -131,11 +152,20 @@ Deno.test(
     const errors: unknown[] = [];
     const originalError = console.error;
     console.error = (line: unknown) => errors.push(line);
+    // Supabase's global: the handler returns at once, and waitUntil keeps the send alive.
+    const waited: Promise<unknown>[] = [];
+    Reflect.set(globalThis, "EdgeRuntime", {
+      waitUntil(promise: Promise<unknown>): void {
+        waited.push(promise);
+      },
+    });
     try {
       reportError("rpc failed: boom", new Error("boom", { cause: new Error("socket closed") }));
       logError("api: lookup failed: no row", { message: "no row", code: "PGRST116" });
-      await flushErrors(2_000);
+      assertEquals(waited.length, 2);
+      await Promise.all(waited);
     } finally {
+      Reflect.deleteProperty(globalThis, "EdgeRuntime");
       console.error = originalError;
       // Closed, so later reports in this process are dropped and open no requests.
       await Sentry.close(2_000);
