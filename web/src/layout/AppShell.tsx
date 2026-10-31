@@ -1,8 +1,7 @@
 import { useState, useSyncExternalStore, type ReactNode } from "react";
 import {
   AppBar, Avatar, Badge, Box, Button, Container, Divider, Drawer, IconButton, List,
-  ListItemButton, ListItemIcon, ListItemText, Menu, MenuItem, ToggleButton, ToggleButtonGroup, Toolbar, Tooltip, Typography,
-  useColorScheme, useMediaQuery, useTheme,
+  ListItemButton, ListItemIcon, ListItemText, Menu, MenuItem, Toolbar, Typography, useMediaQuery, useTheme,
 } from "@mui/material";
 import MenuIcon from "@mui/icons-material/Menu";
 import HomeIcon from "@mui/icons-material/Home";
@@ -18,10 +17,6 @@ import PersonSearchIcon from "@mui/icons-material/PersonSearch";
 import TravelExploreIcon from "@mui/icons-material/TravelExplore";
 import KeyIcon from "@mui/icons-material/Key";
 import MenuBookIcon from "@mui/icons-material/MenuBook";
-import LoginIcon from "@mui/icons-material/Login";
-import LightModeIcon from "@mui/icons-material/LightMode";
-import DarkModeIcon from "@mui/icons-material/DarkMode";
-import SettingsBrightnessIcon from "@mui/icons-material/SettingsBrightness";
 import { useLocation, useNavigate } from "react-router";
 import { useApp } from "../app/hooks";
 import { signOut } from "../lib/api";
@@ -29,29 +24,27 @@ import { installState, promptInstall, subscribeInstall } from "../pwa/install";
 import { pushCleanup } from "../pwa/push";
 import { Footer } from "./Footer";
 import { InstallDialog } from "./InstallDialog";
+import { DOCS_URL, navSection } from "./nav";
+import { ThemeSwitch } from "./ThemeSwitch";
 
-// `open` sections are public; signed out, the rest stay in the drawer, disabled, to show what an account adds.
 const NAV = [
-  { id: "home", label: "Home", icon: <HomeIcon />, open: false },
-  { id: "sources", label: "Sources", icon: <SensorsIcon />, open: false },
-  { id: "connections", label: "Connections", icon: <FilterListIcon />, open: false },
-  { id: "destinations", label: "Destinations", icon: <SendIcon />, open: false },
-  { id: "groups", label: "Groups", icon: <GroupsIcon />, open: false },
-  { id: "goals", label: "Goals", icon: <ChecklistIcon />, open: false },
-  { id: "band-map", label: "Band map", icon: <GraphicEqIcon />, open: true },
-  { id: "lookup", label: "Callsign lookup", icon: <PersonSearchIcon />, open: true },
+  { id: "home", label: "Home", icon: <HomeIcon /> },
+  { id: "sources", label: "Sources", icon: <SensorsIcon /> },
+  { id: "connections", label: "Connections", icon: <FilterListIcon /> },
+  { id: "destinations", label: "Destinations", icon: <SendIcon /> },
+  { id: "groups", label: "Groups", icon: <GroupsIcon /> },
+  { id: "goals", label: "Goals", icon: <ChecklistIcon /> },
+  { id: "band-map", label: "Band map", icon: <GraphicEqIcon /> },
+  { id: "lookup", label: "Callsign lookup", icon: <PersonSearchIcon /> },
   // Its id is the section, so /ref and every /ref/<program>/<reference> page highlight it.
-  { id: "ref", label: "Reference lookup", icon: <TravelExploreIcon />, open: true },
-  { id: "stats", label: "Stats", icon: <InsightsIcon />, open: true },
-  { id: "health", label: "Health", icon: <MonitorHeartIcon />, open: true },
-  { id: "api-tokens", label: "API tokens", icon: <KeyIcon />, open: false },
+  { id: "ref", label: "Reference lookup", icon: <TravelExploreIcon /> },
+  { id: "stats", label: "Stats", icon: <InsightsIcon /> },
+  { id: "health", label: "Health", icon: <MonitorHeartIcon /> },
+  { id: "api-tokens", label: "API tokens", icon: <KeyIcon /> },
 ];
-// The user docs are a separate site, so the last item opens it in a new tab rather than routing.
-const DOCS_URL = "https://docs.longlines.io";
-const SIGN_IN_TO_USE = "Create an account or sign in to use";
 const DRAWER = 232;
 
-/** The frame for every page but the email-link screens; signed out it has a Sign in button instead of the account menu. */
+/** The signed-in frame: the left nav and the account menu. Signed out, public pages sit in PublicShell. */
 export function AppShell({ children, destinationsFailing = false }: { children: ReactNode; destinationsFailing?: boolean }) {
   const theme = useTheme();
   const mobile = useMediaQuery(theme.breakpoints.down("md"));
@@ -63,12 +56,9 @@ export function AppShell({ children, destinationsFailing = false }: { children: 
   const [installOpen, setInstallOpen] = useState(false);
   // Chrome's captured prompt, or Safari's steps; `none` once installed.
   const install = useSyncExternalStore(subscribeInstall, installState);
-  const section = location.pathname.replace(/^\//, "").split("/")[0] ?? "";
-  // A profile belongs to Callsign lookup in the nav.
-  const page = section === "call" ? "lookup" : section;
+  const page = navSection(location.pathname);
   const callsign = profile?.callsign ?? "";
   const initials = callsign.slice(0, 2) || "?";
-  const signedIn = !!session;
 
   const go = (path: string) => {
     setMenuEl(null);
@@ -76,20 +66,19 @@ export function AppShell({ children, destinationsFailing = false }: { children: 
     void navigate(`/${path}`);
   };
 
-  // Signing in comes back to this page, query and hash included, as RequireAuth's redirect does.
-  const signIn = () => void navigate("/signin", { state: { from: location.pathname + location.search + location.hash } });
-
   const handleInstall = () => {
     setMenuEl(null);
     if (install === "ios") setInstallOpen(true);
     else void promptInstall();
   };
 
-  // This browser's push device goes with the session (pushCleanup is best effort).
+  // This browser's push device goes with the session (pushCleanup is best effort). Signed out, the
+  // visitor lands on the landing page, after RequireAuth's own redirect to sign in, which this replaces.
   const handleSignOut = async () => {
     setMenuEl(null);
     try {
       await signOut("local", pushCleanup);
+      void navigate("/", { replace: true });
     } catch {
       notify("Couldn't sign out. Try again.");
     }
@@ -99,28 +88,16 @@ export function AppShell({ children, destinationsFailing = false }: { children: 
     <Box>
       <Toolbar />
       <List>
-        {NAV.map((n) => {
-          const locked = !signedIn && !n.open;
-          const item = (
-            <ListItemButton key={n.id} selected={page === n.id} disabled={locked} onClick={() => go(n.id)}>
-              <ListItemIcon>
-                {n.id === "destinations"
-                  ? <Badge color="error" variant="dot" invisible={!destinationsFailing}>{n.icon}</Badge>
-                  : n.icon}
-              </ListItemIcon>
-              <ListItemText primary={n.label} />
-            </ListItemButton>
-          );
-          if (!locked) return item;
-          // A disabled button gets no pointer events and leaves the tab order, so the tooltip sits on a
-          // focusable wrapper: hover, a tap on phones or keyboard focus shows it, and describeChild
-          // gives it to screen readers as the item's description.
-          return (
-            <Tooltip key={n.id} title={`${SIGN_IN_TO_USE} ${n.label}.`} placement="right" enterTouchDelay={0} describeChild>
-              <Box tabIndex={0}>{item}</Box>
-            </Tooltip>
-          );
-        })}
+        {NAV.map((n) => (
+          <ListItemButton key={n.id} selected={page === n.id} onClick={() => go(n.id)}>
+            <ListItemIcon>
+              {n.id === "destinations"
+                ? <Badge color="error" variant="dot" invisible={!destinationsFailing}>{n.icon}</Badge>
+                : n.icon}
+            </ListItemIcon>
+            <ListItemText primary={n.label} />
+          </ListItemButton>
+        ))}
         <ListItemButton component="a" href={DOCS_URL} target="_blank" rel="noopener noreferrer" onClick={() => setNavOpen(false)}>
           <ListItemIcon><MenuBookIcon /></ListItemIcon>
           <ListItemText primary="Docs" />
@@ -139,47 +116,37 @@ export function AppShell({ children, destinationsFailing = false }: { children: 
             </IconButton>
           )}
           <Typography variant="h6" sx={{ flexGrow: 1 }}>Long Lines</Typography>
-          {!signedIn && <SignedOutTheme />}
-          {!signedIn && location.pathname !== "/signin" && (
-            mobile
-              ? <IconButton color="inherit" edge="end" onClick={signIn} aria-label="Sign in"><LoginIcon /></IconButton>
-              : <Button color="inherit" onClick={signIn}>Sign in</Button>
-          )}
-          {signedIn && (
-            <>
-              <IconButton color="inherit" onClick={(e) => setMenuEl(e.currentTarget)} aria-label="Account menu" sx={{ display: { xs: "inline-flex", sm: "none" } }}>
-                <Avatar sx={{ width: 32, height: 32 }}>{initials}</Avatar>
-              </IconButton>
-              <Button
-                color="inherit"
-                onClick={(e) => setMenuEl(e.currentTarget)}
-                startIcon={<Avatar sx={{ width: 28, height: 28 }}>{initials}</Avatar>}
-                aria-label="Account menu"
-                sx={{ display: { xs: "none", sm: "inline-flex" } }}
-              >
-                {callsign}
-              </Button>
-              <Menu
-                anchorEl={menuEl}
-                open={!!menuEl}
-                onClose={() => setMenuEl(null)}
-                anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
-                transformOrigin={{ vertical: "top", horizontal: "right" }}
-              >
-                <Box sx={{ px: 2, py: 1 }}>
-                  <Typography variant="subtitle2">{profile?.name || callsign}</Typography>
-                  <Typography variant="body2" color="text.secondary">{session?.user.email}</Typography>
-                </Box>
-                <Divider />
-                <ThemeSwitch />
-                <Divider />
-                <MenuItem onClick={() => go("account")}>Account</MenuItem>
-                {install !== "none" && <MenuItem onClick={handleInstall}>Install app</MenuItem>}
-                <MenuItem onClick={() => void handleSignOut()}>Sign out</MenuItem>
-              </Menu>
-              <InstallDialog open={installOpen} onClose={() => setInstallOpen(false)} />
-            </>
-          )}
+          <IconButton color="inherit" onClick={(e) => setMenuEl(e.currentTarget)} aria-label="Account menu" sx={{ display: { xs: "inline-flex", sm: "none" } }}>
+            <Avatar sx={{ width: 32, height: 32 }}>{initials}</Avatar>
+          </IconButton>
+          <Button
+            color="inherit"
+            onClick={(e) => setMenuEl(e.currentTarget)}
+            startIcon={<Avatar sx={{ width: 28, height: 28 }}>{initials}</Avatar>}
+            aria-label="Account menu"
+            sx={{ display: { xs: "none", sm: "inline-flex" } }}
+          >
+            {callsign}
+          </Button>
+          <Menu
+            anchorEl={menuEl}
+            open={!!menuEl}
+            onClose={() => setMenuEl(null)}
+            anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
+            transformOrigin={{ vertical: "top", horizontal: "right" }}
+          >
+            <Box sx={{ px: 2, py: 1 }}>
+              <Typography variant="subtitle2">{profile?.name || callsign}</Typography>
+              <Typography variant="body2" color="text.secondary">{session?.user.email}</Typography>
+            </Box>
+            <Divider />
+            <ThemeSwitch />
+            <Divider />
+            <MenuItem onClick={() => go("account")}>Account</MenuItem>
+            {install !== "none" && <MenuItem onClick={handleInstall}>Install app</MenuItem>}
+            <MenuItem onClick={() => void handleSignOut()}>Sign out</MenuItem>
+          </Menu>
+          <InstallDialog open={installOpen} onClose={() => setInstallOpen(false)} />
         </Toolbar>
       </AppBar>
       <Drawer
@@ -197,58 +164,6 @@ export function AppShell({ children, destinationsFailing = false }: { children: 
         </Container>
         <Footer />
       </Box>
-    </Box>
-  );
-}
-
-const MODES = [
-  { mode: "light", label: "Light", icon: <LightModeIcon fontSize="small" /> },
-  { mode: "system", label: "Automatic", icon: <SettingsBrightnessIcon fontSize="small" /> },
-  { mode: "dark", label: "Dark", icon: <DarkModeIcon fontSize="small" /> },
-] as const;
-
-/** Signed out there is no account menu, so the Theme switch gets its own small menu. */
-function SignedOutTheme() {
-  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
-  const { mode } = useColorScheme();
-  const current = MODES.find((m) => m.mode === mode) ?? MODES[1];
-  return (
-    <>
-      <IconButton color="inherit" onClick={(e) => setAnchor(e.currentTarget)} aria-label="Theme">
-        {current.icon}
-      </IconButton>
-      <Menu
-        anchorEl={anchor}
-        open={!!anchor}
-        onClose={() => setAnchor(null)}
-        anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
-        transformOrigin={{ vertical: "top", horizontal: "right" }}
-      >
-        <ThemeSwitch />
-      </Menu>
-    </>
-  );
-}
-
-/** Light, automatic (follows the device) or dark; MUI stores the choice per browser. */
-function ThemeSwitch() {
-  const { mode, setMode } = useColorScheme();
-  return (
-    <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 2, px: 2, py: 1 }}>
-      <Typography variant="body2">Theme</Typography>
-      <ToggleButtonGroup
-        size="small"
-        exclusive
-        value={mode ?? "system"}
-        onChange={(_, next: (typeof MODES)[number]["mode"] | null) => next && setMode(next)}
-        aria-label="Theme"
-      >
-        {MODES.map((m) => (
-          <ToggleButton key={m.mode} value={m.mode} aria-label={m.label} title={m.label}>
-            {m.icon}
-          </ToggleButton>
-        ))}
-      </ToggleButtonGroup>
     </Box>
   );
 }

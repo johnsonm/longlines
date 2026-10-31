@@ -360,7 +360,7 @@ function Charts({ payload }: { payload: HealthPayload }) {
   );
 }
 
-/** Public: signed-out visitors see it in AppShell with the account sections disabled. */
+/** Public: signed-out visitors see it under PublicShell's top nav. */
 export function HealthPage() {
   const [range, setRange] = useState<HealthRange>("24h");
   // Refresh is for signed-in users; everyone gets the once-a-minute refresh.

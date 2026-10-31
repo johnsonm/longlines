@@ -73,16 +73,21 @@ describe("AppShell", () => {
     expect(screen.getByRole("button", { name: "Light" })).toHaveAttribute("aria-pressed", "true");
   });
 
-  it("signs out with the push cleanup, and reports a failure", async () => {
-    const { user, app } = renderPage(shell(), { route: "/sources" });
+  it("signs out with the push cleanup, to the landing page", async () => {
+    const { user } = renderPage(shell(), { route: "/sources" });
     await user.click(screen.getAllByRole("button", { name: "Account menu" })[0]!);
     await user.click(screen.getByRole("menuitem", { name: "Sign out" }));
     expect(signOut).toHaveBeenCalledWith("local", pushCleanup);
+    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent(/^\/$/));
+  });
 
+  it("stays put and says so when signing out fails", async () => {
     vi.mocked(signOut).mockRejectedValue(new Error("offline"));
+    const { user, app } = renderPage(shell(), { route: "/sources" });
     await user.click(screen.getAllByRole("button", { name: "Account menu" })[0]!);
     await user.click(screen.getByRole("menuitem", { name: "Sign out" }));
     await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Couldn't sign out. Try again."));
+    expect(screen.getByTestId("location")).toHaveTextContent("/sources");
   });
 
   it("lists the sections in order and keeps Callsign lookup highlighted on profiles", () => {
@@ -154,75 +159,5 @@ describe("AppShell", () => {
   it("falls back to the callsign and a placeholder avatar", () => {
     renderPage(shell(), { route: "/sources", app: { profile: null } });
     expect(screen.getAllByText("?").length).toBeGreaterThan(0);
-  });
-});
-
-describe("AppShell signed out", () => {
-  const signedOut = { app: { session: null, profile: null } };
-  const LOCKED = ["Home", "Sources", "Connections", "Destinations", "Groups", "Goals", "API tokens"];
-  const OPEN = ["Band map", "Callsign lookup", "Reference lookup", "Stats", "Health"];
-
-  it("shows every section, with the account ones disabled and explained", async () => {
-    const { user } = renderPage(shell(), { route: "/stats", ...signedOut });
-    expect(screen.getByText("page body")).toBeInTheDocument();
-    expect(screen.getByRole("contentinfo")).toHaveTextContent("Brad Bazemore");
-    for (const name of LOCKED) expect(screen.getByRole("button", { name })).toHaveAttribute("aria-disabled", "true");
-    for (const name of OPEN) expect(screen.getByRole("button", { name })).not.toHaveAttribute("aria-disabled");
-    expect(screen.getByRole("link", { name: "Docs" })).not.toHaveAttribute("aria-disabled");
-    expect(screen.getByRole("button", { name: "Stats" })).toHaveClass("Mui-selected");
-    await user.hover(screen.getByRole("button", { name: "Connections" }).parentElement!);
-    expect(await screen.findByRole("tooltip")).toHaveTextContent("Create an account or sign in to use Connections.");
-  });
-
-  it("explains a locked section to keyboard and screen reader users", async () => {
-    const { user } = renderPage(shell(), { route: "/stats", ...signedOut });
-    const wrapper = screen.getByRole("button", { name: "Sources" }).parentElement!;
-    expect(wrapper).toHaveAttribute("tabindex", "0");
-    // Tab reaches it (the disabled button inside is skipped); a browser then opens the tooltip on
-    // focus-visible, which jsdom can't match, so the description is what is checked here.
-    for (let i = 0; i < 20 && document.activeElement !== wrapper; i += 1) await user.tab();
-    expect(wrapper).toHaveFocus();
-    expect(wrapper).toHaveAccessibleDescription("Create an account or sign in to use Sources.");
-  });
-
-  it("offers the Theme switch signed out", async () => {
-    const { user } = renderPage(shell(), { route: "/stats", ...signedOut });
-    await user.click(screen.getByRole("button", { name: "Theme" }));
-    const dark = await screen.findByRole("button", { name: "Dark" });
-    await user.click(dark);
-    expect(dark).toHaveAttribute("aria-pressed", "true");
-    await user.keyboard("{Escape}");
-    expect(screen.getByRole("button", { name: "Theme" })).toBeInTheDocument();
-  });
-
-  it("has no account menu, and offers sign in that remembers the page, query and hash included", async () => {
-    const { user } = renderPage(shell(), { route: "/stats", search: "?range=7d", hash: "#bands", ...signedOut });
-    expect(screen.queryByRole("button", { name: "Account menu" })).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Sign in" }));
-    const where = screen.getByTestId("location");
-    expect(where).toHaveTextContent("/signin");
-    expect(JSON.parse(where.dataset.state ?? "null")).toEqual({ from: "/stats?range=7d#bands" });
-  });
-
-  it("hides the Sign in button on the sign-in page itself", () => {
-    renderPage(shell(), { route: "/signin", ...signedOut });
-    expect(screen.queryByRole("button", { name: "Sign in" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Sources" })).toHaveAttribute("aria-disabled", "true");
-  });
-
-  it("navigates to the public sections", async () => {
-    const { user } = renderPage(shell(), { route: "/signin", ...signedOut });
-    await user.click(screen.getByRole("button", { name: "Band map" }));
-    expect(screen.getByTestId("location")).toHaveTextContent("/band-map");
-  });
-
-  it("shows Sign in as an icon on phones, next to the drawer", async () => {
-    setMobile(true);
-    const { user } = renderPage(shell(), { route: "/call/KK4PWJ", ...signedOut });
-    await user.click(screen.getByRole("button", { name: "Open navigation" }));
-    expect(await screen.findByRole("button", { name: "Groups" })).toHaveAttribute("aria-disabled", "true");
-    await user.keyboard("{Escape}");
-    await user.click(await screen.findByRole("button", { name: "Sign in" }));
-    expect(JSON.parse(screen.getByTestId("location").dataset.state ?? "null")).toEqual({ from: "/call/KK4PWJ" });
   });
 });

@@ -24,9 +24,12 @@ vi.mock("@vercel/analytics/react", () => ({ Analytics: vi.fn(() => null) }));
 vi.mock("./auth/SignInPage", async () => {
   const { useLocation } = await import("react-router");
   return {
-    SignInPage: () => <p>sign-in page {(useLocation().state as { from?: string } | null)?.from ?? ""}</p>,
+    SignInPage: ({ initialMode }: { initialMode: string }) => (
+      <p>{initialMode === "signup" ? "sign-up" : "sign-in"} page {(useLocation().state as { from?: string } | null)?.from ?? ""}</p>
+    ),
   };
 });
+vi.mock("./landing/LandingPage", () => ({ LandingPage: () => <p>landing page</p> }));
 vi.mock("./auth/CheckEmailPage", () => ({ CheckEmailPage: () => <p>check-email page</p> }));
 vi.mock("./auth/ResetPasswordPage", () => ({ ResetPasswordPage: () => <p>reset page</p> }));
 vi.mock("./auth/SetPasswordPage", () => ({ SetPasswordPage: () => <p>set-password page</p> }));
@@ -205,6 +208,36 @@ describe("App routing", () => {
     expect(await screen.findByText(/^home page/)).toBeInTheDocument();
   });
 
+  it("serves the landing page at the site root signed out, under the top nav", async () => {
+    session(null);
+    renderAt("/");
+    expect(await screen.findByText("landing page")).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "Public pages" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Sign in" })).toBeInTheDocument();
+  });
+
+  it("sends signed-out visitors from unknown paths to the landing page", async () => {
+    session(null);
+    renderAt("/nope");
+    expect(await screen.findByText("landing page")).toBeInTheDocument();
+  });
+
+  it("serves sign in and create account on their own pages, with no nav", async () => {
+    session(null);
+    const { unmount } = renderAt("/signin");
+    expect(await screen.findByText(/^sign-in page/)).toBeInTheDocument();
+    expect(screen.queryByRole("navigation")).not.toBeInTheDocument();
+    unmount();
+    renderAt("/signup");
+    expect(await screen.findByText(/^sign-up page/)).toBeInTheDocument();
+    expect(screen.queryByRole("navigation")).not.toBeInTheDocument();
+  });
+
+  it("sends signed-in users from create account to Home", async () => {
+    renderAt("/signup");
+    expect(await screen.findByText(/^home page/)).toBeInTheDocument();
+  });
+
   it("holds the site root until the session is read, so Google's sign-in can take it from the URL", async () => {
     session(null, true);
     const { rerender } = renderAt("/");
@@ -298,38 +331,41 @@ describe("App routing", () => {
     expect(await screen.findByText(text)).toBeInTheDocument();
   });
 
-  it("serves Stats publicly in the app shell, with the account sections disabled", async () => {
+  it("serves Stats publicly under the top nav, with no account sections", async () => {
     session(null);
     renderAt("/stats");
     expect(await screen.findByText("stats page")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Sign in" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Connections" })).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByRole("link", { name: "Sign in" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Stats" })).toHaveAttribute("aria-current", "page");
+    expect(screen.queryByText("Connections")).not.toBeInTheDocument();
   });
 
-  it("serves Stats inside the app shell when signed in", async () => {
+  it("serves Stats inside the app shell's left nav when signed in", async () => {
     renderAt("/stats");
     expect(await screen.findByText("stats page")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Sign in" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Sign in" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "Public pages" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Stats" })).toHaveClass("Mui-selected");
   });
 
   it("serves Health publicly, and inside the app shell when signed in", async () => {
     session(null);
     const { unmount } = renderAt("/health");
     expect(await screen.findByText("health page")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Sign in" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Health" })).toHaveClass("Mui-selected");
+    expect(screen.getByRole("link", { name: "Sign in" })).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "Public pages" })).toBeInTheDocument();
     unmount();
     session(SESSION);
     renderAt("/health");
     expect(await screen.findByText("health page")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Sign in" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Sign in" })).not.toBeInTheDocument();
   });
 
   it("serves lookup publicly", async () => {
     session(null);
     renderAt("/lookup");
     expect(await screen.findByText("lookup page")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Sign in" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Sign in" })).toBeInTheDocument();
   });
 
   it("serves a signed-out profile in UTC with no account", async () => {
@@ -342,20 +378,20 @@ describe("App routing", () => {
     session(null);
     const { unmount } = renderAt("/ref");
     expect(await screen.findByText("reference lookup page")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Sign in" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Reference lookup" })).toHaveClass("Mui-selected");
+    expect(screen.getByRole("link", { name: "Sign in" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Reference lookup" })).toHaveAttribute("aria-current", "page");
     unmount();
     session(SESSION);
     renderAt("/ref");
     expect(await screen.findByText("reference lookup page")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Sign in" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Sign in" })).not.toBeInTheDocument();
   });
 
   it("serves a reference page signed out, and signed in with its alerts", async () => {
     session(null);
     const { unmount } = renderAt("/ref/sota/W4C/CM-001");
     expect(await screen.findByText("reference page sota W4C/CM-001 signed out")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Sign in" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Sign in" })).toBeInTheDocument();
     unmount();
     session(SESSION);
     renderAt("/ref/pota/US-2763");
@@ -366,12 +402,12 @@ describe("App routing", () => {
     session(null);
     const { unmount } = renderAt("/g/7f3kq6xm2a");
     expect(await screen.findByText("public group page 7f3kq6xm2a")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Sign in" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Sign in" })).toBeInTheDocument();
     unmount();
     session(SESSION);
     renderAt("/g/7f3kq6xm2a");
     expect(await screen.findByText("public group page 7f3kq6xm2a")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Sign in" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Sign in" })).not.toBeInTheDocument();
   });
 
   it("serves lookup and profiles inside the app shell when signed in", async () => {
@@ -383,7 +419,7 @@ describe("App routing", () => {
   it("serves the lookup page inside the app shell when signed in", async () => {
     renderAt("/lookup");
     expect(await screen.findByText("lookup page")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Sign in" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Sign in" })).not.toBeInTheDocument();
   });
 
   it("waits for the profile before rendering a signed-in page", async () => {

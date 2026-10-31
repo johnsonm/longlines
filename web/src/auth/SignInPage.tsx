@@ -1,76 +1,36 @@
 import { useEffect, useState, type FormEvent } from "react";
-import {
-  Alert, Box, Button, Card, CardContent, CardHeader, CardMedia, Chip, Divider, Grid, LinearProgress, Link, Paper, Stack, Tab, Tabs,
-  TextField, Typography, useMediaQuery, useTheme,
-} from "@mui/material";
+import { Alert, Box, Button, Divider, Stack, Tab, Tabs, TextField, useMediaQuery, useTheme } from "@mui/material";
 import { useLocation, useNavigate } from "react-router";
-import CheckIcon from "@mui/icons-material/Check";
-import FilterAltIcon from "@mui/icons-material/FilterAlt";
 import GoogleIcon from "@mui/icons-material/Google";
-import GraphicEqIcon from "@mui/icons-material/GraphicEq";
-import GroupsIcon from "@mui/icons-material/Groups";
-import InsightsIcon from "@mui/icons-material/Insights";
-import KeyIcon from "@mui/icons-material/Key";
-import PersonSearchIcon from "@mui/icons-material/PersonSearch";
-import SendIcon from "@mui/icons-material/Send";
-import SensorsIcon from "@mui/icons-material/Sensors";
-import heroUrl from "../assets/landing-hero.jpg";
 import { signIn, signInWithGoogle, signUp } from "../lib/api";
 import { isValidCallsign, normalizeCallsign } from "../lib/callsign";
+import { AuthFrame } from "./AuthFrame";
 import { clearReturnPath, saveReturnPath } from "./returnPath";
 import { errorText, useApp } from "../app/hooks";
 
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
-
-const BENEFITS = [
-  "Skip the firehose. Hear only about the stations, parks and bands you want.",
-  "Never miss a rare one. Matches are sent as they are spotted.",
-  "Keep your history. Every spot from every source is stored and searchable by callsign.",
-];
-
-const STEPS = [
-  {
-    icon: <SensorsIcon />,
-    title: "Pick a source",
-    body: "Choose from activations, skimmers, packet and digital modes. Each source lists exactly what it sends.",
-    chips: ["POTA", "SOTA", "DX Cluster", "RBN", "APRS-IS"],
-  },
-  {
-    icon: <FilterAltIcon />,
-    title: "Add a filter",
-    body: "Match on callsign, band, mode, park, summit or state. Or skip it and pass everything.",
-    chips: ["Callsign", "Band", "Park", "State"],
-  },
-  {
-    icon: <SendIcon />,
-    title: "Send it anywhere",
-    body: "Deliver matches to Discord channels and webhooks. A connection can also have no destination yet.",
-    chips: ["Discord", "Webhook"],
-  },
-];
-
-const REASONS = [
-  { icon: <GroupsIcon color="primary" aria-hidden />, title: "Built for clubs", body: "Share a roster as a group and use it in any filter." },
-  { icon: <GraphicEqIcon color="primary" aria-hidden />, title: "See who is on now", body: "The band map and profiles are public. No account needed." },
-  { icon: <InsightsIcon color="primary" aria-hidden />, title: "Know the numbers", body: "Recent activity across every source, open to everyone." },
-  { icon: <KeyIcon color="primary" aria-hidden />, title: "Automate setup", body: "Manage connections, groups and destinations through the API with a scoped token." },
-];
 
 interface LocationState {
   from?: string;
   notice?: string;
 }
 
-export function SignInPage() {
+type Mode = "signin" | "signup";
+
+/**
+ * Sign in and Create account, on a page of their own with no nav (/signin and /signup, which
+ * opens on Create account). Signed in, the app's own shell takes over.
+ */
+export function SignInPage({ initialMode }: { initialMode: Mode }) {
   const navigate = useNavigate();
   const location = useLocation();
   const theme = useTheme();
-  // Autofocus only where the keyboard won't scroll the intro off screen. noSsr so the
+  // Autofocus only where a phone's keyboard won't cover the form. noSsr so the
   // first render already knows the viewport; autoFocus is only honored on mount.
   const desktop = useMediaQuery(theme.breakpoints.up("md"), { noSsr: true });
   const state = (location.state ?? {}) as LocationState;
   const { signInNotice, setSignInNotice } = useApp();
-  const [mode, setMode] = useState<"signin" | "signup">("signin");
+  const [mode, setMode] = useState<Mode>(initialMode);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(state.notice ?? signInNotice ?? null);
   useEffect(() => {
@@ -86,7 +46,7 @@ export function SignInPage() {
   const [touched, setTouched] = useState<Partial<Record<keyof typeof su, boolean>>>({});
   const touch = (k: keyof typeof su) => setTouched((t) => ({ ...t, [k]: true }));
 
-  const switchMode = (m: "signin" | "signup") => {
+  const switchMode = (m: Mode) => {
     setMode(m);
     setError(null);
     setInfo(null);
@@ -155,13 +115,15 @@ export function SignInPage() {
     </>
   );
 
-  const signInCard = (
-    <Paper elevation={4}>
-      <Tabs value={mode} onChange={(_e, v: "signin" | "signup") => switchMode(v)} variant="fullWidth">
-        <Tab value="signin" label="Sign in" />
-        <Tab value="signup" label="Create account" />
-      </Tabs>
-      {busy && <LinearProgress />}
+  const tabs = (
+    <Tabs value={mode} onChange={(_e, v: Mode) => switchMode(v)} variant="fullWidth">
+      <Tab value="signin" label="Sign in" />
+      <Tab value="signup" label="Create account" />
+    </Tabs>
+  );
+
+  return (
+    <AuthFrame busy={busy} tabs={tabs}>
       <Box sx={{ p: 3 }}>
         {info && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setInfo(null)}>{info}</Alert>}
         {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
@@ -206,112 +168,6 @@ export function SignInPage() {
           </Box>
         )}
       </Box>
-    </Paper>
-  );
-
-  return (
-    <Stack spacing={{ xs: 4, md: 6 }} sx={{ py: { md: 2 } }}>
-      {/* Columns split from lg: beside the 232px drawer, md leaves about 670px. */}
-      <Grid container spacing={6} sx={{ alignItems: "center" }}>
-        <Grid size={{ xs: 12, lg: 7 }}>
-          <Typography variant="overline" color="primary" component="p">For amateur radio operators</Typography>
-          <Typography variant={desktop ? "h3" : "h4"} component="h1" sx={{ mt: 0.5, mb: 2 }}>
-            Get the spots you want, sent where you want them.
-          </Typography>
-          <Typography variant="subtitle1" color="text.secondary" sx={{ mb: 2 }}>
-            Long Lines connects to every major amateur radio spotting network, including POTA, SOTA and DX Cluster, and more, stores every
-            spot, and forwards the ones that match your filters to places like Discord channels and webhooks.
-          </Typography>
-          <Stack component="ul" sx={{ listStyle: "none", p: 0, mt: 1, mb: 3 }}>
-            {BENEFITS.map((b) => (
-              <Stack component="li" key={b} direction="row" spacing={2} sx={{ py: 0.75, alignItems: "flex-start" }}>
-                <CheckIcon color="success" aria-hidden />
-                <Typography variant="body1">{b}</Typography>
-              </Stack>
-            ))}
-          </Stack>
-          <Stack direction={{ xs: "column", sm: "row" }} spacing={1} useFlexGap sx={{ flexWrap: "wrap" }}>
-            <Button variant="contained" size="large" startIcon={<InsightsIcon />} onClick={() => void navigate("/stats")}>
-              View recent activity
-            </Button>
-            <Button variant="outlined" size="large" startIcon={<PersonSearchIcon />} onClick={() => void navigate("/lookup")}>
-              Look up a callsign
-            </Button>
-          </Stack>
-        </Grid>
-        <Grid size={{ xs: 12, lg: 5 }}>{signInCard}</Grid>
-      </Grid>
-
-      <Stack spacing={2}>
-        <Box>
-          <Typography variant={desktop ? "h5" : "h6"} component="h2">How it works</Typography>
-          <Typography variant="body2" color="text.secondary">One source in, zero or more destinations out, with a filter in the middle.</Typography>
-        </Box>
-        <Grid container spacing={2}>
-          {STEPS.map((s, i) => (
-            <Grid key={s.title} size={{ xs: 12, sm: 6, lg: 4 }}>
-              <Card variant="outlined" sx={{ height: "100%" }}>
-                <CardContent sx={{ height: "100%", display: "flex", flexDirection: "column", gap: 2 }}>
-                  <Stack direction="row" spacing={2} sx={{ alignItems: "center" }}>
-                    <Chip
-                      aria-hidden color="primary" icon={s.icon}
-                      sx={{ width: 40, height: 40, borderRadius: "50%", "& .MuiChip-icon": { m: 0 }, "& .MuiChip-label": { display: "none" } }}
-                    />
-                    <Typography variant="overline" color="text.secondary">Step {i + 1}</Typography>
-                  </Stack>
-                  <Typography variant="h6" component="h3">{s.title}</Typography>
-                  <Typography variant="body2" color="text.secondary">{s.body}</Typography>
-                  <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap", mt: "auto" }}>
-                    {s.chips.map((c) => <Chip key={c} label={c} size="small" variant="outlined" />)}
-                  </Stack>
-                </CardContent>
-              </Card>
-            </Grid>
-          ))}
-        </Grid>
-      </Stack>
-
-      <Grid container spacing={2}>
-        <Grid size={{ xs: 12, lg: 7 }}>
-          <Card variant="outlined" sx={{ height: "100%" }}>
-            <CardMedia
-              component="img"
-              image={heroUrl}
-              alt="Microwave relay tower with horn antennas, Mojave National Preserve"
-              sx={{ height: { xs: 200, md: 320 }, objectFit: "cover", objectPosition: "50% 40%" }}
-            />
-            <CardContent>
-              <Typography variant="caption" color="text.secondary">
-                Microwave relay tower, Mojave National Preserve. Photo: Tony Webster,{" "}
-                <Link href="https://creativecommons.org/licenses/by-sa/2.0/" target="_blank" rel="noopener" color="inherit">CC BY-SA 2.0</Link>.
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid size={{ xs: 12, lg: 5 }}>
-          <Card variant="outlined" sx={{ height: "100%" }}>
-            <CardHeader title="Why Long Lines" subheader="Built for operators who chase spots" />
-            <CardContent sx={{ pt: 0 }}>
-              {REASONS.map((r, i) => (
-                <Box key={r.title}>
-                  {i > 0 && <Divider />}
-                  <Stack direction="row" spacing={2} sx={{ py: 1.5, alignItems: "flex-start" }}>
-                    {r.icon}
-                    <Box>
-                      <Typography variant="subtitle2" component="h3">{r.title}</Typography>
-                      <Typography variant="body2" color="text.secondary">{r.body}</Typography>
-                    </Box>
-                  </Stack>
-                </Box>
-              ))}
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
-
-      <Typography variant="caption" color="text.secondary" component="p" align="center">
-        Named for the AT&amp;T Long Lines microwave relay network.
-      </Typography>
-    </Stack>
+    </AuthFrame>
   );
 }

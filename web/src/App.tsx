@@ -13,6 +13,8 @@ import { SetPasswordPage } from "./auth/SetPasswordPage";
 import { CompleteProfilePage } from "./auth/CompleteProfilePage";
 import { clearReturnPath, peekReturnPath } from "./auth/returnPath";
 import { AppShell } from "./layout/AppShell";
+import { PublicShell } from "./layout/PublicShell";
+import { LandingPage } from "./landing/LandingPage";
 import { HomePage } from "./home/HomePage";
 import { SourcesPage } from "./sources/SourcesPage";
 import { SourceDetailPage } from "./sources/SourceDetailPage";
@@ -74,7 +76,9 @@ function Toast() {
 function Router() {
   return (
     <SentryRoutes>
-      <Route path="/signin" element={<PublicOnly><AppShell><SignInPage /></AppShell></PublicOnly>} />
+      <Route path="/" element={<SiteRoot />} />
+      <Route path="/signin" element={<PublicOnly><SignInPage initialMode="signin" /></PublicOnly>} />
+      <Route path="/signup" element={<PublicOnly><SignInPage initialMode="signup" /></PublicOnly>} />
       <Route path="/check-email" element={<CheckEmailPage />} />
       <Route path="/reset-password" element={<ResetPasswordPage />} />
       <Route path="/set-password" element={<SetPasswordPage />} />
@@ -107,27 +111,34 @@ function Router() {
       <Route path="/api-tokens" element={<RequireAuth page="api-tokens" />} />
       <Route path="/relay" element={<ToRelayApprove />} />
       <Route path="/relay/approve" element={<RequireAuth page="relay-approve" />} />
-      <Route path="*" element={<ToHome />} />
+      <Route path="*" element={<Navigate to="/" replace />} />
     </SentryRoutes>
   );
 }
 
 /**
- * Unknown paths go to Home, but only once the session is read: Google's sign-in comes back to
- * the site root with the session in the URL, and leaving first would drop it. A Google sign-in
- * goes on to the page it started from (SignInPage keeps it in sessionStorage), once: the kept
- * path is read during render and cleared after commit, so StrictMode's second render and effect
- * still see it, and it is cleared whether or not the sign-in worked. Signed out, that page's
- * RequireAuth sends the visitor back to sign in with it as `from`.
+ * The site root (and every unknown path, sent here) is the landing page signed out and Home
+ * signed in, decided only once the session is read: Google's sign-in comes back to the site root
+ * with the session in the URL, and leaving first would drop it. A Google sign-in goes on to the
+ * page it started from (SignInPage keeps it in sessionStorage), once: the kept path is read
+ * during render and cleared after commit, so StrictMode's second render and effect still see it,
+ * and it is cleared whether or not the sign-in worked. Signed out, that page's RequireAuth sends
+ * the visitor back to sign in with it as `from`.
  */
-function ToHome() {
-  const { sessionLoading } = useApp();
+function SiteRoot() {
+  const { session, sessionLoading } = useApp();
   const saved = sessionLoading ? null : peekReturnPath();
   useEffect(() => {
     if (!sessionLoading) clearReturnPath();
   }, [sessionLoading]);
   if (sessionLoading) return <LinearProgress />;
-  return <Navigate to={saved ?? "/home"} replace />;
+  if (saved) return <Navigate to={saved} replace />;
+  if (session) return <Navigate to="/home" replace />;
+  return (
+    <PublicShell>
+      <LandingPage />
+    </PublicShell>
+  );
 }
 
 /** /relay is the short address the relay tells people to type; the page itself is /relay/approve, code and all. */
@@ -143,7 +154,7 @@ function OldConnectionsPath() {
 }
 
 /**
- * Signed-in users skip the sign-in screen, to the page they came from (AppShell's Sign in and
+ * Signed-in users skip the sign-in screen, to the page they came from (PublicShell's Sign in and
  * RequireAuth put it in `from`), the same place SignInPage sends them, so the two never race.
  */
 function PublicOnly({ children }: { children: ReactNode }) {
@@ -160,13 +171,16 @@ type PublicPage = "band-map" | "stats" | "health" | "lookup" | "call" | "ref-loo
 // Signed-out visitors read profiles in UTC.
 const UTC: TimePrefs = { utcTimes: true, timezone: "UTC" };
 
-/** The band map, Stats, Health, callsign and reference profiles and public group pages are public: signed out, AppShell shows them with the other sections disabled. */
+/**
+ * The band map, Stats, Health, callsign and reference profiles and public group pages are public:
+ * signed out they sit in PublicShell's top nav, signed in in AppShell's left nav.
+ */
 function PublicRoute({ page }: { page: PublicPage }) {
   const { session, sessionLoading } = useApp();
   if (sessionLoading) return <LinearProgress />;
   if (session) return <RequireAuth page={page} />;
   return (
-    <AppShell>
+    <PublicShell>
       {page === "band-map" && <BandMapPage />}
       {page === "stats" && <StatsPage />}
       {page === "health" && <HealthPage />}
@@ -175,7 +189,7 @@ function PublicRoute({ page }: { page: PublicPage }) {
       {page === "ref-lookup" && <ReferenceLookupPage />}
       {page === "ref" && <ReferencePage signedIn={false} />}
       {page === "group-public" && <PublicGroupRoute />}
-    </AppShell>
+    </PublicShell>
   );
 }
 

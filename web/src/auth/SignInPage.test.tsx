@@ -25,7 +25,7 @@ const where = () => screen.getByTestId("location");
 describe("SignInPage: sign in", () => {
   it("signs in and returns to the page the user came from", async () => {
     saveReturnPath("/relay/approve?code=KQ7M-X4PD"); // left by a Google attempt abandoned on Google's page
-    const { user } = renderPage(<SignInPage />, { route: "/signin", state: { from: "/destinations" } });
+    const { user } = renderPage(<SignInPage initialMode="signin" />, { route: "/signin", state: { from: "/destinations" } });
     const submit = screen.getByRole("button", { name: "Sign in" });
     expect(submit).toBeDisabled();
     await user.type(screen.getByLabelText("Email"), "kk4pwj@example.com");
@@ -38,7 +38,7 @@ describe("SignInPage: sign in", () => {
 
   it("defaults to Home after sign in", async () => {
     setMobile(true);
-    const { user } = renderPage(<SignInPage />, { route: "/signin" });
+    const { user } = renderPage(<SignInPage initialMode="signin" />, { route: "/signin" });
     await user.type(screen.getByLabelText("Email"), "kk4pwj@example.com");
     await user.type(screen.getByLabelText("Password"), "hunter22");
     await user.click(screen.getByRole("button", { name: "Sign in" }));
@@ -47,7 +47,7 @@ describe("SignInPage: sign in", () => {
 
   it("shows the sign-in error", async () => {
     vi.mocked(signIn).mockRejectedValue(new Error("That email and password don't match."));
-    const { user } = renderPage(<SignInPage />, { route: "/signin" });
+    const { user } = renderPage(<SignInPage initialMode="signin" />, { route: "/signin" });
     await user.type(screen.getByLabelText("Email"), "x@y.z");
     await user.type(screen.getByLabelText("Password"), "y");
     await user.click(screen.getByRole("button", { name: "Sign in" }));
@@ -55,40 +55,43 @@ describe("SignInPage: sign in", () => {
   });
 
   it("shows a notice from navigation state and lets the user dismiss it", async () => {
-    const { user } = renderPage(<SignInPage />, { route: "/signin", state: { notice: "Reset link sent." } });
+    const { user } = renderPage(<SignInPage initialMode="signin" />, { route: "/signin", state: { notice: "Reset link sent." } });
     expect(screen.getByText("Reset link sent.")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Close" }));
     expect(screen.queryByText("Reset link sent.")).not.toBeInTheDocument();
   });
 
   it("consumes the app-level sign-in notice once", () => {
-    const { app } = renderPage(<SignInPage />, { route: "/signin", app: { signInNotice: "Your account was deleted." } });
+    const { app } = renderPage(<SignInPage initialMode="signin" />, { route: "/signin", app: { signInNotice: "Your account was deleted." } });
     expect(screen.getByText("Your account was deleted.")).toBeInTheDocument();
     expect(app.setSignInNotice).toHaveBeenCalledWith(null);
   });
 
-  it("links to password reset and stats", async () => {
-    const { user } = renderPage(<SignInPage />, { route: "/signin" });
+  it("links to password reset", async () => {
+    const { user } = renderPage(<SignInPage initialMode="signin" />, { route: "/signin" });
     await user.click(screen.getByRole("button", { name: "Forgot your password?" }));
     expect(where()).toHaveTextContent("/reset-password");
   });
 
-  it("links to the public stats page", async () => {
-    const { user } = renderPage(<SignInPage />, { route: "/signin" });
-    await user.click(screen.getByRole("button", { name: "View recent activity" }));
-    expect(where()).toHaveTextContent("/stats");
-  });
-
-  it("links to callsign lookup", async () => {
-    const { user } = renderPage(<SignInPage />, { route: "/signin" });
-    await user.click(screen.getByRole("button", { name: "Look up a callsign" }));
-    expect(where()).toHaveTextContent("/lookup");
+  it("stands alone, with no nav, and leads back to the site root by its name", async () => {
+    const { user } = renderPage(<SignInPage initialMode="signin" />, { route: "/signin" });
+    expect(screen.queryByRole("navigation")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Account menu" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("link", { name: "Long Lines" }));
+    expect(where()).toHaveTextContent(/^\/$/);
   });
 });
 
 describe("SignInPage: create account", () => {
+  it("opens on Create account at /signup", () => {
+    renderPage(<SignInPage initialMode="signup" />, { route: "/signup" });
+    expect(screen.getByRole("tab", { name: "Create account" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByLabelText(/^Callsign/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sign up with Google" })).toBeInTheDocument();
+  });
+
   async function openSignUp() {
-    const r = renderPage(<SignInPage />, { route: "/signin", state: { notice: "hello" } });
+    const r = renderPage(<SignInPage initialMode="signin" />, { route: "/signin", state: { notice: "hello" } });
     await r.user.click(screen.getByRole("tab", { name: "Create account" }));
     expect(screen.queryByText("hello")).not.toBeInTheDocument();
     return r;
@@ -133,7 +136,7 @@ describe("SignInPage: create account", () => {
 
 describe("SignInPage: Google", () => {
   it("signs in with Google and stays busy while the browser leaves", async () => {
-    const { user } = renderPage(<SignInPage />, { route: "/signin" });
+    const { user } = renderPage(<SignInPage initialMode="signin" />, { route: "/signin" });
     const google = screen.getByRole("button", { name: "Sign in with Google" });
     await user.click(google);
     expect(signInWithGoogle).toHaveBeenCalledTimes(1);
@@ -142,7 +145,7 @@ describe("SignInPage: Google", () => {
   });
 
   it("keeps the page the user came from for the trip to Google", async () => {
-    const { user } = renderPage(<SignInPage />, { route: "/signin", state: { from: "/relay/approve?code=KQ7M-X4PD" } });
+    const { user } = renderPage(<SignInPage initialMode="signin" />, { route: "/signin", state: { from: "/relay/approve?code=KQ7M-X4PD" } });
     await user.click(screen.getByRole("button", { name: "Sign in with Google" }));
     expect(signInWithGoogle).toHaveBeenCalledTimes(1);
     expect(peekReturnPath()).toBe("/relay/approve?code=KQ7M-X4PD");
@@ -150,13 +153,13 @@ describe("SignInPage: Google", () => {
 
   it("forgets an older saved page when this sign-in came from nowhere", async () => {
     saveReturnPath("/destinations");
-    const { user } = renderPage(<SignInPage />, { route: "/signin" });
+    const { user } = renderPage(<SignInPage initialMode="signin" />, { route: "/signin" });
     await user.click(screen.getByRole("button", { name: "Sign in with Google" }));
     expect(peekReturnPath()).toBeNull();
   });
 
   it("offers Google sign-up without submitting the form", async () => {
-    const { user } = renderPage(<SignInPage />, { route: "/signin" });
+    const { user } = renderPage(<SignInPage initialMode="signin" />, { route: "/signin" });
     await user.click(screen.getByRole("tab", { name: "Create account" }));
     await user.click(screen.getByRole("button", { name: "Sign up with Google" }));
     expect(signInWithGoogle).toHaveBeenCalledTimes(1);
@@ -165,7 +168,7 @@ describe("SignInPage: Google", () => {
 
   it("shows a Google error and lets the user try again", async () => {
     vi.mocked(signInWithGoogle).mockRejectedValue(new Error("Unsupported provider: provider is not enabled"));
-    const { user } = renderPage(<SignInPage />, { route: "/signin" });
+    const { user } = renderPage(<SignInPage initialMode="signin" />, { route: "/signin" });
     await user.click(screen.getByRole("button", { name: "Sign in with Google" }));
     expect(await screen.findByText("Unsupported provider: provider is not enabled")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Sign in with Google" })).toBeEnabled();
@@ -173,7 +176,7 @@ describe("SignInPage: Google", () => {
 
   it("forgets the saved page when Google's sign-in can't start", async () => {
     vi.mocked(signInWithGoogle).mockRejectedValue(new Error("Unsupported provider: provider is not enabled"));
-    const { user } = renderPage(<SignInPage />, { route: "/signin", state: { from: "/destinations" } });
+    const { user } = renderPage(<SignInPage initialMode="signin" />, { route: "/signin", state: { from: "/destinations" } });
     await user.click(screen.getByRole("button", { name: "Sign in with Google" }));
     await screen.findByText("Unsupported provider: provider is not enabled");
     expect(peekReturnPath()).toBeNull();

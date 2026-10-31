@@ -163,7 +163,7 @@ The conventions are `docs/superpowers/specs/2026-10-22-strict-eslint-conventions
   (`rollup-stats-days`, `refresh_stats_rollups()`, :01) so the :05 snapshot never runs one;
   `refresh_stats_snapshot_at(p_now)` runs both for tests and seed. RBN top-station skimmers come
   from `rbn_daily_stations.spotters`, never a week of `rbn_spots`. It is the one table `anon` may read: the Stats page (`/stats`) is public and
-  renders in `AppShell` either way (signed out, the account sections are disabled). RBN figures come from the
+  renders under `PublicShell`'s top nav signed out and in `AppShell` signed in. RBN figures come from the
   `rollup_rbn_day` tables (today's hours from `rollup_rbn_hours`), never from `rbn_spots` directly: the refresh runs hourly and the
   firehose is ~1.5M rows a day. APRS figures come from `aprs_packet_hours` and the `aprs_daily_*`
   tables, never `aprs_packets`. The payload shape is `StatsPayload` in `web/src/stats/types.ts` and is pinned by
@@ -508,6 +508,13 @@ editor.
   menu) picks light, dark or automatic (`useColorScheme`, stored by MUI in localStorage). Automatic follows `prefers-color-scheme`. MUI 9: `Grid` uses `size`,
   `Stack` takes flex alignment through `sx`, there is no `fontWeight` prop (use a variant such as
   `subtitle2`), `slotProps` replaces `InputProps`/`secondaryTypographyProps`.
+- Two shells. Signed out, `/` is `LandingPage` and the public pages (`PublicRoute`) sit in
+  `PublicShell`: a top nav of Band map, Callsign lookup, Reference lookup, Stats and Docs, the
+  Theme menu and Sign in (the pages move into a drawer below `lg`). Signed in, every page sits in
+  `AppShell`'s left nav and the site root goes to `/home`. `/signin` and `/signup` (which opens on
+  Create account) are `AuthFrame` pages with no nav. Never show `AppShell` signed out or put
+  account sections in the top nav. The landing copy comes from Brad's "Long Lines landing page"
+  canvas (Desktop board); a feature it names must exist.
 - `sx` is for layout only (spacing, sizing, display, flex/grid placement, overflow, position).
   Colors, fonts, borders and shadows come from component props and variants.
 - Copy comes from `docs/ui-mock.html`; keep it word for word.
@@ -531,7 +538,8 @@ editor.
   profile: `handle_new_user` skips the profile only for a provider other than email with no
   callsign in its metadata. `RequireAuth` shows `CompleteProfilePage` while `profileMissing`, and
   `complete_profile` is the only way such an account gets its profile, so every profile keeps a
-  callsign. The catch-all route waits for the session, so the token in the URL is read first.
+  callsign. The site root (`SiteRoot`, where the catch-all route sends unknown paths) waits for the
+  session, so the token in the URL is read first.
 - `web/scripts/*.ts` are local-dev helpers behind the npm scripts, run by Node's built-in type
   stripping (erasable syntax only, `.ts` import extensions). They only talk to the local stack;
   `local-stack.ts` refuses a non-local API URL. Never add a script that deploys or pushes.
@@ -889,8 +897,8 @@ picker (PR 5)") is the copy source for `/ref`, `/ref/*` and the reference rule's
 
 ## Home page rules
 
-- `/home` is the signed-in landing page (sign-in, set password and unknown paths go there) and is
-  not public. Its copy comes from Brad's "Long Lines home" canvas.
+- `/home` is the signed-in landing page (sign-in, set password and, signed in, the site root go
+  there) and is not public. Its copy comes from Brad's "Long Lines home" canvas.
 - The diagram draws the configuration, not the traffic: every connection (no cap), every source
   each takes spots from and every destination, linked or not. The last 24 hours only label nodes and weight links; never drop
   a node or link for being quiet.
