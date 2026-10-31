@@ -18,9 +18,9 @@ import type { GoalCard } from "../goals/types";
 import { formatSpotTime, type TimePrefs } from "../lib/time";
 import { errorText, useNotify } from "../app/hooks";
 import { sourceName, type SourceInfo } from "../sources/sources";
-import { spotReference } from "../sources/spots";
+import { spotReference, spotTuning } from "../sources/spots";
 import { SourceMark } from "../sources/SourceMark";
-import { formatPerDay, formatRate, RATE_UNIT, sourceRates } from "../sources/rates";
+import { formatPerDay, formatRate, rateUnit, sourceRates } from "../sources/rates";
 import { useStats } from "../stats/useStats";
 import { HealthChip } from "../destinations/HealthChip";
 import { typeLabel } from "../destinations/types";
@@ -258,7 +258,7 @@ function Editor({ initial, startGroup = null, dests, reload, prefs, mobile }: Ed
 
             <Box>
               <Step n={1} title="Source" subheader="Where spots come from">
-                <SourceStep sources={sub.sources} source={source} average={rates ? `${formatRate(rates.average)} ${RATE_UNIT} on average` : null} />
+                <SourceStep sources={sub.sources} source={source} average={rates ? `${formatRate(rates.average)} ${rateUnit(source?.statsKey ?? null)} on average` : null} />
               </Step>
               <Arrow />
               <Step n={2} title="Filter" subheader={source?.volume === "high" ? "Required for this source" : "Optional. Leave it empty to pass every spot"}>
@@ -408,7 +408,7 @@ function PreviewCard({ preview, error, source, missingCall, prefs }: PreviewProp
                       <ListItem disableGutters>
                         <ListItemText
                           primary={`${s.callsign} ${spotReference(s)}`.trim()}
-                          secondary={`${Number(s.frequency_khz).toFixed(1)} kHz ${(s.mode ?? "").toUpperCase()} · ${s.spot_time ? formatSpotTime(s.spot_time, prefs) : ""}`}
+                          secondary={[spotTuning(s), s.spot_time ? formatSpotTime(s.spot_time, prefs) : ""].filter(Boolean).join(" · ")}
                         />
                       </ListItem>
                     </Box>

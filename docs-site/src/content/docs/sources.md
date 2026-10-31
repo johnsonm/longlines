@@ -4,8 +4,8 @@ description: Where Long Lines gets its spots, how fast each source arrives, and 
 ---
 
 A source is a feed of spots that Long Lines reads around the clock: POTA, SOTA, WWFF, WWBOTA, the
-DX Cluster, the Reverse Beacon Network, IOTA references in DX Cluster spots, and contacts operators
-log through Long Lines Relay. Every connection you build starts from exactly one of them.
+DX Cluster, the Reverse Beacon Network, APRS-IS, IOTA references in DX Cluster spots, and contacts
+operators log through Long Lines Relay. Every connection you build starts from exactly one of them.
 
 ## Why you'd use it
 
@@ -30,7 +30,7 @@ for three times its normal interval (3 minutes for most sources, 90 seconds for 
 | Reverse Beacon Network | Live telnet stream of skimmer spots | About 10 seconds |
 | IOTA | Read out of DX Cluster spots | Same as DX Cluster |
 | Logged contacts | Posted by Long Lines Relay as you log | Seconds |
-| APRS-IS | Live stream of the full APRS-IS feed | Not matched at all (see below) |
+| APRS-IS | Live stream of the full APRS-IS feed | About 10 seconds (see below) |
 
 The streamed sources hand spots over in batches: a batch goes when its oldest line is 10 seconds old
 or 1,000 lines have built up. After a spot is stored, matching runs right away, and the destination's
@@ -40,8 +40,8 @@ own pacing applies from there (see [Destinations](/destinations/)).
 
 Not every spot a feed carries reaches your connections.
 
-- **Old spots.** A POTA, SOTA, WWFF, WWBOTA, DX Cluster or RBN spot whose own time is more than 5
-  minutes before Long Lines reads it is skipped. A feed that stalls and then catches up does not
+- **Old spots.** A POTA, SOTA, WWFF, WWBOTA, DX Cluster, RBN or APRS-IS spot whose own time is more
+  than 5 minutes before Long Lines reads it is skipped. A feed that stalls and then catches up does not
   flood you with stale spots.
 - **Test spots.** A POTA, SOTA, WWFF or WWBOTA spot whose comment has the word "test" or "testing" is
   skipped. DX Cluster and RBN spots have no such check.
@@ -52,6 +52,9 @@ Not every spot a feed carries reaches your connections.
 - **Skimmer lines on the DX Cluster.** A DX Cluster line from a skimmer (a spotter ending in `-#`, or
   an RBN-style "12 dB 22 WPM" comment) is dropped, because the Reverse Beacon Network already covers
   those.
+- **APRS-IS packets that aren't positions.** Only position, Mic-E, object and item packets become
+  spots, at most one per station every 15 minutes. Messages, status, weather, telemetry and the rest
+  are stored but never matched.
 
 A spot whose content changes upstream (a new frequency, mode or comment) counts as a new spot and can
 be delivered again. Reading the same unchanged spot twice never delivers it twice. To limit repeats
@@ -96,7 +99,7 @@ has one. Shown on the band map.
 skimmer spots are not read. The comment holds the signal strength and speed, such as `18 dB 24 WPM CQ`.
 This is a high-volume source: a connection on it must name stations with a Callsign or Callsign group
 rule, and only spots for stations some connection names are matched at all. See
-[Filter rules](/filter-rules/#reverse-beacon-network-needs-a-station).
+[Filter rules](/filter-rules/#reverse-beacon-network-and-aprs-is-need-a-station).
 
 **IOTA.** Not a feed of its own. Long Lines reads the first IOTA reference in the form `EU-005` out of
 each DX Cluster comment (`EU005` and `EU 005` are not recognized) and names the island group from the
@@ -109,9 +112,16 @@ and no reference. A connection on Logged contacts gets every Long Lines operator
 not only yours. When an operator edits a contact in their logger, the old spot is replaced; when
 they delete it, the spot is taken down. Deliveries already sent are not recalled.
 
-**APRS-IS.** Every packet on the full APRS-IS feed, stored for about two days and then archived.
-Packets are not spots: you can't pick APRS-IS for a connection, and packets never reach profiles.
-You see them only on the [Stats](/stats/) page.
+**APRS-IS.** Every packet on the full APRS-IS feed, stored for about two days and then archived, and
+counted on the [Stats](/stats/) page. Like RBN it is high volume: a connection on it must name
+stations with a Callsign or Callsign group rule, and only those stations' position beacons are
+matched, at most one spot per station every 15 minutes. The spot's callsign is the station that sent
+the packet, the spotter is the igate that heard it (when one did), and the comment is the packet as
+sent, such as `=3546.12N/07838.55W>Mobile`. An APRS-IS spot has no frequency, band or mode, so a
+Band, Mode or Frequency rule never passes it, except with **is not**, which always does: only
+Callsign and Callsign group rules tell APRS-IS spots apart. "Any source" never includes APRS-IS, and
+APRS-IS spots never reach profiles, the band map or the
+[Local DX cluster](/destinations/local-dx-cluster/).
 
 ### The source page
 
@@ -123,9 +133,9 @@ Select a tile to open its page. It shows:
 - **Schema** and **Example spot**: every field on a spot from this source, as a webhook receives it.
 - **Recent spots**: the newest 100 spots from the last 24 hours, before any connection filters,
   refreshed every 30 seconds while the tab is open. The footer says when the source was last read,
-  for example "Last fetch 12s ago, every 60s".
+  for example "Last fetch 12s ago, every 60s". APRS-IS has no Recent spots list.
 - **Your connections**: the connections you have on this source.
-- **Create connection**, which starts a new connection on this source. APRS-IS has none.
+- **Create connection**, which starts a new connection on this source.
 
 ## Set it up
 
@@ -168,5 +178,6 @@ Verified against:
 - inbound/feeds.ts (RBN port 7000, DX Cluster node), inbound/forwarder.ts (10 s / 1,000 lines)
 - supabase/migrations/20261021000100_health.sql, 20261026001000_wwbota_source.sql (cron cadence)
 - supabase/migrations/20261028000300_logged_contacts_source.sql (source_matches)
+- supabase/migrations/20261031000100_aprs_connections.sql, supabase/functions/_shared/aprs.ts (APRS-IS spots, 15-minute bucket)
 Not verified: real-world WWFF delay with the upstream 60 s cache; which DX Cluster node production uses.
 -->

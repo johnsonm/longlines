@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatHour, formatPerDay, formatRate, RATE_UNIT, RATE_UNIT_SHORT, sourceRates, type Hour } from "./rates";
+import { formatHour, formatPerDay, formatRate, RATE_UNIT_SHORT, rateNoun, rateUnit, sourceRates, type Hour } from "./rates";
 
 const START = Date.UTC(2026, 9, 7); // Oct 7 00:00 UTC
 function week(value: (i: number) => number, key: "pota" | "wwff" | "wwbota" | "iota" | "rbn" | "dx" = "pota"): Hour[] {
@@ -65,8 +65,12 @@ describe("formatting", () => {
     expect(formatRate(1042.3)).toBe("1,042");
   });
 
-  it("names the units per hour", () => {
-    expect(RATE_UNIT).toBe("spots/hour");
+  it("names the units per hour, in packets for APRS-IS", () => {
+    expect(rateUnit("pota")).toBe("spots/hour");
+    expect(rateUnit(null)).toBe("spots/hour");
+    expect(rateUnit("aprs")).toBe("packets/hour");
+    expect(rateNoun("rbn")).toBe("spots");
+    expect(rateNoun("aprs")).toBe("packets");
     expect(RATE_UNIT_SHORT).toBe("/ hour");
   });
 

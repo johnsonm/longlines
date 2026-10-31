@@ -6,7 +6,7 @@ import { Fragment } from "react";
 import type { RecentSpot } from "../lib/api";
 import { formatSpotTime, type TimePrefs } from "../lib/time";
 import { sourceName } from "./sources";
-import { spotReference } from "./spots";
+import { spotKhz, spotReference, spotTuning } from "./spots";
 
 export function SpotsTable({ spots, dense, prefs, maxHeight = 480 }: { spots: RecentSpot[]; dense?: boolean; prefs: TimePrefs; maxHeight?: number }) {
   const theme = useTheme();
@@ -23,7 +23,7 @@ export function SpotsTable({ spots, dense, prefs, maxHeight = 480 }: { spots: Re
                 primary={
                   <Stack direction="row" spacing={1} sx={{ justifyContent: "space-between" }}>
                     <Typography component="span" variant="subtitle2">{s.callsign}</Typography>
-                    <Typography component="span" variant="body2">{Number(s.frequency_khz).toFixed(1)} kHz {(s.mode ?? "").toUpperCase()}</Typography>
+                    <Typography component="span" variant="body2">{spotTuning(s)}</Typography>
                   </Stack>
                 }
                 secondary={
@@ -60,7 +60,7 @@ export function SpotsTable({ spots, dense, prefs, maxHeight = 480 }: { spots: Re
             <TableRow key={s.id ?? i} hover>
               <TableCell>{s.spot_time ? formatSpotTime(s.spot_time, prefs) : ""}</TableCell>
               <TableCell><Typography variant="subtitle2">{s.callsign}</Typography></TableCell>
-              <TableCell align="right">{Number(s.frequency_khz).toFixed(1)}</TableCell>
+              <TableCell align="right">{spotKhz(s) ?? "–"}</TableCell>
               <TableCell>{s.band}</TableCell>
               <TableCell>{(s.mode ?? "").toUpperCase()}</TableCell>
               <TableCell>{spotReference(s)}</TableCell>

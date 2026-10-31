@@ -42,7 +42,7 @@ describe("SourcesPage", () => {
     renderPage(<SourcesPage />);
     expect(screen.getByText("36 spots/hour")).toBeInTheDocument();
     expect(screen.getByText("62,520 spots/hour")).toBeInTheDocument();
-    expect(screen.getByText("330,000 spots/hour")).toBeInTheDocument();
+    expect(screen.getByText("330,000 packets/hour")).toBeInTheDocument();
     expect(screen.getByText("56 spots/hour")).toBeInTheDocument();
     expect(screen.getByText("12 spots/hour")).toBeInTheDocument();
     expect(screen.getByText("2.0 spots/hour")).toBeInTheDocument();

@@ -117,13 +117,22 @@ describe("SourceDetailPage", () => {
     expect(screen.getByTestId("location")).toHaveAttribute("data-search", "?source=iota");
   });
 
-  it("says when no subscription uses the source, and offers none on APRS-IS", () => {
-    const { unmount } = open("/sources/sotawatch");
+  it("says when no subscription uses the source", () => {
+    open("/sources/sotawatch");
     expect(screen.getByText("None yet.")).toBeInTheDocument();
-    unmount();
-    open("/sources/aprs");
-    expect(screen.queryByText("Your connections")).not.toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "Create connection" })).not.toBeInTheDocument();
+  });
+
+  it("lists APRS-IS connections and creates one from APRS-IS", async () => {
+    const user = userEvent.setup();
+    open("/sources/aprs", [
+      { id: "s1", name: "Club mobiles", sources: ["aprs"], rules: [[{ field: "callsign", op: "is", values: ["KK4PWJ-9"] }]] },
+      { id: "s2", name: "Parks", sources: ["pota"], rules: [] },
+    ] as unknown as SubscriptionWithLinks[]);
+    expect(screen.getByText("Your connections")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Club mobiles" })).toHaveAttribute("href", "/connections/s1");
+    expect(screen.queryByRole("link", { name: "Parks" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("link", { name: "Create connection" }));
+    expect(screen.getByTestId("location")).toHaveAttribute("data-search", "?source=aprs");
   });
 
   it("shows a delayed source", async () => {
@@ -138,12 +147,13 @@ describe("SourceDetailPage", () => {
     expect(await screen.findByText("Couldn't load recent spots.")).toBeInTheDocument();
   });
 
-  it("leaves schema, example and recent spots off APRS-IS", () => {
+  it("shows APRS-IS's schema and example but no recent spots, which are packets", () => {
     open("/sources/aprs");
-    expect(screen.getByText("High volume source: stored only")).toBeInTheDocument();
-    expect(screen.getByText(/^APRS-IS sends about 7\.9 million packets a day\./)).toBeInTheDocument();
-    expect(screen.queryByText("Schema")).not.toBeInTheDocument();
-    expect(screen.queryByText("Example spot")).not.toBeInTheDocument();
+    expect(screen.getByText("High volume source: a callsign filter is required")).toBeInTheDocument();
+    expect(screen.getByText(/^APRS-IS carries about 7\.9 million packets a day\. A connection only gets its spots if it names callsigns/)).toBeInTheDocument();
+    expect(screen.getByText(/at most one spot per station every 15 minutes\. One that lists only APRS-IS can't be saved without them\.$/)).toBeInTheDocument();
+    expect(screen.getByText("Schema")).toBeInTheDocument();
+    expect(screen.getByText("Example spot")).toBeInTheDocument();
     expect(screen.queryByText("Recent spots")).not.toBeInTheDocument();
     expect(loadRecentSpots).not.toHaveBeenCalled();
   });
@@ -168,7 +178,8 @@ describe("SourceDetailPage", () => {
   it("drops the per-day sentence from the APRS-IS alert without rates", () => {
     vi.mocked(useStats).mockReturnValue({ stats: null, loading: false, error: null });
     open("/sources/aprs");
-    expect(screen.getByText(/^Long Lines stores and archives them/)).toBeInTheDocument();
+    expect(screen.queryByText(/packets a day/)).not.toBeInTheDocument();
+    expect(screen.getByText(/^A connection only gets its spots if it names callsigns, typed or through a group, and gets at most one spot/)).toBeInTheDocument();
   });
 
   it("shows skeletons while stats load", () => {

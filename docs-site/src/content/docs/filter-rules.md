@@ -37,7 +37,9 @@ including a spot that has no value for that field at all. **Park, summit, or loc
 ### The fields
 
 Which fields you see depends on the source. Reverse Beacon Network and Logged contacts connections
-have no reference or island rule, because those spots carry no reference.
+have no reference or island rule, because those spots carry no reference. APRS-IS spots carry no
+frequency, band, mode or reference either, so only Callsign, Callsign group and Goal rules mean
+anything there.
 
 | Field | Conditions | Values |
 | --- | --- | --- |
@@ -93,10 +95,10 @@ reference never pass **is**.
 state. When the goal is complete or has ended, the rule is off and passes every spot. See
 [Goals](/goals/).
 
-### Reverse Beacon Network needs a station
+### Reverse Beacon Network and APRS-IS need a station
 
-RBN sends hundreds of thousands of spots a day. On an RBN connection, every group of rules between
-two Ors must contain a **Callsign is** or **Callsign group is in** rule. Save stays disabled until it
+RBN sends hundreds of thousands of spots a day, and APRS-IS millions of packets. On an RBN or
+APRS-IS connection, every group of rules between two Ors must contain a **Callsign is** or **Callsign group is in** rule. Save stays disabled until it
 does, with the message "High volume source: at least one callsign or group is required." A goal rule
 does not count, because it names no stations.
 

@@ -340,6 +340,53 @@ Deno.test(
   },
 );
 
+/** An APRS-IS row as the claim hands it over: no frequency, band or mode. */
+function aprsRow(id: number, destination: DeliveryDestination): PendingDelivery {
+  const r = row(id, destination);
+  r.spot = Object.assign({}, r.spot, {
+    source: "aprs",
+    callsign: "W1AW-9",
+    spotter: "W1XM-10",
+    frequency_khz: null,
+    band: null,
+    mode: null,
+    mode_family: null,
+    comment: "=4237.14N/07120.83W[/A=000164",
+    pota_reference: null,
+    pota_park_name: null,
+    pota_location: null,
+  });
+  return r;
+}
+
+Deno.test(
+  "startSender sends an APRS-IS spot without a frequency and acks it",
+  async function (): Promise<void> {
+    const hook = receiver(200, {});
+    const d = dest("d1", { url: hook.url });
+    const db = fakeDb(claimsFrom([[aprsRow(1, d)]]));
+    const clock = fakeClock(T0);
+    const sender = startSender(config({}), {
+      db: db.db,
+      send: (destination, deliveries, now) =>
+        sendToDestination(destination, deliveries, { allowInsecure: true, now }),
+    }, { hostname: "127.0.0.1", log: noop, now: clock.now, sleep: clock.sleep });
+
+    await waitFor("the ack", () => db.of("mark_deliveries_sent").length === 1);
+    assertEquals(db.of("mark_deliveries_sent")[0]!.args, { p_delivery_ids: [1], p_msg_ids: [10] });
+    const body = hook.requests[0]!.body as {
+      deliveries: { spot: { source: string; frequency_khz: number | null } }[];
+    };
+    assertEquals(body.deliveries[0]!.spot.source, "aprs");
+    assertEquals(body.deliveries[0]!.spot.frequency_khz, null);
+    assertEquals(sender.status().totals.malformed, 0);
+
+    await sender.shutdown();
+    await sender.done;
+    await hook.server.shutdown();
+  },
+);
+
 Deno.test("startSender claims again at once after a full batch", async function (): Promise<void> {
   const d = dest("d1", {});
   const claims = [[row(1, d)], [row(2, d)], [row(3, d)]];

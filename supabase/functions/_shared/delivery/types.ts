@@ -11,7 +11,8 @@ export interface DeliverySpot {
   /** From SQL (base_callsign()); profile links use it, never a call worked out here. */
   base_callsign: string | null;
   spotter: string | null;
-  frequency_khz: number;
+  /** Null only for an APRS-IS spot: a packet carries no frequency. */
+  frequency_khz: number | null;
   band: string | null;
   mode: string | null;
   mode_family: string | null;
@@ -72,7 +73,8 @@ export interface DeliverySpot {
    * and stripped from webhook payloads (webhookSpot).
    */
   cluster_spotter?: string;
-  cluster_frequency_khz?: number;
+  /** Null only if a spot without a frequency were claimed; the claim never hands a relay one. */
+  cluster_frequency_khz?: number | null;
   cluster_callsign?: string;
   /** The finished comment: mode word, then the picked fields, at most 30 characters. */
   cluster_comment?: string;
@@ -307,7 +309,7 @@ export const deliverySpotSchema: z.ZodType<DeliverySpot> = z.looseObject({
   spot_time: z.string(),
   mode_family: nullableTextSchema,
   base_callsign: nullableTextSchema,
-  frequency_khz: z.number(),
+  frequency_khz: z.number().nullable(),
   pota_location: nullableTextSchema,
   iota_reference: nullableTextSchema.optional(),
   pota_park_name: nullableTextSchema,
@@ -334,7 +336,7 @@ export const deliverySpotSchema: z.ZodType<DeliverySpot> = z.looseObject({
   webhook_fields: z.array(webhookFieldSchema).optional(),
   webhook_connection: z.string().optional(),
   cluster_spotter: z.string().optional(),
-  cluster_frequency_khz: z.number().optional(),
+  cluster_frequency_khz: z.number().nullable().optional(),
   cluster_callsign: z.string().optional(),
   cluster_comment: z.string().optional(),
   cluster_time: z.string().optional(),

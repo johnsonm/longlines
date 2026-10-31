@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RecentSpot } from "../lib/api";
-import { spotReference } from "./spots";
+import { spotKhz, spotReference, spotTuning } from "./spots";
 
 const spot = (refs: Partial<RecentSpot>) =>
   ({ pota_reference: null, sota_summit_ref: null, wwff_reference: null, wwbota_references: null, iota_reference: null, ...refs }) as RecentSpot;
@@ -23,5 +23,18 @@ describe("spotReference", () => {
 
   it("is blank for a spot with no reference", () => {
     expect(spotReference(spot({}))).toBe("");
+  });
+});
+
+describe("spotTuning", () => {
+  it("shows the frequency and mode", () => {
+    expect(spotTuning({ frequency_khz: 14062, mode: "cw" })).toBe("14062.0 kHz CW");
+    expect(spotKhz({ frequency_khz: 7138.5 })).toBe("7138.5");
+  });
+
+  it("leaves out what the spot lacks, so an APRS-IS spot is blank", () => {
+    expect(spotTuning({ frequency_khz: 14062, mode: null })).toBe("14062.0 kHz");
+    expect(spotTuning({ frequency_khz: null, mode: null })).toBe("");
+    expect(spotKhz({ frequency_khz: null })).toBeNull();
   });
 });

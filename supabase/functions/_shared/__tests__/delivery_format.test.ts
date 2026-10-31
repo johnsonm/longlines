@@ -525,8 +525,20 @@ Deno.test("backoffSeconds follows 30s, 1m, 2m, 5m, 15m, then every 30m", functio
 
 Deno.test("sourceLabel names every source and passes an unknown one through", function (): void {
   assertEquals(
-    ["pota", "sotawatch", "rbn", "dxcluster", "wwff", "wwbota", "logged", "other"].map(sourceLabel),
-    ["POTA", "SOTAwatch", "RBN", "DX Cluster", "WWFF", "WWBOTA", "Logged contacts", "other"],
+    ["pota", "sotawatch", "rbn", "dxcluster", "wwff", "wwbota", "logged", "aprs", "other"].map(
+      sourceLabel,
+    ),
+    [
+      "POTA",
+      "SOTAwatch",
+      "RBN",
+      "DX Cluster",
+      "WWFF",
+      "WWBOTA",
+      "Logged contacts",
+      "APRS-IS",
+      "other",
+    ],
   );
 });
 
@@ -1018,5 +1030,118 @@ Deno.test(
       Object.keys(webhookSpot(deliverySpotSchema.parse(claimed))),
       Object.keys(claimed),
     );
+  },
+);
+
+// An APRS-IS spot as claim_deliveries hands it over (jsonb key order): a position packet from a
+// watched station, with no frequency, band or mode, the raw info field as its comment.
+const APRS_CLAIMED = {
+  id: 9,
+  band: null,
+  mode: null,
+  source: "aprs",
+  comment: "=4237.14N/07120.83W[/A=000164",
+  spotter: "W1XM-10",
+  callsign: "KK4PWJ-9",
+  spot_time: "2026-10-31T14:02:11Z",
+  mode_family: null,
+  base_callsign: "KK4PWJ",
+  frequency_khz: null,
+  pota_location: null,
+  iota_reference: null,
+  pota_park_name: null,
+  pota_reference: null,
+  wwff_reference: null,
+  sota_summit_ref: null,
+  wwbota_references: null,
+  iota_reference_name: null,
+  wwff_reference_name: null,
+  wwbota_reference_name: null,
+};
+
+Deno.test("deliverySpotSchema takes an APRS-IS spot without a frequency", function (): void {
+  const parsed = deliverySpotSchema.parse(APRS_CLAIMED);
+  assertEquals(parsed.frequency_khz, null);
+  assertEquals(Object.keys(webhookSpot(parsed)), Object.keys(APRS_CLAIMED));
+  // Every other source still sends a number; anything else is still refused.
+  assertEquals(
+    deliverySpotSchema.safeParse(Object.assign({}, APRS_CLAIMED, { frequency_khz: "14062" }))
+      .success,
+    false,
+  );
+});
+
+Deno.test(
+  "a legacy Discord embed and push body leave out a missing frequency",
+  function (): void {
+    const aprs = deliverySpotSchema.parse(APRS_CLAIMED);
+    const e = embedForSpot(aprs);
+    assertEquals(e.title, "KK4PWJ-9");
+    assertEquals("description" in e, false);
+    assertEquals(fieldValue(e, "Source"), "APRS-IS");
+    assertEquals(fieldValue(e, "Spotter"), "W1XM-10");
+    assertEquals(JSON.stringify(discordMessages([aprs], {})).includes("null"), false);
+    // A spot with a mode but no frequency keeps the rest of the line.
+    assertEquals(embedForSpot(spotWith({ frequency_khz: null })).description, "CW (20m)");
+    const n = pushNotifications([aprs], LEGACY_PUSH_SETTINGS, false)[0]!;
+    assertEquals(n.body, "APRS-IS");
+    assertEquals(
+      pushNotifications([spotWith({ frequency_khz: null })], LEGACY_PUSH_SETTINGS, false)[0]!.body,
+      "CW (20m)\nUS-2763 · Eno River State Park · POTA",
+    );
+  },
+);
+
+Deno.test(
+  "an APRS-IS spot SQL rendered goes to Discord, push and a webhook as SQL wrote it",
+  function (): void {
+    const aprs = deliverySpotSchema.parse(APRS_CLAIMED);
+    const card = Object.assign({}, aprs, {
+      discord_style: "card",
+      discord_title: "KK4PWJ-9",
+      discord_description: "APRS-IS",
+      discord_grid: [{ name: "Spotter", value: "W1XM-10" }],
+      discord_footer: "APRS-IS · 14:02 UTC",
+      discord_color: 10181046,
+      discord_url: "https://longlines.io/call/KK4PWJ",
+      discord_line: "**[KK4PWJ-9](https://longlines.io/call/KK4PWJ)** · APRS-IS",
+      discord_suppress_embeds: false,
+    });
+    assertEquals(discordMessages([card], { discord: DISCORD_SETTINGS }), [{
+      embeds: [cardEmbed(card)],
+      allowed_mentions: { parse: [] },
+    }]);
+    assertEquals(cardEmbed(card).description, "APRS-IS");
+
+    const notified = Object.assign({}, aprs, {
+      push_title: "KK4PWJ-9",
+      push_body: "APRS-IS",
+      push_url: "/call/KK4PWJ",
+      push_source_url: null,
+    });
+    const n = pushNotifications([notified], SETTINGS, false)[0]!;
+    assertEquals([n.title, n.body, n.url], ["KK4PWJ-9", "APRS-IS", "/call/KK4PWJ"]);
+    assertEquals(n.actions, [{ action: "profile", title: "Open profile" }]);
+
+    const hooked = delivery(
+      9,
+      Object.assign({}, aprs, {
+        webhook_fields: [
+          { key: "callsign", value: "KK4PWJ-9" },
+          { key: "frequency_khz", value: null },
+          { key: "source", value: "APRS-IS" },
+        ],
+        webhook_connection: "Mobiles",
+      }),
+    );
+    hooked.destination = Object.assign({}, hooked.destination, withBatch(0));
+    assertEquals(
+      JSON.stringify(webhookRequests(withBatch(0), [hooked])[0]!.body),
+      '{"delivery_id":9,"connection":"Mobiles","spot":' +
+        '{"callsign":"KK4PWJ-9","frequency_khz":null,"source":"APRS-IS"}}',
+    );
+    // The legacy body carries the stored null as it is.
+    const legacyBody = legacy(webhookPayloads([delivery(9, aprs)])[0]!.body);
+    assertEquals(legacyBody.deliveries[0]!.spot.frequency_khz, null);
   },
 );

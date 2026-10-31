@@ -167,7 +167,7 @@ describe("StatsPage", () => {
     vi.mocked(useStats).mockReturnValue({ stats: STATS, loading: false, error: null });
     renderPage(<StatsPage />);
     expect(screen.getByText("APRS-IS")).toBeInTheDocument();
-    expect(screen.getByText("Every packet on the APRS-IS full feed. Packets aren't spots and never trigger alerts.")).toBeInTheDocument();
+    expect(screen.getByText("Every packet on the APRS-IS full feed, not only the few that become spots for the stations a connection names.")).toBeInTheDocument();
     expect(screen.getByText("APRS packets")).toBeInTheDocument();
     expect(screen.getByText("1,750,000")).toBeInTheDocument();
     expect(screen.getByText("Stations heard")).toBeInTheDocument();

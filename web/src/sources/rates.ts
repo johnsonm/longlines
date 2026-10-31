@@ -48,8 +48,20 @@ export function formatRate(n: number): string {
 }
 
 /** Every source is per hour, the snapshot's bucket size, high volume or not. */
-export const RATE_UNIT = "spots/hour";
 export const RATE_UNIT_SHORT = "/ hour";
+
+/**
+ * What a source's rates count: APRS-IS rates are every packet on the feed (aprs_packet_hours), not the few
+ * that become spots, so they are packets.
+ */
+export function rateNoun(key: StatsKey | null): "spots" | "packets" {
+  return key === "aprs" ? "packets" : "spots";
+}
+
+/** "spots/hour", or "packets/hour" for APRS-IS. */
+export function rateUnit(key: StatsKey | null): string {
+  return `${rateNoun(key)}/hour`;
+}
 
 /** "Oct 12, 14:00 UTC": snapshot buckets are UTC hours, so the label is always UTC. */
 export function formatHour(iso: string): string {

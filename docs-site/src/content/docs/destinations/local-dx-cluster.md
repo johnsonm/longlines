@@ -35,8 +35,8 @@ What it does not do:
 - **Nothing is queued while the relay is offline.** Spots only go out while the relay is connected.
   A spot that waits more than 2 minutes is dropped, because an old spot is no use in a bandmap.
 - **No tuning.** Nothing changes on your radio until you pick a spot in your logging software.
-- **No spots without a frequency**, and never your own logged contacts, so the relay doesn't feed
-  your log back to you.
+- **No spots without a frequency** (so never APRS-IS), and never your own logged contacts, so the
+  relay doesn't feed your log back to you.
 - **No Send test** in the web app. Use **Send test spot** in the relay instead.
 - **Limits:** 120 spots a minute per destination, and 120 a minute per relay across all destinations
   that target it, newest first.

@@ -178,7 +178,8 @@ export const KEEPALIVE_FRAME = ": keepalive\n\n";
 /**
  * The spot event for a claimed local_cluster row: SQL's cluster_* values (local_cluster_spot_fields
  * and the claim's cluster_connection) under the contract's names, the id from the spot. Null when
- * a value is missing, which only a row claimed for another type can be.
+ * a value is missing, which only a row claimed for another type can be, or when the spot has no
+ * frequency, which match_pending_spots never lets reach a relay.
  */
 export function spotEvent(spot: DeliverySpot): SpotEvent | null {
   const spotter = spot.cluster_spotter;
@@ -191,7 +192,8 @@ export function spotEvent(spot: DeliverySpot): SpotEvent | null {
   const connection = spot.cluster_connection;
   const spotTime = spot.cluster_spot_time;
   if (
-    spotter === undefined || frequency === undefined || callsign === undefined ||
+    spotter === undefined || frequency === undefined || frequency === null ||
+    callsign === undefined ||
     comment === undefined || time === undefined || source === undefined || label === undefined ||
     connection === undefined || spotTime === undefined
   ) {

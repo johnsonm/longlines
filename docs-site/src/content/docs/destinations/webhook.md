@@ -48,8 +48,9 @@ Spotter, Country, Spot URL and Comment. Key names are fixed. You also choose:
   `frequency_hz`).
 - **When a spot has no value**: **Leave the key out** or **Send null**.
 
-Source is sent as Long Lines' own id: `pota`, `sotawatch`, `wwff`, `wwbota`, `dxcluster`, `rbn` or
-`logged`. Mode is lower case. Comment is free text typed by the spotter; treat it as untrusted.
+Source is sent as Long Lines' own id: `pota`, `sotawatch`, `wwff`, `wwbota`, `dxcluster`, `rbn`,
+`logged` or `aprs`. An APRS-IS spot has no frequency, band or mode, so those follow **When a spot has
+no value**. Mode is lower case. Comment is free text typed by the spotter; treat it as untrusted.
 
 Each source's page under **Sources** shows its **Schema** and an **Example spot** with the default
 keys.

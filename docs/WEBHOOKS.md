@@ -113,16 +113,16 @@ not the name.
 | Callsign | `callsign` | `callsign` | the call as spotted | string | never |
 | First name | `first_name` | `firstName` | the first name on the spotted call's license (FCC records only), as the license has it | string | no license, a club, or a call hidden on request |
 | Last name | `last_name` | `lastName` | the last name on the spotted call's license, as the license has it | string | no license, a club, or a call hidden on request |
-| Frequency | `frequency_khz`, `frequency_mhz`, `frequency_hz` | `frequencyKhz`, `frequencyMhz`, `frequencyHz` | see below | number | never |
-| Mode | `mode` | `mode` | lower case: `cw`, `ssb`, `ft8` | string | the spot has no mode |
-| Band | `band` | `band` | `20m`, `2m`, `70cm` | string | outside every band |
-| Source | `source` | `source` | `pota`, `sotawatch`, `wwff`, `wwbota`, `dxcluster`, `rbn` or `logged` (a contact posted by Long Lines Relay: `spotter` is the operator who logged it, `callsign` the station worked) | string | never |
-| Reference | `reference` | `reference` | POTA park (`US-2763`), SOTA summit (`W4C/CM-001`), WWFF reference (`KFF-5268`), WWBOTA bunkers, comma separated (`B/EA-0103, B/EA-0104`), or the IOTA reference a DX Cluster spot's comment names (`EU-005`) | string | RBN, or a DX Cluster spot without an island |
-| Place name | `place_name` | `placeName` | POTA park name, WWFF reference name, the first WWBOTA bunker's name, or the IOTA group's name (`Great Britain`) | string | SOTA, RBN, a DX Cluster spot without an island, or no name |
+| Frequency | `frequency_khz`, `frequency_mhz`, `frequency_hz` | `frequencyKhz`, `frequencyMhz`, `frequencyHz` | see below | number | APRS-IS |
+| Mode | `mode` | `mode` | lower case: `cw`, `ssb`, `ft8` | string | the spot has no mode (always for APRS-IS) |
+| Band | `band` | `band` | `20m`, `2m`, `70cm` | string | outside every band, or APRS-IS |
+| Source | `source` | `source` | `pota`, `sotawatch`, `wwff`, `wwbota`, `dxcluster`, `rbn`, `logged` (a contact posted by Long Lines Relay: `spotter` is the operator who logged it, `callsign` the station worked) or `aprs` (an APRS-IS position beacon: `spotter` is the igate that heard it, when one did, and `comment` the packet's info field as sent) | string | never |
+| Reference | `reference` | `reference` | POTA park (`US-2763`), SOTA summit (`W4C/CM-001`), WWFF reference (`KFF-5268`), WWBOTA bunkers, comma separated (`B/EA-0103, B/EA-0104`), or the IOTA reference a DX Cluster spot's comment names (`EU-005`) | string | RBN, APRS-IS, or a DX Cluster spot without an island |
+| Place name | `place_name` | `placeName` | POTA park name, WWFF reference name, the first WWBOTA bunker's name, or the IOTA group's name (`Great Britain`) | string | SOTA, RBN, APRS-IS, a DX Cluster spot without an island, or no name |
 | State | `state` | `state` | the POTA location after the dash (`US-NC` is `NC`), several joined by `/` (`NC/VA`) | string | not POTA, or no location |
 | Spotter | `spotter` | `spotter` | the spotter's call as sent | string | none given |
 | Country | `country` | `country` | the cty.dat entity name of the callsign (`United States`) | string | no match |
-| Spot URL | `url` | `url` | the pota.app park, the SOTA summit page or the WWFF directory entry | string | WWBOTA, DX Cluster, RBN |
+| Spot URL | `url` | `url` | the pota.app park, the SOTA summit page or the WWFF directory entry | string | WWBOTA, DX Cluster, RBN, APRS-IS |
 | Comment | `comment` | `comment` | the comment as the spotter typed it | string | empty |
 
 The default fields are Spot ID, Time, Callsign, Frequency, Mode, Band, Source, Reference, Place
@@ -132,7 +132,8 @@ out".
 - **Time.** "ISO 8601, UTC" is a string in whole seconds, always ending `Z`
   (`"2026-10-17T17:42:09Z"`). "Unix seconds" is an integer (`1792258929`).
 - **Frequency.** kHz as stored (`14062`, `10123.9`), MHz (`14.062`, `10.1239`) or Hz
-  (`14062000`). Every conversion is exact. The unit changes the key too.
+  (`14062000`). Every conversion is exact. The unit changes the key too. An APRS-IS spot has no
+  frequency, band or mode, so those keys follow "Missing values" below.
 - **Values as stored.** `id` and `delivery_id` are integers; `source` and `mode` are lower-case
   ids. A callsign or spotter from DX Cluster is whatever the cluster sent.
 - **Missing values.** With "Leave the key out" a field with no value is not in `spot`; with "Send

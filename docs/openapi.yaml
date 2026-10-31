@@ -887,7 +887,7 @@ components:
 
     Source:
       type: string
-      enum: [pota, sotawatch, wwff, wwbota, rbn, dxcluster, logged]
+      enum: [pota, sotawatch, wwff, wwbota, rbn, dxcluster, logged, aprs]
 
     PushField:
       type: string
@@ -1150,7 +1150,9 @@ components:
           description: |
             Empty means any. A DX Cluster spot only matches a connection that lists
             `dxcluster`, a WWFF spot one that lists `wwff`, a WWBOTA spot one that lists `wwbota`,
-            and a logged contact (posted by Long Lines Relay) one that lists `logged`.
+            a logged contact (posted by Long Lines Relay) one that lists `logged`, and an
+            APRS-IS spot (a position beacon from a station a connection names, at most one per
+            station every 15 minutes, with no frequency, band or mode) one that lists `aprs`.
         rules: { $ref: "#/components/schemas/Rules" }
         quiet_minutes:
           type: [integer, "null"]
@@ -1187,9 +1189,9 @@ components:
         first says And or Or, with And binding tighter. `[]` passes every spot and is the
         default.
 
-        A connection can have at most 50 rules, and each group needs at least one. RBN spots
-        only pass a group that has a `callsign` or `group` rule with `is`, so a connection
-        whose only source is `rbn` needs one in every group.
+        A connection can have at most 50 rules, and each group needs at least one. RBN and
+        APRS-IS spots only pass a group that has a `callsign` or `group` rule with `is`, so a
+        connection whose only sources are `rbn` and `aprs` needs one in every group.
       items:
         type: array
         minItems: 1

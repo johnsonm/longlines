@@ -28,7 +28,10 @@ export interface SourceInfo {
   /** Null for a source that is not polled (logged contacts arrive when someone logs), so it is never delayed. */
   pollSeconds: number | null;
   desc: string;
-  /** False for a feed that is stored but never matched (APRS-IS): no subscription option, no recent-spots tab. */
+  /**
+   * False for a feed that is stored but never matched: no connection option. Every live source matches today;
+   * APRS-IS only for the stations a connection names.
+   */
   alerts: boolean;
   volume: Volume;
   /** Tile and page heading. */
@@ -50,7 +53,7 @@ export interface SourceInfo {
   runBy: RunBy | null;
   about: string[];
   showsUp: string[];
-  /** Null for APRS-IS, whose packets are never delivered. */
+  /** Null for a source whose spots are never delivered. */
   schema: SchemaField[] | null;
   example: Record<string, unknown> | null;
 }
@@ -199,17 +202,36 @@ export const SOURCES: SourceInfo[] = [
     },
   },
   {
-    id: "aprs", name: "APRS-IS", full: "Automatic Packet Reporting System", status: "live", interval: "streaming", pollSeconds: 60, desc: "Every packet on the worldwide APRS-IS feed", alerts: false,
+    id: "aprs", name: "APRS-IS", full: "Automatic Packet Reporting System", status: "live", interval: "streaming", pollSeconds: 60, desc: "Every packet on the worldwide APRS-IS feed", alerts: true,
     volume: "high", title: "APRS-IS", tagline: "Position, weather and message packets from the worldwide APRS-IS network.",
     mark: "AP", markColor: "warning", statsKey: "aprs", site: "aprs2.net", via: null,
     runBy: { operator: "APRS-IS tier 2 network volunteers", feed: "Full feed over TCP, receive only", modes: "APRS packets" },
     about: [
       "APRS-IS links the world's APRS radio networks over the internet. Igates forward the packets they hear, from positions and weather reports to messages.",
-      "Long Lines stores every packet on the full feed for about two days and archives it after that. Packets are not spots: they never reach profiles or connections, so there is no schema or recent spots list here. You see them in Stats.",
+      "Long Lines stores every packet on the full feed for about two days, archives it after that, and counts every packet in Stats.",
+      "A connection gets APRS-IS spots only for the stations it names, by callsign or callsign group. Position, Mic-E, object and item packets become spots, at most one per station every 15 minutes. A spot has no frequency, band or mode, and its comment is the packet as sent. APRS-IS spots are not on profiles.",
     ],
-    showsUp: ["Stats: APRS-IS packets, stations, igates and packet types", "Not on profiles or in connections"],
-    schema: null,
-    example: null,
+    showsUp: [
+      "Stats: APRS-IS packets, stations, igates and packet types",
+      "Connection filters: Callsigns or Callsign groups (required)",
+      "Not on profiles",
+    ],
+    schema: deliveredSchema("aprs", {
+      time: { description: "When Long Lines received the packet: ISO 8601 in UTC, whole seconds. Or Unix seconds." },
+      callsign: { description: "Callsign that sent the packet, SSID included." },
+      frequency_khz: noValue("APRS-IS"),
+      mode: noValue("APRS-IS"),
+      band: noValue("APRS-IS"),
+      reference: noValue("APRS-IS"),
+      place_name: noValue("APRS-IS"),
+      state: noValue("APRS-IS"),
+      spotter: { description: "Callsign of the igate that heard the packet on the air. Left out when the packet reached APRS-IS over the internet." },
+      url: noValue("APRS-IS"),
+      comment: { description: "The packet's information field as sent, such as a position report (=3546.10N/07838.35W>). Not sent by default." },
+    }),
+    example: {
+      id: 58161711, time: "2026-10-14T14:38:15Z", callsign: "KK4PWJ-9", source: "aprs", spotter: "N4XYZ-10",
+    },
   },
   {
     id: "wwff", name: "WWFF", full: "World Wide Flora & Fauna", status: "live", interval: "every 60s", pollSeconds: 60, desc: "Reference activation spots from spots.wwff.co", alerts: true,

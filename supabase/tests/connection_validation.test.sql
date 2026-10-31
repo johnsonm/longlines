@@ -17,10 +17,10 @@ delete from subscriptions;
 select is(normalize_subscription_sources('[" POTA ", "wwff", "pota"]'), array['pota', 'wwff'],
   'sources are trimmed, lowercased and de-duplicated');
 select is(normalize_subscription_sources(null), '{}'::text[], 'no sources means any');
-select is(normalize_subscription_sources('["pota", "sotawatch", "wwff", "wwbota", "rbn", "dxcluster", "logged"]'),
-  array['dxcluster', 'logged', 'pota', 'rbn', 'sotawatch', 'wwbota', 'wwff'], 'every followable source is accepted');
-select throws_ok($$ select normalize_subscription_sources('["aprs"]') $$,
-  'P0001', 'Unknown source: aprs.', 'aprs is not a source a connection can follow');
+select is(normalize_subscription_sources('["pota", "sotawatch", "wwff", "wwbota", "rbn", "dxcluster", "logged", "aprs"]'),
+  array['aprs', 'dxcluster', 'logged', 'pota', 'rbn', 'sotawatch', 'wwbota', 'wwff'], 'every followable source is accepted');
+select is(normalize_subscription_sources('["APRS"]'), array['aprs'],
+  'aprs is a source a connection can follow (20261031000100)');
 select throws_ok($$ select normalize_subscription_sources('"pota"') $$,
   'P0001', 'sources must be a list.', 'sources must be a list');
 select ok(not has_function_privilege('authenticated', 'public.normalize_subscription_sources(jsonb)', 'execute')

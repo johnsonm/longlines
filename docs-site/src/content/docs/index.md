@@ -3,8 +3,8 @@ title: Getting started
 description: How spots move through Long Lines, and how to set up your first alert.
 ---
 
-Long Lines reads spots from POTA, SOTA, WWFF, WWBOTA, the DX Cluster, the Reverse Beacon Network and
-logged contacts, and sends the ones you care about to Discord, a webhook, your phone or your logging
+Long Lines reads spots from POTA, SOTA, WWFF, WWBOTA, the DX Cluster, the Reverse Beacon Network,
+APRS-IS and logged contacts, and sends the ones you care about to Discord, a webhook, your phone or your logging
 software's bandmap.
 
 ## Why you'd use it
@@ -22,7 +22,7 @@ Three pieces do the work:
 - A **destination** is where matching spots are sent. See [Destinations](/destinations/).
 
 A connection with no destination sends nothing, and one destination can serve many connections. From
-a spot appearing upstream to Long Lines matching it usually takes seconds for the DX Cluster and RBN,
+a spot appearing upstream to Long Lines matching it usually takes seconds for the DX Cluster, RBN and APRS-IS,
 up to 30 seconds for SOTA, and up to a minute for POTA, WWFF and WWBOTA. Each destination then has its
 own pacing; push notifications, for example, are limited to 3 a minute per destination.
 

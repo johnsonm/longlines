@@ -106,9 +106,9 @@ export function createRbnPushDb(client: SupabaseClient): RbnPushDb {
   return Object.assign({}, createIngestDb(client), createWatchlistDb(client), createRbnDb(client));
 }
 
-/** The database ingest-aprs needs: aprs_packets, ingest_failures and ingest_state. */
+/** The database ingest-aprs needs: raw_spots, the watchlist and aprs_packets. */
 export function createAprsPushDb(client: SupabaseClient): AprsPushDb {
-  return Object.assign({}, createIngestDb(client), createAprsDb(client));
+  return Object.assign({}, createIngestDb(client), createWatchlistDb(client), createAprsDb(client));
 }
 
 /** Serve a pushed source; makeDb builds only the database surface its run needs. */

@@ -37,7 +37,7 @@ What each part covers:
 | **Top SOTA associations**, **Top WWFF programs**, **Modes** | SOTA, WWFF, and POTA/SOTA/WWFF |
 | **Most active activators**, **Most spotted parks, summits and WWFF references** | POTA, SOTA, WWFF; top 8 |
 | **Most heard on RBN** | RBN; top 8 |
-| **APRS-IS** | Packets, stations and igates. Packets aren't spots and never trigger alerts. |
+| **APRS-IS** | Packets, stations and igates, counting every packet on the feed, not only the beacons connections match. |
 
 WWBOTA, IOTA and logged contacts aren't shown here. Hidden callsigns are removed from the top lists,
 which can then hold fewer than 8 rows, but still count in the totals.

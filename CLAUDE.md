@@ -205,10 +205,12 @@ The conventions are `docs/superpowers/specs/2026-10-22-strict-eslint-conventions
 - A subscription is live only while `enabled` and linked to at least one destination. Saving with
   none is allowed; `match_pending_spots` and `watched_among` both skip it, and `enabled` is kept
   so it starts once a destination is added. Keep that check in both if either changes.
-- DX Cluster, WWFF, WWBOTA and logged spots match only subscriptions whose `sources` lists
-  `dxcluster` / `wwff` / `wwbota` / `logged`; an empty sources list ("any source") includes none of
-  them (WWFF and WWBOTA overlap POTA heavily and there is no cross-source dedup). The rule lives in `source_matches`. An RBN spot passes only an AND group of
+- DX Cluster, WWFF, WWBOTA, logged and APRS-IS spots match only subscriptions whose `sources` lists
+  `dxcluster` / `wwff` / `wwbota` / `logged` / `aprs`; an empty sources list ("any source") includes none of
+  them (WWFF and WWBOTA overlap POTA heavily and there is no cross-source dedup). The rule lives in `source_matches`. An RBN or APRS-IS spot passes only an AND group of
   rules that names stations (a `callsign` or `group` rule with op `is`, `rules_name_stations`).
+  Saving a connection whose sources are only `rbn` / `aprs` needs such a rule
+  (`subscriptions_rbn_needs_callsign` in SQL, `needsCallsign` in the web); change the two together.
 - The loop is `_shared/delivery/run.ts` (`runDeliveryBatch` over a `DeliveryRpc`), run only by
   the sender. It talks to the database only through `claim_deliveries`,
   `mark_deliveries_sent`, `mark_deliveries_failed`, `throttle_destination`, `prune_push_devices`
@@ -492,7 +494,8 @@ editor.
   streams connect at once (the rest get a 503 before any lookup), because the stream is public
   and shares the sender's two-connection pool with the delivery loop.
 - Loop guard: `match_pending_spots` never sends a user's own logged contacts to that user's
-  `local_cluster` destinations, nor a spot without a frequency to any of them.
+  `local_cluster` destinations, nor a spot without a frequency (null, as every APRS-IS spot, or
+  0) to any of them.
 - There is no web Send test for this type: the card hides it, and `send-test` and the API answer
   400 "Send a test spot from the relay." The relay's own Send test spot covers it.
 - The approval page shows `spots:read` from `lookup_relay_pairing`'s scopes
@@ -609,9 +612,9 @@ editor.
   never `create table ... partition of`) and runs `runIngest` only over watched callsigns. A
   migration that indexes `rbn_spots` partition by partition first takes
   `lock table rbn_spots in share update exclusive mode`, so `maintain_rbn_spots` cannot add or drop a
-  partition mid-build; that lock does not block inserts. `spot_matches` lets an RBN spot pass only an
-  AND group of rules that names stations (`rules_name_stations`); keep that guard if the predicate
-  changes, and keep `watched_among` reading only positive callsign and group rules.
+  partition mid-build; that lock does not block inserts. `spot_matches` lets an RBN or APRS-IS spot
+  pass only an AND group of rules that names stations (`rules_name_stations`); keep that guard if the
+  predicate changes, and keep `watched_among` reading only positive callsign and group rules.
 - Be polite: exactly one machine (`fly scale count 1`), reconnect backoff never below 30 s, no
   tests that connect to RBN. Tests use the captured fixture or a local TCP server.
 - Merges to main deploy the inbound worker through Fly's GitHub integration (set up in the Fly dashboard,
@@ -619,13 +622,26 @@ editor.
   `fly deploy` or `fly secrets set` yourself unless asked.
 - APRS-IS (`aprsFeed`, off until `APRS_LOGIN_CALL` is set) is the full feed on port 10152 with a
   receive-only login and no filter; never add one. It is plain TCP (`telnet: false`,
-  `TcpLineDecoder`), not telnet. Packets go only to `aprs_packets` (partitions from
-  `create_aprs_packets_partition`, kept two days, retired by `maintain_aprs_packets` once archived);
-  never send them to `raw_spots`, matching, `spot_stream` or the callsign rollups. The Stats refresh
-  rolls them up per day (`rollup_aprs_day` into `aprs_daily_*`), and `maintain_aprs_packets` keeps a
-  day in the Stats window until that rollup is final; older days drop without it. `raw_spots`' source check
-  leaves `aprs` out on purpose. Its archive runs in its own cron job (`archive-aprs`, body
-  `{"sources": ["aprs"]}`); keep it out of `ARCHIVE_ORDER`.
+  `TcpLineDecoder`), not telnet. Every packet goes to `aprs_packets` (partitions from
+  `create_aprs_packets_partition`, kept two days, retired by `maintain_aprs_packets` once archived).
+  The Stats refresh rolls them up per day (`rollup_aprs_day` into `aprs_daily_*`), and
+  `maintain_aprs_packets` keeps a day in the Stats window until that rollup is final; older days drop
+  without it. Its archive runs in its own cron job (`archive-aprs`, body `{"sources": ["aprs"]}`);
+  keep it out of `ARCHIVE_ORDER`.
+- APRS-IS connections (`20261031000100`): as RBN's, `runAprsPush` sends only watched calls
+  (`watched_among('aprs')`) on through `runIngest` into `raw_spots`, so `aprs` in `raw_spots` is the
+  watched subset and everywhere else (`ingest_state`, `ingest_health`, the archive, Stats) still
+  means packets. Only `position`, `mic_e`, `object` and `item` packets become spots; any other type,
+  a `source_call` that is not a plausible callsign, or a packet over five minutes old (`too_old`, as
+  RBN) is a skip. The callsign is the upper-cased
+  `source_call`, the spotter the igate only for `qAR` / `qAr` / `qAO` / `qAo`, the comment the raw info field,
+  and frequency, band, mode, `mode_family` and every reference are null. A station makes at most one
+  spot per `APRS_SPOT_BUCKET_MS` (15 minutes, `_shared/aprs.ts`): `source_spot_id` is
+  `<callsign>|<bucket>` and the hash `[callsign, bucket]`, fixed forever (changing either makes every
+  spot look new). `raw_spots.frequency_khz` is nullable only for `aprs`; every other source still
+  sets a number. APRS-IS spots never reach `spot_stream`, the callsign rollups, profiles, Stats
+  (which keeps counting packets), the band map, `recent_spots` or `callsign_group_rows`' on-air;
+  `preview_subscription` and `home_flow` include them.
 - The inbound worker also runs the weekly FCC license load (`inbound/licenses.ts`, `inbound/zip.ts`): it reads
   `l_amat.zip` by HTTP Range and stages HD/EN/AM rows through `load-licenses`. Record parsing is
   `_shared/uls.ts`; the join and the swap into `callsign_licenses` are SQL
@@ -718,7 +734,9 @@ editor.
 ## Callsign rollup rules
 
 - Profiles and rollups read `spot_stream`, never a source table by name. A source writing
-  `raw_spots` needs nothing; a new firehose table needs one `union all` arm in the view.
+  `raw_spots` needs nothing; a new firehose table needs one `union all` arm in the view. Its
+  `raw_spots` arm is `source not in ('rbn', 'aprs')`: RBN comes from its own arm, and APRS-IS
+  (watched beacons, not spots heard) stays out of profiles and rollups.
 - `rollup_callsign_day` runs exactly once per completed UTC day (its marker goes in first):
   references, seen and variants are running totals. Never delete a marker to re-roll a day. It
   refuses a day it cannot roll up whole (no cty.dat, RBN rows already retired) rather than mark it.
@@ -991,7 +1009,7 @@ rule in the connection editor.
   location and the base call's US license state, marking's one-park rule, so zero or one state and
   none for a station licensed outside a state-line park's states; only a spot without a POTA
   reference takes the license state alone). `marking` never affects matching. A goal names no stations:
-  `rules_name_stations`, `watched_among` and the RBN guard ignore it. `goal_spot_values` is the
+  `rules_name_stations`, `watched_among` and the RBN / APRS-IS guard ignore it. `goal_spot_values` is the
   one statement of the entries a spot could work.
 - `preview_subscription.skipped_worked` is SQL's: the recent spots not matched that some group
   passes with its `goal` rules taken out (a group left empty passes), where every
@@ -1129,11 +1147,11 @@ page" canvas); its Copy section is the copy source for `/health`.
   `preview_subscription` both go through it. `group_ids` is derived from the rules (every group
   named, `is` or `is_not`) and written only by `save_subscription`; never set it elsewhere.
   `normalize_subscription_sources` is the only check on `sources` (both call it); its list is
-  `raw_spots_source_check` without `aprs`, so a new source goes in both, and in `home_flow`'s list. Band values are stored
+  `raw_spots_source_check`, so a new source goes in both, and in `home_flow`'s list. Band values are stored
   lowercase, and a rule takes at most 1,000 values.
 - Matching is `rule_matches` per rule inside `spot_matches`; never evaluate rules in TypeScript.
   The web's `model.ts` only converts builder rows to rules (`rulesOf` drops rows without values) and
-  mirrors the RBN guard as a form check (`needsCallsign`).
+  mirrors the RBN / APRS-IS guard as a form check (`needsCallsign`).
 - `save_subscription` refuses the old filter keys (`bands`, `modes`, `callsigns`, `reference`,
   `group_ids`) and keeps stored rules when `rules` is left out, so a request can't silently widen a
   subscription to every spot.

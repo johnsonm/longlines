@@ -123,8 +123,8 @@ describe("routing", () => {
     expect(screen.getByTestId("location")).toHaveTextContent("/connections");
   });
 
-  it("sends a source that can't alert back to the list", () => {
-    render({ source: "aprs" });
+  it("sends an unknown source back to the list", () => {
+    render({ source: "nope" });
     expect(screen.getByTestId("location")).toHaveTextContent(/^\/connections$/);
   });
 });
@@ -241,6 +241,35 @@ describe("new subscription", () => {
     expect(screen.getByText("Type a call and press Enter.")).toBeInTheDocument();
     await user.click(save());
     expect(saveSubscription).toHaveBeenCalledWith(expect.objectContaining({ sources: ["rbn"], rules: [[rule("callsign", "is", "KK4PWJ")]] }));
+  });
+
+  it("starts an APRS-IS connection that needs a callsign, words its rate as packets and offers no tuning rows", async () => {
+    vi.mocked(useStats).mockReturnValue({
+      stats: { generatedAt: "2026-10-14T13:00:00Z", payload: { hourly: HOURLY.map((h) => ({ ...h, aprs: 330_000 })) } } as never,
+      loading: false, error: null,
+    });
+    vi.mocked(previewSubscription).mockResolvedValue(preview({
+      spots: [{ ...spot(1, "KK4PWJ-9"), source: "aprs", frequency_khz: null, mode: null, pota_reference: null }],
+    }));
+    const { user } = render({ source: "aprs" });
+    expect(screen.getByRole("heading", { name: "New connection" })).toBeInTheDocument();
+    expect(screen.getByText("330,000 packets/hour on average")).toBeInTheDocument();
+    expect(screen.getByText("Required for this source")).toBeInTheDocument();
+    expect(screen.getByText("APRS-IS is a high volume source")).toBeInTheDocument();
+    expect(screen.getByText(/APRS-IS carries about 7\.9 million packets a day\./)).toBeInTheDocument();
+    expect(screen.queryByText(/spots a day/)).not.toBeInTheDocument();
+    expect(screen.getByText("High volume source: at least one callsign or group is required.")).toBeInTheDocument();
+    await user.click(screen.getByRole("combobox", { name: "Field" }));
+    expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual(["Callsign", "Callsign group", "Goal"]);
+    await user.keyboard("{Escape}");
+
+    await user.type(screen.getByLabelText(/^Name/), "Mobile");
+    await user.type(screen.getByLabelText("Values"), "kk4pwj-9{Enter}");
+    // A spot without a frequency or mode shows only its time.
+    expect(await screen.findByText("14:00:00")).toBeInTheDocument();
+    expect(screen.queryByText(/kHz/)).not.toBeInTheDocument();
+    await user.click(save());
+    expect(saveSubscription).toHaveBeenCalledWith(expect.objectContaining({ sources: ["aprs"], rules: [[rule("callsign", "is", "KK4PWJ-9")]] }));
   });
 
   it("keeps a call typed without Enter once the field loses focus", async () => {

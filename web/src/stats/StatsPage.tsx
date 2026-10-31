@@ -373,7 +373,7 @@ function Dashboard({ payload }: { payload: StatsPayload }) {
       <Box>
         <Typography variant="h6" gutterBottom>APRS-IS</Typography>
         <Typography variant="body2" color="text.secondary">
-          Every packet on the APRS-IS full feed. Packets aren't spots and never trigger alerts.
+          Every packet on the APRS-IS full feed, not only the few that become spots for the stations a connection names.
         </Typography>
       </Box>
       <Grid container spacing={2}>

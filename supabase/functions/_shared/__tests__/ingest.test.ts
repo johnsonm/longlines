@@ -168,7 +168,7 @@ Deno.test(
     assertEquals(summary.epoch_unchanged, false);
     assertEquals(summary.fetched, 4);
     assertEquals(summary.inserted, 2);
-    assertEquals(summary.skipped, { too_old: 1, test_comment: 0, not_normal: 0 });
+    assertEquals(summary.skipped, { too_old: 1, test_comment: 0, not_normal: 0, not_callsign: 0 });
     assertEquals(summary.failed, 1);
 
     assertEquals(calls.ingested.length, 1);

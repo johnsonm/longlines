@@ -35,7 +35,8 @@ What Long Lines guarantees about every message:
 - You can't add your own text.
 
 **Card color** is **By source** by default: POTA green, SOTA purple, WWFF teal, WWBOTA gold, DX
-Cluster blue, RBN orange, Logged contacts magenta. You can pick one color for everything instead.
+Cluster blue, RBN orange, Logged contacts magenta, and APRS-IS its own color. You can pick one color
+for everything instead.
 
 ### Pacing
 

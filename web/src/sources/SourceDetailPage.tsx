@@ -36,8 +36,8 @@ function volumeAlert(source: SourceInfo, rates: Rates | null): { title: string; 
   }
   if (source.id === "aprs") {
     return {
-      title: "High volume source: stored only",
-      body: `${perDay ? `APRS-IS sends about ${perDay} packets a day. ` : ""}Long Lines stores and archives them but does not match them, so they can't be used in connections.`,
+      title: "High volume source: a callsign filter is required",
+      body: `${perDay ? `APRS-IS carries about ${perDay} packets a day. ` : ""}A connection only gets its spots if it names callsigns, typed or through a group, and gets at most one spot per station every 15 minutes. One that lists only APRS-IS can't be saved without them.`,
     };
   }
   return null;
@@ -189,7 +189,8 @@ export function SourceDetailPage({ prefs, subs }: { prefs: TimePrefs; subs: Subs
                 </Box>
               </ChartCard>
             )}
-            {source.alerts && <RecentSpotsCard key={source.id} source={source} prefs={prefs} health={health} />}
+            {/* list_recent_spots leaves APRS-IS out: its few watched spots aren't the feed, which is packets. */}
+            {source.alerts && source.id !== "aprs" && <RecentSpotsCard key={source.id} source={source} prefs={prefs} health={health} />}
           </Stack>
         </Grid>
         <Grid size={{ xs: 12, md: 4 }}>

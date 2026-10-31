@@ -954,6 +954,36 @@ select pg_size_pretty(sum(pg_total_relation_size(i.inhrelid)))
 from pg_inherits i where i.inhparent = 'public.aprs_packets'::regclass;
 ```
 
+### APRS-IS connections
+
+Since `20261031000100`, a connection can list APRS-IS (`aprs`). As with RBN, only the stations a
+live connection names (`watched_among('aprs', ...)`) go on from `ingest-aprs` into `raw_spots` and
+the matcher, and only their position, Mic-E, object and item packets, at most one spot per station
+per 15 minutes. "Any source" never includes APRS-IS, and a connection on APRS-IS alone needs a
+callsign or callsign group rule. The spot has no frequency, band, mode or reference, so those
+rules' `is`, `contains`, `gt` and `lt` forms never pass it and their `is_not` and `not_contains`
+forms always do (only callsign and group rules tell APRS-IS spots apart), and it never goes to a
+Local DX cluster.
+
+Shipping it: merge (the integration applies the migration; Fly redeploys the sender, which reads a
+null frequency), then `supabase functions deploy ingest-aprs api send-test`. Afterwards watch
+`ingest-aprs`'s run time on `/health` for a day: each batch now adds a `watched_among`,
+`ingest_spots` and `match_pending_spots` call.
+
+If an APRS-IS alert is missing:
+
+```sql
+-- is the station watched? (an enabled connection with a destination, sources listing aprs)
+select * from watched_among('aprs', array['<CALL>']);
+-- did a spot land? one row per 15-minute window
+select spot_time, callsign, spotter, comment from raw_spots
+where source = 'aprs' and base_callsign = base_callsign('<CALL>')
+order by spot_time desc limit 10;
+-- what did the station send? only position, mic_e, object and item become spots
+select received_at, packet_type, line from aprs_packets
+where source_call = '<CALL>' and received_at > now() - interval '1 hour' order by received_at desc;
+```
+
 # WWFF
 
 World Wide Flora & Fauna spots, polled from `https://spots.wwff.co/static/spots.json` by the
