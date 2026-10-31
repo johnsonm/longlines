@@ -84,10 +84,10 @@ Files: create `supabase/functions/_shared/ised_special.ts`,
 `supabase/functions/_shared/__tests__/ised_special.test.ts`,
 `supabase/functions/_shared/__tests__/fixtures/ised-special.txt`.
 
-- [ ] Sourced from runtime URL `https://apc-cap.ic.gc.ca/datafiles/special_callsign.zip` containing `special_callsign.txt`.
-- [ ] Header: `Special_call_sign;beg_date;end_date;event_en;event_fr;call_sign_request;use_by`.
-- [ ] Write synthetic fixture `ised-special.txt` following header structure and test parsing of special callsigns with date ranges and event descriptions.
-- [ ] Implement parser `IsedSpecialRecords`, Zod schemas, and unit tests.
+- [x] Sourced from runtime URL `https://apc-cap.ic.gc.ca/datafiles/special_callsign.zip` containing `special_callsign.txt`.
+- [x] Header: `Special_call_sign;beg_date;end_date;event_en;event_fr;call_sign_request;use_by`.
+- [x] Write synthetic fixture `ised-special.txt` following header structure and test parsing of special callsigns with date ranges and event descriptions.
+- [x] Implement parser `IsedSpecialRecords`, Zod schemas, and unit tests.
 
 ## Task 2: Migration
 

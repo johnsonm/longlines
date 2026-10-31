@@ -1,0 +1,5 @@
+Special_call_sign;beg_date;end_date;event_en;event_fr;call_sign_request;use_by
+CI;2005-05-01;2005-05-31;Grand opening of the Canadian War Museum;Grande Ouverture du Musée Canadien de la Guerre;;VY
+CF3VEDAY;2005-05-01;2005-05-31;Grand opening of the Canadian War Museum;Grande Ouverture du Musée Canadien de la Guerre;;VA3ROR
+VD2X;2005-06-15;2005-07-15;Commemoration of the 100th Anniversary;Pour commémorer le centenaire;VA3RA;
+BADCALL;2005-01-01;2005-01-02;Bad Call Event;Événement mauvais call;;
