@@ -85,10 +85,10 @@ reader extracted from `_shared/ised.ts`), `supabase/functions/_shared/ised_speci
 `supabase/functions/_shared/__tests__/ised_special.test.ts`,
 `supabase/functions/_shared/__tests__/fixtures/ised-special.txt`.
 
-- [ ] Sourced from runtime URL `https://apc-cap.ic.gc.ca/datafiles/special_callsign.zip` containing `special_callsign.txt`.
-- [ ] Header: `Special_call_sign;beg_date;end_date;event_en;event_fr;call_sign_request;use_by`.
-- [ ] Write synthetic fixture `ised-special.txt` following header structure and test parsing of special callsigns with valid calendar ISO date ranges, event descriptions, and skipping of 2-character RIC-9 special event prefixes and malformed dates.
-- [ ] Implement parser `IsedSpecialRecords` over `IsedDelimReader`, Zod schemas (`z.iso.date()` for dates), request/status schemas for `load-ised-special`, and unit tests.
+- [x] Sourced from runtime URL `https://apc-cap.ic.gc.ca/datafiles/special_callsign.zip` containing `special_callsign.txt`.
+- [x] Header: `Special_call_sign;beg_date;end_date;event_en;event_fr;call_sign_request;use_by`.
+- [x] Write synthetic fixture `ised-special.txt` following header structure and test parsing of special callsigns with valid calendar ISO date ranges, event descriptions, and skipping of 2-character RIC-9 special event prefixes and malformed dates.
+- [x] Implement parser `IsedSpecialRecords` over `IsedDelimReader`, Zod schemas (`z.iso.date()` for dates), request/status schemas for `load-ised-special`, and unit tests.
 
 ## Task 2: Migration
 
