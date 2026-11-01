@@ -3,7 +3,7 @@ import type { Destination } from "../lib/api";
 
 /**
  * Health as SQL reports it; a healthy push destination with blocked member devices shows how many instead.
- * `paused` (a webhook's auto_disabled_at is set) wins over health: the pause turned it off.
+ * `paused` (a webhook's or Discord destination's auto_disabled_at is set) wins over health: the pause turned it off.
  * `relayOffline` (a Local DX cluster whose relay has no spots stream open) says so instead: its spots are
  * dropped while offline, which is never a failure.
  */

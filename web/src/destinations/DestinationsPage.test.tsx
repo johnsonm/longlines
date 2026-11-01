@@ -245,6 +245,17 @@ describe("DestinationsPage", () => {
     await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Test spot sent to Dest a"));
   });
 
+  it("leaves out the failing alert for a paused destination, whose Paused chip and editor cover it", async () => {
+    render([
+      dest("w", { name: "Hook", health: "failing", consecutive_failures: 5, last_error: "Webhook HTTP 410 (gone)", enabled: false,
+        auto_disabled_at: ago(3) }),
+      dest("d", { type: "discord", name: "Chat", health: "failing", consecutive_failures: 5, last_error: "HTTP 500" }),
+    ]);
+    const alert = screen.getByRole("alert");
+    expect(within(alert).getByText("Chat is failing")).toBeInTheDocument();
+    expect(screen.queryByText("Hook is failing")).not.toBeInTheDocument();
+  });
+
   it("names the connections a used destination would leave with nowhere to send, then deletes it", async () => {
     vi.mocked(deleteDestination).mockResolvedValue(undefined);
     const { user, app } = render([dest("a"), dest("b")], [sub("s1", ["a"]), sub("s2", ["a", "b"]), sub("s3", ["a"]), sub("s4", ["b"])]);

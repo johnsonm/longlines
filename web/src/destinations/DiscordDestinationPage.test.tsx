@@ -50,7 +50,7 @@ function dest(id: string, overrides: Partial<Destination> = {}): Destination {
 
 const LOADED: DiscordDestination = {
   id: "d1", name: "Club channel", enabled: false, url_display: "https://discord.com/api/webhooks/123/…",
-  settings: { ...DEFAULT_SETTINGS, card_color: "blue" },
+  settings: { ...DEFAULT_SETTINGS, card_color: "blue" }, auto_disabled_at: null,
 };
 
 const DESTS = [dest("d1", { name: "Club channel" }), dest("p1", { type: "push", url_display: "" }), dest("w1", { type: "webhook" })];
@@ -240,6 +240,28 @@ describe("editing", () => {
       id: "d1", name: "Club channel", enabled: true, url: null, settings: { ...DEFAULT_SETTINGS, card_color: "blue" },
     });
     expect(app.notify).toHaveBeenCalledWith("Saved changes");
+  });
+
+  it("keeps Enabled as stored when the switch was not touched", async () => {
+    const { user } = render({ id: "d1" });
+    await screen.findByRole("heading", { name: "Edit destination" });
+    expect(screen.queryByText(/^Paused /)).not.toBeInTheDocument();
+    await user.type(nameField(), "!");
+    await user.click(screen.getByRole("button", { name: "Save destination" }));
+    await waitFor(() => expect(saveDiscordDestination).toHaveBeenCalled());
+    // A pause that landed while the editor was open must not be resumed by a save that never touched the switch.
+    expect(vi.mocked(saveDiscordDestination).mock.calls[0]![0].enabled).toBeNull();
+  });
+
+  it("says when Discord's answer paused it, and turning Enabled on resumes", async () => {
+    vi.mocked(getDiscordDestination).mockResolvedValue({ ...LOADED, auto_disabled_at: new Date(Date.now() - 3 * 3600_000).toISOString() });
+    const { user } = render({ id: "d1" });
+    expect(await screen.findByText(
+      "Paused 3 hours ago: Discord says this webhook no longer exists. Create a new webhook in Discord, select Replace URL, paste it, turn Enabled on and save.",
+    )).toBeInTheDocument();
+    await user.click(screen.getByRole("switch", { name: "Enabled" }));
+    await user.click(screen.getByRole("button", { name: "Save destination" }));
+    await waitFor(() => expect(saveDiscordDestination).toHaveBeenCalledWith(expect.objectContaining({ enabled: true })));
   });
 
   it("passes setting changes from the cards to the preview and the save", async () => {

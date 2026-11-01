@@ -12,7 +12,8 @@ import { WebhookDeliveryCard } from "./WebhookDeliveryCard";
 import { WebhookPreviewCard } from "./WebhookPreviewCard";
 import { SigningSecretDialog } from "./SigningSecretDialog";
 import {
-  blankForm, dirty, extraHeaderLines, formOf, headerNeedsName, headerNeedsValue, looksLikeHttpsUrl, requestPath, toInput, urlReplaced, type WebhookForm,
+  blankForm, dirty, extraHeaderLines, formOf, headerNeedsName, headerNeedsValue, looksLikeHttpsUrl, requestPath, toInput, urlReplaced, webhookPausedLine,
+  type WebhookForm,
 } from "./webhookModel";
 
 interface Props {
@@ -31,10 +32,10 @@ export function WebhookDestinationPage({ id, type, dests, loading, reload, mobil
     const existing = dests.find((d) => d.id === id);
     if (!existing) return loading ? <LinearProgress /> : <Navigate to="/destinations" replace />;
     if (existing.type !== "webhook") return <Navigate to="/destinations" replace />;
-    return <Loader key={id} id={id} reload={reload} mobile={mobile} />;
+    return <Loader key={id} id={id} lastError={existing.last_error} reload={reload} mobile={mobile} />;
   }
   if (type !== "webhook") return <Navigate to="/destinations" replace />;
-  return <Editor key="new" initial={blankForm()} saved={null} reload={reload} mobile={mobile} />;
+  return <Editor key="new" initial={blankForm()} saved={null} lastError={null} reload={reload} mobile={mobile} />;
 }
 
 /** What get_webhook_destination says about a saved destination beyond the form: never the URL, the secret or a header value. */
@@ -44,7 +45,14 @@ interface Saved {
   autoDisabledAt: string | null;
 }
 
-function Loader({ id, reload, mobile }: { id: string; reload: () => Promise<void>; mobile: boolean }) {
+interface LoaderProps {
+  id: string;
+  lastError: string | null;
+  reload: () => Promise<void>;
+  mobile: boolean;
+}
+
+function Loader({ id, lastError, reload, mobile }: LoaderProps) {
   const [loaded, setLoaded] = useState<{ form: WebhookForm; saved: Saved } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -68,13 +76,15 @@ function Loader({ id, reload, mobile }: { id: string; reload: () => Promise<void
 
   if (error) return <Alert severity="error">{error}</Alert>;
   if (!loaded) return <LinearProgress />;
-  return <Editor initial={loaded.form} saved={loaded.saved} reload={reload} mobile={mobile} />;
+  return <Editor initial={loaded.form} saved={loaded.saved} lastError={lastError} reload={reload} mobile={mobile} />;
 }
 
 interface EditorProps {
   initial: WebhookForm;
   /** Null for a new destination. */
   saved: Saved | null;
+  /** The destination's last error (its row in the list): it tells a 410 pause from the count pause. */
+  lastError: string | null;
   reload: () => Promise<void>;
   mobile: boolean;
 }
@@ -87,7 +97,7 @@ interface SecretShown {
   batchSeconds: number;
 }
 
-function Editor({ initial, saved, reload, mobile }: EditorProps) {
+function Editor({ initial, saved, lastError, reload, mobile }: EditorProps) {
   const { notify } = useApp();
   const navigate = useNavigate();
   const isNew = !initial.id;
@@ -203,7 +213,7 @@ function Editor({ initial, saved, reload, mobile }: EditorProps) {
       {autoDisabledAt && (
         // Shown whatever the pause switch now says: it reports what happened, and saving with Enabled on clears it.
         <Alert severity="warning">
-          {`Paused ${timeAgo(autoDisabledAt)} after repeated failed requests. Spots waiting to be sent were dropped. Turn Enabled on and save to resume.`}
+          {webhookPausedLine(timeAgo(autoDisabledAt), lastError)}
         </Alert>
       )}
 

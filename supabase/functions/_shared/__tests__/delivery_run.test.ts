@@ -622,6 +622,77 @@ Deno.test(
 );
 
 Deno.test(
+  "runDeliveryBatch pauses a gone destination with pause_destination, never mark_deliveries_failed",
+  async function (): Promise<void> {
+    const a = dest("a", {});
+    const rows = [1, 2, 3, 4, 5].map((id) => row(id, a, {}));
+    // A webhook 410 on the third of five one-spot requests.
+    const out = await run(
+      rows,
+      () =>
+        Promise.resolve({
+          ok: false,
+          sent: 2,
+          attempted: 3,
+          status: 410,
+          error: "Webhook HTTP 410 (gone)",
+          gone: true,
+        }),
+      {},
+      serialOptions(),
+    );
+    assertEquals(out.calls.slice(1), [
+      { fn: "mark_deliveries_sent", args: { p_delivery_ids: [1, 2], p_msg_ids: [10, 20] } },
+      {
+        fn: "pause_destination",
+        args: {
+          p_destination_id: "a",
+          p_delivery_ids: [3],
+          p_msg_ids: [30],
+          p_error: "Webhook HTTP 410 (gone)",
+        },
+      },
+    ]);
+    assertEquals([out.result.sent, out.result.failed, out.result.unattempted], [2, 1, 2]);
+    assertEquals(out.result.destinations[0]!.error, "Webhook HTTP 410 (gone)");
+
+    // Discord reports no attempted count: every unsent row was in the batch.
+    const d = dest("d", { type: "discord" });
+    const discord = await run(
+      [row(6, d, {}), row(7, d, {})],
+      () =>
+        Promise.resolve({
+          ok: false,
+          sent: 0,
+          error: "Discord HTTP 404 (Unknown Webhook)",
+          gone: true,
+        }),
+      {},
+      serialOptions(),
+    );
+    assertEquals(discord.calls.slice(1).map((c) => [c.fn, c.args.p_delivery_ids]), [
+      ["pause_destination", [6, 7]],
+    ]);
+    assertEquals(discord.result.failed, 2);
+  },
+);
+
+Deno.test(
+  "runDeliveryBatch makes no pause call for a gone reply when nothing was attempted",
+  async function (): Promise<void> {
+    const a = dest("a", {});
+    const out = await run(
+      [row(1, a, {})],
+      () => Promise.resolve({ ok: false, sent: 0, attempted: 0, error: "gone", gone: true }),
+      {},
+      serialOptions(),
+    );
+    assertEquals(out.calls.map((c) => c.fn), ["claim_deliveries"]);
+    assertEquals([out.result.failed, out.result.unattempted], [0, 1]);
+  },
+);
+
+Deno.test(
   "runDeliveryBatch makes no failure call when nothing was attempted",
   async function (): Promise<void> {
     const a = dest("a", {});
@@ -768,14 +839,23 @@ Deno.test(
 );
 
 Deno.test(
-  "runDeliveryBatch tries mark_deliveries_failed and throttle_destination once: they count",
+  "runDeliveryBatch tries mark_deliveries_failed, throttle_destination and pause_destination once: they count",
   async function (): Promise<void> {
-    // Both increment counters, so a retry after a commit whose answer was lost
+    // Each increments counters, so a retry after a commit whose answer was lost
     // would count the failure or the throttle twice.
     const waiter = noSleep();
-    function failOrThrottle(d: DeliveryDestination): Promise<SendResult> {
+    function failThrottleOrGone(d: DeliveryDestination): Promise<SendResult> {
       if (d.id === "a") {
         return Promise.resolve({ ok: false, sent: 0, error: "Webhook HTTP 500" });
+      }
+      if (d.id === "c") {
+        return Promise.resolve({
+          ok: false,
+          sent: 0,
+          attempted: 1,
+          error: "Webhook HTTP 410 (gone)",
+          gone: true,
+        });
       }
       return Promise.resolve({
         ok: false,
@@ -785,11 +865,12 @@ Deno.test(
       });
     }
     const out = await run(
-      [row(1, dest("a", {}), {}), row(2, dest("b", {}), {})],
-      failOrThrottle,
+      [row(1, dest("a", {}), {}), row(2, dest("b", {}), {}), row(3, dest("c", {}), {})],
+      failThrottleOrGone,
       {
         mark_deliveries_failed: { error: "db down" },
         throttle_destination: { error: "db down" },
+        pause_destination: { error: "db down" },
       },
       { sleep: waiter.sleep },
     );
@@ -797,12 +878,15 @@ Deno.test(
       "claim_deliveries",
       "mark_deliveries_failed",
       "throttle_destination",
+      "pause_destination",
     ]);
     assertEquals(waiter.waits, []);
     assertEquals(out.result.errors, [
       "mark_deliveries_failed: db down",
       "throttle_destination: db down",
+      "pause_destination: db down",
     ]);
+    assertEquals(out.result.failed, 2);
   },
 );
 

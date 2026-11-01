@@ -219,8 +219,8 @@ The conventions are `docs/superpowers/specs/2026-10-22-strict-eslint-conventions
   (`subscriptions_rbn_needs_callsign` in SQL, `needsCallsign` in the web); change the two together.
 - The loop is `_shared/delivery/run.ts` (`runDeliveryBatch` over a `DeliveryRpc`), run only by
   the sender. It talks to the database only through `claim_deliveries`,
-  `mark_deliveries_sent`, `mark_deliveries_failed`, `throttle_destination`, `prune_push_devices`
-  and `record_push_results`, so delivery rows, queue messages and destination health change
+  `mark_deliveries_sent`, `mark_deliveries_failed`, `throttle_destination`, `pause_destination`,
+  `prune_push_devices` and `record_push_results`, so delivery rows, queue messages and destination health change
   atomically. One `mark_deliveries_sent` per cycle, before the throttles (the ack clears
   `throttled_until`).
 - Policy lives in SQL. `claim_deliveries` is rate-aware per destination and newest first, skips
@@ -266,6 +266,15 @@ The conventions are `docs/superpowers/specs/2026-10-22-strict-eslint-conventions
   turning it on clears it, so the editor sends Enabled only when the switch changed from what it
   loaded (null otherwise) and a pause since load is never resumed silently. `webhook_default_settings()` sets the pause to 20 (`20261018000400`,
   shipped with the editor that shows and undoes a pause); backfilled webhooks keep it null.
+- A gone reply pauses at once (`20261031000300`, Phase 2 spec Piece 2): a webhook's HTTP 410,
+  Discord's 404 with code 10015 or 401 with code 50027 (read with a loose Zod schema; any other
+  404 or 401 is an ordinary failure) set `SendResult.gone`, and `run.ts` calls
+  `pause_destination` for the failed rows in place of `mark_deliveries_failed` (tried once, it
+  counts). It is the same pause (`enabled = false`, `auto_disabled_at`, the queue made visible for
+  the unwanted sweep, never `health`), whatever the webhook's pause switch says, and the
+  URL-generation guard applies: rows claimed before a URL change only become visible again. Send
+  test never pauses (`test_delivery.ts` never reads `gone`). The editors tell the gone pause from
+  the count pause by `last_error` (`WEBHOOK_GONE_ERROR`, pinned to `send.ts` by a test).
 - The webhook body is rendered in SQL (`webhook_spot_fields`, ordered `[{key, value}]` pairs in
   the claim's `spot.webhook_fields`); `format.ts` only builds the object in that order and never
   formats, converts or names a value. A row without the keys gets the legacy `{deliveries}` body
@@ -396,6 +405,11 @@ its Copy section is the copy source for the Discord editor.
   `discord_destination_settings` (RLS on, no policies, no client grants) and are written only by
   `save_discord_destination`, validated by `validate_discord_settings`. Fields are push's minus
   Comment (`discord_fields()`).
+- A Discord destination pauses only on a gone reply (Unknown Webhook, Invalid Webhook Token;
+  `pause_destination`, see "Delivery rules"); there is no count pause. `get_discord_destination`
+  and the API's `discord` object carry `auto_disabled_at`, the editor shows the paused alert, and
+  `discordModel.toInput` sends Enabled only when the switch changed from what it loaded (null
+  otherwise), as the webhook editor does, so a pause is never resumed silently.
 - SQL renders everything in `discord_spot_fields`: `claim_deliveries` adds its nine `discord_*`
   keys to the spot jsonb and the settings as `discord` to the destination jsonb;
   `preview_discord_message` and `discord_test_delivery` call the same function. `format.ts` only
@@ -447,8 +461,9 @@ The delivery side (retries, pause, attempts, rendering, Vault) is in "Delivery r
   `destination_batch_full('webhook')`, 50), `webhook_claim_max` (5 a claim for one request per
   spot), the retry policy (`webhook_retry_delay`, `webhook_retry_max_attempts`, and
   `webhook_retries_exhausted` shared by the sweep and `ready`) and the spaced pause count. A pause
-  is `enabled = false` plus `auto_disabled_at`, never `health`; the card's chip says Paused and the
-  editor says when, whatever the pause switch now says.
+  (webhook or Discord) is `enabled = false` plus `auto_disabled_at`, never `health`; the card's
+  chip says Paused, the Destinations page shows no failing banner for it, and the editor says when,
+  whatever the pause switch now says.
 - The reserved header list is in `webhook_header_name_valid` and `WEBHOOK_RESERVED_HEADERS`;
   change both together.
 - The secret is shown once, from `save_webhook_destination` on create and `rotate_signing_secret`,
@@ -699,7 +714,7 @@ The design is `docs/superpowers/specs/2026-10-15-outbound-sender-design.md` (Pha
   batch. Fly restarts only a machine whose process exits; a `/healthz` 503 alone restarts nothing.
   The repeatable bookkeeping RPCs (`mark_deliveries_sent`, `prune_push_devices`,
   `record_push_results`) are retried within the cycle (`BOOKKEEPING_RETRY_MS`); the counting ones
-  (`mark_deliveries_failed`, `throttle_destination`) are tried once. A failed claim or mark is then
+  (`mark_deliveries_failed`, `throttle_destination`, `pause_destination`) are tried once. A failed claim or mark is then
   logged and the next claim backs off, never an exit. Exit 1 otherwise means bad config, a pool
   that cannot open within `OPEN_DEADLINE_MS` (the start-up probe retries with the claim backoff and
   times out after `PROBE_TIMEOUT_MS`), or an unhandled rejection.

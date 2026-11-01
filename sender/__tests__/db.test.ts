@@ -58,6 +58,7 @@ Deno.test("SENDER_RPCS is exactly the sender role's allowlist", function (): voi
     "delivery_queue_stats",
     "mark_deliveries_failed",
     "mark_deliveries_sent",
+    "pause_destination",
     "prune_push_devices",
     "record_push_results",
     "record_sender_heartbeat",
@@ -131,6 +132,24 @@ Deno.test(
       text: "select * from public.delivery_queue_stats()",
       params: [],
     });
+    assertEquals(
+      rpcStatement("pause_destination", {
+        p_error: "Webhook HTTP 410 (gone)",
+        p_msg_ids: [10],
+        p_delivery_ids: [1],
+        p_destination_id: "u",
+      }),
+      {
+        text: "select * from public.pause_destination(p_destination_id => $1::uuid, " +
+          "p_delivery_ids => $2::bigint[], p_msg_ids => $3::bigint[], p_error => $4::text)",
+        params: [
+          { value: "u", type: "uuid" },
+          { value: [1], type: "bigint[]" },
+          { value: [10], type: "bigint[]" },
+          { value: "Webhook HTTP 410 (gone)", type: "text" },
+        ],
+      },
+    );
     // A missing argument (throttle_destination without Retry-After) is null.
     const throttle = rpcStatement("throttle_destination", {
       p_destination_id: "u",
@@ -646,6 +665,13 @@ Deno.test({
       });
       assertEquals(throttled.data, null);
       assertEquals(throttled.error, "Destination not found.");
+      const paused = await db.rpc("pause_destination", {
+        p_destination_id: "00000000-0000-0000-0000-000000000000",
+        p_delivery_ids: [],
+        p_msg_ids: [],
+        p_error: "sender db test",
+      });
+      assertEquals(paused, { data: null, error: "Destination not found." });
 
       // The spots stream's RPCs, with a token and a relay that exist nowhere: no rows, a null
       // hello, and a boolean that reaches the function as one.

@@ -2,8 +2,8 @@
 
 Date: 2026-10-31
 
-Status: Piece 1 (LISTEN) built, in review; Pieces 2 and 3 planned. Each PR appends to the
-Progress log.
+Status: Piece 1 (LISTEN) and Piece 2 (permanent-failure pause) built, in review; Piece 3
+planned. Each PR appends to the Progress log.
 
 This spec supersedes section 9 ("Phase 2 outline") of `2026-10-15-outbound-sender-design.md`.
 Read that spec for how the sender, the claim and the outcome RPCs work today; this one only adds
@@ -541,3 +541,45 @@ next PR. Earlier entries are never edited.
   decide when its rows are claimable. Checked against postgres.js 3.4.9 that a LISTEN failing at
   start recovers once the database answers (postgres.js retries on its own, the next attempt
   resolves) and that each failed attempt leaves one extra `wake` callback, as recorded above.
+- 2026-10-31, Piece 2 (PR #342, branch `pause-gone`, stacked on `sender-listen`): the permanent-failure
+  pause, migration `20261031000300_pause_destination.sql`. `pause_destination(destination,
+  delivery ids, msg ids, error)` locks the destination, marks the rows of that destination failed
+  (attempts + 1, `last_error`), and then either pauses it (`enabled = false`,
+  `auto_disabled_at = coalesce(auto_disabled_at, now())`, `consecutive_failures + 1`, `last_error`,
+  `last_error_at`, health by the usual rule, never `paused`; every queued pending or failed row of
+  it made visible for the unwanted sweep) or, when none of the rows was claimed at its current
+  `url_generation`, only makes those rows visible again. Granted to `service_role` and
+  `delivery_sender`. `get_discord_destination` and `api_destination_json`'s `discord` object gain
+  `auto_disabled_at`. `send.ts`: `SendResult.gone`; `sendWebhook` answers a 410 with
+  `Webhook HTTP 410 (gone)`; `sendDiscord` reads a 404 or 401 body with a loose schema and answers
+  code 10015 with `Discord HTTP 404 (Unknown Webhook)` and code 50027 with
+  `Discord HTTP 401 (Invalid Webhook Token)`, every other 404 or 401 keeping `Discord HTTP 404`
+  or `401`. `run.ts` calls `pause_destination` in place of `mark_deliveries_failed` for a gone
+  result with failed rows (tried once) and logs `is gone: ...; paused`. `SENDER_RPCS`,
+  `db.test.ts` and `sender_role.test.sql` (`plan(23)`) gain it. Web: `DiscordDestination.auto_disabled_at`,
+  `DiscordDestinationInput.enabled: boolean | null`, `discordModel.toInput(form, loaded)` with the
+  webhook editor's keep-Enabled rule, the Discord editor's paused alert, the webhook editor's
+  alert worded by the row's `last_error`, and no failing banner on the Destinations page while
+  `auto_disabled_at` is set. `database.types.ts` regenerated (adds `pause_destination`). Docs:
+  openapi (`DiscordSettings.auto_disabled_at`, the PATCH description, `WebhookSettings`'
+  description), WEBHOOKS.md (a 410 paragraph), ARCHITECTURE.md (the allowlist, the gone reply),
+  OPERATIONS.md ("A destination paused itself"), the docs site's webhook, Discord and index pages,
+  and CLAUDE.md ("Delivery rules", "Webhook rules", "Discord rules", "Sender rules"). Built as the
+  recommended answer to the [OPEN] 410 call: a webhook pauses on 410 whatever its pause switch
+  says; still Brad's call. The two paused-alert lines are the Copy section's drafts, word for word.
+  Deviations and additions: (1) the webhook editor's wording keys on `WEBHOOK_GONE_ERROR` in
+  `webhookModel.ts`, and a Vitest case checks that `send.ts` still contains that text; the page
+  reads `last_error` from the list's row, since `get_webhook_destination` does not return it.
+  (2) The Discord editor always uses the gone wording, because a Discord destination has no count
+  pause. (3) `pause_destination` with an empty delivery id list changes nothing (it reads as
+  claimed before a URL change); the sender never calls it without failed rows. (4) pgTAP grew by
+  17 in `deliveries_rpc.test.sql` (a paused destination keeps its first `auto_disabled_at`, a row
+  of another destination is ignored, clients cannot call it), 5 in
+  `discord_destinations.test.sql` and 2 in `management_api.test.sql`. (5) `HealthChip`'s comment
+  now names Discord. Notes for Piece 3: `docs/openapi.yaml` and `management_api.test.sql`
+  (`plan(108)`) changed here; rebase on this branch.
+- 2026-10-31, Piece 2 review (PR #342): the review found no defect in the migration, the sender or
+  the web, and strengthened `deliveries_rpc.test.sql` (`plan(166)`): the pause case now claims a
+  row that was never attempted and checks that `pause_destination` makes it visible with no
+  attempt counted, so the queue-wide vt reset is pinned beyond the rows passed in, and the
+  already-paused case checks that the fifth failure in a row marks the destination `failing`.

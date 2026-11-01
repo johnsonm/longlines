@@ -432,6 +432,28 @@ destination and resume its queue later instead, throttle it until a time
 (`update destinations set throttled_until = now() + interval '2 hours' where id = '<id>';`); its
 messages then wait and expire at the same limits as any other.
 
+### A destination paused itself
+
+A webhook or Discord destination can turn itself off: `enabled = false` with `auto_disabled_at`
+set, never `health = 'paused'`. There are two pauses, told apart by `last_error`:
+
+- The count pause (webhooks with `pause_after_failures` set): repeated failures through
+  `mark_deliveries_failed`. `last_error` is the last failure's, such as `Webhook HTTP 500`.
+- The gone pause (`pause_destination`, migration `20261031000300`): at once, on a reply that says
+  the URL is gone for good. `last_error` is `Webhook HTTP 410 (gone)`,
+  `Discord HTTP 404 (Unknown Webhook)` or `Discord HTTP 401 (Invalid Webhook Token)`. A webhook
+  pauses on a 410 whatever its pause setting says. A gone reply about rows claimed before the URL
+  changed pauses nothing.
+
+Either way the claim's unwanted sweep drops the queue with `dropped_at`, and the owner resumes by
+turning Enabled on and saving (or `PATCH` with `"enabled": true`), which clears
+`auto_disabled_at`. The sender logs a gone pause as `is gone: ...; paused`.
+
+```sql
+select name, type, enabled, auto_disabled_at, last_error, last_error_at
+from destinations where auto_disabled_at is not null order by auto_disabled_at desc;
+```
+
 ### A destination is throttled
 
 A 429 from Discord, a webhook or a push service is not a failure. The sender calls

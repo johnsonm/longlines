@@ -91,8 +91,9 @@ own connection, both with **Card color** set to one fixed color so the two chann
 `https://discordapp.com/api/webhooks/`. Links from `ptb.discord.com` or `canary.discord.com` are
 refused; change the host to `discord.com`.
 
-**Failing with HTTP 404 or 401.** Someone deleted or reset the webhook in Discord. Create a new one,
-select **Replace URL**, paste it and save.
+**Paused: "Discord says this webhook no longer exists."** Someone deleted the webhook in Discord or
+reset its URL, so the destination paused itself and dropped the spots waiting for it. Create a new
+webhook in Discord, select **Replace URL**, paste it, turn **Enabled** on and save.
 
 **Messages arrive in bunches.** The connection is busier than about 30 messages a minute, so spots
 are being grouped. Narrow the connection, or choose a grouping interval so it happens predictably.
