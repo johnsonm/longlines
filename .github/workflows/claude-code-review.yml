@@ -8,8 +8,11 @@ on:
     types: [created]
 
 # Asking again while a review runs cancels the older one, so only the latest head is reviewed.
+# Every other comment gets a group of its own: a run whose job is skipped still takes its group,
+# so one shared group let any comment (the review's own summary, Vercel's, Codecov's) cancel a
+# review in progress.
 concurrency:
-  group: claude-review-${{ github.event.issue.number }}
+  group: claude-review-${{ github.event.issue.number }}-${{ startsWith(github.event.comment.body, '/claude-review') && 'review' || github.run_id }}
   cancel-in-progress: true
 
 jobs:
