@@ -3,7 +3,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(108);
+select plan(111);
 
 -- ---------------------------------------------------------------------------
 -- Tokens
@@ -203,6 +203,11 @@ select throws_ok($$ select pg_temp.call('create_subscription', '{"body": {"name"
   'P0001', 'Destination not found.', 'a destination the body names but the caller lacks is a plain 400');
 select throws_ok($$ select pg_temp.read_call('create_group', '{"name":"x"}') $$, 'LL403', 'This token is read only.',
   'a read-only token is LL403');
+-- Clear queue (20261031000400): a write operation on the path's destination.
+select is(pg_temp.call('clear_destination_queue', jsonb_build_object('id', (select id from dest))),
+  '{"cleared": 0}'::jsonb, 'clearing an empty queue answers cleared 0');
+select throws_ok(format($$ select pg_temp.read_call('clear_destination_queue', '{"id": "%s"}') $$, (select id from dest)),
+  'LL403', 'This token is read only.', 'a read token cannot clear a queue');
 select throws_ok($$ select pg_temp.call('create_subscription', '{"body": {"name": "x", "destinations": ["nope"]}}') $$,
   'Not a destination id: nope.');
 select is(pg_temp.call('create_subscription', '{"body": {"name": "Null list", "destinations": null}}') -> 'destinations',
@@ -370,6 +375,8 @@ select throws_ok(format($$ select api_call((select id from other), 'get_subscrip
   (select id from sub)), 'Connection not found.');
 select throws_ok(format($$ select api_call((select id from other), 'patch_subscription', '{"id": "%s", "body": {"rules": []}}') $$,
   (select id from sub)), 'Connection not found.');
+select throws_ok(format($$ select api_call((select id from other), 'clear_destination_queue', '{"id": "%s"}') $$,
+  (select id from dest)), 'LL404', 'Destination not found.', 'another user''s destination queue is LL404');
 select throws_ok(format($$ select api_call((select id from other), 'replace_goal', '{"id": "%s", "body": {}}') $$,
   (select j ->> 'id' from nl)), 'LL404', 'Goal not found.', 'another user''s goal is LL404');
 select throws_ok(format($$ select api_call((select id from other), 'resolve_goal_review', '{"id": "%s", "review_id": "%s", "reference": null}') $$,

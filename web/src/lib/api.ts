@@ -282,6 +282,28 @@ export async function deleteDestination(destinationId: string): Promise<void> {
   if (error) fail(error, "Couldn't delete the destination.");
 }
 
+/**
+ * One row of list_destination_queues: how many spots wait for a destination and whether SQL calls
+ * it backed up. The generated type says number; SQL returns a null oldest age when nothing waits.
+ */
+export type DestinationQueue = Omit<Functions["list_destination_queues"]["Returns"][number], "oldest_waiting_seconds"> & {
+  oldest_waiting_seconds: number | null;
+};
+
+/** The queue figures of each of the caller's destinations. */
+export async function listDestinationQueues(): Promise<DestinationQueue[]> {
+  const { data, error } = await supabase.rpc("list_destination_queues");
+  if (error) fail(error, "Couldn't load the destination queues.");
+  return data ?? [];
+}
+
+/** Drops the spots waiting for a destination whose turn has come; resolves to how many were dropped. */
+export async function clearDestinationQueue(destinationId: string): Promise<number> {
+  const { data, error } = await supabase.rpc("clear_destination_queue", { p_destination_id: destinationId });
+  if (error) fail(error, "Couldn't clear the queue.");
+  return data;
+}
+
 // ---- Push ------------------------------------------------------------------
 //
 // Devices belong to the account; each push destination picks some of them.

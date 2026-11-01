@@ -19,6 +19,8 @@ interface Props {
   webhook: WebhookSettingsSummary | null;
   /** For a Local DX cluster: its relay and whether that relay is connected, from the page's one listLocalClusterDestinationSettings call; null until loaded. */
   localCluster: LocalClusterSettingsSummary | null;
+  /** Spots waiting to be sent, from the page's one listDestinationQueues call; 0 until loaded. */
+  waiting: number;
   busy: boolean;
   mobile: boolean;
   onSendTest: () => void;
@@ -27,7 +29,7 @@ interface Props {
   onDelete: () => void;
 }
 
-export function DestinationCard({ dest, usedBy, devices, discord, webhook, localCluster, busy, mobile, onSendTest, onEdit, onDuplicate, onDelete }: Props) {
+export function DestinationCard({ dest, usedBy, devices, discord, webhook, localCluster, waiting, busy, mobile, onSendTest, onEdit, onDuplicate, onDelete }: Props) {
   const push = dest.type === "push";
   const cluster = dest.type === "local_cluster";
   const editable = push || cluster || dest.type === "discord" || dest.type === "webhook";
@@ -70,7 +72,7 @@ export function DestinationCard({ dest, usedBy, devices, discord, webhook, local
             <Box component="code" sx={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{dest.url_display}</Box>
           </Paper>
         )}
-        <Typography variant="body2" color="text.secondary">{cardMeta(dest, usedBy)}</Typography>
+        <Typography variant="body2" color="text.secondary">{cardMeta(dest, usedBy, waiting)}</Typography>
       </CardContent>
       <Divider />
       <CardActions sx={{ flexWrap: "wrap", gap: 1, px: 2, py: 1.5, flexDirection: mobile ? "column" : "row", alignItems: mobile ? "stretch" : "center" }}>

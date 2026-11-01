@@ -4,15 +4,17 @@ import AddIcon from "@mui/icons-material/Add";
 import { useNavigate } from "react-router";
 import { PageTitle } from "../layout/PageTitle";
 import {
-  deleteDestination, duplicateDestination, listDiscordDestinationSettings, listLocalClusterDestinationSettings, listPushDevices,
-  listWebhookDestinationSettings, sendTest, type Destination, type DiscordSettingsSummary, type LocalClusterSettingsSummary, type PushDevice,
-  type SubscriptionWithLinks, type WebhookSettingsSummary,
+  clearDestinationQueue, deleteDestination, duplicateDestination, listDestinationQueues, listDiscordDestinationSettings,
+  listLocalClusterDestinationSettings, listPushDevices, listWebhookDestinationSettings, sendTest, type Destination, type DestinationQueue,
+  type DiscordSettingsSummary, type LocalClusterSettingsSummary, type PushDevice, type SubscriptionWithLinks, type WebhookSettingsSummary,
 } from "../lib/api";
 import { currentEndpoint } from "../pwa/push";
 import { errorText, useNotify } from "../app/hooks";
 import { ConfirmDeleteDialog } from "../layout/ConfirmDeleteDialog";
+import { ConfirmDialog } from "../layout/ConfirmDialog";
 import { DestinationCard } from "./DestinationCard";
 import { DestinationDialog } from "./DestinationDialog";
+import { backedUpBody, backedUpTitle, CLEAR_KEEPS, clearBody, clearedToast, clearTitle } from "./queueModel";
 import { answeredStatus } from "./webhookModel";
 
 interface Props {
@@ -60,6 +62,7 @@ export function DestinationsPage({ dests, subs, loading, reload }: Props) {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [devices, setDevices] = useState<PushDevice[]>([]);
   const [confirming, setConfirming] = useState<Destination | null>(null);
+  const [clearing, setClearing] = useState<Destination | null>(null);
   const usersOf = (id: string) => subs.filter((s) => s.destinations.includes(id));
   const usedBy = (id: string) => usersOf(id).length;
 
@@ -146,7 +149,32 @@ export function DestinationsPage({ dests, subs, loading, reload }: Props) {
     };
   }, [clusterIds, notify]);
 
+  // And one queue list for every card's waiting count and the backed-up banners, read again after
+  // a clear. A failed load is a toast and the page works without it (the web can deploy before
+  // the migration that adds list_destination_queues).
+  const [queues, setQueues] = useState<DestinationQueue[]>([]);
+  const [queuesRead, setQueuesRead] = useState(0);
+  const destIds = useMemo(() => dests.map((d) => d.id).join(","), [dests]);
+  useEffect(() => {
+    if (!destIds) {
+      setQueues([]);
+      return;
+    }
+    let active = true;
+    listDestinationQueues()
+      .then((list) => {
+        if (active) setQueues(list);
+      })
+      .catch((err: unknown) => {
+        if (active) notify(errorText(err, "Couldn't load the destination queues."));
+      });
+    return () => {
+      active = false;
+    };
+  }, [destIds, queuesRead, notify]);
+
   const membersOf = (id: string) => devices.filter((d) => d.destination_ids.includes(id));
+  const queueOf = (id: string) => queues.find((q) => q.destination_id === id) ?? null;
   const summaryOf = (id: string) => discord.find((s) => s.destination_id === id) ?? null;
   const webhookOf = (id: string) => webhooks.find((s) => s.destination_id === id) ?? null;
   const clusterOf = (id: string) => clusters.find((s) => s.destination_id === id) ?? null;
@@ -179,6 +207,15 @@ export function DestinationsPage({ dests, subs, loading, reload }: Props) {
     });
   };
 
+  const clear = (d: Destination) => {
+    setClearing(null);
+    void run(d.id, async () => {
+      const cleared = await clearDestinationQueue(d.id);
+      notify(clearedToast(cleared, d.name));
+      setQueuesRead((n) => n + 1);
+    });
+  };
+
   const test = (d: Destination) =>
     void run(d.id, async () => {
       let status: number | null;
@@ -199,6 +236,11 @@ export function DestinationsPage({ dests, subs, loading, reload }: Props) {
     .map((dev) => ({ dev, members: dests.filter((d) => d.type === "push" && dev.destination_ids.includes(d.id)) }))
     .filter(({ members }) => members.length > 0);
 
+  const backedUp = dests.flatMap((d) => {
+    const q = queueOf(d.id);
+    return q?.backed_up ? [{ d, q }] : [];
+  });
+
   return (
     <Stack spacing={3}>
       <Stack direction={{ xs: "column", sm: "row" }} spacing={2} sx={{ justifyContent: "space-between", alignItems: { sm: "flex-end" } }}>
@@ -218,6 +260,16 @@ export function DestinationsPage({ dests, subs, loading, reload }: Props) {
           <AlertTitle>{d.name} is failing</AlertTitle>
           The last {d.consecutive_failures} deliveries returned {d.last_error ?? "an error"}. Spots for {usedBy(d.id)}{" "}
           connection{usedBy(d.id) === 1 ? "" : "s"} are not being sent. Check the URL, then send a test.
+        </Alert>
+      ))}
+      {/* list_destination_queues decides backed_up (enabled, and at either knob); this only words it. */}
+      {backedUp.map(({ d, q }) => (
+        <Alert
+          severity="warning" key={`queue-${d.id}`}
+          action={<Button color="inherit" size="small" disabled={busyId === d.id} onClick={() => setClearing(d)}>Clear queue</Button>}
+        >
+          <AlertTitle>{backedUpTitle(d.name)}</AlertTitle>
+          {backedUpBody(q)}
         </Alert>
       ))}
       {blockedAlerts.map(({ dev, members }) => (
@@ -241,7 +293,7 @@ export function DestinationsPage({ dests, subs, loading, reload }: Props) {
             <Grid key={d.id} size={{ xs: 12, md: 6 }}>
               <DestinationCard
                 dest={d} usedBy={usedBy(d.id)} devices={membersOf(d.id)} discord={summaryOf(d.id)} webhook={webhookOf(d.id)}
-                localCluster={clusterOf(d.id)}
+                localCluster={clusterOf(d.id)} waiting={queueOf(d.id)?.waiting ?? 0}
                 busy={busyId === d.id} mobile={mobile}
                 onSendTest={() => test(d)}
                 onEdit={() => void navigate(`/destinations/${d.id}`)}
@@ -258,6 +310,15 @@ export function DestinationsPage({ dests, subs, loading, reload }: Props) {
         </Grid>
       )}
       <DestinationDialog open={open} onClose={closeDialog} />
+      {clearing && (
+        <ConfirmDialog
+          title={clearTitle(clearing.name)} confirmLabel="Clear queue" confirmColor="warning"
+          onCancel={() => setClearing(null)} onConfirm={() => clear(clearing)}
+        >
+          <Typography variant="body2">{clearBody(queueOf(clearing.id)?.waiting ?? 0)}</Typography>
+          <Typography variant="body2" color="text.secondary">{CLEAR_KEEPS}</Typography>
+        </ConfirmDialog>
+      )}
       {confirming && (
         <ConfirmDeleteDialog name={confirming.name} onCancel={() => setConfirming(null)} onConfirm={() => remove(confirming)}>
           <DeleteWarning users={usersOf(confirming.id)} />

@@ -246,8 +246,9 @@ The conventions are `docs/superpowers/specs/2026-10-22-strict-eslint-conventions
 - Rate limits are not failures: a 429 from any type, or the Discord cap, calls
   `throttle_destination` (with `Retry-After` when there is one, else null so SQL picks the level's
   backoff), which sets `throttled_until`, `throttle_level` and the messages' vt together and never
-  touches `consecutive_failures`. Never delay or drop a message outside those RPCs: the claim's
-  expiry sweep is the only thing that drops a delivery. `ready` in `claim_deliveries` applies the
+  touches `consecutive_failures`. Never delay or drop a message outside those RPCs, and never drop
+  a delivery in TypeScript: in SQL only the claim's sweeps, `update_destination`'s resume and
+  `clear_destination_queue` drop one. `ready` in `claim_deliveries` applies the
   sweep's age predicate too, so a row past its age is never claimed when more than the sweep's
   batch expire at once; change the two together. The same goes for a webhook row whose attempts
   are used up: the sweep and `ready` share `webhook_retries_exhausted`.
@@ -286,6 +287,16 @@ The conventions are `docs/superpowers/specs/2026-10-22-strict-eslint-conventions
   read only through `spot_license_name` (by base call, none for a club or a call in
   `hidden_callsigns`), never the spotter's. The FCC load stages them apart from the joined `name`
   (`_shared/uls.ts`, `fcc_uls_en`); never split `name` to get them.
+- Queue figures are SQL's (`20261031000400`, Phase 2 spec Piece 3): `destination_queue_status`
+  (service role only, the operator's view) and `list_destination_queues()` (the owner's rows) give
+  `waiting` (pending and failed rows), `oldest_waiting_seconds` and `dropped_24h` (loss only:
+  unwanted and cleared rows keep `dropped_at` null). `backed_up` is decided there by
+  `destination_backlog_waiting()` (100) and `destination_backlog_age()` (10 minutes), enabled
+  destinations only; the web only words it. `clear_destination_queue` (owner, web and
+  `POST /v1/destinations/{id}/clear`) drops only waiting rows whose message is visible now, with
+  `dropped_at` null, archives their messages and takes the queue rows `for update skip locked`; it
+  leaves rows whose vt is ahead (in flight, in retry backoff or throttled), since an in-flight row
+  dropped before its `mark_deliveries_failed` would be a failed row with no message.
 - Nothing in the app sets `destinations.health = 'paused'`; it is an operator tool, and the claim
   drops a paused destination's queued rows as unwanted, like `enabled = false`. To hold a queue
   and resume it, set `throttled_until`.
@@ -541,7 +552,11 @@ editor.
   canvas (Desktop board); a feature it names must exist.
 - `sx` is for layout only (spacing, sizing, display, flex/grid placement, overflow, position).
   Colors, fonts, borders and shadows come from component props and variants.
-- Copy comes from `docs/ui-mock.html`; keep it word for word.
+- Copy comes from `docs/ui-mock.html`; keep it word for word. The Destinations page's backed-up
+  banner, card waiting count and Clear queue dialog take theirs from the Copy section of
+  `docs/superpowers/specs/2026-10-31-outbound-sender-phase-2.md`, worded in
+  `destinations/queueModel.ts`. A confirmation goes through `layout/ConfirmDialog.tsx`, which
+  `ConfirmDeleteDialog` renders through; never fork the dialog.
 - Matching previews come from the `preview_subscription` RPC, never from TypeScript.
 - Database types in `web/src/lib/database.types.ts` are generated; regenerate after migrations.
 - Env: `web/vite.config.ts` maps `SUPABASE_URL`/`SUPABASE_ANON_KEY` (what the Supabase Vercel

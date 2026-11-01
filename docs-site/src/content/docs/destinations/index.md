@@ -39,6 +39,17 @@ When more spots match than a destination can take, the newest go first and the o
 They are sent later or, once they pass the age above, dropped. Push is the tightest: a connection
 that matches 20 spots a minute sends 3 notifications a minute, the newest each time.
 
+### Backed up
+
+Each card on the **Destinations** page shows how many spots are waiting, such as "140 waiting",
+whenever any are. A destination is backed up when 100 or more spots are waiting for it, or the
+oldest has waited 10 minutes. The page then shows a banner such as "Club Discord is backed up" with
+a **Clear queue** button. A turned off or paused destination is never backed up.
+
+**Clear queue** asks first, then drops the spots waiting to be sent. Spots already being sent, or
+waiting to be retried, are not affected, and new spots keep coming. To stop a destination falling
+behind again, narrow the connections that send to it.
+
 If a receiving service answers with HTTP 429 (too many requests), Long Lines holds that destination
 for the time the service asks, or 60 seconds doubling up to 15 minutes if it doesn't say, then sends
 the same spots. A rate limit is never counted as a failure.
@@ -94,6 +105,9 @@ service rate-limited it. Spots resume once the hold ends.
 **Spots arrive late or some never arrive.** Check the pacing table. A push destination fed by a busy
 connection drops most spots by design; narrow the connection's filter or raise its repeat interval.
 
+**"Club Discord is backed up."** More spots match than the destination can take. Narrow the
+connections that send to it, or select **Clear queue** to drop the spots waiting now.
+
 **A connection says it's sending but this destination gets nothing.** Make sure the destination is
 enabled and linked to the connection. Disabled destinations get no spots, and the connection's
 switch doesn't show that.
@@ -107,5 +121,6 @@ Verified against:
 - supabase/migrations/20261015000400_rate_aware_claim.sql, 20261016000300_throttle_cap.sql (429 backoff)
 - supabase/migrations/20261019000530_send_test_limit.sql, supabase/functions/_shared/handlers/test_delivery.ts (test limits)
 - supabase/migrations/20261029001100_goals.sql (50-destination cap)
+- supabase/migrations/20261031000400_destination_queues.sql, web/src/destinations/queueModel.ts (backed up, waiting count, Clear queue)
 Flagged: the Failing banner says "Check the URL" for push destinations too, which have no URL.
 -->

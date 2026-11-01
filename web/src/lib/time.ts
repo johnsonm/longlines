@@ -42,6 +42,11 @@ export function formatDate(iso: string | null | undefined): string {
 
 /** "1 minute ago", "3 hours ago", "5 days ago", never less than a minute, for API token rows. */
 export function timeAgo(iso: string, now: Date = new Date()): string {
-  const [n, unit] = ageBucket(Math.max(60, Math.floor((now.getTime() - new Date(iso).getTime()) / 1000)));
-  return `${n} ${unit}${n === 1 ? "" : "s"} ago`;
+  return `${durationWords(Math.max(60, Math.floor((now.getTime() - new Date(iso).getTime()) / 1000)))} ago`;
+}
+
+/** A length of time in whole seconds as words: "40 seconds", "1 minute", "3 hours", "5 days". */
+export function durationWords(seconds: number): string {
+  const [n, unit] = ageBucket(Math.max(0, Math.floor(seconds)));
+  return `${n} ${unit}${n === 1 ? "" : "s"}`;
 }

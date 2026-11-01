@@ -2,8 +2,8 @@
 
 Date: 2026-10-31
 
-Status: Piece 1 (LISTEN) and Piece 2 (permanent-failure pause) built, in review; Piece 3
-planned. Each PR appends to the Progress log.
+Status: Piece 1 (LISTEN), Piece 2 (permanent-failure pause) and Piece 3 (queue backlog and Clear
+queue) built, in review. Each PR appends to the Progress log.
 
 This spec supersedes section 9 ("Phase 2 outline") of `2026-10-15-outbound-sender-design.md`.
 Read that spec for how the sender, the claim and the outcome RPCs work today; this one only adds
@@ -422,6 +422,9 @@ listed keeps its current copy.
 - Title *(draft, Brad's call)*: {name} is backed up
 - Body *(draft, Brad's call)*: {N} spots are waiting to be sent, the oldest for {age}. Narrow the
   connections that send to it, or clear the queue.
+- Body for one spot *(draft, Brad's call)*: 1 spot has been waiting to be sent for {age}. Narrow
+  the connections that send to it, or clear the queue.
+- {age} reads "14 minutes", "1 hour", "40 seconds" (the largest whole unit, no "ago").
 - Button *(draft, Brad's call)*: Clear queue
 
 **Card meta (Piece 3)**
@@ -430,11 +433,13 @@ listed keeps its current copy.
 **Clear queue dialog (Piece 3)**
 - Title *(draft, Brad's call)*: Clear the queue for {name}?
 - Body *(draft, Brad's call)*: {N} spots waiting to be sent will be dropped. Spots already being
-  sent, or waiting to be retried, are not affected. New spots keep coming.
+  sent, or waiting to be retried, are not affected. New spots keep coming. One spot reads "1 spot
+  waiting to be sent will be dropped."
 - Buttons *(draft, Brad's call)*: Cancel · Clear queue
 
 **Toasts (Piece 3)**
-- *(draft, Brad's call)* Cleared {n} spots from {name} | Nothing to clear
+- *(draft, Brad's call)* Cleared {n} spots from {name} ("Cleared 1 spot from {name}") | Nothing
+  to clear
 
 ## Verification
 
@@ -583,3 +588,32 @@ next PR. Earlier entries are never edited.
   row that was never attempted and checks that `pause_destination` makes it visible with no
   attempt counted, so the queue-wide vt reset is pinned beyond the rows passed in, and the
   already-paused case checks that the fifth failure in a row marks the destination `failing`.
+- 2026-10-31, Piece 3 (branch `queue-clear`, stacked on `pause-gone`): the queue backlog and Clear
+  queue, migration `20261031000400_destination_queues.sql`. The knobs
+  `destination_backlog_waiting()` (100) and `destination_backlog_age()` (10 minutes); the view
+  `destination_queue_status` (`security_invoker`, select for `service_role` only; `waiting`,
+  `oldest_waiting_seconds`, null when nothing waits, and `dropped_24h`); `list_destination_queues()`
+  and `clear_destination_queue(uuid)` for `authenticated`; `api_call` redefined from
+  `20261029001300` with `clear_destination_queue` in the write list and the destination LL404
+  pre-check, answering `{"cleared": n}`. API: `POST /v1/destinations/:id/clear` in `routes.ts`,
+  `docs/openapi.yaml` and the docs site's route table. Web: `listDestinationQueues` and
+  `clearDestinationQueue` in `api.ts` (`DestinationQueue` overrides the generated type so
+  `oldest_waiting_seconds` may be null), regenerated `database.types.ts` (additions only), the
+  backed-up banner after the failing banners with Clear queue behind the new generic
+  `layout/ConfirmDialog.tsx` (which `ConfirmDeleteDialog` now renders through), the card meta's
+  `· {N} waiting`, the wording in `destinations/queueModel.ts`, and `durationWords` in
+  `lib/time.ts` (which `timeAgo` now uses) for the banner's age. A failed queues load is a toast
+  and the page keeps working. Tests: the new `destination_queues.test.sql` (22), 3 more in
+  `management_api.test.sql` (`plan(111)`), the authenticated list in `advisor.test.sql`, a route
+  case in `api_routes.test.ts`, and Vitest cases for the page, `cardMeta`, `queueModel`,
+  `ConfirmDialog` and `durationWords`. Docs: CLAUDE.md ("Delivery rules": the reworded drop
+  sentence and the queue-figures rule; "Web app rules": this spec as the copy source and
+  `ConfirmDialog`), ARCHITECTURE.md (a "Queue figures and Clear queue" paragraph),
+  OPERATIONS.md ("A destination is backed up") and the docs site's destinations page. Deviations
+  and additions: (1) `clear_destination_queue` takes the queue rows `for update of q skip locked`,
+  so a claim running at the same moment keeps the messages it is taking, and a claim that commits
+  first moves their vt ahead, which the lock's recheck leaves out. (2) The Copy section gained the
+  one-spot wordings (banner body, dialog body, toast) and how {age} reads; drafts like the rest.
+  (3) The Clear queue confirm button is `warning` coloured, to match the banner. (4) The dialog
+  names the waiting count from the last queues load, which includes rows in flight, so the toast's
+  count can be lower. Nothing changed for the sender, its role or `sender_role.test.sql`.
