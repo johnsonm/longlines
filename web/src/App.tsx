@@ -40,6 +40,8 @@ import { LookupPage } from "./profile/LookupPage";
 import { CallsignPage } from "./profile/CallsignPage";
 import { ReferenceLookupPage } from "./references/ReferenceLookupPage";
 import { ReferencePage } from "./references/ReferencePage";
+import { ActivationPage } from "./activations/ActivationPage";
+import { activationPath } from "./activations/paths";
 import { ApprovePage } from "./relay/ApprovePage";
 import { loadDestinations, loadSubscriptions, signOut, type Destination, type SubscriptionWithLinks } from "./lib/api";
 import type { TimePrefs } from "./lib/time";
@@ -107,6 +109,9 @@ function Router() {
       <Route path="/ref" element={<PublicRoute page="ref-lookup" />} />
       <Route path="/ref/:program/*" element={<PublicRoute page="ref" />} />
       <Route path="/g/:slug" element={<PublicRoute page="group-public" />} />
+      <Route path="/activations/:id" element={<PublicRoute page="activation" />} />
+      {/* An alias that only redirects to /activations/:id; static segments rank first, so it shadows no other route. */}
+      <Route path="/:call/activations/:id" element={<PublicRoute page="activation" />} />
       <Route path="/account" element={<RequireAuth page="account" />} />
       <Route path="/api-tokens" element={<RequireAuth page="api-tokens" />} />
       <Route path="/relay" element={<ToRelayApprove />} />
@@ -165,14 +170,15 @@ function PublicOnly({ children }: { children: ReactNode }) {
   return children;
 }
 
-type Page = "home" | "sources" | "source" | "band-map" | "subscriptions" | "subscription-new" | "subscription" | "groups" | "group" | "group-settings" | "goals" | "goal-new" | "goal" | "goal-edit" | "destinations" | "destination-new" | "destination" | "stats" | "health" | "lookup" | "call" | "ref-lookup" | "ref" | "account" | "api-tokens" | "group-public" | "relay-approve";
-type PublicPage = "band-map" | "stats" | "health" | "lookup" | "call" | "ref-lookup" | "ref" | "group-public";
+type Page = "home" | "sources" | "source" | "band-map" | "subscriptions" | "subscription-new" | "subscription" | "groups" | "group" | "group-settings" | "goals" | "goal-new" | "goal" | "goal-edit" | "destinations" | "destination-new" | "destination" | "stats" | "health" | "lookup" | "call" | "ref-lookup" | "ref" | "account" | "api-tokens" | "group-public" | "relay-approve" | "activation";
+type PublicPage = "band-map" | "stats" | "health" | "lookup" | "call" | "ref-lookup" | "ref" | "group-public" | "activation";
 
 // Signed-out visitors read profiles in UTC.
 const UTC: TimePrefs = { utcTimes: true, timezone: "UTC" };
 
 /**
- * The band map, Stats, Health, callsign and reference profiles and public group pages are public:
+ * The band map, Stats, Health, callsign and reference profiles, public group pages and spotted
+ * activations are public:
  * signed out they sit in PublicShell's top nav, signed in in AppShell's left nav.
  */
 function PublicRoute({ page }: { page: PublicPage }) {
@@ -189,6 +195,7 @@ function PublicRoute({ page }: { page: PublicPage }) {
       {page === "ref-lookup" && <ReferenceLookupPage />}
       {page === "ref" && <ReferencePage signedIn={false} />}
       {page === "group-public" && <PublicGroupRoute />}
+      {page === "activation" && <ActivationRoute />}
     </PublicShell>
   );
 }
@@ -230,6 +237,17 @@ function ProfileError({ message }: { message: string }) {
 function PublicGroupRoute() {
   const { slug } = useParams();
   return <PublicGroupPage key={slug} slug={slug ?? ""} />;
+}
+
+/**
+ * An activation's page takes its id as a prop, so its tests need no router params. The alias
+ * /<callsign>/activations/<id> goes to the canonical /activations/<id> at once, whatever the
+ * callsign, and that page replaces a redirected id with the canonical one.
+ */
+function ActivationRoute() {
+  const { id = "", call } = useParams();
+  if (call !== undefined) return <Navigate to={activationPath(id)} replace />;
+  return <ActivationPage key={id} id={id} />;
 }
 
 /** A group's page takes its id as a prop, so its tests need no router params. */
@@ -368,6 +386,7 @@ function SignedIn({ page }: { page: Page }) {
       {page === "account" && <AccountPage profile={profile} />}
       {page === "api-tokens" && <ApiTokensPage />}
       {page === "group-public" && <PublicGroupRoute />}
+      {page === "activation" && <ActivationRoute />}
       {page === "relay-approve" && <ApprovePage />}
     </AppShell>
   );

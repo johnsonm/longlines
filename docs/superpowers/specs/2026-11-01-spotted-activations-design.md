@@ -677,3 +677,37 @@ Earlier entries are never edited.
   both routes answered as specified through `supabase functions serve`. Only comments changed: the
   shared lookup budget now names reference searches and spotted activations wherever it lists its
   users (`callsign_profile.ts`, the handler's header, OPERATIONS).
+- 2026-11-01, PR 4 (branch `spotted-activations-web`): the web app. `web/src/activations/`
+  (`types.ts` mirroring the handler's interfaces, `paths.ts`, `model.ts` with every wording
+  helper, the DOM-free `geometry.ts` imported with `.ts` extensions, `fixtures.ts` copied from the
+  function's real seed payloads, `useActivations.ts` with both hooks, `ActivationsTab`,
+  `ActivationPage`, `HeardMap`, `SpotsTimeline`, `ActivationSpots`) and their tests; the profile's
+  Activity, Spotted activations and Spots tabs (`?tab=`, the canonical redirects keep the query);
+  the routes `/activations/:id` and `/:call/activations/:id`; `navSection` puts `activations`
+  under Callsign lookup; `loadSpottedActivation` and `loadCallsignActivations` in `lib/api.ts`;
+  `copyLink` in `lib/share.ts`; the docs-site page `spotted-activations.md` under "Look things up",
+  and the callsign lookup page names the tabs. Deviations and decisions the spec left open: the
+  alias `/<callsign>/activations/<id>` redirects at once, before any request, whatever the
+  callsign (the canonical page then replaces a redirected id); both hooks live in one module,
+  `useActivations.ts`; weekdays come from the real calendar, so the canvas's sample "Sat 25 Oct
+  2026" reads "Sun 25 Oct 2026"; "Continued from" names the UTC day before the activation's own
+  (always the earlier half's day, by construction), since a card carries only the earlier half's
+  id; within a day the Recent rows run oldest first, as the canvas draws a rover's day, while
+  days run newest first; the time on air figure is whole hours, or minutes under an hour; the map
+  shades the reference's own states darker than the heard ones, draws a line, dot and code to
+  each other heard state, and labels the reference point with its references; the day heading row
+  is a `selected` table row (MUI's own tint) because `sx` may not set colours. Drafts beyond the
+  canvas (Brad to confirm): a non-POTA Recent row's names end with its program ("Mount Mitchell ·
+  SOTA"); the detail page shows "1 spot" and "Split at 00:00 UTC" chips but not "Two-fer" (the
+  heading lists the references), and links a split's halves with "Continued from Thu 29 Oct." and
+  "Continued on Fri 30 Oct."; the estimate note says "this reference" for one; the map caption
+  names at most three countries ("plus Canada, Germany, Japan and 2 more countries.") and says
+  "No spotter's place is known yet." with none; the source names on the page are POTA, SOTAwatch,
+  WWFF, WWBOTA, RBN and DX cluster; a spot with no spotter shows "–"; the Spots tab's empty
+  states are "No spots of KK4PWJ in the last 7 days." and the profile's not-heard sentence; the
+  tab's outage says "Couldn't load spotted activations." and the page's "Couldn't load this
+  activation."; the browser tab's title is "KK4PWJ at US-2730 · US-4560 · Spotted activation".
+  Notes for PR 5: `geometry.ts` and `types.ts` import only `d3-geo` and `.ts` paths, so Node can
+  load them; `stateShapes.ts` (`./states` and the us-atlas JSON), `model.ts` and `paths.ts` still
+  import without extensions, so the preview needs them adjusted or the wording it uses moved to a
+  module Node can load.

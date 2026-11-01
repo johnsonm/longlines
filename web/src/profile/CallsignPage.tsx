@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import {
-  Alert, Box, Button, Card, CardContent, Chip, Divider, Grid, LinearProgress, Link, List, ListItem, ListItemText, Stack, Table, TableBody,
-  TableCell, TableRow, Typography, useMediaQuery, useTheme, type Theme,
+  Alert, Box, Button, Card, CardContent, Chip, Divider, Grid, LinearProgress, Link, List, ListItem, ListItemText, Stack, Tab, Table, TableBody,
+  TableCell, TableRow, Tabs, Typography, useMediaQuery, useTheme, type Theme,
 } from "@mui/material";
 import NotificationsActiveIcon from "@mui/icons-material/NotificationsActive";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
@@ -9,7 +9,8 @@ import ShareIcon from "@mui/icons-material/Share";
 // MUI X Charts and Data Grid are the MIT community packages, fixed and read-only as on the Stats page.
 import { BarChart, PieChart } from "@mui/x-charts";
 import { DataGrid, type GridColDef, type GridRenderCellParams } from "@mui/x-data-grid";
-import { Navigate, useLocation, useNavigate, useParams } from "react-router";
+import { Navigate, Link as RouterLink, useLocation, useNavigate, useParams, useSearchParams } from "react-router";
+import { ActivationsTab } from "../activations/ActivationsTab";
 import { errorText, useApp } from "../app/hooks";
 import { ApiError } from "../lib/api";
 import { ReferenceLink } from "../references/ReferenceLink";
@@ -35,26 +36,42 @@ import { useCallsignProfile } from "./useCallsignProfile";
 
 const CONTACT_EMAIL = (import.meta.env.VITE_CONTACT_EMAIL as string | undefined) ?? "";
 
+/** The profile's tabs; Activity is the page with no `tab` in the query string. */
+type ProfileTab = "activity" | "activations" | "spots";
+
+/** The tab a query string's `tab` names; anything else is Activity. */
+function profileTab(value: string | null): ProfileTab {
+  return value === "activations" || value === "spots" ? value : "activity";
+}
+
 /**
  * /call/:callsign. The URL is made canonical in two steps: input is trimmed and
  * uppercased here, then swapped for the base call the profile comes back with
- * (KK4PWJ/P becomes KK4PWJ), which SQL works out, never TypeScript.
+ * (KK4PWJ/P becomes KK4PWJ), which SQL works out, never TypeScript. Both keep
+ * the query string, so the tab survives.
  */
 export function CallsignPage({ prefs, signedIn = false }: { prefs: TimePrefs; signedIn?: boolean }) {
   const raw = useParams()["*"] ?? "";
+  const { search } = useLocation();
   const path = lookupPath(raw.replace(/^\/+|\/+$/g, ""));
   if (!path) return <Navigate to="/lookup" replace />;
-  if (path !== lookupPath(raw) || raw !== raw.toUpperCase()) return <Navigate to={path} replace />;
+  if (path !== lookupPath(raw) || raw !== raw.toUpperCase()) return <Navigate to={`${path}${search}`} replace />;
   return <Profile key={raw} callsign={raw} prefs={prefs} signedIn={signedIn} />;
 }
 
 function Profile({ callsign, prefs, signedIn }: { callsign: string; prefs: TimePrefs; signedIn: boolean }) {
   const { profile, error, loading } = useCallsignProfile(callsign);
   const navigate = useNavigate();
+  const { search } = useLocation();
+  const [params] = useSearchParams();
+  const tab = profileTab(params.get("tab"));
 
   useEffect(() => {
-    if (profile && profile.callsign !== callsign) void navigate(lookupPath(profile.callsign) ?? "/lookup", { replace: true });
-  }, [profile, callsign, navigate]);
+    if (profile && profile.callsign !== callsign) {
+      const path = lookupPath(profile.callsign);
+      void navigate(path ? `${path}${search}` : "/lookup", { replace: true });
+    }
+  }, [profile, callsign, navigate, search]);
 
   if (loading) return <LinearProgress />;
   if (error instanceof ApiError && error.code === "400") return <Invalid callsign={callsign} message={error.message} />;
@@ -64,9 +81,53 @@ function Profile({ callsign, prefs, signedIn }: { callsign: string; prefs: TimeP
   return (
     <Stack spacing={3} useFlexGap>
       <Header profile={profile} signedIn={signedIn} />
-      {heard ? <Heard profile={profile} heard={heard} prefs={prefs} /> : <NotHeard profile={profile} />}
+      <ProfileTabs callsign={profile.callsign} tab={tab} />
+      {tab === "activity" && (heard ? <Heard profile={profile} heard={heard} /> : <NotHeard profile={profile} />)}
+      {/* Mounted only while selected, so the list is asked for only when someone opens the tab. */}
+      {tab === "activations" && <ActivationsTab callsign={profile.callsign} />}
+      {tab === "spots" && <RecentSpots profile={profile} heard={heard} prefs={prefs} />}
       <Footer email={CONTACT_EMAIL} />
     </Stack>
+  );
+}
+
+const TABS: { value: ProfileTab; label: string; query: string }[] = [
+  { value: "activity", label: "Activity", query: "" },
+  { value: "activations", label: "Spotted activations", query: "?tab=activations" },
+  { value: "spots", label: "Spots", query: "?tab=spots" },
+];
+
+/** Activity, Spotted activations and Spots: links, so each tab has its own address and Back works. */
+function ProfileTabs({ callsign, tab }: { callsign: string; tab: ProfileTab }) {
+  const mobile = useMediaQuery((t: Theme) => t.breakpoints.down("sm"));
+  const path = lookupPath(callsign) ?? "/lookup";
+  return (
+    <Box>
+      <Tabs value={tab} variant={mobile ? "scrollable" : "standard"} scrollButtons={false} aria-label="Profile sections">
+        {TABS.map((t) => <Tab key={t.value} value={t.value} label={t.label} component={RouterLink} to={`${path}${t.query}`} />)}
+      </Tabs>
+      <Divider />
+    </Box>
+  );
+}
+
+/** The Spots tab: the newest spots of the last 7 days. */
+function RecentSpots({ profile, heard, prefs }: { profile: CallsignProfile; heard: HeardProfile | null; prefs: TimePrefs }) {
+  if (!heard || heard.recentSpots.length === 0) {
+    return (
+      <Card variant="outlined">
+        <CardContent>
+          <Typography color="text.secondary">
+            {heard ? `No spots of ${profile.callsign} in the last 7 days.` : `Long Lines hasn't heard ${profile.callsign} on the air yet.`}
+          </Typography>
+        </CardContent>
+      </Card>
+    );
+  }
+  return (
+    <ChartCard title="Recent spots" subheader="Newest first">
+      <SpotsTable spots={spotRows(heard.recentSpots)} dense prefs={prefs} />
+    </ChartCard>
   );
 }
 
@@ -253,7 +314,7 @@ const HEARD_BY_COLUMNS: GridColDef[] = [
   { field: "topBand", headerName: "Top band", width: 90, sortable: false },
 ];
 
-function Heard({ profile, heard, prefs }: { profile: CallsignProfile; heard: HeardProfile; prefs: TimePrefs }) {
+function Heard({ profile, heard }: { profile: CallsignProfile; heard: HeardProfile }) {
   const theme = useTheme();
   const mobile = useMediaQuery(theme.breakpoints.down("sm"));
   const sources = heard.sources.map((s) => s.source);
@@ -419,11 +480,6 @@ function Heard({ profile, heard, prefs }: { profile: CallsignProfile; heard: Hea
         </ChartCard>
       )}
 
-      {heard.recentSpots.length > 0 && (
-        <ChartCard title="Recent spots" subheader="Newest first">
-          <SpotsTable spots={spotRows(heard.recentSpots)} dense prefs={prefs} />
-        </ChartCard>
-      )}
     </>
   );
 }

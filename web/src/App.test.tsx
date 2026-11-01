@@ -104,6 +104,12 @@ vi.mock("./references/ReferencePage", async () => {
     },
   };
 });
+vi.mock("./activations/ActivationPage", async () => {
+  const { useLocation } = await import("react-router");
+  return {
+    ActivationPage: ({ id }: { id: string }) => <p>activation page {id} at {useLocation().pathname}</p>,
+  };
+});
 vi.mock("./profile/CallsignPage", () => ({
   CallsignPage: ({ prefs, signedIn }: { prefs: { timezone: string }; signedIn?: boolean }) => (
     <p>callsign page {prefs.timezone} {signedIn ? "signed in" : "signed out"}</p>
@@ -408,6 +414,28 @@ describe("App routing", () => {
     renderAt("/g/7f3kq6xm2a");
     expect(await screen.findByText("public group page 7f3kq6xm2a")).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Sign in" })).not.toBeInTheDocument();
+  });
+
+  it("serves a spotted activation signed out, and inside the app under Callsign lookup when signed in", async () => {
+    session(null);
+    const { unmount } = renderAt("/activations/kjw2khkyj47f");
+    expect(await screen.findByText("activation page kjw2khkyj47f at /activations/kjw2khkyj47f")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Sign in" })).toBeInTheDocument();
+    unmount();
+    session(SESSION);
+    renderAt("/activations/kjw2khkyj47f");
+    expect(await screen.findByText("activation page kjw2khkyj47f at /activations/kjw2khkyj47f")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Callsign lookup" })).toHaveClass("Mui-selected");
+  });
+
+  it("sends the callsign alias to the canonical activation page, whatever the callsign", async () => {
+    session(null);
+    const { unmount } = renderAt("/KK4PWJ/activations/kjw2khkyj47f");
+    expect(await screen.findByText("activation page kjw2khkyj47f at /activations/kjw2khkyj47f")).toBeInTheDocument();
+    unmount();
+    session(SESSION);
+    renderAt("/W1AW/activations/kjw2khkyj47f");
+    expect(await screen.findByText("activation page kjw2khkyj47f at /activations/kjw2khkyj47f")).toBeInTheDocument();
   });
 
   it("serves lookup and profiles inside the app shell when signed in", async () => {
