@@ -93,18 +93,18 @@ Files: create `supabase/functions/_shared/ised_special.ts`,
 
 Files: create `supabase/migrations/<number>_ised_licenses.sql`, `supabase/tests/ised_licenses.test.sql`.
 
-- [ ] `ised_amateur_stage`, unlogged, RLS on, no policies, `anon`/`authenticated` revoked:
+- [x] `ised_amateur_stage`, unlogged, RLS on, no policies, `anon`/`authenticated` revoked:
       `callsign text primary key, first_name text, last_name text, club_name text, province text,
       qualifications text not null`. No other columns.
-- [ ] Expand `callsign_licenses` table with `license_variant text` and `event_description text`.
-- [ ] `ised_special_stage`, unlogged, RLS on, no policies, `anon`/`authenticated` revoked:
+- [x] Expand `callsign_licenses` table with `license_variant text` and `event_description text`.
+- [x] `ised_special_stage`, unlogged, RLS on, no policies, `anon`/`authenticated` revoked:
       `callsign text primary key, beg_date date, end_date date, event_en text, event_fr text, call_sign_request text`.
-- [ ] `ised_special_floor() returns integer` and lifecycle RPCs (`ised_special_load_*`) for special callsigns.
-- [ ] `ised_operator_class(p_letters text) returns text` (immutable, `search_path` pinned): the
+- [x] `ised_special_floor() returns integer` and lifecycle RPCs (`ised_special_load_*`) for special callsigns.
+- [x] `ised_operator_class(p_letters text) returns text` (immutable, `search_path` pinned): the
       spec's order and words; null for an empty string.
-- [ ] `ised_license_floor() returns integer`: 90% of the current ISED rows of
+- [x] `ised_license_floor() returns integer`: 90% of the current ISED rows of
       `callsign_licenses`, 80,000 when there are none (the shape of `reference_load_floor`).
-- [ ] The lifecycle RPCs, each `security definer`, `search_path` pinned, executable by
+- [x] The lifecycle RPCs, each `security definer`, `search_path` pinned, executable by
       `service_role` only, mirroring the FCC ones with `authority = 'ISED'`:
   - `ised_license_load_status()`: the newest ISED load and the `started_at` of the newest applied
     one (the worker's week rule needs both)
@@ -116,7 +116,7 @@ Files: create `supabase/migrations/<number>_ised_licenses.sql`, `supabase/tests/
   - `ised_license_load_finish(p_load, p_rows)`: the staged count must equal `p_rows` and be at
     least `ised_license_floor()`, else raise (the worker abandons); marks ready with counts
   - `ised_license_load_abandon(p_load, p_error)`: failed, staging truncated
-- [ ] Replace `apply_license_loads()`. Start from its latest body (`20261021000300`) word for word
+- [x] Replace `apply_license_loads()`. Start from its latest body (`20261021000300`) word for word
       and move it into `apply_fcc_license_load()`; add `apply_ised_license_load()`:
       delete `authority = 'ISED'` rows, insert regular amateur rows from `ised_amateur_stage` and special callsign rows from `ised_special_stage` (`license_variant = 'special'`, `granted_on = beg_date`, `expires_on = end_date`, `event_description = event_en`),
       `name = coalesce(club_name, nullif(trim(concat_ws(' ', first_name, last_name)), ''))`,
@@ -125,10 +125,10 @@ Files: create `supabase/migrations/<number>_ised_licenses.sql`, `supabase/tests/
       `country 'CA'`, `state = province`, `loaded_at now()`. Its own exception block marks the
       load failed and truncates `ised_amateur_stage` and `ised_special_stage`. `apply_license_loads()` calls the FCC one,
       then the ISED one. The cron job stays as it is.
-- [ ] Replace `callsign_profile` from its latest body (`20261019000300_callsign_calendar.sql`)
+- [x] Replace `callsign_profile` from its latest body (`20261019000300_callsign_calendar.sql`)
       word for word, adding `'caPrefix', v_base ~ '^(V[A-GOXY]|C[F-KYZ]|X[J-O])'` beside
       `usPrefix`.
-- [ ] pgTAP (`ised_licenses.test.sql`, rolled back, deleting from the tables it counts first):
+- [x] pgTAP (`ised_licenses.test.sql`, rolled back, deleting from the tables it counts first):
   - staging has exactly the six columns; `ised_license_load_rows` drops an `address_line` key
   - begin, rows twice with an overlapping batch, finish, apply: the rows land with the right
     authority, country, names, `operator_class` for each spec example, null status and dates
@@ -140,7 +140,7 @@ Files: create `supabase/migrations/<number>_ised_licenses.sql`, `supabase/tests/
   - an FCC apply never touches ISED rows and the reverse
   - `spot_license_name` returns a Canadian person's names and nothing for a club or a hidden call
   - every new function is executable by `service_role` only
-- [ ] In `callsign_profile.test.sql`: `caPrefix` in the key list; true for `VE3`, `VA7`, `VY0`,
+- [x] In `callsign_profile.test.sql`: `caPrefix` in the key list; true for `VE3`, `VA7`, `VY0`,
       `CY0`, false for `K1`, `G4`. In `advisor.test.sql`: add a function only if the suite asks.
 - [ ] `supabase db reset`, `supabase test db`, `psql "$DB_URL" -v ON_ERROR_STOP=1 -f scripts/smoke-test.sql`,
       `supabase db lint`. Regenerate `web/src/lib/database.types.ts`. Commit.
