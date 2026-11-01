@@ -535,3 +535,9 @@ next PR. Earlier entries are never edited.
   `SenderDb.listen`; not worked around. Notes for Piece 2: `SENDER_RPCS` is unchanged here; the
   docs now name the allowlist, so adding `pause_destination` means adding it to the
   ARCHITECTURE.md list as well.
+- 2026-10-31, Piece 1 review (PR #341): an independent review found no code defect. It changed
+  one sentence in ARCHITECTURE.md, which said a matched spot "is claimed within about a second":
+  a notify makes the claim run at once, but a destination's batch hold and claim interval still
+  decide when its rows are claimable. Checked against postgres.js 3.4.9 that a LISTEN failing at
+  start recovers once the database answers (postgres.js retries on its own, the next attempt
+  resolves) and that each failed attempt leaves one extra `wake` callback, as recorded above.

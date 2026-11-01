@@ -369,8 +369,9 @@ the Phase 2 plan, is `docs/superpowers/specs/2026-10-15-outbound-sender-design.m
 - **Reaching the queue.** The matcher's kick was a pg_net POST to the `deliver` function; it is
   now `pg_notify('deliveries', '')`, and the sender LISTENs on that channel (`SenderDb.listen`,
   on postgres.js's own connection outside the pool). A notify only ends the idle sleep between
-  cycles early, so a matched spot is claimed within about a second instead of up to
-  `SENDER_POLL_MS`; notifies during a cycle coalesce into one early claim, the backoff after a
+  cycles early, so the claim runs within about a second of a match instead of up to
+  `SENDER_POLL_MS` later (a destination's batch hold and claim interval still decide when its
+  rows are claimable, and polling picks them up after that); notifies during a cycle coalesce into one early claim, the backoff after a
   failure is never cut short, and a notify is never progress for the watchdog. Polling stays the
   safety net: postgres.js re-subscribes after a dropped connection on its own and can fail at it
   silently, and a LISTEN that fails at start is logged, reported once per streak and retried
