@@ -672,3 +672,8 @@ Earlier entries are never edited.
   `spotter`, `spotterBase`, `place`, `frequencyKhz` and `mode`. Notes for PR 4: import nothing
   from `_shared`; `web/src/activations/types.ts` mirrors these interfaces, and a 404 from either
   route carries `{error: "Spotted activation not found."}`.
+- 2026-11-01, review of PR 3 (#346): no defect in the function; both schemas parsed every
+  `spotted_activation` (4,764) and `callsign_spotted_activations` (731) reply on a fresh seed, and
+  both routes answered as specified through `supabase functions serve`. Only comments changed: the
+  shared lookup budget now names reference searches and spotted activations wherever it lists its
+  users (`callsign_profile.ts`, the handler's header, OPERATIONS).

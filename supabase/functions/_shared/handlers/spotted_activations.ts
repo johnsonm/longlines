@@ -2,7 +2,7 @@
 // profile's Spotted activations tab) and of one spotted activation's page (/activations/<id>),
 // for signed-out browsers too, so it is deployed with verify_jwt = false and checks nothing about
 // the caller beyond the callsign profile's per-client rate limit (lookupLimit: one budget per
-// client for profiles, group pages, reference pages and activations).
+// client for profiles, group pages, reference pages, searches and activations).
 //
 // GET ?id=<12 characters of a-z and 2-7> reads one activation with spotted_activation(), and
 // GET ?callsign=KK4PWJ/P a callsign's list with callsign_spotted_activations(). Both are built in

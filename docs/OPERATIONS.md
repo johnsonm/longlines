@@ -2189,7 +2189,7 @@ curl -si "$SUPABASE_URL/functions/v1/spotted-activations?id=<id>" | head -20
 activation not found.` for a malformed id, a request that names neither or both, an unknown, open
 or hidden activation, or a hidden call; 400 `Enter a callsign, like KK4PWJ.` for a callsign that
 cannot be one; 429 past 30 lookups a minute from one client, counted with callsign profiles, group
-pages and reference pages; 500 `Spotted activations are unavailable right now.` when the RPC failed
+pages, reference pages and reference searches; 500 `Spotted activations are unavailable right now.` when the RPC failed
 or its reply did not fit the schema (the function logs `spotted-activations:` with the error, never
 the id or the call). Nothing is cached in the database: both reads are index lookups over closed
 rows.
