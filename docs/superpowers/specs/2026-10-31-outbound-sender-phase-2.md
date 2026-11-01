@@ -505,7 +505,7 @@ next PR. Earlier entries are never edited.
   line in the Copy section. Notes for Piece 1: PR #337 also redefines `match_pending_spots` and
   touches `sender/__tests__/sender.test.ts` and `docs/openapi.yaml`; expect a rebase, and check
   that the `pg_notify('deliveries', '')` survives it.
-- 2026-10-31, Piece 1 (branch `sender-listen`, on `main` after #337 and #338 merged): LISTEN in
+- 2026-10-31, Piece 1 (PR #341, branch `sender-listen`, on `main` after #337 and #338 merged): LISTEN in
   the sender, no migration. #337's `match_pending_spots` (`20261031000100`) keeps the
   `pg_notify('deliveries', '')`. `sender/db.ts` gains `DELIVERIES_CHANNEL`, `SqlClient.listen` (postgres.js's
   three-argument slice) and `SenderDb.listen`, which answers a failed LISTEN as `{ error }` like
