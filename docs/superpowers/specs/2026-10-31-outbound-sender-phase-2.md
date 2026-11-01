@@ -493,7 +493,7 @@ runs `supabase db push`, `supabase functions deploy`, `fly deploy` or `fly secre
 Append one entry per PR: date, piece, what landed, PR, deviations from this spec, notes for the
 next PR. Earlier entries are never edited.
 
-- 2026-10-31, Piece 0 (branch `sender-phase-2-spec`): this spec, planning only; no code, no
+- 2026-10-31, Piece 0 (PR #338, branch `sender-phase-2-spec`): this spec, planning only; no code, no
   migration. Records Brad's 2026-10-31 scope: no email (notices stay in the app), no in-memory
   retry or pipelining, no lease, no Send test through the sender; build LISTEN, the
   permanent-failure pause, and the queue backlog with Clear queue. The 2026-10-15 spec's Status
