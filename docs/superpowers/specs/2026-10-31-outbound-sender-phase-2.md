@@ -2,7 +2,8 @@
 
 Date: 2026-10-31
 
-Status: planned; nothing shipped. Each PR appends to the Progress log.
+Status: Piece 1 (LISTEN) built, in review; Pieces 2 and 3 planned. Each PR appends to the
+Progress log.
 
 This spec supersedes section 9 ("Phase 2 outline") of `2026-10-15-outbound-sender-design.md`.
 Read that spec for how the sender, the claim and the outcome RPCs work today; this one only adds
@@ -504,3 +505,39 @@ next PR. Earlier entries are never edited.
   line in the Copy section. Notes for Piece 1: PR #337 also redefines `match_pending_spots` and
   touches `sender/__tests__/sender.test.ts` and `docs/openapi.yaml`; expect a rebase, and check
   that the `pg_notify('deliveries', '')` survives it.
+- 2026-10-31, Piece 1 (PR #341, branch `sender-listen`, on `main` after #337 and #338 merged): LISTEN in
+  the sender, no migration. #337's `match_pending_spots` (`20261031000100`) keeps the
+  `pg_notify('deliveries', '')`. `sender/db.ts` gains `DELIVERIES_CHANNEL`, `SqlClient.listen` (postgres.js's
+  three-argument slice) and `SenderDb.listen`, which answers a failed LISTEN as `{ error }` like
+  `rpc`. `sender/sender.ts`: `wake()` sets `notified` and aborts the idle wait; `idle(pollMs)`
+  replaces the poll sleep and returns at once when a notify came in during the cycle; `notified`
+  is cleared before each claim; the two backoff sleeps keep the loop signal, so a notify never
+  shortens them; `listenLoop` tries once, then on failure logs, reports once per streak and
+  retries at `RETRY_MIN_MS` doubling to `RETRY_MAX_MS`, and never exits. `SenderStatus.listening`
+  and `/healthz` `listening`; the start line names the channel. Tests: six new `sender.test.ts`
+  cases (a notify wakes the idle sleep without the clock moving; notifies during a cycle skip the
+  next idle once and only once; a notify is not progress; a notify does not cut a claim backoff
+  short; a failed LISTEN is retried with backoff, reported once and claims keep coming; a LISTEN
+  that never answers counts as failed after `PROBE_TIMEOUT_MS` and does not hold up shutdown), and
+  in `db.test.ts` the fake's `listen`, a relay case, a rejection case, a non-Error rethrow, and the
+  real LISTEN/NOTIFY round trip against `SENDER_TEST_DATABASE_URL`. Docs: ARCHITECTURE.md (the
+  matcher paragraph, the allowlist named instead of "exactly seven", `/healthz`, "Reaching the
+  queue"), OPERATIONS.md (overview, `SENDER_POLL_MS`, `/healthz` and a `listening` paragraph,
+  the cutover note) and CLAUDE.md "Sender rules". Deviations: (1) the LISTEN attempt is raced
+  against the injected `sleep(PROBE_TIMEOUT_MS)` and the loop signal instead of `withTimeout`, so
+  the fake clock drives the timeout in tests and shutdown never waits up to 30 s for a hung
+  attempt; same limit, same message shape. (2) The round trip's second session is
+  `postgres(clientOptions(...))`, not a URL, because a bare URL makes postgres.js read PG*
+  variables the test permissions deny. (3) Found while reading postgres.js 3.4.9: a failed
+  `listen()` keeps its listener, and the listener connection's `onclose` re-subscribes every kept
+  listener, so each retry after a failure can add one more `wake` callback; `wake` is idempotent,
+  so the cost is a closure per retry (at most one a minute during an outage). Documented on
+  `SenderDb.listen`; not worked around. Notes for Piece 2: `SENDER_RPCS` is unchanged here; the
+  docs now name the allowlist, so adding `pause_destination` means adding it to the
+  ARCHITECTURE.md list as well.
+- 2026-10-31, Piece 1 review (PR #341): an independent review found no code defect. It changed
+  one sentence in ARCHITECTURE.md, which said a matched spot "is claimed within about a second":
+  a notify makes the claim run at once, but a destination's batch hold and claim interval still
+  decide when its rows are claimable. Checked against postgres.js 3.4.9 that a LISTEN failing at
+  start recovers once the database answers (postgres.js retries on its own, the next attempt
+  resolves) and that each failed attempt leaves one extra `wake` callback, as recorded above.
