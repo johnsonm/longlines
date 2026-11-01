@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { DiscordDestination } from "../lib/api";
 import {
-  BATCH_OPTIONS, blankForm, CARD_COLORS, DEFAULT_SETTINGS, defaultFields, DETAILS_MAX, dirty, DISCORD_FIELDS, discordCardLine,
+  BATCH_OPTIONS, blankForm, CARD_COLORS, DEFAULT_SETTINGS, defaultFields, DETAILS_MAX, dirty, DISCORD_FIELDS, discordCardLine, discordPausedLine,
   formOf, GRID_MAX, LINE_MAX, LINE_MIN, LINK_PREVIEWS, looksLikeWebhookUrl, sendTestBlocker, SEPARATORS, STYLES, TITLE_LINKS, TITLE_MAX,
   TITLE_MIN, toInput,
 } from "./discordModel";
@@ -101,7 +101,7 @@ describe("the field list and options", () => {
 
 const DEST: DiscordDestination = {
   id: "d1", name: "Spots channel", enabled: false, url_display: "discord.com/api/webhooks/123/••••",
-  settings: { ...DEFAULT_SETTINGS, style: "plain", batch_seconds: 30 },
+  settings: { ...DEFAULT_SETTINGS, style: "plain", batch_seconds: 30 }, auto_disabled_at: null,
 };
 
 describe("the form", () => {
@@ -124,6 +124,26 @@ describe("the form", () => {
     });
     expect(toInput(formOf(DEST))).toEqual({ id: "d1", name: "Spots channel", enabled: false, url: null, settings: DEST.settings });
     expect(toInput({ ...formOf(DEST), url: "   " }).url).toBeNull();
+  });
+
+  it("sends a saved destination's Enabled only when the switch changed from what was loaded", () => {
+    const loaded = formOf(DEST);
+    // A pause can land while the editor is open; Enabled on in the save would resume it.
+    expect(toInput(loaded, loaded).enabled).toBeNull();
+    expect(toInput({ ...loaded, name: "Spots 2" }, loaded).enabled).toBeNull();
+    expect(toInput({ ...loaded, enabled: true }, loaded).enabled).toBe(true);
+    const on = { ...loaded, enabled: true };
+    expect(toInput({ ...on, enabled: false }, on).enabled).toBe(false);
+    // A new destination always says what it starts as.
+    const fresh = blankForm();
+    expect(toInput(fresh, fresh).enabled).toBe(true);
+    expect(toInput({ ...fresh, enabled: false }, fresh).enabled).toBe(false);
+  });
+
+  it("words the paused alert", () => {
+    expect(discordPausedLine("3 hours ago")).toBe(
+      "Paused 3 hours ago: Discord says this webhook no longer exists. Create a new webhook in Discord, select Replace URL, paste it, turn Enabled on and save.",
+    );
   });
 
   it("is dirty when the saved input would change", () => {

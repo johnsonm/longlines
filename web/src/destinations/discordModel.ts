@@ -137,13 +137,19 @@ export function formOf(dest: DiscordDestination): DiscordForm {
   };
 }
 
-/** The RPC's shape: the name and URL trimmed, an empty URL sent as null (keep the stored one). */
-export function toInput(form: DiscordForm): DiscordDestinationInput {
+/**
+ * The RPC's shape: the name and URL trimmed, an empty URL sent as null (keep the stored one).
+ * With `loaded`, a saved destination's Enabled goes as null (keep) unless the switch now differs from what was loaded:
+ * update_destination reads Enabled on as a resume, so a pause that lands while the editor is open must not be cleared
+ * by a save that never touched the switch (the webhook editor's rule).
+ */
+export function toInput(form: DiscordForm, loaded?: DiscordForm): DiscordDestinationInput {
   const url = form.url?.trim() ?? "";
+  const keepEnabled = form.id !== undefined && loaded !== undefined && loaded.enabled === form.enabled;
   return {
     ...(form.id ? { id: form.id } : {}),
     name: form.name.trim(),
-    enabled: form.enabled,
+    enabled: keepEnabled ? null : form.enabled,
     url: url === "" ? null : url,
     settings: { ...form.settings },
   };
@@ -152,6 +158,14 @@ export function toInput(form: DiscordForm): DiscordDestinationInput {
 /** True when saving `current` would change what `initial` saved. */
 export function dirty(initial: DiscordForm, current: DiscordForm): boolean {
   return JSON.stringify(toInput(initial)) !== JSON.stringify(toInput(current));
+}
+
+/**
+ * The editor's alert while the destination is paused (auto_disabled_at). A Discord destination pauses only when Discord
+ * says its webhook is gone (pause_destination). `ago` reads as "14 minutes ago".
+ */
+export function discordPausedLine(ago: string): string {
+  return `Paused ${ago}: Discord says this webhook no longer exists. Create a new webhook in Discord, select Replace URL, paste it, turn Enabled on and save.`;
 }
 
 const WEBHOOK_PREFIXES = ["https://discord.com/api/webhooks/", "https://discordapp.com/api/webhooks/"];

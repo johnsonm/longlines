@@ -500,7 +500,8 @@ export interface DiscordSettings {
 export interface DiscordDestinationInput {
   id?: string;
   name: string;
-  enabled: boolean;
+  /** Null keeps what is stored; true on a paused destination resumes it. */
+  enabled: boolean | null;
   url: string | null;
   settings: DiscordSettings;
 }
@@ -512,6 +513,8 @@ export interface DiscordDestination {
   enabled: boolean;
   url_display: string;
   settings: DiscordSettings;
+  /** Set while the destination is paused because Discord said the webhook is gone. */
+  auto_disabled_at: string | null;
 }
 
 /** The message SQL would post for some settings (preview_discord_message, discord_spot_fields). */
@@ -635,7 +638,7 @@ export interface WebhookDestination {
   settings: WebhookSettings;
   headers: { name: string }[];
   secret_rotated_at: string | null;
-  /** Set while the destination is paused after repeated failures. */
+  /** Set while the destination is paused: after repeated failures, or at once on an HTTP 410. */
   auto_disabled_at: string | null;
 }
 

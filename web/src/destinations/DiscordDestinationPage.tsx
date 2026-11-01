@@ -4,12 +4,13 @@ import { Navigate, Link as RouterLink, useNavigate } from "react-router";
 import { PageTitle } from "../layout/PageTitle";
 import { getDiscordDestination, saveDiscordDestination, type Destination, type DiscordSettings } from "../lib/api";
 import { errorText, useApp } from "../app/hooks";
+import { timeAgo } from "../lib/time";
 import { DEST_TYPES, typeLabel } from "./types";
 import { DiscordChannelCard } from "./DiscordChannelCard";
 import { DiscordMessageCard } from "./DiscordMessageCard";
 import { DiscordDeliveryCard } from "./DiscordDeliveryCard";
 import { DiscordPreviewCard } from "./DiscordPreviewCard";
-import { blankForm, dirty, formOf, looksLikeWebhookUrl, toInput, type DiscordForm } from "./discordModel";
+import { blankForm, dirty, discordPausedLine, formOf, looksLikeWebhookUrl, toInput, type DiscordForm } from "./discordModel";
 
 interface Props {
   /** Set when editing; otherwise `type` must be "discord" (the Add destination picker's hand-off). */
@@ -30,12 +31,13 @@ export function DiscordDestinationPage({ id, type, dests, loading, reload, mobil
     return <Loader key={id} id={id} reload={reload} mobile={mobile} />;
   }
   if (type !== "discord") return <Navigate to="/destinations" replace />;
-  return <Editor key="new" initial={blankForm()} urlDisplay={null} reload={reload} mobile={mobile} />;
+  return <Editor key="new" initial={blankForm()} urlDisplay={null} autoDisabledAt={null} reload={reload} mobile={mobile} />;
 }
 
 interface Loaded {
   form: DiscordForm;
   urlDisplay: string;
+  autoDisabledAt: string | null;
 }
 
 /** The settings come from get_discord_destination, which returns the masked URL and never the URL itself. */
@@ -47,7 +49,7 @@ function Loader({ id, reload, mobile }: { id: string; reload: () => Promise<void
     let active = true;
     getDiscordDestination(id)
       .then((d) => {
-        if (active) setLoaded({ form: formOf(d), urlDisplay: d.url_display });
+        if (active) setLoaded({ form: formOf(d), urlDisplay: d.url_display, autoDisabledAt: d.auto_disabled_at });
       })
       .catch((err: unknown) => {
         if (active) setError(errorText(err, "Couldn't load the destination."));
@@ -59,18 +61,22 @@ function Loader({ id, reload, mobile }: { id: string; reload: () => Promise<void
 
   if (error) return <Alert severity="error">{error}</Alert>;
   if (!loaded) return <LinearProgress />;
-  return <Editor initial={loaded.form} urlDisplay={loaded.urlDisplay} reload={reload} mobile={mobile} />;
+  return (
+    <Editor initial={loaded.form} urlDisplay={loaded.urlDisplay} autoDisabledAt={loaded.autoDisabledAt} reload={reload} mobile={mobile} />
+  );
 }
 
 interface EditorProps {
   initial: DiscordForm;
   /** The saved URL, masked; null for a new destination. */
   urlDisplay: string | null;
+  /** When Discord's answer paused the destination; null when it is not paused or is new. */
+  autoDisabledAt: string | null;
   reload: () => Promise<void>;
   mobile: boolean;
 }
 
-function Editor({ initial, urlDisplay, reload, mobile }: EditorProps) {
+function Editor({ initial, urlDisplay, autoDisabledAt, reload, mobile }: EditorProps) {
   const { notify } = useApp();
   const navigate = useNavigate();
   const isNew = !initial.id;
@@ -89,7 +95,7 @@ function Editor({ initial, urlDisplay, reload, mobile }: EditorProps) {
 
   const save = async () => {
     setBusy(true);
-    const input = toInput(form);
+    const input = toInput(form, initial);
     try {
       await saveDiscordDestination(input);
       await reload();
@@ -146,6 +152,10 @@ function Editor({ initial, urlDisplay, reload, mobile }: EditorProps) {
           Filtering and repeat limits are set on each connection. This page controls what the Discord message looks like.
         </Typography>
       </Stack>
+      {autoDisabledAt && (
+        // Shown whatever the switch now says: it reports what happened, and saving with Enabled on clears it.
+        <Alert severity="warning">{discordPausedLine(timeAgo(autoDisabledAt))}</Alert>
+      )}
 
       <Grid container spacing={3} sx={{ alignItems: "flex-start" }}>
         <Grid size={{ xs: 12, md: 7 }}>

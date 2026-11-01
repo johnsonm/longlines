@@ -209,7 +209,8 @@ export function DestinationsPage({ dests, subs, loading, reload }: Props) {
         <Button variant="contained" startIcon={<AddIcon />} onClick={openDialog} sx={{ flexShrink: 0 }}>Add destination</Button>
       </Stack>
       {loading && <LinearProgress />}
-      {dests.filter((d) => d.health === "failing").map((d) => (
+      {/* A paused destination (auto_disabled_at) keeps health failing; its Paused chip and the editor's alert cover it. */}
+      {dests.filter((d) => d.health === "failing" && d.auto_disabled_at === null).map((d) => (
         <Alert
           severity="error" key={d.id}
           action={<Button color="inherit" size="small" disabled={busyId === d.id} onClick={() => test(d)}>Send test</Button>}

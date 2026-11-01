@@ -51,7 +51,7 @@ Each destination on the **Destinations** page has a chip:
 | --- | --- |
 | **Healthy** | Deliveries are going through. |
 | **Failing** | The last 5 delivery attempts failed in a row. The next success clears it. |
-| **Paused** | A webhook turned itself off after repeated failures. Turn **Enabled** on and save to resume. |
+| **Paused** | A webhook turned itself off after repeated failures or an HTTP 410, or a Discord destination's webhook no longer exists. Turn **Enabled** on and save to resume. |
 | **Relay offline** | A Local DX cluster's relay isn't connected, so its spots are dropped. |
 | **1 device blocked** | A push device has notifications blocked in its browser. |
 

@@ -90,6 +90,13 @@ export interface SendResult {
    * means the whole batch, as Discord and push report.
    */
   attempted?: number;
+  /**
+   * Webhook and Discord: the destination's URL is gone for good (a webhook's
+   * HTTP 410, Discord's Unknown Webhook or Invalid Webhook Token), so the
+   * loop pauses it with pause_destination instead of marking a failure.
+   * Absent means false.
+   */
+  gone?: boolean;
 }
 
 /**
@@ -201,6 +208,13 @@ export async function sendDiscord(
         retryAfterSeconds: retryAfter,
       };
     }
+    if (response.status === 404 || response.status === 401) {
+      const goneError = await discordGoneError(response);
+      if (goneError !== null) {
+        return { ok: false, sent, error: goneError, gone: true };
+      }
+      return { ok: false, sent, error: `Discord HTTP ${String(response.status)}` };
+    }
     if (response.body !== null) {
       await response.body.cancel();
     }
@@ -242,6 +256,41 @@ interface DiscordRateLimitBody {
 const discordRateLimitBodySchema: z.ZodType<DiscordRateLimitBody> = z.looseObject({
   retry_after: z.union([z.number(), z.string()]).optional(),
 });
+
+/** The part of Discord's 404 and 401 bodies the sender reads. */
+interface DiscordErrorBody {
+  /** Discord's JSON error code. */
+  code?: number;
+}
+
+// Discord's error reply: third-party, so loose (it also carries message).
+const discordErrorBodySchema: z.ZodType<DiscordErrorBody> = z.looseObject({
+  code: z.number().optional(),
+});
+
+/** Discord's "Unknown Webhook": the webhook was deleted. */
+export const DISCORD_UNKNOWN_WEBHOOK = 10015;
+/** Discord's "Invalid Webhook Token": the URL's token no longer matches the webhook. */
+export const DISCORD_INVALID_WEBHOOK_TOKEN = 50027;
+
+/**
+ * The error for a 404 or 401 that says the webhook is gone for good (404 with
+ * Unknown Webhook, 401 with Invalid Webhook Token), or null for any other body,
+ * which stays an ordinary failure.
+ */
+async function discordGoneError(response: Response): Promise<string | null> {
+  const body = discordErrorBodySchema.safeParse(await jsonBodyOrNull(response));
+  if (!body.success) {
+    return null;
+  }
+  if (response.status === 404 && body.data.code === DISCORD_UNKNOWN_WEBHOOK) {
+    return "Discord HTTP 404 (Unknown Webhook)";
+  }
+  if (response.status === 401 && body.data.code === DISCORD_INVALID_WEBHOOK_TOKEN) {
+    return "Discord HTTP 401 (Invalid Webhook Token)";
+  }
+  return null;
+}
 
 /** A response body as JSON, or null when it is not JSON or cannot be read. */
 async function jsonBodyOrNull(response: Response): Promise<unknown> {
@@ -427,6 +476,7 @@ export async function sendWebhook(
         status,
         `Webhook request failed: ${error.message}`,
         null,
+        false,
       );
     }
     at = posted.at;
@@ -439,13 +489,23 @@ export async function sendWebhook(
         status,
         `Webhook redirected (HTTP ${String(response.status)}); redirects are not followed`,
         null,
+        false,
       );
     }
     if (response.status === 429) {
       // Alive, just too fast: the destination is throttled, never failed.
-      return webhookFailure(sent, attempted, status, "Webhook HTTP 429 (rate limited)", {
-        retryAfterSeconds: retryAfterSeconds(response.headers.get("retry-after")),
-      });
+      return webhookFailure(
+        sent,
+        attempted,
+        status,
+        "Webhook HTTP 429 (rate limited)",
+        { retryAfterSeconds: retryAfterSeconds(response.headers.get("retry-after")) },
+        false,
+      );
+    }
+    if (response.status === 410) {
+      // The receiver says the URL is gone for good: the destination pauses.
+      return webhookFailure(sent, attempted, status, "Webhook HTTP 410 (gone)", null, true);
     }
     if (response.status < 200 || response.status >= 300) {
       return webhookFailure(
@@ -454,6 +514,7 @@ export async function sendWebhook(
         status,
         `Webhook HTTP ${String(response.status)}`,
         null,
+        false,
       );
     }
     sent += request.count;
@@ -466,8 +527,8 @@ export async function sendWebhook(
 }
 
 /**
- * A failed webhook send's result: status only when a request got one, and
- * retryAfterSeconds only with a throttle (a 429).
+ * A failed webhook send's result: status only when a request got one,
+ * retryAfterSeconds only with a throttle (a 429), and gone only for a 410.
  */
 function webhookFailure(
   sent: number,
@@ -475,10 +536,14 @@ function webhookFailure(
   status: number | undefined,
   error: string,
   throttle: { retryAfterSeconds: number | null } | null,
+  gone: boolean,
 ): SendResult {
   const result: SendResult = { ok: false, sent, attempted, error };
   if (throttle !== null) {
     result.retryAfterSeconds = throttle.retryAfterSeconds;
+  }
+  if (gone) {
+    result.gone = true;
   }
   if (status !== undefined) {
     result.status = status;

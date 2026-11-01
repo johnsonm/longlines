@@ -157,6 +157,79 @@ Deno.test(
   },
 );
 
+/** sendDiscord with `spots` spots against a server that gives each request the next answer, then 204s. */
+async function discordAgainst(
+  answers: Array<() => Response>,
+  spots: number,
+): Promise<{ result: SendResult; calls: number }> {
+  let calls = 0;
+  let result: SendResult = { ok: false, sent: -1 };
+  function receive(): Response {
+    const answer = answers[calls];
+    calls++;
+    if (answer === undefined) {
+      return new Response(null, { status: 204 });
+    }
+    return answer();
+  }
+  async function send(base: string): Promise<void> {
+    const d = dest(`${base}/api/webhooks/1/abc`, "discord");
+    result = await sendDiscord(
+      d,
+      Array.from({ length: spots }, (_, i) => delivery(i + 1, d)),
+      { allowInsecure: true },
+    );
+  }
+  await withServer(receive, send);
+  return { result, calls };
+}
+
+function noContent(): Response {
+  return new Response(null, { status: 204 });
+}
+
+Deno.test(
+  "sendDiscord reports Unknown Webhook and Invalid Webhook Token as gone",
+  async function (): Promise<void> {
+    const cases: Array<[() => Response, string]> = [
+      [
+        () => Response.json({ message: "Unknown Webhook", code: 10015 }, { status: 404 }),
+        "Discord HTTP 404 (Unknown Webhook)",
+      ],
+      [
+        () => Response.json({ message: "Invalid Webhook Token", code: 50027 }, { status: 401 }),
+        "Discord HTTP 401 (Invalid Webhook Token)",
+      ],
+    ];
+    for (const entry of cases) {
+      // The first message went through; the second is refused and nothing more is sent.
+      const out = await discordAgainst([noContent, entry[0]], 25);
+      assertEquals(out.result, { ok: false, sent: 10, error: entry[1], gone: true });
+      assertEquals(out.calls, 2);
+    }
+  },
+);
+
+Deno.test(
+  "sendDiscord keeps any other 404 or 401 an ordinary failure",
+  async function (): Promise<void> {
+    const cases: Array<[() => Response, string]> = [
+      [() => new Response(null, { status: 404 }), "Discord HTTP 404"],
+      [() => new Response("not json", { status: 404 }), "Discord HTTP 404"],
+      [() => Response.json({ code: 50027 }, { status: 404 }), "Discord HTTP 404"],
+      [() => Response.json({ code: 10015 }, { status: 401 }), "Discord HTTP 401"],
+      [() => Response.json({ code: "10015" }, { status: 404 }), "Discord HTTP 404"],
+      [() => Response.json([10015], { status: 404 }), "Discord HTTP 404"],
+      [() => Response.json({ code: 0 }, { status: 401 }), "Discord HTTP 401"],
+      [() => Response.json({ code: 10015 }, { status: 500 }), "Discord HTTP 500"],
+    ];
+    for (const entry of cases) {
+      const out = await discordAgainst([entry[0]], 1);
+      assertEquals(out.result, { ok: false, sent: 0, error: entry[1] });
+    }
+  },
+);
+
 Deno.test(
   "retryAfterSeconds rounds up, caps at a day and refuses what is not a positive number",
   function (): void {
@@ -949,6 +1022,32 @@ Deno.test(
         error: "Webhook HTTP 500",
       });
       assertEquals(requests.map((r) => JSON.parse(r.body).spots.length), [50, 50]);
+    });
+  },
+);
+
+Deno.test(
+  "sendWebhook reports a 410 as gone, after the requests that went through",
+  async function (): Promise<void> {
+    await withRawServer([204, 410], async function (base, requests): Promise<void> {
+      const d = webhookDest(`${base}/hook`, 0, []);
+      const batch = [1, 2, 3].map((id) => renderedWebhook(id, d));
+      const result = await sendWebhook(d, batch, { allowInsecure: true });
+      assertEquals(result, {
+        ok: false,
+        sent: 1,
+        attempted: 2,
+        status: 410,
+        error: "Webhook HTTP 410 (gone)",
+        gone: true,
+      });
+      assertEquals(requests.length, 2);
+    });
+    await withRawServer([404], async function (base): Promise<void> {
+      const d = webhookDest(`${base}/hook`, 0, []);
+      const result = await sendWebhook(d, [renderedWebhook(1, d)], { allowInsecure: true });
+      assertEquals(result.gone, undefined, "a 404 is an ordinary failure");
+      assertEquals(result.error, "Webhook HTTP 404");
     });
   },
 );

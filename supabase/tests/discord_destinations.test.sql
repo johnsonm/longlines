@@ -2,11 +2,12 @@
 -- (20261018000100_discord_destinations). Settings with a defaults trigger,
 -- the save/get/list/preview RPCs, the message rendered in SQL from picked
 -- fields, what claim_deliveries and Send test hand out, duplicate and the
--- management API's read-only view. The batch hold is in deliveries_rpc.test.sql.
+-- management API's read-only view, and auto_disabled_at for the permanent-failure
+-- pause (20261031000300). The batch hold is in deliveries_rpc.test.sql.
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(153);
+select plan(158);
 select pgmq.purge_queue('spot_events');
 select pgmq.purge_queue('deliveries_queue');
 delete from deliveries;
@@ -172,7 +173,7 @@ select results_eq(format($$ select s ->> 'card_color', (s ->> 'batch_seconds')::
   $$ values ('red'::text, 30, '[]'::jsonb, '[]'::jsonb, '["callsign", "frequency", "mode"]'::jsonb) $$,
   'a save merges over the stored settings, keeping untouched keys');
 select is((select array_agg(k order by k) from jsonb_object_keys(get_discord_destination((select id from club))) k),
-  array['enabled', 'id', 'name', 'settings', 'url_display'], 'get returns no URL');
+  array['auto_disabled_at', 'enabled', 'id', 'name', 'settings', 'url_display'], 'get returns no URL');
 select is((select array_agg(k order by k) from jsonb_object_keys(get_discord_destination((select id from club)) -> 'settings') k),
   array['batch_seconds', 'bold_first', 'card_color', 'detail_fields', 'footer', 'grid_fields', 'line_fields', 'link_preview',
         'separator', 'show_field_names', 'style', 'title_fields', 'title_link'], 'the thirteen settings');
@@ -531,12 +532,32 @@ select is((select url from destinations where id = (select id from copy1)), 'htt
   'the copy posts to the same channel');
 
 select is((select api_destination_json(d) -> 'discord' from destinations d where d.id = (select id from card1)),
-  (select to_jsonb(s) - 'destination_id' from discord_destination_settings s where s.destination_id = (select id from card1)),
-  'the API shows a Discord destination''s settings');
+  (select (to_jsonb(s) - 'destination_id') || '{"auto_disabled_at": null}'::jsonb
+   from discord_destination_settings s where s.destination_id = (select id from card1)),
+  'the API shows a Discord destination''s settings and when it paused (20261031000300)');
 select ok((select not (api_destination_json(d) ? 'push') and not (api_destination_json(d) ? 'url')
            from destinations d where d.id = (select id from card1)), 'and neither push nor the URL');
 select ok((select bool_and(not (api_destination_json(d) ? 'discord')) from destinations d where d.type <> 'discord'),
   'other types carry no discord');
+
+-- The permanent-failure pause (20261031000300): a gone reply sets enabled =
+-- false and auto_disabled_at. The editor reads when; a save with Enabled null
+-- keeps the pause, Enabled on resumes.
+update destinations set enabled = false, auto_disabled_at = now() - interval '5 minutes' where id = (select id from card1);
+select is((select (api_destination_json(d) -> 'discord' ->> 'auto_disabled_at')::timestamptz from destinations d
+           where d.id = (select id from card1)), now() - interval '5 minutes', 'the API shows when it paused');
+select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
+select is((get_discord_destination((select id from card1)) ->> 'auto_disabled_at')::timestamptz, now() - interval '5 minutes',
+  'get_discord_destination shows when it paused');
+select save_discord_destination((select id from card1), 'Card chat', null, null, '{"card_color": "red"}');
+reset role;
+select results_eq($$ select enabled, auto_disabled_at from destinations where id = (select id from card1) $$,
+  $$ values (false, now() - interval '5 minutes') $$, 'a save with Enabled null keeps the pause');
+select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
+select save_discord_destination((select id from card1), null, true, null, null);
+select is((get_discord_destination((select id from card1)) -> 'auto_disabled_at'), 'null'::jsonb, 'a save with Enabled on resumes');
+reset role;
+select is((select enabled from destinations where id = (select id from card1)), true, 'and turns it on');
 
 delete from destinations where id = (select id from copy1);
 select is((select count(*) from discord_destination_settings where destination_id = (select id from copy1)), 0::bigint,

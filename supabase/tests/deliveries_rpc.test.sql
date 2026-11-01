@@ -5,11 +5,12 @@
 -- 20261016000400 push_destinations_v2 for the enabled sweep, 20261018000100
 -- discord_destinations for the batch hold, 20261018000300 webhook_destinations
 -- for the webhook hold, per-claim cap and retry policies, 20261021000600
--- url_change_health for outcomes claimed before a URL change).
+-- url_change_health for outcomes claimed before a URL change, 20261031000300
+-- pause_destination for the permanent-failure pause).
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(147);
+select plan(164);
 select pgmq.purge_queue('spot_events');
 select pgmq.purge_queue('deliveries_queue');
 
@@ -660,6 +661,99 @@ select is((select array_agg(d.url_generation) from deliveries d where d.id in (s
 select mark_deliveries_failed(array(select delivery_id from uc2), array(select msg_id from uc2), 'HTTP 502', 30);
 select results_eq($$ select consecutive_failures, last_error, pause_failures, enabled from destinations where id = (select id from dw) $$,
   $$ values (1, 'HTTP 502'::text, 1, false) $$, 'a current failure counts, toward the pause too');
+
+-- ---------------------------------------------------------------------------
+-- Permanent-failure pause (20261031000300): a gone reply (webhook 410, Discord
+-- Unknown Webhook) pauses the destination at once through pause_destination.
+-- ---------------------------------------------------------------------------
+select pg_temp.reset_queue();
+update discord_destination_settings set batch_seconds = 0 where destination_id = (select id from dd);
+update destinations set enabled = true, auto_disabled_at = null, last_error = null, last_error_at = null
+where id = (select id from dd);
+select pg_temp.queue((select id from dd), 'gone-', 3, now());
+create temp table gone as select * from claim_deliveries(200, 60);
+select is((select count(*) from gone where destination ->> 'id' = (select id::text from dd)), 3::bigint,
+  'three Discord rows are claimed');
+-- The newest went out; Discord then answered the second message with Unknown Webhook.
+create temp table gone_sent as select delivery_id, msg_id from gone order by delivery_id limit 1;
+create temp table gone_failed as select delivery_id, msg_id from gone order by delivery_id offset 1;
+select mark_deliveries_sent(array(select delivery_id from gone_sent), array(select msg_id from gone_sent));
+-- One more row queued after the claim, and a row of another destination named by mistake.
+create temp table gone_q as select unnest(pg_temp.queue((select id from dd), 'gone-q-', 1, now())) as id;
+create temp table gone_other as select unnest(pg_temp.queue((select id from dw), 'gone-o-', 1, now())) as id;
+select pause_destination((select id from dd),
+  array(select delivery_id from gone_failed) || array(select id from gone_other),
+  array(select msg_id from gone_failed),
+  'Discord HTTP 404 (Unknown Webhook)');
+select results_eq(
+  $$ select status, attempts, last_error from deliveries where id in (select delivery_id from gone_failed) $$,
+  $$ values ('failed'::text, 1, 'Discord HTTP 404 (Unknown Webhook)'::text), ('failed', 1, 'Discord HTTP 404 (Unknown Webhook)') $$,
+  'pause_destination marks the failed rows like mark_deliveries_failed');
+select results_eq($$ select status, attempts from deliveries where id = (select id from gone_other) $$,
+  $$ values ('pending'::text, 0) $$, 'a row of another destination is left alone');
+select results_eq(
+  $$ select enabled, auto_disabled_at is not null, consecutive_failures, last_error, last_error_at is not null, health
+     from destinations where id = (select id from dd) $$,
+  $$ values (false, true, 1, 'Discord HTTP 404 (Unknown Webhook)'::text, true, 'ok'::text) $$,
+  'the destination is off with auto_disabled_at and counts one failure; health is never set to paused');
+select is((select count(*) from pgmq.q_deliveries_queue q join deliveries d on d.id = (q.message ->> 'delivery_id')::bigint
+           where d.destination_id = (select id from dd) and q.vt > clock_timestamp()), 0::bigint,
+  'every queued row of the destination is visible at once, the one queued after the claim too');
+select is((select count(*) from claim_deliveries(200, 60) c where c.destination ->> 'id' = (select id::text from dd)), 0::bigint,
+  'the next claim takes nothing of it');
+select results_eq(
+  $$ select status, dropped_at is not null, count(*) from deliveries where destination_id = (select id from dd) group by 1, 2 order by 1 $$,
+  $$ values ('dropped'::text, true, 3::bigint), ('sent', false, 1) $$,
+  'and drops its queue as lost (dropped_at), the sent row aside');
+select is((select count(*) from pgmq.q_deliveries_queue q join deliveries d on d.id = (q.message ->> 'delivery_id')::bigint
+           where d.destination_id = (select id from dd)), 0::bigint, 'their messages are archived');
+
+update destinations set auto_disabled_at = now() - interval '1 hour' where id = (select id from dd);
+select pg_temp.queue((select id from dd), 'gone-again-', 1, now());
+select pause_destination((select id from dd), array(select max(id) from deliveries where destination_id = (select id from dd)),
+  array(select q.msg_id from pgmq.q_deliveries_queue q join deliveries d on d.id = (q.message ->> 'delivery_id')::bigint
+        where d.destination_id = (select id from dd)), 'Discord HTTP 404 (Unknown Webhook)');
+select results_eq($$ select auto_disabled_at, consecutive_failures from destinations where id = (select id from dd) $$,
+  $$ values (now() - interval '1 hour', 2) $$, 'a destination already paused keeps when it paused');
+
+select throws_ok($$ select pause_destination('00000000-0000-0000-0000-000000000000', array[1]::bigint[], array[1]::bigint[], 'gone') $$,
+  'P0001', 'Destination not found.', 'an unknown destination is refused');
+select ok(not has_function_privilege('authenticated', 'public.pause_destination(uuid, bigint[], bigint[], text)', 'execute')
+          and not has_function_privilege('anon', 'public.pause_destination(uuid, bigint[], bigint[], text)', 'execute'),
+  'pause_destination is not callable by clients');
+
+-- Resume: Enabled on clears the pause, as for the webhook count pause.
+select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
+reset role;
+select update_destination((select id from dd), null, null, true);
+select results_eq($$ select enabled, auto_disabled_at is null, consecutive_failures from destinations where id = (select id from dd) $$,
+  $$ values (true, true, 0) $$, 'update_destination with Enabled on resumes it');
+
+-- A gone reply about the old URL, after the owner replaced it, pauses nothing:
+-- the rows go to the new URL at the next claim.
+select pg_temp.reset_queue();
+update destinations set last_error = null, last_error_at = null where id = (select id from dd);
+select pg_temp.queue((select id from dd), 'gone-url-', 1, now());
+create temp table gone_url as select * from claim_deliveries(200, 60) c where c.destination ->> 'id' = (select id::text from dd);
+select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
+reset role;
+select update_destination((select id from dd), null, 'https://discord.com/api/webhooks/2/b', null);
+select pause_destination((select id from dd), array(select delivery_id from gone_url), array(select msg_id from gone_url),
+  'Discord HTTP 404 (Unknown Webhook)');
+select results_eq($$ select status, attempts from deliveries where id = (select delivery_id from gone_url) $$,
+  $$ values ('failed'::text, 1) $$, 'a stale gone reply still marks its row');
+select results_eq(
+  $$ select enabled, auto_disabled_at is null, consecutive_failures, last_error from destinations where id = (select id from dd) $$,
+  $$ values (true, true, 0, null::text) $$, 'but leaves the new URL enabled, unpaused and unfailed');
+select ok(pg_temp.vt_secs((select delivery_id from gone_url)) <= 0, 'and its row is visible again for the new URL');
+update destinations set claim_tokens = 0, claim_tokens_at = clock_timestamp() - interval '1 minute', claim_due_at = '-infinity'
+where id = (select id from dd);
+create temp table gone_url2 as select * from claim_deliveries(200, 60) c where c.destination ->> 'id' = (select id::text from dd);
+select is((select count(*) from gone_url2), 1::bigint, 'the new URL claims it');
+select pause_destination((select id from dd), array(select delivery_id from gone_url2), array(select msg_id from gone_url2),
+  'Discord HTTP 404 (Unknown Webhook)');
+select results_eq($$ select enabled, auto_disabled_at is not null from destinations where id = (select id from dd) $$,
+  $$ values (false, true) $$, 'a gone reply about the current URL pauses it');
 
 select * from finish();
 rollback;

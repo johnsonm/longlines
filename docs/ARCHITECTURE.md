@@ -284,7 +284,7 @@ the Phase 2 plan, is `docs/superpowers/specs/2026-10-15-outbound-sender-design.m
   listener connection for LISTEN, three of the role's limit of four) and may execute only the
   security-definer RPCs of its allowlist, `SENDER_RPCS` in `sender/db.ts`: the delivery loop's
   `claim_deliveries`, `mark_deliveries_sent`, `mark_deliveries_failed`, `throttle_destination`,
-  `prune_push_devices` and `record_push_results`, the status calls `delivery_queue_stats` and
+  `pause_destination`, `prune_push_devices` and `record_push_results`, the status calls `delivery_queue_stats` and
   `record_sender_heartbeat`, and the spots stream's `authenticate_relay_token`,
   `set_cluster_stream` and `reset_cluster_streams`. It has no table privileges, nothing on
   `pgmq` and no Supabase API key; `sender_role.test.sql` pins that list. Its loop (`_shared/delivery/run.ts`, `runDeliveryBatch`) claims, sends and
@@ -352,7 +352,12 @@ the Phase 2 plan, is `docs/superpowers/specs/2026-10-15-outbound-sender-design.m
   `mark_deliveries_failed` backs the messages off (30 s to 30 m for Discord and push; a webhook's
   own retry policy, in SQL) and five in a row mark the destination `failing`. For a webhook only
   the rows that were in the failed request are marked (`SendResult.attempted`); the rest reappear
-  after the visibility timeout without counting an attempt. A push device reported gone (404/410) is pruned, and a push destination
+  after the visibility timeout without counting an attempt. A reply that says the URL is gone for
+  good (a webhook's 410, Discord's 404 with code 10015 or 401 with code 50027, `SendResult.gone`)
+  calls `pause_destination` instead: the rows are marked failed and the destination gets
+  `enabled = false` and `auto_disabled_at`, the webhook count pause's mechanism, unless none of
+  the rows was claimed at its current `url_generation` (then only the rows become visible again,
+  for the new URL). A push device reported gone (404/410) is pruned, and a push destination
   with no deliverable device fails. A push destination in its quiet hours set to "Don't send" is
   acked without a request: not a failure, not retried.
 - **Health and the watchdog.** `/healthz` answers on Fly's private network: 200 while the last
@@ -523,7 +528,9 @@ pause at most once per `webhook_pause_spacing()` (30 s) and restart after a succ
 sets `enabled = false` and `auto_disabled_at` and makes the destination's whole queue visible
 (rows in retry backoff included), and the claim's unwanted sweep then drops all of it with
 `dropped_at`, so resuming delivers none of it. `update_destination` turning it back on clears the
-pause. The default threshold is null until the web editor ships (its migration makes it 20).
+pause. The default threshold is null until the web editor ships (its migration makes it 20). A
+410 pauses the same way at once, whatever `pause_after_failures` says (`pause_destination`,
+migration `20261031000300`), and so does a Discord webhook that Discord says no longer exists.
 
 ## Local DX cluster destinations
 

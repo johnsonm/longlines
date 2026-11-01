@@ -1,9 +1,9 @@
 -- pgTAP: API tokens and the management API's SQL (20261013000300; group sharing keys 20261019000400;
--- goals 20261029001300).
+-- goals 20261029001300; Discord auto_disabled_at 20261031000300).
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(106);
+select plan(108);
 
 -- ---------------------------------------------------------------------------
 -- Tokens
@@ -231,8 +231,9 @@ select is((select d -> 'discord' from jsonb_array_elements(pg_temp.call('list_de
   '{"style": "card", "footer": true, "separator": "dot", "bold_first": true, "card_color": "source", "title_link": "profile",
     "grid_fields": ["band", "spotter"], "line_fields": ["callsign", "frequency", "mode", "source", "reference", "place_name"],
     "link_preview": "hidden", "title_fields": ["callsign", "frequency", "mode"], "batch_seconds": 0,
-    "detail_fields": ["source", "reference", "place_name", "state"], "show_field_names": false}'::jsonb,
-  'a Discord destination shows its settings');
+    "detail_fields": ["source", "reference", "place_name", "state"], "show_field_names": false,
+    "auto_disabled_at": null}'::jsonb,
+  'a Discord destination shows its settings and when it paused (20261031000300)');
 select results_eq($$ select d ->> 'type', d ? 'discord', d ? 'push', d ? 'webhook'
                      from jsonb_array_elements(pg_temp.call('list_destinations')) d order by d ->> 'name' $$,
   $$ values ('discord'::text, true, false, false), ('push', false, true, false), ('webhook', false, false, true),
@@ -250,6 +251,15 @@ update destinations set enabled = false, auto_disabled_at = now() - interval '1 
 select is((select (j -> 'enabled')::boolean and j #> '{webhook,auto_disabled_at}' = 'null'::jsonb
            from pg_temp.call('update_destination', jsonb_build_object('id', (select id from dest), 'enabled', true)) j),
   true, 'PATCH with "enabled": true resumes a paused webhook');
+-- A Discord destination pauses on a gone reply (20261031000300); the same PATCH resumes it.
+create temp table chat as
+  select (d ->> 'id')::uuid as id from jsonb_array_elements(pg_temp.call('list_destinations')) d where d ->> 'name' = 'Chat';
+update destinations set enabled = false, auto_disabled_at = now() - interval '1 hour' where id = (select id from chat);
+select is((select d #>> '{discord,auto_disabled_at}' from jsonb_array_elements(pg_temp.call('list_destinations')) d
+           where d ->> 'name' = 'Chat')::timestamptz, now() - interval '1 hour', 'a paused Discord destination shows when');
+select is((select (j -> 'enabled')::boolean and j #> '{discord,auto_disabled_at}' = 'null'::jsonb
+           from pg_temp.call('update_destination', jsonb_build_object('id', (select id from chat), 'enabled', true)) j),
+  true, 'PATCH with "enabled": true resumes a paused Discord destination');
 select is(pg_temp.call('update_destination', jsonb_build_object('id', (select j ->> 'id' from pushed), 'enabled', false)) -> 'enabled',
   'false'::jsonb, 'PATCH turns a destination off');
 select is(pg_temp.call('update_destination', jsonb_build_object('id', (select j ->> 'id' from pushed), 'name', 'Phone')) -> 'enabled',

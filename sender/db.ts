@@ -51,9 +51,11 @@ type SqlType =
  * The allowlist: every RPC the sender may call with its named parameters and
  * their SQL types, in the function's own order. The grants in
  * 20261015000200_sender_role.sql, 20261015000400_rate_aware_claim.sql,
- * 20261021000100_health.sql and 20261028000500_local_cluster.sql are the other
- * half; supabase/tests/sender_role.test.sql pins them. The last three are the
- * spots stream's (cluster_stream.ts): a relay token's row, and its presence.
+ * 20261021000100_health.sql, 20261028000500_local_cluster.sql and
+ * 20261031000300_pause_destination.sql are the other half;
+ * supabase/tests/sender_role.test.sql pins them. authenticate_relay_token,
+ * set_cluster_stream and reset_cluster_streams are the spots stream's
+ * (cluster_stream.ts): a relay token's row, and its presence.
  */
 export const SENDER_RPCS: Readonly<Record<string, Readonly<Record<string, SqlType>>>> = {
   claim_deliveries: { p_limit: "int", p_vt: "int" },
@@ -65,6 +67,12 @@ export const SENDER_RPCS: Readonly<Record<string, Readonly<Record<string, SqlTyp
     p_delay_seconds: "int",
   },
   throttle_destination: { p_destination_id: "uuid", p_msg_ids: "bigint[]", p_seconds: "int" },
+  pause_destination: {
+    p_destination_id: "uuid",
+    p_delivery_ids: "bigint[]",
+    p_msg_ids: "bigint[]",
+    p_error: "text",
+  },
   delivery_queue_stats: {},
   prune_push_devices: { p_endpoints: "text[]" },
   record_push_results: { p_ok: "text[]", p_errors: "jsonb" },

@@ -29,10 +29,11 @@ export const BOOKKEEPING_RETRY_MS: readonly number[] = [500, 1_000];
 /**
  * The bookkeeping RPCs a retry cannot double: each sets state rather than
  * adding to it (a repeated ack only steps throttle_level down once more, to no
- * lower than 0). mark_deliveries_failed and throttle_destination increment
- * attempts, consecutive_failures and throttle_level, so one whose commit
- * landed but whose answer was lost would count twice; they get one attempt,
- * and their rows reappear after the visibility timeout anyway.
+ * lower than 0). mark_deliveries_failed, pause_destination and
+ * throttle_destination increment attempts, consecutive_failures and
+ * throttle_level, so one whose commit landed but whose answer was lost would
+ * count twice; they get one attempt, and their rows reappear after the
+ * visibility timeout anyway.
  */
 const REPEATABLE_RPCS: ReadonlySet<string> = new Set([
   "mark_deliveries_sent",
@@ -131,8 +132,9 @@ const claimResultSchema: z.ZodType<JsonObject[] | null> = z.array(jsonObjectSche
  * Claims up to `claimLimit` deliveries and sends them, one batch per
  * destination, up to `concurrency` destinations at a time. Successful ids are
  * acked with one `mark_deliveries_sent` per cycle; a rate limit throttles the
- * destination in SQL without touching its health; anything else is a failure
- * marked per destination with the usual backoff.
+ * destination in SQL without touching its health; a gone reply pauses it
+ * (pause_destination); anything else is a failure marked per destination with
+ * the usual backoff.
  */
 export async function runDeliveryBatch(
   db: DeliveryRpc,
@@ -317,17 +319,34 @@ export async function runDeliveryBatch(
           maxAttempts = Math.max(maxAttempts, row.attempts);
         }
         const attempt = maxAttempts + 1;
-        // Discord and push wait backoffSeconds; SQL's retry policy wins for a webhook.
-        await bookkeep("mark_deliveries_failed", {
-          p_delivery_ids: failedRows.map((r) => r.delivery_id),
-          p_msg_ids: failedRows.map((r) => r.msg_id),
-          p_error: error,
-          p_delay_seconds: backoffSeconds(attempt),
-        });
+        if (sent.gone === true) {
+          // The URL is gone for good: SQL marks the rows and pauses the
+          // destination, unless they were claimed before a URL change.
+          await bookkeep("pause_destination", {
+            p_destination_id: destination.id,
+            p_delivery_ids: failedRows.map((r) => r.delivery_id),
+            p_msg_ids: failedRows.map((r) => r.msg_id),
+            p_error: error,
+          });
+        } else {
+          // Discord and push wait backoffSeconds; SQL's retry policy wins for a webhook.
+          await bookkeep("mark_deliveries_failed", {
+            p_delivery_ids: failedRows.map((r) => r.delivery_id),
+            p_msg_ids: failedRows.map((r) => r.msg_id),
+            p_error: error,
+            p_delay_seconds: backoffSeconds(attempt),
+          });
+        }
         per.failed = failedRows.length;
         result.failed += failedRows.length;
       }
-      console.error(`deliver: ${destination.type} "${destination.name}" failed: ${error}`);
+      if (sent.gone === true && failedRows.length > 0) {
+        console.error(
+          `deliver: ${destination.type} "${destination.name}" is gone: ${error}; paused`,
+        );
+      } else {
+        console.error(`deliver: ${destination.type} "${destination.name}" failed: ${error}`);
+      }
     }
   }
 

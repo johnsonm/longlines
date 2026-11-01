@@ -2009,6 +2009,9 @@ isOneToOne: true
 "patch_subscription":
 { Args: { "p_id": string,"p_patch": Json }; Returns: undefined
                            },
+"pause_destination":
+{ Args: { "p_delivery_ids": (number)[],"p_destination_id": string,"p_error": string,"p_msg_ids": (number)[] }; Returns: undefined
+                           },
 "poll_relay_pairing":
 { Args: { "p_device_code_hash": string }; Returns: Json
                            },
