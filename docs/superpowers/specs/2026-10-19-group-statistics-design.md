@@ -155,7 +155,9 @@ No new roll-up, cron job or ingest change.
     The canvas shows the callsign bullet with the box unticked.
 14. **Top lists hold three rows**, as drawn. A list with fewer heard members shows fewer. A list
     with none shows "Nobody yet" (*added*).
-15. **The members table lists every member.**
+15. **The members table lists every member.** It is on the owner's page only: the public page
+    never carries it, callsigns shown or not (*changed 2026-11-01*, `20261101000200`), so a link
+    never hands out a club's roster.
     - It shows the first ten, then "Show all N members".
     - It is ranked by spots, then days, then callsign.
     - Members with no spots in the period come last, with spots 0, days 0, a dash for main mode,
@@ -464,10 +466,11 @@ Counts take the singular at 1 ("1 member", "used by 1 connection").
   {7|30} days *(added)* | Same as the previous {7|30} days *(added)* | None in the previous {7|30}
   days *(added)*
 - Active members · {N} of {N} · Heard at least once
-- Activations · {N} · {N} POTA, {N} SOTA (and ", {N} WWFF" when nonzero *(added)*; and
-  ", {N} WWBOTA" when nonzero *(added 2026-10-26)*)
-- Places activated · {N} · {N} parks, {N} summits (and ", {N} bunkers" when nonzero *(added
-  2026-10-26)*)
+- Activations · {N} · {N} POTA, {N} SOTA, {N} WWFF, {N} WWBOTA, {N} IOTA, naming only the
+  nonzero ones, or None *(changed 2026-11-01: zeros read as a mirror of the next card)*
+- Different places · {N} · {N} parks, {N} summits, {N} bunkers, {N} islands, naming only the
+  nonzero ones, or None *(changed 2026-11-01 from "Places activated", which read as the same
+  figure as Activations)*
 - Heat map card: Club activity over the past year · Spots heard each day for all members
   combined. Hover a day for the count. Ignores the period above.
 - Tooltip: {N} spots · {Weekday, Month D, YYYY} · {N} members on the air | No spots *(added, a
@@ -487,7 +490,7 @@ Counts take the singular at 1 ("1 member", "used by 1 connection").
   - Empty list: Nobody yet *(added)*
 - Last heard under a minute: Just now *(added in PR 3)* · a search with no match: No members match
   *(added in PR 3)*
-- Members card: Members · Ranked by spots heard in the period. {N} of {N} members were heard.
+- Members card (owner's page only; never on the public page, *changed 2026-11-01*): Members · Ranked by spots heard in the period. {N} of {N} members were heard.
   · field Search members · columns # · Callsign · Spots · Days · Main mode · Last heard (phones
   drop Main mode) · ages "2 min ago", "3 hours ago", "9 days ago" · button Show all {N} members ·
   unheard: — and Not heard yet *(added)*
@@ -531,11 +534,12 @@ Counts take the singular at 1 ("1 member", "used by 1 connection").
 **Make the statistics page public? dialog**
 - Title: Make the statistics page public?
 - Anyone with the link will be able to see, without signing in:
-  - Ticked: The callsigns of all {N} members, and how active each one is | Unticked: Club totals
-    only, without callsigns *(added, decision 13)*
+  - Ticked: The callsigns of the most active members, and who activated each place | Unticked:
+    Club totals only, without callsigns *(added, decision 13; ticked wording changed 2026-11-01
+    when the public page lost the members table)*
   - Club totals, charts and the year heat map
   - The parks and summits members activated
-- Your settings, the member list editor and your connections are never shown. Members do not get
+- Your settings, the member list and your connections are never shown. Members do not get
   a notice, so tell them first.
 - Checkbox: Show each member's callsign on the public page
 - Buttons: Keep private · Make public

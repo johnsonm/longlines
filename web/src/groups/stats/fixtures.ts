@@ -65,6 +65,12 @@ export const OWNER: OwnerGroupStatistics = {
   },
 };
 
+/** A public page with callsigns: the payload without the members table. */
+export function publicPage(stats: GroupStatistics): GroupStatistics {
+  const { members: _members, ...rest } = stats;
+  return rest;
+}
+
 /** A public page whose owner hides callsigns: what group_stats_redact leaves. */
 export function redacted(stats: GroupStatistics): GroupStatistics {
   const { top: _top, members: _members, ...rest } = stats;

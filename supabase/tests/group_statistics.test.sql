@@ -296,8 +296,8 @@ select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
 select save_callsign_group(jsonb_build_object('id', (select id from club), 'name', 'Piedmont',
   'callsigns', '["KK4PWJ","W4ABC","K4DEF","N4GHI"]'::jsonb, 'show_callsigns', true));
 reset role;
-select is(public_group_statistics((select s from pub), '30d') - 'group', (select p from s30),
-  'with callsigns the page is the owner''s payload');
+select is(public_group_statistics((select s from pub), '30d') - 'group', (select p - 'members' from s30),
+  'with callsigns the page is the owner''s payload without the members table');
 select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
 select save_callsign_group(jsonb_build_object('id', (select id from club), 'name', 'Piedmont',
   'callsigns', '["KK4PWJ","W4ABC","K4DEF","N4GHI"]'::jsonb, 'public', false));

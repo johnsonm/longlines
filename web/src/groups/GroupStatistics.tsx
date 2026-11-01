@@ -39,7 +39,8 @@ interface Props {
 /**
  * Everything under the tabs on page 10's Statistics tab, shared by the
  * owner's page and the public page. It renders only what SQL sent: a public
- * payload without callsigns has no `top` or `members`, and those sections go.
+ * payload never has `members`, one without callsigns has no `top` either, and
+ * those sections go.
  */
 export function GroupStatistics({ stats, period, onPeriod, now: pinned }: Props) {
   // Ages count from when the page rendered first; tests pin the clock.
@@ -70,7 +71,7 @@ export function GroupStatistics({ stats, period, onPeriod, now: pinned }: Props)
           <Kpi label="Activations" value={fmt(totalActivations(kpis.activations))} detail={activationsLine(kpis.activations)} />
         </Grid>
         <Grid size={{ xs: 6, md: 3 }}>
-          <Kpi label="Places activated" value={fmt(totalPlaces(kpis.places))} detail={placesLine(kpis.places)} />
+          <Kpi label="Different places" value={fmt(totalPlaces(kpis.places))} detail={placesLine(kpis.places)} />
         </Grid>
       </Grid>
 

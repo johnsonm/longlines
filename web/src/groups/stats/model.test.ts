@@ -29,17 +29,19 @@ describe("group statistics model", () => {
     expect(activationsLine({ pota: 26, sota: 5, wwff: 2 })).toBe("26 POTA, 5 SOTA, 2 WWFF");
     expect(totalActivations({ pota: 26, sota: 5, wwff: 2 })).toBe(33);
     expect(activationsLine({ pota: 26, sota: 5, wwff: 2, wwbota: 1 })).toBe("26 POTA, 5 SOTA, 2 WWFF, 1 WWBOTA");
-    expect(activationsLine({ pota: 0, sota: 0, wwff: 0, wwbota: 0 })).toBe("0 POTA, 0 SOTA");
+    expect(activationsLine({ pota: 0, sota: 0, wwff: 0, wwbota: 0 })).toBe("None");
+    expect(activationsLine({ pota: 49, sota: 0, wwff: 0 })).toBe("49 POTA");
     expect(totalActivations({ pota: 26, sota: 5, wwff: 2, wwbota: 1 })).toBe(34);
     expect(placesLine({ parks: 19, summits: 3 })).toBe("19 parks, 3 summits");
     expect(placesLine({ parks: 1, summits: 1 })).toBe("1 park, 1 summit");
     expect(placesLine({ parks: 1, summits: 1, bunkers: 1 })).toBe("1 park, 1 summit, 1 bunker");
-    expect(placesLine({ parks: 0, summits: 0, bunkers: 0 })).toBe("0 parks, 0 summits");
+    expect(placesLine({ parks: 0, summits: 0, bunkers: 0 })).toBe("None");
+    expect(placesLine({ parks: 29, summits: 0 })).toBe("29 parks");
     expect(totalPlaces({ parks: 19, summits: 3 })).toBe(22);
     expect(totalPlaces({ parks: 19, summits: 3, bunkers: 2 })).toBe(24);
-    expect(activationsLine({ pota: 1, sota: 0, wwff: 0, wwbota: 0, iota: 2 })).toBe("1 POTA, 0 SOTA, 2 IOTA");
+    expect(activationsLine({ pota: 1, sota: 0, wwff: 0, wwbota: 0, iota: 2 })).toBe("1 POTA, 2 IOTA");
     expect(totalActivations({ pota: 1, sota: 0, wwff: 0, wwbota: 1, iota: 2 })).toBe(4);
-    expect(placesLine({ parks: 1, summits: 0, bunkers: 0, islands: 2 })).toBe("1 park, 0 summits, 2 islands");
+    expect(placesLine({ parks: 1, summits: 0, bunkers: 0, islands: 2 })).toBe("1 park, 2 islands");
     expect(totalPlaces({ parks: 1, summits: 0, bunkers: 1, islands: 2 })).toBe(4);
   });
 

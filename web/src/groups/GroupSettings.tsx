@@ -240,7 +240,6 @@ export function GroupSettings({ group, onSaved, actionsSlot }: {
       </Grid>
       {confirming && (
         <PublicConfirmDialog
-          memberCount={form.calls.length}
           initialShow={form.show}
           onKeepPrivate={() => {
             setConfirming(false);
