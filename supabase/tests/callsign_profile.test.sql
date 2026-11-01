@@ -4,7 +4,7 @@
 -- Pins the payload shape: CallsignProfile in web/src/profile/types.ts.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(89);
+select plan(95);
 
 create or replace function pg_temp.d(p_offset int) returns date language sql as $$
   select (now() at time zone 'utc')::date + p_offset;
@@ -105,7 +105,7 @@ create or replace function pg_temp.h() returns jsonb language sql as $$ select v
 
 -- Shape.
 select is(pg_temp.keys((select v from p)),
-  array['callsign', 'country', 'generatedAt', 'heard', 'license', 'usPrefix'], 'profile keys');
+  array['callsign', 'caPrefix', 'country', 'generatedAt', 'heard', 'license', 'usPrefix'], 'profile keys');
 select is(pg_temp.keys((select v -> 'license' from p)),
   array['authority', 'expiresOn', 'grantedOn', 'name', 'operatorClass', 'state', 'status'], 'license keys');
 select is(pg_temp.keys((select v -> 'country' from p)), array['continent', 'name'], 'country keys');
@@ -277,15 +277,21 @@ select is((select (v -> 'heard' ->> 'spots', v -> 'heard' ->> 'firstHeard', v ->
            from (select callsign_profile('G4OBK') as v) x),
   '(0,,null,1,false,England)', 'a station that only spotted others gets its hunting');
 select is(callsign_profile('N0NE') - 'generatedAt',
-  '{"callsign": "N0NE", "usPrefix": true, "country": {"name": "United States", "continent": "NA"},
+  '{"callsign": "N0NE", "usPrefix": true, "caPrefix": false, "country": {"name": "United States", "continent": "NA"},
     "license": null, "heard": null}'::jsonb, 'not heard: the header shape, no sections');
 select is((callsign_profile('VE3XYZ') ->> 'usPrefix', callsign_profile('VE3XYZ') -> 'country')::text, '(false,null)',
   'a call cty.dat cannot place has no country');
+select is((callsign_profile('VE3TSS') ->> 'caPrefix')::boolean, true, 'caPrefix is true for VE3');
+select is((callsign_profile('VA7QSS') ->> 'caPrefix')::boolean, true, 'caPrefix is true for VA7');
+select is((callsign_profile('VY0ABC') ->> 'caPrefix')::boolean, true, 'caPrefix is true for VY0');
+select is((callsign_profile('CY0S') ->> 'caPrefix')::boolean, true, 'caPrefix is true for CY0');
+select is((callsign_profile('K1ABC') ->> 'caPrefix')::boolean, false, 'caPrefix is false for K1');
+select is((callsign_profile('G4OBK') ->> 'caPrefix')::boolean, false, 'caPrefix is false for G4');
 
 -- Hidden: exactly the not-heard shape, with no license.
 insert into hidden_callsigns (callsign) values ('K1HID');
 select is(callsign_profile('K1HID/P') - 'generatedAt',
-  '{"callsign": "K1HID", "usPrefix": true, "country": {"name": "United States", "continent": "NA"},
+  '{"callsign": "K1HID", "usPrefix": true, "caPrefix": false, "country": {"name": "United States", "continent": "NA"},
     "license": null, "heard": null}'::jsonb, 'a hidden call returns the not-heard shape with no license');
 select throws_ok($$insert into hidden_callsigns (callsign) values ('K1HID/P')$$, '23514', null,
   'hidden_callsigns holds base calls');
