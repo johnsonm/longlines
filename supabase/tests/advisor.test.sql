@@ -27,7 +27,7 @@ select set_eq(
         'create_api_token', 'rotate_api_token', 'lookup_relay_pairing', 'answer_relay_pairing',
         'register_push_device', 'unregister_push_device', 'list_push_devices', 'delete_push_device',
         'rename_push_device', 'report_push_device_blocked', 'save_push_destination', 'get_push_destination',
-        'duplicate_destination', 'preview_push_notification',
+        'duplicate_destination', 'preview_push_notification', 'list_destination_queues', 'clear_destination_queue',
         'save_discord_destination', 'get_discord_destination', 'list_discord_destination_settings',
         'preview_discord_message',
         'save_webhook_destination', 'get_webhook_destination', 'list_webhook_destination_settings',

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatSpotTime, relativeAge, timeAgo } from "./time";
+import { durationWords, formatSpotTime, relativeAge, timeAgo } from "./time";
 
 
 
@@ -36,5 +36,17 @@ describe("timeAgo", () => {
     expect(timeAgo("2026-10-13T09:00:00Z", now)).toBe("3 hours ago");
     expect(timeAgo("2026-10-12T11:00:00Z", now)).toBe("1 day ago");
     expect(timeAgo("2026-10-08T12:00:00Z", now)).toBe("5 days ago");
+  });
+});
+
+describe("durationWords", () => {
+  it("names the largest whole unit, seconds included", () => {
+    expect(durationWords(0)).toBe("0 seconds");
+    expect(durationWords(1)).toBe("1 second");
+    expect(durationWords(40.7)).toBe("40 seconds");
+    expect(durationWords(660)).toBe("11 minutes");
+    expect(durationWords(3600)).toBe("1 hour");
+    expect(durationWords(5 * 86400)).toBe("5 days");
+    expect(durationWords(-5)).toBe("0 seconds");
   });
 });

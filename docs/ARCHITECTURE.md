@@ -371,6 +371,24 @@ the Phase 2 plan, is `docs/superpowers/specs/2026-10-15-outbound-sender-design.m
   within the cycle. Loss is measured from SQL
   (`dropped_at`), never from the age of the oldest pending row, which newest-first ordering makes
   meaningless.
+- **Queue figures and Clear queue.** `destination_queue_status` (`20261031000400`, service role
+  only) is the operator's per-destination view: `waiting` (pending and failed rows),
+  `oldest_waiting_seconds` and `dropped_24h` (rows lost in the last 24 hours; unwanted and
+  cleared rows keep `dropped_at` null, so they are not counted). `list_destination_queues()`
+  gives the owner the same figures for their destinations plus `backed_up`, decided in SQL by two
+  knobs: an enabled destination (not paused by an operator) with at least
+  `destination_backlog_waiting()` (100) rows waiting or whose oldest waiting row is
+  `destination_backlog_age()` (10 minutes) old. The Destinations page shows a banner for each backed-up destination and the waiting count on every card.
+  `clear_destination_queue(id)` (the banner's Clear queue and `POST /v1/destinations/{id}/clear`)
+  drops the owner's waiting rows whose queue message is visible now, with `dropped_at` null, and
+  archives their messages, the shape of the claim's unwanted sweep. It takes the queue rows
+  `for update skip locked`, so a claim in progress keeps what it took, and it leaves every row
+  whose vt is ahead: in flight in the sender, in webhook retry backoff or in the batch a 429 put
+  back (a throttle moves only that batch's vt; the destination's other rows stay visible and are
+  cleared).
+  Dropping an in-flight row before its `mark_deliveries_failed` would leave a failed row with no
+  queue message. No delivery is dropped in TypeScript; in SQL only the claim's sweeps,
+  `update_destination`'s resume and `clear_destination_queue` drop one.
 - **Reaching the queue.** The matcher's kick was a pg_net POST to the `deliver` function; it is
   now `pg_notify('deliveries', '')`, and the sender LISTENs on that channel (`SenderDb.listen`,
   on postgres.js's own connection outside the pool). A notify only ends the idle sleep between

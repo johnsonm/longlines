@@ -24,7 +24,7 @@ curl https://api.longlines.io/v1/connections \
 
 | Resource | Paths |
 | --- | --- |
-| Destinations | `/destinations`, `/destinations/{id}`, `/destinations/{id}/rotate-secret`, `/destinations/{id}/test` |
+| Destinations | `/destinations`, `/destinations/{id}`, `/destinations/{id}/rotate-secret`, `/destinations/{id}/test`, `/destinations/{id}/clear` |
 | Connections | `/connections`, `/connections/{id}` |
 | Callsign groups | `/groups`, `/groups/{id}`, `/groups/{id}/members`, `/groups/{id}/members/remove` |
 | Goals | `/goals`, `/goals/{id}`, `/goals/{id}/entries`, `/goals/{id}/reviews` |

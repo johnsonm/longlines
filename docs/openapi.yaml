@@ -324,6 +324,37 @@ paths:
               examples:
                 webhook: { value: { error: Webhook HTTP 500, status: 500 } }
 
+  /destinations/{id}/clear:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    post:
+      operationId: clear_destination_queue
+      tags: [Destinations]
+      summary: Drop the spots waiting to be sent
+      description: |
+        Drops the destination's spots that are waiting to be sent and answers how many were
+        dropped. Spots already being sent, or waiting to be retried, are not affected. New spots
+        keep coming. Dropped spots are not sent later.
+      security:
+        - apiToken: [write]
+      responses:
+        "200":
+          description: How many waiting spots were dropped.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [cleared]
+                properties:
+                  cleared: { type: integer, minimum: 0 }
+              examples:
+                cleared: { value: { cleared: 140 } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ReadOnly" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "500": { $ref: "#/components/responses/ServerError" }
+
   /connections:
     get:
       operationId: list_connections

@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
-import { Button, Dialog, DialogActions, DialogContent, DialogTitle, Stack, Typography } from "@mui/material";
+import { Typography } from "@mui/material";
+import { ConfirmDialog } from "./ConfirmDialog";
 
 interface Props {
   /** The name of what goes: the title reads "Delete {name}?". */
@@ -13,18 +14,9 @@ interface Props {
 /** Asked before a connection or a destination is deleted. Escape and the backdrop cancel. */
 export function ConfirmDeleteDialog({ name, children, onCancel, onConfirm }: Props) {
   return (
-    <Dialog open onClose={onCancel} fullWidth maxWidth="xs">
-      <DialogTitle sx={{ overflowWrap: "anywhere" }}>Delete {name}?</DialogTitle>
-      <DialogContent>
-        <Stack spacing={2}>
-          {children}
-          <Typography variant="body2" color="text.secondary">This can't be undone.</Typography>
-        </Stack>
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={onCancel}>Cancel</Button>
-        <Button color="error" variant="contained" onClick={onConfirm}>Delete</Button>
-      </DialogActions>
-    </Dialog>
+    <ConfirmDialog title={`Delete ${name}?`} confirmLabel="Delete" confirmColor="error" onCancel={onCancel} onConfirm={onConfirm}>
+      {children}
+      <Typography variant="body2" color="text.secondary">This can't be undone.</Typography>
+    </ConfirmDialog>
   );
 }

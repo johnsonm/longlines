@@ -113,6 +113,7 @@ export const ROUTES: ReadonlyArray<readonly [string, string, Route]> = [
   ["DELETE", "/v1/destinations/:id",               write("delete_destination", "none", {})],
   ["POST",   "/v1/destinations/:id/rotate-secret", write("rotate_signing_secret", "none", {})],
   ["POST",   "/v1/destinations/:id/test",          write("send_test", "none", {})],
+  ["POST",   "/v1/destinations/:id/clear",         write("clear_destination_queue", "none", {})],
 
   ["GET",    "/v1/connections",                    read("list_subscriptions")],
   ["POST",   "/v1/connections",                    write("create_subscription", "body", { arrays: SUB.arrays, lists: SUB.lists, scalars: SUB.scalars, status: CREATED.status })],
