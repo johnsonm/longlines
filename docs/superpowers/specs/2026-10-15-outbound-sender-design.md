@@ -3,7 +3,8 @@
 Date: 2026-10-15
 
 Status: Phase 1 complete (2026-10-16, session 6). Each build session appends to the Progress log
-at the end; read it before doing anything.
+at the end; read it before doing anything. Section 9 (the Phase 2 outline) is superseded by
+`2026-10-31-outbound-sender-phase-2.md`, which holds the Phase 2 decisions and its own Progress log.
 
 ## Goal
 

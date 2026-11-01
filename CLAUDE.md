@@ -662,6 +662,10 @@ editor.
 
 ## Sender rules
 
+The design is `docs/superpowers/specs/2026-10-15-outbound-sender-design.md` (Phase 1); Phase 2
+(LISTEN, the permanent-failure pause, queue backlog and Clear queue) is
+`docs/superpowers/specs/2026-10-31-outbound-sender-phase-2.md`.
+
 - `sender/` is the outbound delivery process on Fly.io (app `longlines-sender`), the counterpart
   of `inbound/`. `sender/main.ts` is only the process shell; behavior goes in `sender/sender.ts`,
   `sender/cluster_stream.ts` (the spots stream), `sender/db.ts` (the only module that imports
