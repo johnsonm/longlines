@@ -677,7 +677,7 @@ Earlier entries are never edited.
   both routes answered as specified through `supabase functions serve`. Only comments changed: the
   shared lookup budget now names reference searches and spotted activations wherever it lists its
   users (`callsign_profile.ts`, the handler's header, OPERATIONS).
-- 2026-11-01, PR 4 (branch `spotted-activations-web`): the web app. `web/src/activations/`
+- 2026-11-01, PR 4 (#347, branch `spotted-activations-web`): the web app. `web/src/activations/`
   (`types.ts` mirroring the handler's interfaces, `paths.ts`, `model.ts` with every wording
   helper, the DOM-free `geometry.ts` imported with `.ts` extensions, `fixtures.ts` copied from the
   function's real seed payloads, `useActivations.ts` with both hooks, `ActivationsTab`,
