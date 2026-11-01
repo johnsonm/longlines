@@ -220,6 +220,21 @@ begin
   assert (select relrowsecurity from pg_class where oid = 'public.relay_tokens'::regclass)
          and (select relrowsecurity from pg_class where oid = 'public.relay_pairings'::regclass),
     'relay_tokens and relay_pairings should have row level security on';
+
+  -- Spotted activations: the minute job, its tables (service role only) and the watermark row.
+  assert exists (select 1 from cron.job where jobname = 'assemble-spotted-activations' and schedule = '* * * * *'),
+    'assemble-spotted-activations should run every minute';
+  assert (select count(*) from pg_class
+          where oid in ('public.spotted_activations'::regclass, 'public.spotted_activation_redirects'::regclass,
+                        'public.spotted_activation_spots'::regclass, 'public.spotted_activation_state'::regclass,
+                        'public.us_state_centroids'::regclass)
+            and relrowsecurity) = 5,
+    'the spotted activation tables should exist with row level security on';
+  assert (select count(*) from spotted_activation_state) = 1,
+    'spotted_activation_state should hold its one watermark row';
+  assert (select count(*) from us_state_centroids) = 51,
+    'us_state_centroids should hold the 50 states and DC';
+  perform public.assemble_spotted_activations(now());
 end $$;
 
 -- anon must not be able to read the tables.

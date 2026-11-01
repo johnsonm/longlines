@@ -19,6 +19,9 @@
 -- as a weekly load would leave them, minus one in fifty, so a reference page
 -- can show both a listed and an unlisted reference.
 --
+-- KK4PWJ (a real call, used as the canvas does) gets a fixed week of spots covering every
+-- spotted activation case, and the last step assembles the week's spotted activations.
+--
 -- One DO block on purpose: Supabase branching sends the seed file as a single
 -- prepared batch, so a temp table created by one statement does not exist yet
 -- when the next is prepared. PL/pgSQL plans each statement when it runs.
@@ -386,6 +389,87 @@ from seed_days d,
 where t.spot_time < now()
 on conflict do nothing;
 
+-- KK4PWJ's spotted activations ---------------------------------------------------
+
+-- A fixed week for one station so the Spotted activations tab and page have every case to show:
+-- a two-fer (two parks, interleaved spots), a rover day of three parks ending in a single spot, a
+-- run across 00:00 UTC that POTA splits in two, and a day spotted as KK4PWJ/P and KK4PWJ. RBN and
+-- DX Cluster rows join the two-fer and the rover's first park at close; the BEACON, the 17m row and
+-- the 15m cluster spot do not. The spotters are made-up calls with license states (and a KL7 with
+-- an Alaska license), plus a Canadian and a German, so the map has places to draw.
+create temp table seed_kk_parks as
+select row_number() over (order by p.i) as n, p.reference, p.name, p.location
+from seed_parks p
+where p.location = 'US-NC' and p.i % 50 <> 7
+order by p.i
+limit 5;
+
+-- The seeded catalog's coordinates are made up anywhere in the US; put these five in North Carolina.
+update reference_catalog c
+   set latitude = 35.55 + k.n * 0.12, longitude = -80.1 + k.n * 0.35
+  from seed_kk_parks k
+ where c.program = 'pota' and c.reference = k.reference;
+
+insert into callsign_licenses (callsign, authority, name, operator_class, status, country, state, loaded_at)
+select l.callsign, 'FCC', 'Seed Operator', 'General', 'Active', 'US', l.state, now()
+from (values ('N4KJS', 'NC'), ('W4DAS', 'VA'), ('K3ZRS', 'PA'), ('W1QTS', 'MA'), ('KD8BS', 'OH'), ('W5TXS', 'TX'),
+             ('K0COS', 'CO'), ('N6CAS', 'CA'), ('WA7WS', 'WA'), ('K9ILS', 'IL'), ('KL7AKS', 'AK'), ('W2NYS', 'NY'),
+             ('K4GAS', 'GA'), ('N8MIS', 'MI')) as l(callsign, state)
+on conflict (callsign) do nothing;
+
+insert into raw_spots (source, source_spot_id, content_hash, spot_time, callsign, spotter, frequency_khz, band, mode, mode_family,
+                       comment, pota_reference, pota_park_name, pota_location, raw_payload)
+select 'pota', 'seed-kk4pwj-' || x.n, md5('seed-kk4pwj-' || x.n), t.spot_time, x.callsign, x.spotter,
+       pg_temp.freq(x.band, x.mode, x.n), x.band, x.mode, pg_temp.family(x.mode),
+       case when x.spotter = x.callsign then 'QRV' else '' end, p.reference, p.name, p.location, '{"seed": true}'
+from (values
+        -- The two-fer.
+        (1, -6, '18:12', 1, '20m', 'ssb', 'KK4PWJ', 'KK4PWJ'), (2, -6, '18:13', 2, '20m', 'ssb', 'KK4PWJ', 'N4KJS'),
+        (3, -6, '18:25', 1, '20m', 'ssb', 'KK4PWJ', 'W4DAS'), (4, -6, '18:41', 2, '40m', 'cw', 'KK4PWJ', 'K3ZRS'),
+        (5, -6, '18:58', 1, '40m', 'cw', 'KK4PWJ', 'W1QTS'), (6, -6, '19:15', 2, '20m', 'ssb', 'KK4PWJ', 'VE3ONS'),
+        (7, -6, '19:40', 1, '20m', 'ssb', 'KK4PWJ', 'DL1DES'),
+        -- The rover day: three parks, the last spotted once.
+        (8, -4, '14:00', 3, '40m', 'ssb', 'KK4PWJ', 'KK4PWJ'), (9, -4, '14:12', 3, '40m', 'ssb', 'KK4PWJ', 'KD8BS'),
+        (10, -4, '14:31', 3, '20m', 'cw', 'KK4PWJ', 'W5TXS'), (11, -4, '14:40', 3, '20m', 'cw', 'KK4PWJ', 'K0COS'),
+        (12, -4, '15:30', 4, '20m', 'ssb', 'KK4PWJ', 'KK4PWJ'), (13, -4, '15:45', 4, '20m', 'ssb', 'KK4PWJ', 'N6CAS'),
+        (14, -4, '16:10', 4, '20m', 'ssb', 'KK4PWJ', 'WA7WS'), (15, -4, '17:20', 5, '20m', 'cw', 'KK4PWJ', 'K9ILS'),
+        -- Across 00:00 UTC.
+        (16, -3, '23:20', 1, '40m', 'ssb', 'KK4PWJ', 'KK4PWJ'), (17, -3, '23:35', 1, '40m', 'ssb', 'KK4PWJ', 'KL7AKS'),
+        (18, -3, '23:52', 1, '40m', 'ssb', 'KK4PWJ', 'W2NYS'), (19, -2, '00:06', 1, '40m', 'ssb', 'KK4PWJ', 'K4GAS'),
+        (20, -2, '00:21', 1, '40m', 'ssb', 'KK4PWJ', 'N8MIS'), (21, -2, '00:38', 1, '80m', 'ssb', 'KK4PWJ', 'N4KJS'),
+        -- Portable and plain.
+        (22, -1, '16:05', 2, '20m', 'cw', 'KK4PWJ/P', 'KK4PWJ/P'), (23, -1, '16:20', 2, '20m', 'cw', 'KK4PWJ', 'W4DAS'),
+        (24, -1, '16:44', 2, '30m', 'cw', 'KK4PWJ', 'K3ZRS')
+     ) as x(n, d, hhmm, park, band, mode, callsign, spotter)
+join seed_days d on d.d = x.d
+join seed_kk_parks p on p.n = x.park,
+     lateral (select d.day_start + x.hhmm::time - time '00:00' as spot_time) as t;
+
+insert into rbn_spots (spot_time, received_at, spotter, callsign, frequency_khz, band, mode, mode_family,
+                       snr, speed, speed_unit, spot_type, line)
+select t.spot_time, t.spot_time + interval '4 seconds', x.spotter, 'KK4PWJ', x.freq, x.band, 'cw', 'cw',
+       x.snr, 22, 'WPM', x.spot_type,
+       format('DX de %s: %s  KK4PWJ  CW %s dB 22 WPM %s %sZ', x.spotter, x.freq, x.snr, x.spot_type,
+              to_char(t.spot_time at time zone 'utc', 'HH24MI'))
+from (values
+        (-6, '18:45', 'K3ZRS-#', 7031.5, '40m', 14, 'CQ'), (-6, '18:46', 'W1QTS-#', 7031.5, '40m', 9, 'CQ'),
+        (-6, '18:52', 'DL1DES-#', 7031.6, '40m', 6, 'CQ'), (-6, '18:55', 'VE3ONS-#', 7031.5, '40m', 18, 'BEACON'),
+        (-6, '18:56', 'N4KJS-#', 18082.0, '17m', 11, 'CQ'),
+        (-4, '14:33', 'W5TXS-#', 14061.2, '20m', 20, 'CQ'), (-4, '14:35', 'VE3ONS-#', 14061.2, '20m', 12, 'DX')
+     ) as x(d, hhmm, spotter, freq, band, snr, spot_type)
+join seed_days d on d.d = x.d,
+     lateral (select d.day_start + x.hhmm::time - time '00:00' as spot_time) as t
+on conflict do nothing;
+
+insert into raw_spots (source, source_spot_id, content_hash, spot_time, callsign, spotter, frequency_khz, band, mode, mode_family,
+                       comment, raw_payload)
+select 'dxcluster', 'seed-kk4pwj-dx-' || x.n, md5('seed-kk4pwj-dx-' || x.n), t.spot_time, 'KK4PWJ', x.spotter,
+       x.freq, x.band, x.mode, pg_temp.family(x.mode), 'POTA', '{"seed": true}'
+from (values (1, -6, '18:30', 'W2NYS', 14285.0, '20m', 'ssb'), (2, -6, '18:35', 'K4GAS', 21285.0, '15m', 'ssb'))
+       as x(n, d, hhmm, spotter, freq, band, mode)
+join seed_days d on d.d = x.d,
+     lateral (select d.day_start + x.hhmm::time - time '00:00' as spot_time) as t;
+
 -- Callsign rollups for the seeded days, as the hourly job would have made.
 -- They refuse to run without cty.dat, so load the few countries the seeded
 -- spotters come from (import-cty loads the real file; it never runs here).
@@ -420,9 +504,26 @@ delete from rbn_rollup_days;
 delete from country_rollup_days;
 perform public.refresh_stats_snapshot_at(now());
 
+-- Spotted activations for the seeded week, as the minute job would have assembled them: read
+-- every seeded spot (a pass reads at most activation_batch_limit()), then close everything as a
+-- day from now would (a pass closes at most activation_close_limit()), until a pass closes
+-- nothing (another open transaction can hold the closes back; the minute job closes the rest).
+loop
+  exit when public.assemble_spotted_activations(now() + interval '1 minute') < public.activation_batch_limit();
+end loop;
+declare
+  v_open bigint := -1;
+begin
+  loop
+    exit when v_open = (select count(*) from spotted_activations a where a.closed_at is null);
+    v_open := (select count(*) from spotted_activations a where a.closed_at is null);
+    perform public.assemble_spotted_activations(now() + interval '1 day');
+  end loop;
+end;
+
 -- The branch may reuse this connection, so leave nothing temporary behind.
 drop table seed_days, seed_states, seed_parks, seed_pota_activations, seed_pota_spots,
-           seed_associations, seed_sota_activations;
+           seed_associations, seed_sota_activations, seed_kk_parks;
 drop function pg_temp.seed_call(int, text[]), pg_temp.gauss(int), pg_temp.skewed(int, double precision, int),
               pg_temp.family(text), pg_temp.freq(text, text, int), pg_temp.seed_hash(text, int),
               pg_temp.seed_grid(numeric, numeric);

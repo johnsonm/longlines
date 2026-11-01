@@ -128,8 +128,9 @@ on and no policies, `revoke all ... from anon, authenticated`: service role only
   - `base_callsign text not null`;
   - `program text not null check (program in ('pota', 'sota', 'wwff', 'wwbota', 'iota'))`;
   - `references text[] not null` (feed order, upper case) and `reference_names text[]`
-    (index-aligned with `references`, null where the feed names none: WWBOTA names only the first
-    bunker);
+    (index-aligned with `references`, null where neither the feed nor the reference list names
+    one: WWBOTA names only the first bunker, and the close fills a null name from
+    `reference_catalog`, which names SOTA summits);
   - `day date not null`: the UTC day of `started_at`, always `(started_at at time zone 'utc')::date`,
     recomputed when an earlier spot extends `started_at`;
   - `started_at`, `last_spot_at timestamptz not null`, `closed_at timestamptz null`;
@@ -232,15 +233,20 @@ the batch and close limits keep a pass well inside it.
      spot ingested before the 23:58 one) gets `continued_from = <new id>` when its own is null.
 4. **Merge two-fers**, after the loop. For each `(base_callsign, program)` (and UTC day, for POTA)
    with two open rows whose `[started_at, last_spot_at]` intersect (closed intervals, so two
-   self-spots at the same second merge), fold the younger row into the older: re-point its spot
-   rows (`on conflict do nothing`), union references and names, `coalesce` `continued_from` into
+   self-spots at the same second merge), fold the younger row into the older (by `created_at`,
+   then `started_at`, then id). Only a row the pass touched can have come to intersect another, so
+   the search starts from those rows and searches a survivor again, since it has grown. Folding
+   re-points its spot rows (`on conflict do nothing`), union references and names, `coalesce` `continued_from` into
    the survivor, re-point any row whose `continued_from` was the deleted id, then delete the
    younger row. No redirect is written (decision 16). A rover's sequential parks never intersect,
-   so they stay apart.
+   so they stay apart. Two open rows that share a reference also fold when each lies within the
+   gap of the other: a spot read out of order can bridge two runs at one reference (18:00, 18:10
+   and 19:30 read first, 18:50 last), which in time order would have been one activation.
 5. **Close**, skipped entirely when `v_capped` (closing against `p_now` while unread spots sit
    behind the watermark would close too early; the next pass closes). For at most
    `activation_close_limit()` open rows with `last_spot_at < p_now - activation_gap()`, oldest
-   first:
+   first. While another transaction holds the cutoff back, `p_now` here is instead that
+   transaction's start plus `activation_ingest_lag()`, for the same reason:
    - Attach `rbn_spots` rows with `base_callsign(callsign) = base_callsign`,
      `spot_time >= date_trunc('minute', started_at)` and `spot_time <= last_spot_at`,
      `spot_type in ('CQ', 'DX')`, and `band = any(<the bands of the row's reference spots>)`
@@ -251,9 +257,10 @@ the batch and close limits keep a pass well inside it.
      (`rollup_country_day`'s pattern: `left join lateral cty_lookup(spotter) on true`, and
      `callsign_licenses` by `spotter_base` with `country = 'US' and state = any(us_states())`).
      `self_spot = is_self_spot(callsign, spotter)`.
-   - Summary: `spot_count`, `source_counts`, `bands`, `modes`; `states` = the distinct states of
-     non-self spotters; `countries` = the distinct entity names of non-self spotters **with no
-     state** (a spotter with a US state is always a state: a KL7 with an AK license is Alaska, the
+   - Summary: `spot_count`, `source_counts`, `bands`, `modes` (each ordered by spots, most
+     first); `states` = the distinct states of non-self spotters; `countries` = the distinct entity
+     names of non-self spotters **with no state**, the United States entity (`K`) left out, so a US
+     spotter with no license state is in no place (a spotter with a US state is always a state: a KL7 with an AK license is Alaska, the
      state); `farthest` by `great_circle_km` from the first reference's catalog coordinates to
      each state's centroid and each country's `cty_entities.lat/lon` (no coordinates: no
      `farthest` and no map lines, which is every WWBOTA and IOTA activation);
@@ -470,6 +477,8 @@ Stacked, one worktree each (`../longlines-<branch>`):
     survive the merge;
   - a row in `spotted_activation_redirects` resolves to the canonical payload;
   - a rover's three parks in a day stay three;
+  - a spot read out of order that bridges two runs at one reference makes them one activation,
+    while a rover's parks within the gap of each other stay apart;
   - POTA across 00:00 UTC splits with `continued_from` and the derived `continuedBy`, also when the
     00:02 spot is ingested before the 23:58 one, and under `set time zone 'America/New_York'`; a
     SOTA run across midnight does not split;
@@ -608,3 +617,34 @@ Earlier entries are never edited.
   only "never attached"). Open for Brad: the four assumptions
   and every line under "Drafts, not on the canvas". Notes for PR 2: open PRs #340 to #343 also edit
   CLAUDE.md; expect a rebase.
+- 2026-11-01, PR 2 (#345, branch `spotted-activations-schema`): the schema and the detection job.
+  `20261101000100_spotted_activations.sql` adds the five tables, the `raw_spots (ingested_at, id)`
+  index, the knobs, `new_activation_id`, `great_circle_km`, `assemble_spotted_activations`, the
+  two read RPCs and the `assemble-spotted-activations` job; `spotted_activations.test.sql` (97
+  assertions) covers every case under Verification; the seed gives KK4PWJ a fixed week (a
+  two-fer, a rover day ending in a single spot, a midnight split, `/P`) with licensed spotters and
+  North Carolina park coordinates, and assembles the seeded week; the smoke test, the OPERATIONS
+  cron table and section, an ARCHITECTURE section and the database types. Deviations and
+  additions: the cutoff is also never past the pass's own transaction start, and the
+  other-transaction bound counts only client backends and stays strictly before the oldest
+  `xact_start`; the merge search starts from the rows the pass touched (a scan of every open pair
+  was quadratic on the seed: 19 s, 50 s and 130 s for the first three passes, now 3 to 9 s); a
+  null reference name is filled from `reference_catalog` at close and by a later spot that names
+  it; `countries` leaves out the United States entity; the read RPCs also recompute `spotCount`,
+  `sources` and each card's `spotCount`, `states` and `countries` without hidden spotters, and
+  `continuedFrom` is null unless that activation is closed; a spot's `place` is its state's name,
+  else its entity's name (so an unlicensed US spotter reads "United States"); the DX Cluster
+  window starts on the minute as RBN's does; the twelve-month summary counts activations started
+  in `(p_now - 12 months, p_now]`, and `recent` is not limited to twelve months; the seed repeats
+  the closing pass until nothing is open (a pass closes at most 100). Helpers beside the plan's:
+  `activation_merge_references`, `spotted_activation_heard`, `spotted_activation_farthest`,
+  `spotted_activation_time`, `spotted_activation_continued_by` and
+  `spotted_activation_continued_from`, all pinned and service role only. Notes for PR 3: the
+  payload keys are pinned in the pgTAP suite; numbers (`latitude`, `frequencyKhz`) are JSON
+  numbers, times are `YYYY-MM-DDTHH:MM:SSZ` and `day` is `YYYY-MM-DD`.
+- 2026-11-01, review of PR 2 (#345): two-fers also fold two open rows that share a reference and
+  lie within the gap of each other (a spot read out of order bridged two runs, which stayed two
+  activations), and a pass whose cutoff another transaction holds back closes only what had gone
+  quiet by the held cutoff (closing against `p_now` closed activations whose next spot sat unread,
+  then dropped that spot as late); the seed's closing loop stops when a pass closes nothing; two
+  pgTAP cases (99 assertions).

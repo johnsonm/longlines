@@ -53,6 +53,7 @@ Times are UTC.
 | `ingest-wwbota` | every minute | `ingest-wwbota` |
 | `match-pending-spots` | every minute | `match_pending_spots()`, the safety net behind the call every ingest makes |
 | `health-sample` | every minute | `record_health_sample()`, the Health page's history |
+| `assemble-spotted-activations` | every minute | `assemble_spotted_activations(now())`: reads new reference spots, merges two-fers, closes quiet activations ("Spotted activations" below) |
 | `archive-aprs` | every 5 minutes | the `archive` function for APRS-IS only (`{"sources": ["aprs"]}`) |
 | `archive-spots` | every 10 minutes | `archive` for POTA, SOTAwatch, DX Cluster, WWFF, WWBOTA and RBN |
 | `rollup-stats-days` | :01 hourly | `refresh_stats_rollups()`: the Stats day rollups (RBN, APRS-IS, countries) and the RBN top stations |
@@ -2113,3 +2114,63 @@ and reference pages; 500 `Reference search is unavailable right now.` when the R
 reply did not fit the schema (the function logs `reference-search:` with the error, never the
 query). Searches are not cached in the database; each one scans the catalog once (about 0.4 s for
 `us`). Until the inbound worker's first reference list loads land, the search finds nothing.
+
+# Spotted activations
+
+How they work is in `docs/ARCHITECTURE.md` ("Spotted activations"); the design is
+`docs/superpowers/specs/2026-11-01-spotted-activations-design.md`.
+
+## First deploy (hosted)
+
+`20261101000100_spotted_activations` adds the tables, the read RPCs, the minute job and the index
+`raw_spots_ingested_at_id_idx` on `raw_spots (ingested_at, id)`. Building that index locks writes
+to `raw_spots` for a few seconds (about 600,000 rows), so ingest pushes in that moment wait. The
+watermark starts at the push: there is no backfill, and the first activations close about 45
+minutes after the first new reference spot.
+
+```sh
+supabase migration list        # 20261101000100 pending
+supabase db push
+```
+
+Then check, in the SQL editor:
+
+```sql
+select jobname, schedule from cron.job where jobname = 'assemble-spotted-activations';
+select * from spotted_activation_state;   -- last_run_at within the last minute
+```
+
+## Is it keeping up?
+
+```sql
+select s.watermark_at, s.last_run_at, now() - s.watermark_at as behind,
+       (select count(*) from spotted_activations where closed_at is null) as open,
+       (select count(*) from spotted_activations
+        where closed_at is null and last_spot_at < now() - activation_gap()) as due_to_close
+from spotted_activation_state s;
+```
+
+`behind` is normally under a minute while spots flow (the watermark is the last reference spot
+read, so it stands still when no POTA, SOTAwatch, WWFF, WWBOTA or IOTA spot arrives). A pass reads
+at most `activation_batch_limit()` (5,000) spots and closes at most `activation_close_limit()`
+(100) activations, and a pass that read the full batch closes nothing, so after downtime the job
+catches up over several minutes on its own. `due_to_close` above 100 for more than a few minutes
+means passes are capped or failing: look at the job in `/health` or
+`select status, return_message, end_time - start_time from cron.job_run_details d join cron.job j
+using (jobid) where j.jobname = 'assemble-spotted-activations' order by start_time desc limit 10;`.
+
+A long transaction on another connection holds the cutoff back (a pass never reads past the oldest
+other open transaction's start), so a stuck session shows as `behind` growing while ingest works.
+Closes wait with it (a pass closes only what had gone quiet by the held cutoff), so nothing closes
+while its next spot sits unread; `due_to_close` grows too, and both catch up once the session ends.
+
+## One activation
+
+```sql
+select spotted_activation('<id>');                           -- null: unknown, still open, or hidden
+select callsign_spotted_activations('KK4PWJ', now()) -> 'summary';
+```
+
+A hidden call (`hidden_callsigns`) has no activations to read; a hidden spotter is left out of
+every page at read, with no rebuild.
+

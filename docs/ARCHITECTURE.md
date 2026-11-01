@@ -1494,6 +1494,57 @@ spec).
   answer never shown) in the one program among the sources or all three, and still accepts any
   typed reference.
 
+## Spotted activations
+
+```mermaid
+flowchart LR
+  R[(raw_spots)] -- "past the (ingested_at, id) watermark" --> A[assemble_spotted_activations, every minute]
+  A --> SA[(spotted_activations)]
+  A --> SS[(spotted_activation_spots)]
+  RBN[(rbn_spots)] -- "at close" --> A
+  C[(reference_catalog, cty_entities, callsign_licenses, us_state_centroids)] -- "at close" --> A
+  SA --> P[spotted_activation / callsign_spotted_activations]
+  SS --> P
+```
+
+An activation is a run of one base call's spots at one program's references with no gap longer
+than `activation_gap()` (45 minutes). The design is
+`docs/superpowers/specs/2026-11-01-spotted-activations-design.md`; `20261101000100` is the schema
+and the job.
+
+- **Forward only.** The `assemble-spotted-activations` cron job runs
+  `assemble_spotted_activations(now())` every minute under an advisory lock. It reads `raw_spots`
+  rows past the watermark in `spotted_activation_state`, in `(ingested_at, id)` order (the index
+  `raw_spots_ingested_at_id_idx`), up to a cutoff of `p_now` minus `activation_ingest_lag()` (30
+  s) that never passes the oldest other open transaction's start. `ingested_at` is the inserting
+  transaction's start and `id` is drawn at insert, not commit, so a row can only appear behind the
+  watermark while its transaction is open; the cutoff waits for it. Reference spots are POTA,
+  SOTAwatch, WWFF, WWBOTA (every bunker) and DX Cluster spots with an IOTA reference, with
+  `spot_stream`'s program and reference expressions. There is no backfill: the watermark starts at
+  the migration.
+- **Attach, open, merge.** Each spot attaches to the open activation of its base call and program
+  that shares a reference and whose window, widened by the gap, holds its time (POTA also needs the
+  same UTC day), else opens one; a spot that would have matched a closed activation is dropped.
+  After the batch, two open rows of one base call and program whose `[started_at, last_spot_at]`
+  intersect fold into the older (a two-fer), and so do two that share a reference and lie within
+  the gap of each other (a spot read out of order bridged them). POTA splits at 00:00 UTC: the later half's
+  `continued_from` points at the earlier, linked whichever is read first.
+- **Close.** Once `activation_gap()` has passed since an activation's last spot (and the pass was
+  not capped at `activation_batch_limit()`; while another transaction holds the cutoff back, the
+  gap is counted from the held cutoff), the close copies the window's RBN spots (CQ and DX,
+  from the minute of the first spot, on the reference spots' bands) and DX Cluster spots into
+  `spotted_activation_spots`, resolves each spotter once (a US license state, else the cty.dat
+  entity), and stores the summary: spot and source counts, bands, modes, states, countries, the
+  farthest place by great-circle distance from the first reference's catalog coordinates, and the
+  reference's own US states. A closed row never changes.
+- **Reading.** `spotted_activation(id)` (following `spotted_activation_redirects`) and
+  `callsign_spotted_activations(call, now)` are service-role RPCs that read closed rows only and
+  recompute places at read, so a hidden spotter counts nowhere and a hidden activator has no pages.
+  Their shapes are pinned by `supabase/tests/spotted_activations.test.sql`.
+- **Cost.** On the seeded local database (about 31,000 reference spots, 4,700 activations) the
+  seed's catch-up reads in 7 capped passes (16 s) and closes in 46 passes (14 s). A steady pass
+  with nothing new takes about 15 ms, 300 new spots about 0.2 s, and 100 closes about 0.3 s.
+
 ## Management API
 
 Scripts manage destinations, subscriptions and callsign groups through the `api` Edge Function with

@@ -925,7 +925,8 @@ for the profile's Spotted activations tab and the `/activations/<id>` page.
 - Forward only: a pass reads `raw_spots` past the `(ingested_at, id)` watermark in
   `spotted_activation_state`, up to a cutoff of `p_now` minus the lag and never past the oldest
   other open transaction's `xact_start`, and always advances the watermark to the last row read.
-  No backfill. A capped pass (batch limit hit) closes nothing. A spot that would have matched a
+  No backfill. A capped pass (batch limit hit) closes nothing, and a pass held back by another
+  transaction closes only what had gone quiet by the held cutoff. A spot that would have matched a
   closed activation is dropped, never attached and never a new one.
 - Ids are permanent, opaque and never reused (`new_activation_id()`). The only redirect is
   `spotted_activation_redirects`, which no automatic path writes; `spotted_activation(id)` follows
