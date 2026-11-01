@@ -291,12 +291,13 @@ The conventions are `docs/superpowers/specs/2026-10-22-strict-eslint-conventions
   (service role only, the operator's view) and `list_destination_queues()` (the owner's rows) give
   `waiting` (pending and failed rows), `oldest_waiting_seconds` and `dropped_24h` (loss only:
   unwanted and cleared rows keep `dropped_at` null). `backed_up` is decided there by
-  `destination_backlog_waiting()` (100) and `destination_backlog_age()` (10 minutes), enabled
-  destinations only; the web only words it. `clear_destination_queue` (owner, web and
-  `POST /v1/destinations/{id}/clear`) drops only waiting rows whose message is visible now, with
-  `dropped_at` null, archives their messages and takes the queue rows `for update skip locked`; it
-  leaves rows whose vt is ahead (in flight, in retry backoff or throttled), since an in-flight row
-  dropped before its `mark_deliveries_failed` would be a failed row with no message.
+  `destination_backlog_waiting()` (100) and `destination_backlog_age()` (10 minutes), only for
+  an enabled destination an operator has not paused; the web only words it.
+  `clear_destination_queue` (owner, web and `POST /v1/destinations/{id}/clear`) drops only waiting
+  rows whose message is visible now, with `dropped_at` null, archives their messages and takes the
+  queue rows `for update skip locked`; it leaves rows whose vt is ahead (in flight, in retry
+  backoff, or the batch a 429 put back), since an in-flight row dropped before its
+  `mark_deliveries_failed` would be a failed row with no message.
 - Nothing in the app sets `destinations.health = 'paused'`; it is an operator tool, and the claim
   drops a paused destination's queued rows as unwanted, like `enabled = false`. To hold a queue
   and resume it, set `throttled_until`.

@@ -6,7 +6,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(22);
+select plan(23);
 select pgmq.purge_queue('spot_events');
 select pgmq.purge_queue('deliveries_queue');
 delete from deliveries;
@@ -101,6 +101,13 @@ select is((select backed_up from list_destination_queues() where destination_id 
 select is((select count(*) from list_destination_queues() where destination_id = (select id from theirs)), 0::bigint,
   'another user''s destination is not listed');
 reset role;
+-- An operator's pause (health = 'paused') leaves enabled on; the claim drops its rows as unwanted.
+update destinations set health = 'paused' where id = (select id from busy);
+select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
+select is((select backed_up from list_destination_queues() where destination_id = (select id from busy)), false,
+  'a destination an operator paused is never backed up');
+reset role;
+update destinations set health = 'ok' where id = (select id from busy);
 select pg_temp.as_user('22222222-2222-2222-2222-222222222222');
 select results_eq($$ select destination_id, waiting from list_destination_queues() $$,
   $$ select (select id from theirs), 1 $$, 'each user sees only their own destinations');

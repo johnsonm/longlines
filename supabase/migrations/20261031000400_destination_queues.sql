@@ -77,8 +77,9 @@ cross join lateral (
 -- ---------------------------------------------------------------------------
 
 -- The caller's destinations with their queue figures. backed_up is SQL's: an
--- enabled destination (a paused one has enabled = false) at or past either
--- knob. The web only words it.
+-- enabled destination (a pause sets enabled = false) that no operator paused
+-- (health = 'paused', whose rows the claim drops as unwanted), at or past
+-- either knob. The web only words it.
 create function public.list_destination_queues()
 returns table (destination_id uuid, waiting int, oldest_waiting_seconds int, dropped_24h int,
                backed_up boolean)
@@ -93,9 +94,10 @@ begin
   end if;
   return query
   select q.destination_id, q.waiting, q.oldest_waiting_seconds, q.dropped_24h,
-         q.enabled and (q.waiting >= public.destination_backlog_waiting()
-                        or coalesce(q.oldest_waiting_seconds, 0)
-                           >= extract(epoch from public.destination_backlog_age()))
+         q.enabled and q.health <> 'paused'
+           and (q.waiting >= public.destination_backlog_waiting()
+                or coalesce(q.oldest_waiting_seconds, 0)
+                   >= extract(epoch from public.destination_backlog_age()))
   from destination_queue_status q
   where q.user_id = auth.uid()
   order by q.destination_id;

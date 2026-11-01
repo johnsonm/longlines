@@ -617,3 +617,8 @@ next PR. Earlier entries are never edited.
   (3) The Clear queue confirm button is `warning` coloured, to match the banner. (4) The dialog
   names the waiting count from the last queues load, which includes rows in flight, so the toast's
   count can be lower. Nothing changed for the sender, its role or `sender_role.test.sql`.
+- 2026-10-31, Piece 3 review (PR #343): `list_destination_queues` no longer calls a destination an
+  operator paused (`health = 'paused'`, enabled still true) backed up, as this spec's decision says
+  (one more pgTAP case, `plan(23)`); the OpenAPI description of the clear route no longer says rows
+  held back by a rate limit are kept (a throttle moves only the 429'd batch's vt, so the rest are
+  cleared), and CLAUDE.md, ARCHITECTURE.md and OPERATIONS.md say the same.

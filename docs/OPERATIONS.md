@@ -485,13 +485,13 @@ from destination_queue_status order by waiting desc limit 20;
 
 `waiting` counts pending and failed rows, `oldest_waiting_seconds` is the oldest one's age and
 `dropped_24h` counts rows lost (expired or dropped by a pause) in the last 24 hours. The owner
-sees a "backed up" banner on the Destinations page once an enabled destination has at least
-`destination_backlog_waiting()` (100) rows waiting or one at least `destination_backlog_age()`
-(10 minutes) old, and the waiting count on its card. The fixes are the owner's: narrow the
+sees a "backed up" banner on the Destinations page once an enabled destination (not paused by an
+operator) has at least `destination_backlog_waiting()` (100) rows waiting or one at least
+`destination_backlog_age()` (10 minutes) old, and the waiting count on its card. The fixes are the owner's: narrow the
 connections that send to it, or press Clear queue (`clear_destination_queue`, also
 `POST /v1/destinations/{id}/clear`). Clear drops only the rows whose message is visible now, with
-`dropped_at` null (not counted as loss), and leaves rows in flight, in retry backoff or held by a
-throttle. To hold a destination's queue instead of dropping it, set `throttled_until` as in "A
+`dropped_at` null (not counted as loss), and leaves rows in flight, in retry backoff or in the
+batch a 429 put back; a throttled destination's other rows are cleared. To hold a destination's queue instead of dropping it, set `throttled_until` as in "A
 destination keeps failing"; the rows then wait and expire at the usual limits.
 
 ### The sender is down

@@ -333,8 +333,8 @@ paths:
       summary: Drop the spots waiting to be sent
       description: |
         Drops the destination's spots that are waiting to be sent and answers how many were
-        dropped. Spots already being sent, or waiting to be retried or held back by a rate limit,
-        are not affected. New spots keep coming. Dropped spots are not sent later.
+        dropped. Spots already being sent, or waiting to be retried, are not affected. New spots
+        keep coming. Dropped spots are not sent later.
       security:
         - apiToken: [write]
       responses:
