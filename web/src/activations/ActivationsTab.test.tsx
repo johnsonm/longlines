@@ -93,6 +93,23 @@ describe("ActivationsTab", () => {
     expect(screen.queryByRole("button", { name: /^Show all/ })).not.toBeInTheDocument();
   });
 
+  it("counts a whole day in its note when the first ten cut it short", () => {
+    // Nine days of one activation, then a rover's day of three: only its newest row is in the first ten.
+    const recent: ActivationCard[] = Array.from({ length: 12 }, (_, i) => ({
+      ...LIST.recent[0]!,
+      id: `id${i}`,
+      program: "pota",
+      references: [`US-${1000 + i}`],
+      day: i < 9 ? `2026-10-${String(30 - i).padStart(2, "0")}` : "2026-10-20",
+      startedAt: i < 9 ? `2026-10-${String(30 - i).padStart(2, "0")}T12:00:00Z` : `2026-10-20T${String(20 - i).padStart(2, "0")}:00:00Z`,
+    }));
+    listIs({ data: { ...LIST, recent } });
+    renderPage(<ActivationsTab callsign="KK4PWJ" />);
+    expect(screen.getByText("US-1009")).toBeInTheDocument();
+    expect(screen.queryByText("US-1010")).not.toBeInTheDocument();
+    expect(screen.getByText("Tue 20 Oct 2026").closest("td")).toHaveTextContent("Tue 20 Oct 2026 · 3 parks in one day");
+  });
+
   it("stacks rows on a phone, each a link", () => {
     setMobile(true);
     renderPage(<ActivationsTab callsign="KK4PWJ" />);

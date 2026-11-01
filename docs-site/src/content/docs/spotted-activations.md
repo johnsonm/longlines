@@ -46,7 +46,7 @@ Activations start from when Long Lines began recognizing them; older spots aren'
 | Figures | **Spotted activations** and **References** in the past 12 months, **Time on air** (first spot to last spot, each activation) and the **Most activated** reference |
 | **Recent** | Activations grouped by UTC day, newest first: references and names, time on air, bands and modes, spots, and the states and countries it was heard in. Select **View** (or the row, on a phone) to open one. **Show all** lists up to 200. |
 
-### An activation's page
+### A spotted activation's page
 
 | Section | What it shows |
 | --- | --- |

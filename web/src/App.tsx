@@ -110,7 +110,8 @@ function Router() {
       <Route path="/ref/:program/*" element={<PublicRoute page="ref" />} />
       <Route path="/g/:slug" element={<PublicRoute page="group-public" />} />
       <Route path="/activations/:id" element={<PublicRoute page="activation" />} />
-      {/* An alias that only redirects to /activations/:id; static segments rank first, so it shadows no other route. */}
+      {/* An alias that only redirects to /activations/:id. It outranks /call/* and /ref/:program/* only when their
+          second segment is "activations", which no callsign or program is. */}
       <Route path="/:call/activations/:id" element={<PublicRoute page="activation" />} />
       <Route path="/account" element={<RequireAuth page="account" />} />
       <Route path="/api-tokens" element={<RequireAuth page="api-tokens" />} />

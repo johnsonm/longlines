@@ -401,8 +401,10 @@ New folder `web/src/activations/` (PR 4):
   `/call/*`'s redirects to the canonical base call keep the query string (today's `Navigate`
   drops it).
 - `App.tsx`: the two activation routes; new `Page` / `PublicPage` entries; `layout/nav.ts` maps
-  `activations` to the `lookup` section, so Callsign lookup stays highlighted. React Router ranks
-  static segments first, so `/:call/activations/:id` never shadows an existing route.
+  `activations` to the `lookup` section, so Callsign lookup stays highlighted.
+  `/:call/activations/:id` outranks `/call/*` and `/ref/:program/*` for a path whose second
+  segment is `activations` (React Router scores its two fixed-length parameters above a splat),
+  which no callsign or program is; it shadows no other route.
 - `lib/api.ts`: `loadSpottedActivation(id)` and `loadCallsignActivations(callsign)` with plain
   `fetch` and the `apikey` header only; only the function's own 404 body ("Spotted activation not
   found.") means null, any other 404 is an outage.
@@ -711,3 +713,8 @@ Earlier entries are never edited.
   load them; `stateShapes.ts` (`./states` and the us-atlas JSON), `model.ts` and `paths.ts` still
   import without extensions, so the preview needs them adjusted or the wording it uses moved to a
   module Node can load.
+- 2026-11-01, review of PR 4 (#347): a day's note ("3 parks in one day") now counts the whole day
+  even when the first ten rows cut it short (it counted only the rows shown), with a test; the
+  docs-site heading "An activation's page" reads "A spotted activation's page"; the alias route's
+  comment and this spec's Web section no longer claim it shadows no route (it outranks `/call/*`
+  and `/ref/:program/*` for a second segment `activations`, which no callsign or program is).

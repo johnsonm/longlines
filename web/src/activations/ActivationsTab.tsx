@@ -49,6 +49,8 @@ function Activations({ list }: { list: CallsignActivations }) {
   const { summary } = list;
   const most = summary.mostActivated;
   const days = groupByDay(all ? list.recent : list.recent.slice(0, RECENT_SHOWN));
+  // A day's note counts the whole day, even when the first rows cut it short.
+  const notes = new Map(groupByDay(list.recent).map((d) => [d.day, dayNote(d.cards)]));
 
   return (
     <>
@@ -77,7 +79,7 @@ function Activations({ list }: { list: CallsignActivations }) {
           slotProps={{ title: { variant: "h6" } }}
           action={<Typography variant="caption" color="text.secondary">Time (UTC)</Typography>}
         />
-        {mobile ? <PhoneList days={days} /> : <DesktopTable days={days} />}
+        {mobile ? <PhoneList days={days} notes={notes} /> : <DesktopTable days={days} notes={notes} />}
         {!all && list.recent.length > RECENT_SHOWN && (
           <CardActions>
             <Button onClick={() => setAll(true)}>{`Show all ${fmt(list.recent.length)}`}</Button>
@@ -89,8 +91,7 @@ function Activations({ list }: { list: CallsignActivations }) {
 }
 
 /** A day heading's words: "Sat 25 Oct 2026" and, for a busy day, " · 3 parks in one day". */
-function DayLabel({ day }: { day: ActivationDay }) {
-  const note = dayNote(day.cards);
+function DayLabel({ day, note }: { day: ActivationDay; note: string | null }) {
   return (
     <>
       <Typography component="span" variant="subtitle2">{dayHeading(day.day)}</Typography>
@@ -113,7 +114,10 @@ function TwoLines({ top, bottom }: { top: string; bottom: string | null }) {
   );
 }
 
-function DesktopTable({ days }: { days: ActivationDay[] }) {
+/** Each day's note ("3 parks in one day"), keyed by day. */
+type DayNotes = Map<string, string | null>;
+
+function DesktopTable({ days, notes }: { days: ActivationDay[]; notes: DayNotes }) {
   return (
     <Box sx={{ overflowX: "auto" }}>
       <Table size="small">
@@ -132,7 +136,7 @@ function DesktopTable({ days }: { days: ActivationDay[] }) {
           {days.map((day) => (
             <Fragment key={day.day}>
               <TableRow selected>
-                <TableCell colSpan={6}><DayLabel day={day} /></TableCell>
+                <TableCell colSpan={6}><DayLabel day={day} note={notes.get(day.day) ?? null} /></TableCell>
               </TableRow>
               {day.cards.map((card) => {
                 const note = cardNote(card);
@@ -167,13 +171,13 @@ function DesktopTable({ days }: { days: ActivationDay[] }) {
   );
 }
 
-function PhoneList({ days }: { days: ActivationDay[] }) {
+function PhoneList({ days, notes }: { days: ActivationDay[]; notes: DayNotes }) {
   return (
     <List disablePadding>
       {days.map((day) => (
         <Fragment key={day.day}>
           <ListSubheader disableSticky>
-            <DayLabel day={day} />
+            <DayLabel day={day} note={notes.get(day.day) ?? null} />
           </ListSubheader>
           {day.cards.map((card) => {
             const names = cardNames(card);
