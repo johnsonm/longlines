@@ -1,0 +1,19 @@
+{
+  // Read only by Vercel's Node.js builder, which compiles each api/ function, and every file it
+  // imports, one file at a time with the first tsconfig.json it finds walking up from the
+  // function. Without this file it finds the solution-style web/tsconfig.json (no
+  // compilerOptions), defaults to NodeNext and emits CommonJS, which this "type": "module"
+  // package cannot load. These options make it emit ES modules and turn the ".ts" import paths
+  // into the ".js" files it writes. Type checking is tsconfig.node.json's (npm run typecheck).
+  "compilerOptions": {
+    "target": "es2023",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
+    "verbatimModuleSyntax": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "types": ["node"]
+  }
+}

@@ -3,6 +3,7 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "//": "@vercel/og renders the link-preview PNG (api/activation-image.ts): the one renderer that makes a PNG on a Vercel Function without a browser. Pinned to 1.0.1: 1.0.2 and 1.0.3 fail to load as ES modules under Node (Dynamic require of \"fs\" is not supported). sharp comes with it as its optional dependency and is used when present.",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
@@ -45,6 +46,7 @@
     "@sentry/react": "^11.10.0",
     "@supabase/supabase-js": "^2.117.2",
     "@vercel/analytics": "^2.0.1",
+    "@vercel/og": "1.0.1",
     "@vercel/speed-insights": "^2.0.0",
     "d3-geo": "^3.1.1",
     "flag-icons": "^7.5.0",

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { activationPath, activationsTabPath, activationUrl } from "./paths";
+import { activationsTabPath } from "../profile/format";
+import { activationPath, activationUrl } from "./paths";
 
 describe("activation paths", () => {
   it("builds the canonical page and its shareable link", () => {

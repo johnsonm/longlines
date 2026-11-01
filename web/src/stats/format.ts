@@ -1,7 +1,7 @@
 // Pure presentation helpers for the Stats page. Everything here is testable
 // in node: no React, no supabase-js.
 
-import type { AprsPacketType, CountrySpots, LatestStats } from "./types";
+import type { AprsPacketType, CountrySpots, LatestStats } from "./types.ts";
 
 export const fmt = (n: number): string => n.toLocaleString("en-US");
 

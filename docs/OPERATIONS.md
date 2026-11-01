@@ -599,8 +599,11 @@ Create a Vercel project from the GitHub repo with these settings:
 - Domain: `longlines.io`
 
 `web/vercel.json` rewrites every path to `index.html` so client-side routes
-load directly. Nothing else is host-specific; `npm run build` produces a plain
-static site in `web/dist`.
+load directly. `npm run build` produces a plain static site in `web/dist`; the
+one server-side part is `web/api/`, two Vercel Functions on the Node.js runtime
+that answer link-preview crawlers for spotted activations ("Link previews"
+under "Spotted activations"). They read the same `SUPABASE_URL` and
+`SUPABASE_ANON_KEY` at run time.
 
 After the first deploy, make sure Supabase Auth → URL configuration lists
 `https://longlines.io` as the Site URL and includes
@@ -2194,3 +2197,40 @@ or its reply did not fit the schema (the function logs `spotted-activations:` wi
 the id or the call). Nothing is cached in the database: both reads are index lookups over closed
 rows.
 
+## Link previews
+
+A link to an activation unfurls in Discord, Slack, X, Facebook, Telegram, WhatsApp, LinkedIn,
+Mastodon, iMessage and Bluesky. `web/vercel.json` sends those crawlers (by user agent, ahead of the
+app's catch-all) from `/activations/<id>` and `/<callsign>/activations/<id>` to
+`web/api/activation-preview.ts`, a small HTML page of Open Graph and Twitter tags whose `og:image`
+is `web/api/activation-image.ts`, a 1200 by 630 PNG of the heard map drawn by `@vercel/og`. People
+keep getting the app. Both are Vercel Functions on the Node.js runtime and ship with the web app;
+each makes one request to `spotted-activations` with the anon key, so they count against its 30
+lookups a minute as one client (Vercel's address), which the CDN's 15 minutes
+(`Cache-Control: public, s-maxage=900`) keeps far away.
+
+After a deploy, with the id of a closed activation (`/call/<call>?tab=activations` lists them):
+
+```sh
+# The preview: 200, text/html, Cache-Control: public, s-maxage=900, and the og:* tags.
+curl -si -A "Mozilla/5.0 (compatible; Discordbot/2.0; +https://discordapp.com)" \
+  "https://longlines.io/activations/<id>" | grep -iE "^HTTP|cache-control|og:|twitter:"
+# The alias gives the same page, with the canonical URL in og:url.
+curl -s -A "Discordbot/2.0" "https://longlines.io/KK4PWJ/activations/<id>" | grep og:url
+# A browser still gets the app (index.html, no og:title).
+curl -s "https://longlines.io/activations/<id>" | grep -c og:title
+# The image: a 1200 x 630 PNG.
+curl -s -o map.png "https://longlines.io/api/activation-image?id=<id>" && file map.png
+```
+
+Then paste the link into the Discord test channel: it unfurls with the title, the date line and
+the map. Discord caches an unfurl for a while; to see a change, paste the link with a throwaway
+query (`?v=2`); the crawler still gets the preview.
+
+When it does not unfurl: a 404 `Spotted activation not found.` is the function's own answer (an
+unknown, still open or hidden activation, or an id that cannot be one); a 500 `Link previews are
+not configured.` means the Vercel project lacks `SUPABASE_URL` or `SUPABASE_ANON_KEY`; a 502
+`Spotted activations are unavailable right now.` means the function failed, timed out (5 s),
+answered 429 or sent something else (Vercel's function logs show `activation preview:` and the
+status, never the id). An image that fails to draw is Vercel's own 500 (the function logs the
+error), never a 200 with a broken body. None of those is cached.

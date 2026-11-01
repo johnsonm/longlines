@@ -2,7 +2,7 @@
 // function's tests (supabase/functions/_shared/__tests__/fixtures/spotted-activations.json) and
 // copied here, so the web is tested against what SQL actually builds.
 
-import type { CallsignActivations, SpottedActivation } from "./types";
+import type { CallsignActivations, SpottedActivation } from "./types.ts";
 
 /** KK4PWJ's seeded week: a two-fer, a rover day ending in a single spot, a midnight split. */
 export const LIST: CallsignActivations = {

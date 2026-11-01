@@ -7,8 +7,8 @@
 import { geoPath } from "d3-geo";
 import { feature } from "topojson-client";
 import type { Topology, GeometryCollection } from "topojson-specification";
-import statesTopology from "us-atlas/states-albers-10m.json";
-import { FIPS_TO_POSTAL } from "./states";
+import statesTopology from "us-atlas/states-albers-10m.json" with { type: "json" };
+import { FIPS_TO_POSTAL } from "./states.ts";
 
 export type StateShape = { code: string; name: string; d: string };
 
