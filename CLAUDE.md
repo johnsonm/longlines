@@ -837,6 +837,11 @@ The design is `docs/superpowers/specs/2026-10-15-outbound-sender-design.md` (Pha
   `topActivators[].base` in the Stats payload, `rbn.topStations` ranked by base call, the
   profile's own `callsign`. The web never works out a base call. A link built from a call as typed
   (`lookupPath`) works only because the profile page swaps it for the base the profile returns.
+- The profile has three tabs: Activity (no parameter), Spotted activations (`?tab=activations`)
+  and Spots (`?tab=spots`, the Recent spots table). The tab lives in the query string, never a
+  path segment, because `/call/*` is a splat (calls contain `/`); the redirect to the canonical
+  base call keeps the query. The activations tab makes its own request only when selected (see
+  "Spotted activation rules").
 
 ## Reference profile rules
 
@@ -903,6 +908,52 @@ picker (PR 5)") is the copy source for `/ref`, `/ref/*` and the reference rule's
   a stale answer never shown, a search in flight shared by every row through `cache.pending`); any
   typed value still goes in, checked by the shape check, except that Enter on several words the
   lists match waits for an option. It never evaluates rules or tests a spot.
+
+## Spotted activation rules
+
+The design is `docs/superpowers/specs/2026-11-01-spotted-activations-design.md` (Brad's canvas
+"Callsign profile: spotted activations" and the feature brief); its Copy section is the copy source
+for the profile's Spotted activations tab and the `/activations/<id>` page.
+
+- SQL owns detection and every figure: `assemble_spotted_activations(p_now)` (cron
+  `assemble-spotted-activations`, every minute) groups one base call's reference spots (POTA,
+  SOTAwatch, WWFF, WWBOTA, IOTA through DX Cluster) at one program's references, with no gap longer
+  than `activation_gap()`, and adds RBN and DX Cluster spots at close. Never detect, merge, count
+  or summarise an activation in TypeScript. The knobs are `activation_gap()` (45 minutes, the copy
+  says 45), `activation_ingest_lag()`, `activation_batch_limit()` and `activation_close_limit()`,
+  each the one statement of its number.
+- Forward only: a pass reads `raw_spots` past the `(ingested_at, id)` watermark in
+  `spotted_activation_state`, up to a cutoff of `p_now` minus the lag and never past the oldest
+  other open transaction's `xact_start`, and always advances the watermark to the last row read.
+  No backfill. A capped pass (batch limit hit) closes nothing. A spot that would have matched a
+  closed activation is dropped, never attached and never a new one.
+- Ids are permanent, opaque and never reused (`new_activation_id()`). The only redirect is
+  `spotted_activation_redirects`, which no automatic path writes; `spotted_activation(id)` follows
+  it and the web replaces the URL with the canonical `/activations/<id>` (the alias
+  `/<call>/activations/<id>` lands there too). A two-fer merges only while both rows are open:
+  rows are invisible until closed and a closed row never merges, so a merge writes no redirect.
+- Only closed rows are read or shown; there is no in-progress state. `continued_from` is the only
+  split pointer (POTA at 00:00 UTC); "continued by" is derived at read. Every day comparison is
+  `(x at time zone 'utc')::date`; never `::date` or `current_date`.
+- RBN rows join only on the reference spots' bands, `spot_type in ('CQ', 'DX')`, from the window's
+  start truncated to the minute; they are copied into `spotted_activation_spots` because
+  `rbn_spots` partitions retire. A spotter with a US license state is a state, never a country
+  (Alaska and Hawaii included).
+- The tables are service-role only (RLS on, no policies, no client grants), and so are
+  `spotted_activation` and `callsign_spotted_activations`, whose shapes are `SpottedActivation` and
+  `CallsignActivations` in `web/src/activations/types.ts`, pinned by
+  `supabase/tests/spotted_activations.test.sql`; change the SQL, the types, the Zod schemas and the
+  test together. A hidden activator makes both null; a hidden spotter is left out and the page's
+  places are recomputed at read.
+- `spotted-activations` is `verify_jwt = false`, never imports `isServiceRole`, refuses malformed
+  input before any database call, shares `lookupLimit`, never logs an id or a call, and sends
+  `Cache-Control: public, max-age=300` only on a 200.
+- The heard map draws SQL's coordinates only (`us_state_centroids`, `cty_entities`,
+  `reference_catalog`); the web never resolves a place or works out a base call. Its projection is
+  the DOM-free `web/src/activations/geometry.ts`, shared with the preview image, and the map is
+  `Box component="svg"` over `STATE_SHAPES`, never a chart library.
+- Link previews live in `web/api/` (Vercel functions behind a user-agent rewrite in
+  `web/vercel.json`), never in an Edge Function. Every value they print is HTML-escaped.
 
 ## Band map rules
 
