@@ -56,6 +56,7 @@ export default defineConfig({
 					items: [
 						{ label: 'Band map', slug: 'band-map' },
 						{ label: 'Callsign lookup', slug: 'callsign-lookup' },
+						{ label: 'Spotted activations', slug: 'spotted-activations' },
 						{ label: 'Reference lookup', slug: 'reference-lookup' },
 						{ label: 'Group statistics', slug: 'group-statistics' },
 						{ label: 'Stats', slug: 'stats' },

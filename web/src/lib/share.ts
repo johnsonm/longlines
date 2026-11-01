@@ -20,3 +20,13 @@ export async function shareLink(
     notify("Couldn't copy the link.");
   }
 }
+
+/** Copy a link to the clipboard, with no share sheet: the activation page's Copy link button. */
+export async function copyLink({ url, notify }: { url: string; notify: (message: string) => void }): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(url);
+    notify("Link copied.");
+  } catch {
+    notify("Couldn't copy the link.");
+  }
+}

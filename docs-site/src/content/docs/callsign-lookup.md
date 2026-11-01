@@ -22,6 +22,10 @@ the station was spotted under.
 The profile counts spots from every source except APRS-IS: POTA, SOTA, WWFF, WWBOTA, DX Cluster, RBN
 and logged contacts. It runs from when Long Lines started collecting.
 
+The profile has three tabs under its header: **Activity** (the sections below, except **Recent
+spots**), **Spotted activations** (see [Spotted activations](/spotted-activations/)) and **Spots**
+(**Recent spots**). Each tab has its own link, such as `longlines.io/call/KK4PWJ?tab=spots`.
+
 | Section | What it shows |
 | --- | --- |
 | Header | The call, its country flag, the license name, class and state, **Get alerts**, **Share** and **QRZ** |
@@ -35,7 +39,7 @@ and logged contacts. It runs from when Long Lines started collecting.
 | **Heard from** | The countries of the spotters and skimmers who heard it. Self-spots don't count. |
 | **Hunting** | Spots this station posted for other activators |
 | **Heard by** | The spotters and skimmers that picked it up in the last 7 days, with best SNR |
-| **Recent spots** | The newest 25 spots from the last 7 days |
+| **Recent spots** (Spots tab) | The newest 25 spots from the last 7 days |
 
 License data is FCC only. A non-US call shows "No FCC record. This looks like a callsign issued outside
 the United States." Long Lines never shows street addresses.
@@ -46,8 +50,8 @@ in UTC** off.
 
 ### Limits
 
-Lookups are limited to 30 a minute per visitor, shared with reference pages, reference searches and
-public group pages. Over the limit you see "Too many lookups. Try again in a minute." Going back to a
+Lookups are limited to 30 a minute per visitor, shared with reference pages, reference searches,
+public group pages and spotted activations. Over the limit you see "Too many lookups. Try again in a minute." Going back to a
 page you opened in the last 5 minutes doesn't count.
 
 ## Set it up

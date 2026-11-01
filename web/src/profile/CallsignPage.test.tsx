@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { ApiError } from "../lib/api";
@@ -24,6 +24,10 @@ vi.mock("../lib/api", () => ({
 // The source picker shows rates from the stats snapshot; none are needed here.
 vi.mock("../stats/useStats", () => ({ useStats: () => ({ stats: null, loading: false, error: null }) }));
 vi.mock("./useCallsignProfile", () => ({ useCallsignProfile: vi.fn() }));
+// The tab's own request and rendering are ActivationsTab.test.tsx's.
+vi.mock("../activations/ActivationsTab", () => ({
+  ActivationsTab: ({ callsign }: { callsign: string }) => <div data-testid="activations-tab">{callsign}</div>,
+}));
 
 const UTC = { utcTimes: true, timezone: "UTC" };
 
@@ -116,7 +120,7 @@ describe("CallsignPage states", () => {
     expect(screen.getByRole("img", { name: "England" })).toHaveAttribute("src", expect.stringMatching(/gb-eng\.svg$/));
     expect(screen.getByText("No FCC record. This looks like a callsign issued outside the United States.")).toBeInTheDocument();
     expect(screen.getByText("Long Lines hasn't heard G4ABC on the air yet.")).toBeInTheDocument();
-    expect(screen.queryByText("Activity")).not.toBeInTheDocument();
+    expect(screen.queryByText("Spots per month, since Long Lines started")).not.toBeInTheDocument();
     expect(screen.queryByText(/Last heard/)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Share" })).toBeInTheDocument();
   });
@@ -209,8 +213,7 @@ describe("CallsignPage profile", () => {
   it("renders every section", () => {
     renderAt("/call/KK4PWJ");
     for (const title of [
-      "Activity", "Last 30 days", "When they're on the air", "Bands", "Modes", "Where they've been spotted", "Hunting", "Heard by",
-      "Recent spots",
+      "Last 30 days", "When they're on the air", "Bands", "Modes", "Where they've been spotted", "Hunting", "Heard by",
     ]) {
       expect(screen.getByText(title)).toBeInTheDocument();
     }
@@ -228,7 +231,8 @@ describe("CallsignPage profile", () => {
     expect(screen.getByText("Germany")).toBeInTheDocument();
     expect(screen.getByText("W3LPL")).toBeInTheDocument();
     expect(screen.getByText("31 dB")).toBeInTheDocument();
-    expect(screen.getByText("N4XYZ")).toBeInTheDocument();
+    // The recent spots are the Spots tab's.
+    expect(screen.queryByText("Recent spots")).not.toBeInTheDocument();
     expect(screen.getByText(/License data comes from the public FCC database\. Long Lines never shows street addresses\./))
       .toBeInTheDocument();
   });
@@ -267,7 +271,7 @@ describe("CallsignPage profile", () => {
 
   it("renders on phones", () => {
     setMobile(true);
-    renderAt("/call/KK4PWJ");
+    renderAt("/call/KK4PWJ?tab=spots");
     expect(screen.getByText("Recent spots")).toBeInTheDocument();
   });
 });
@@ -349,6 +353,67 @@ describe("Get alerts", () => {
     await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Cancel" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(where()).toHaveTextContent("/call/KK4PWJ");
+  });
+});
+
+describe("CallsignPage tabs", () => {
+  it("opens on Activity, with links to the other two tabs", () => {
+    renderAt("/call/KK4PWJ");
+    expect(screen.getByRole("tab", { name: "Activity" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Activity" })).toHaveAttribute("href", "/call/KK4PWJ");
+    expect(screen.getByRole("tab", { name: "Spotted activations" })).toHaveAttribute("href", "/call/KK4PWJ?tab=activations");
+    expect(screen.getByRole("tab", { name: "Spots" })).toHaveAttribute("href", "/call/KK4PWJ?tab=spots");
+    expect(screen.getByText("Spots per month, since Long Lines started")).toBeInTheDocument();
+    expect(screen.queryByTestId("activations-tab")).not.toBeInTheDocument();
+  });
+
+  it("mounts the Spotted activations tab only when it is selected, for the base call", () => {
+    profileIs({ ...FULL, callsign: "KK4PWJ" });
+    renderAt("/call/KK4PWJ?tab=activations");
+    expect(screen.getByRole("tab", { name: "Spotted activations" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByTestId("activations-tab")).toHaveTextContent("KK4PWJ");
+    expect(screen.queryByText("Spots per month, since Long Lines started")).not.toBeInTheDocument();
+    // The header stays above every tab.
+    expect(screen.getByRole("heading", { name: "KK4PWJ" })).toBeInTheDocument();
+  });
+
+  it("switches tabs by link, keeping the page", async () => {
+    const { user, where } = renderAt("/call/KK4PWJ");
+    await user.click(screen.getByRole("tab", { name: "Spots" }));
+    expect(where().dataset.search).toBe("?tab=spots");
+    expect(screen.getByText("Recent spots")).toBeInTheDocument();
+    expect(screen.getByText("N4XYZ")).toBeInTheDocument();
+    await user.click(screen.getByRole("tab", { name: "Spotted activations" }));
+    expect(where().dataset.search).toBe("?tab=activations");
+    expect(screen.getByTestId("activations-tab")).toBeInTheDocument();
+  });
+
+  it("reads an unknown tab as Activity", () => {
+    renderAt("/call/KK4PWJ?tab=nope");
+    expect(screen.getByRole("tab", { name: "Activity" })).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("says when the Spots tab has nothing to show", () => {
+    profileIs({ ...FULL, heard: { ...HEARD, recentSpots: [] } });
+    renderAt("/call/KK4PWJ?tab=spots");
+    expect(screen.getByText("No spots of KK4PWJ in the last 7 days.")).toBeInTheDocument();
+    cleanup();
+    profileIs(NOT_HEARD);
+    renderAt("/call/G4ABC?tab=spots");
+    expect(screen.getByText("Long Lines hasn't heard G4ABC on the air yet.")).toBeInTheDocument();
+  });
+
+  it("keeps the tab when the URL is made canonical", async () => {
+    const { where } = renderAt("/call/kk4pwj?tab=activations");
+    await waitFor(() => expect(where()).toHaveTextContent(/^\/call\/KK4PWJ$/));
+    expect(where().dataset.search).toBe("?tab=activations");
+  });
+
+  it("keeps the tab when a portable call becomes its base", async () => {
+    profileIs({ ...FULL, callsign: "KK4PWJ" });
+    const { where } = renderAt("/call/KK4PWJ/P?tab=spots");
+    await waitFor(() => expect(where()).toHaveTextContent(/^\/call\/KK4PWJ$/));
+    expect(where().dataset.search).toBe("?tab=spots");
   });
 });
 

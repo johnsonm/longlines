@@ -14,6 +14,7 @@ import type { Rules } from "../subscriptions/model";
 import type { HomeFlow } from "../home/types";
 import type { RelayAnswer, RelayPairing } from "../relay/types";
 import type { GoalCard, GoalInput, GoalProgress, GoalMarking, GoalWindowLoss } from "../goals/types";
+import type { CallsignActivations, SpottedActivation } from "../activations/types";
 
 type Tables = Database["public"]["Tables"];
 type Views = Database["public"]["Views"];
@@ -1154,6 +1155,45 @@ export async function searchReferences(query: string, program: ReferenceProgram 
   const params = new URLSearchParams({ q: query });
   if (program !== null) params.set("program", program);
   return fetchFunction<ReferenceSearch>(`reference-search?${params.toString()}`, { headers: { apikey: SUPABASE_ANON_KEY } });
+}
+
+// ---- Spotted activations ----------------------------------------------------
+
+/** The spotted-activations function's 404 body, for either route. */
+export const ACTIVATION_NOT_FOUND = "Spotted activation not found.";
+
+/**
+ * One spotted activation's page from the spotted-activations Edge Function,
+ * which works signed out, so no session is sent. The payload's `id` is the
+ * canonical one, which differs from the asked id after a redirect. Null when
+ * there is no such page (unknown, still open, or a hidden activator); only the
+ * function's own 404 means that, so a gateway 404 is an outage. The rate limit
+ * rejects with "429".
+ */
+export async function loadSpottedActivation(id: string): Promise<SpottedActivation | null> {
+  const query = new URLSearchParams({ id });
+  try {
+    return await fetchFunction<SpottedActivation>(`spotted-activations?${query.toString()}`, { headers: { apikey: SUPABASE_ANON_KEY } });
+  } catch (err) {
+    if (err instanceof ApiError && err.code === "404" && err.message === ACTIVATION_NOT_FOUND) return null;
+    throw err;
+  }
+}
+
+/**
+ * A callsign's Spotted activations tab (summary and recent activations) from
+ * the same function. The callsign goes as given; the payload's `callsign` is
+ * its base. Null for a hidden call or one with no base (the function's own
+ * 404); a callsign that cannot be one rejects with code "400".
+ */
+export async function loadCallsignActivations(callsign: string): Promise<CallsignActivations | null> {
+  const query = new URLSearchParams({ callsign });
+  try {
+    return await fetchFunction<CallsignActivations>(`spotted-activations?${query.toString()}`, { headers: { apikey: SUPABASE_ANON_KEY } });
+  } catch (err) {
+    if (err instanceof ApiError && err.code === "404" && err.message === ACTIVATION_NOT_FOUND) return null;
+    throw err;
+  }
 }
 
 // ---- Band map ---------------------------------------------------------------

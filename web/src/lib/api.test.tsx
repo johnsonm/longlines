@@ -864,6 +864,44 @@ describe("callsign profiles", () => {
   });
 });
 
+describe("spotted activations", () => {
+  it("GETs one activation by id with no session", async () => {
+    fake.client.auth.getSession.mockClear();
+    const fetchMock = respond(200, { id: "kjw2khkyj47f", callsign: "KK4PWJ" });
+    expect(await api.loadSpottedActivation("kjw2khkyj47f")).toEqual({ id: "kjw2khkyj47f", callsign: "KK4PWJ" });
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("https://proj.supabase.co/functions/v1/spotted-activations?id=kjw2khkyj47f");
+    expect(init).toEqual({ headers: { apikey: "anon-key" } });
+    expect(fake.client.auth.getSession).not.toHaveBeenCalled();
+  });
+
+  it("GETs a callsign's list with the call as given", async () => {
+    const fetchMock = respond(200, { callsign: "KK4PWJ", recent: [], more: false });
+    expect(await api.loadCallsignActivations("KK4PWJ/P")).toEqual({ callsign: "KK4PWJ", recent: [], more: false });
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("https://proj.supabase.co/functions/v1/spotted-activations?callsign=KK4PWJ%2FP");
+    expect(init).toEqual({ headers: { apikey: "anon-key" } });
+  });
+
+  it("returns null for the function's own 404 on either route", async () => {
+    respond(404, { error: "Spotted activation not found." });
+    expect(await api.loadSpottedActivation("aaaaaaaaaaaa")).toBeNull();
+    respond(404, { error: "Spotted activation not found." });
+    expect(await api.loadCallsignActivations("W1HID")).toBeNull();
+  });
+
+  it("treats a gateway 404 as an outage, and rejects with any other failure", async () => {
+    respond(404, { error: "Requested function was not found" });
+    await expect(api.loadSpottedActivation("aaaaaaaaaaaa")).rejects.toMatchObject({ code: "404" });
+    respond(404, { error: "Requested function was not found" });
+    await expect(api.loadCallsignActivations("KK4PWJ")).rejects.toMatchObject({ code: "404" });
+    respond(400, { error: "Enter a callsign, like KK4PWJ." });
+    await expect(api.loadCallsignActivations("!!")).rejects.toMatchObject({ code: "400", message: "Enter a callsign, like KK4PWJ." });
+    respond(429, { error: "Too many lookups. Try again in a minute." });
+    await expect(api.loadSpottedActivation("aaaaaaaaaaaa")).rejects.toMatchObject({ code: "429" });
+  });
+});
+
 describe("reference profiles", () => {
   it("GETs the reference-profile function with the program and reference as given and no session", async () => {
     fake.client.auth.getSession.mockClear();

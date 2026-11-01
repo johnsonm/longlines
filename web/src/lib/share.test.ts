@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { shareLink } from "./share";
+import { copyLink, shareLink } from "./share";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -47,5 +47,32 @@ describe("shareLink", () => {
     const a = args();
     await shareLink(a);
     expect(a.notify).toHaveBeenCalledWith("Couldn't copy the link.");
+  });
+});
+
+describe("copyLink", () => {
+  it("copies the link and says so, without the share sheet", async () => {
+    const share = vi.fn(() => Promise.resolve());
+    const writeText = vi.fn(() => Promise.resolve());
+    stubNavigator(share, writeText);
+    const notify = vi.fn();
+    await copyLink({ url: "https://x/activations/abc", notify });
+    expect(writeText).toHaveBeenCalledWith("https://x/activations/abc");
+    expect(share).not.toHaveBeenCalled();
+    expect(notify).toHaveBeenCalledWith("Link copied.");
+  });
+
+  it("says so when the clipboard refuses", async () => {
+    stubNavigator(undefined, () => Promise.reject(new DOMException("no", "NotAllowedError")));
+    const notify = vi.fn();
+    await copyLink({ url: "https://x/activations/abc", notify });
+    expect(notify).toHaveBeenCalledWith("Couldn't copy the link.");
+  });
+
+  it("says so when there is no clipboard at all", async () => {
+    vi.stubGlobal("navigator", {});
+    const notify = vi.fn();
+    await copyLink({ url: "https://x/activations/abc", notify });
+    expect(notify).toHaveBeenCalledWith("Couldn't copy the link.");
   });
 });
