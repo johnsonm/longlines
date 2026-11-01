@@ -239,11 +239,14 @@ the batch and close limits keep a pass well inside it.
    re-points its spot rows (`on conflict do nothing`), union references and names, `coalesce` `continued_from` into
    the survivor, re-point any row whose `continued_from` was the deleted id, then delete the
    younger row. No redirect is written (decision 16). A rover's sequential parks never intersect,
-   so they stay apart.
+   so they stay apart. Two open rows that share a reference also fold when each lies within the
+   gap of the other: a spot read out of order can bridge two runs at one reference (18:00, 18:10
+   and 19:30 read first, 18:50 last), which in time order would have been one activation.
 5. **Close**, skipped entirely when `v_capped` (closing against `p_now` while unread spots sit
    behind the watermark would close too early; the next pass closes). For at most
    `activation_close_limit()` open rows with `last_spot_at < p_now - activation_gap()`, oldest
-   first:
+   first. While another transaction holds the cutoff back, `p_now` here is instead that
+   transaction's start plus `activation_ingest_lag()`, for the same reason:
    - Attach `rbn_spots` rows with `base_callsign(callsign) = base_callsign`,
      `spot_time >= date_trunc('minute', started_at)` and `spot_time <= last_spot_at`,
      `spot_type in ('CQ', 'DX')`, and `band = any(<the bands of the row's reference spots>)`
@@ -474,6 +477,8 @@ Stacked, one worktree each (`../longlines-<branch>`):
     survive the merge;
   - a row in `spotted_activation_redirects` resolves to the canonical payload;
   - a rover's three parks in a day stay three;
+  - a spot read out of order that bridges two runs at one reference makes them one activation,
+    while a rover's parks within the gap of each other stay apart;
   - POTA across 00:00 UTC splits with `continued_from` and the derived `continuedBy`, also when the
     00:02 spot is ingested before the 23:58 one, and under `set time zone 'America/New_York'`; a
     SOTA run across midnight does not split;
@@ -637,3 +642,9 @@ Earlier entries are never edited.
   `spotted_activation_continued_from`, all pinned and service role only. Notes for PR 3: the
   payload keys are pinned in the pgTAP suite; numbers (`latitude`, `frequencyKhz`) are JSON
   numbers, times are `YYYY-MM-DDTHH:MM:SSZ` and `day` is `YYYY-MM-DD`.
+- 2026-11-01, review of PR 2 (#345): two-fers also fold two open rows that share a reference and
+  lie within the gap of each other (a spot read out of order bridged two runs, which stayed two
+  activations), and a pass whose cutoff another transaction holds back closes only what had gone
+  quiet by the held cutoff (closing against `p_now` closed activations whose next spot sat unread,
+  then dropped that spot as late); the seed's closing loop stops when a pass closes nothing; two
+  pgTAP cases (99 assertions).

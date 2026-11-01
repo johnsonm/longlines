@@ -398,6 +398,7 @@ declare
   v_gap     interval := public.activation_gap();
   v_limit   int := public.activation_batch_limit();
   v_state   spotted_activation_state%rowtype;
+  v_held    timestamptz;
   v_cutoff  timestamptz;
   v_read    int := 0;
   v_last_at timestamptz;
@@ -419,16 +420,14 @@ begin
   select * into v_state from spotted_activation_state for update;
 
   -- 1. Cutoff: behind p_now by the lag, never past this transaction's start, and before the
-  --    oldest other open transaction, whose inserts (ingested_at is its start) may not have
-  --    committed yet. least() ignores the null when no other transaction is visible.
-  v_cutoff := least(
-    p_now - public.activation_ingest_lag(),
-    now(),
-    (select min(a.xact_start) - interval '1 microsecond'
-     from pg_stat_activity a
-     where a.pid <> pg_backend_pid()
-       and a.backend_type = 'client backend'
-       and a.xact_start is not null));
+  --    oldest other open transaction (v_held), whose inserts (ingested_at is its start) may not
+  --    have committed yet. least() ignores the null when no other transaction is visible.
+  v_held := (select min(a.xact_start) - interval '1 microsecond'
+             from pg_stat_activity a
+             where a.pid <> pg_backend_pid()
+               and a.backend_type = 'client backend'
+               and a.xact_start is not null);
+  v_cutoff := least(p_now - public.activation_ingest_lag(), now(), v_held);
 
   -- 2 and 3. Read the new reference spots in (ingested_at, id) order and attach or open each.
   for v_spot in
@@ -576,9 +575,11 @@ begin
   end if;
 
   -- 4. Merge two-fers: two open rows of one base call and program (and UTC day, for POTA) whose
-  --    [started_at, last_spot_at] intersect fold into the older. Only a row this pass touched can
-  --    have come to intersect another, so the search starts from those, and a survivor is searched
-  --    again, since it has grown. No id has been shown yet, so no redirect is written.
+  --    [started_at, last_spot_at] intersect fold into the older. So do two that share a reference
+  --    and lie within the gap of each other: a spot read out of order can bridge two runs of one
+  --    reference, which in time order would have been one. Only a row this pass touched can have
+  --    come to meet another, so the search starts from those, and a survivor is searched again,
+  --    since it has grown. No id has been shown yet, so no redirect is written.
   foreach v_cur in array v_touched loop
     loop
       select case when (t.created_at, t.started_at, t.id) < (x.created_at, x.started_at, x.id) then t.id else x.id end
@@ -593,8 +594,10 @@ begin
        and x.program = t.program
        and x.id <> t.id
        and (t.program <> 'pota' or x.day = t.day)
-       and x.started_at <= t.last_spot_at
-       and t.started_at <= x.last_spot_at
+       and ((x.started_at <= t.last_spot_at and t.started_at <= x.last_spot_at)
+            or (x."references" && t."references"
+                and x.started_at <= t.last_spot_at + v_gap
+                and t.started_at <= x.last_spot_at + v_gap))
       where t.id = v_cur and t.closed_at is null
       order by x.created_at, x.started_at, x.id
       limit 1;
@@ -635,13 +638,14 @@ begin
   end loop;
 
   -- 5. Close, unless capped: closing against p_now with unread spots behind the watermark would
-  --    close too early.
+  --    close too early. For the same reason, while another transaction holds the cutoff back, a
+  --    pass closes only what had gone quiet by the held cutoff (plus the usual lag).
   if v_read < v_limit then
     for v_act in
       select a.*
       from spotted_activations a
       where a.closed_at is null
-        and a.last_spot_at < p_now - v_gap
+        and a.last_spot_at < least(p_now, v_held + public.activation_ingest_lag()) - v_gap
       order by a.last_spot_at, a.id
       limit public.activation_close_limit()
       for update

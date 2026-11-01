@@ -506,14 +506,20 @@ perform public.refresh_stats_snapshot_at(now());
 
 -- Spotted activations for the seeded week, as the minute job would have assembled them: read
 -- every seeded spot (a pass reads at most activation_batch_limit()), then close everything as a
--- day from now would (a pass closes at most activation_close_limit()).
+-- day from now would (a pass closes at most activation_close_limit()), until a pass closes
+-- nothing (another open transaction can hold the closes back; the minute job closes the rest).
 loop
   exit when public.assemble_spotted_activations(now() + interval '1 minute') < public.activation_batch_limit();
 end loop;
-loop
-  perform public.assemble_spotted_activations(now() + interval '1 day');
-  exit when not exists (select 1 from spotted_activations a where a.closed_at is null);
-end loop;
+declare
+  v_open bigint := -1;
+begin
+  loop
+    exit when v_open = (select count(*) from spotted_activations a where a.closed_at is null);
+    v_open := (select count(*) from spotted_activations a where a.closed_at is null);
+    perform public.assemble_spotted_activations(now() + interval '1 day');
+  end loop;
+end;
 
 -- The branch may reuse this connection, so leave nothing temporary behind.
 drop table seed_days, seed_states, seed_parks, seed_pota_activations, seed_pota_spots,

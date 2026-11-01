@@ -9,7 +9,7 @@
 -- otherwise, and a pass runs at a chosen p_now, as the minute job would.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(97);
+select plan(99);
 
 create function pg_temp.keys(p jsonb) returns text[] language sql as $$
   select array_agg(k order by k) from jsonb_object_keys(p) as k;
@@ -236,6 +236,22 @@ select results_eq(
   $$select "references", spot_count, day from spotted_activations where base_callsign = 'K6ROV' order by started_at$$,
   $$values (array['US-0020'], 4, pg_temp.d(1)), (array['US-0021'], 3, pg_temp.d(1)), (array['US-0022'], 1, pg_temp.d(1))$$,
   'a rover''s three parks in a day stay three, and a single spot closes as a one-spot activation');
+
+-- A spot read out of order can bridge two runs of one park: in time order they would have been one.
+select pg_temp.reset();
+select pg_temp.spot('pota', 'K6BRG', 'N4AAA', pg_temp.t(1, x.at), 'US-0023') from (values ('18:00'), ('18:10'), ('19:30')) as x(at);
+select pg_temp.spot('pota', 'K6BRG', 'N4AAA', pg_temp.t(1, '18:50'), 'US-0023', p_ingested => pg_temp.t(1, '19:31'));
+select pg_temp.spot('pota', 'K6HOP', 'N4AAA', pg_temp.t(1, x.at), x.ref)
+from (values ('14:00', 'US-0024'), ('14:30', 'US-0024'), ('14:40', 'US-0025')) as x(at, ref);
+select pg_temp.run(1, '21:00');
+select results_eq(
+  $$select started_at, last_spot_at, spot_count from spotted_activations where base_callsign = 'K6BRG'$$,
+  $$values (pg_temp.t(1, '18:00'), pg_temp.t(1, '19:30'), 4)$$,
+  'a spot read out of order that bridges two runs at one park makes them one activation');
+select results_eq(
+  $$select "references" from spotted_activations where base_callsign = 'K6HOP' order by started_at$$,
+  $$values (array['US-0024']), (array['US-0025'])$$,
+  'a rover''s parks within the gap of each other still stay apart');
 
 -- ---------------------------------------------------------------------------
 -- 00:00 UTC

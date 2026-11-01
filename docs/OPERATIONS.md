@@ -2161,6 +2161,8 @@ using (jobid) where j.jobname = 'assemble-spotted-activations' order by start_ti
 
 A long transaction on another connection holds the cutoff back (a pass never reads past the oldest
 other open transaction's start), so a stuck session shows as `behind` growing while ingest works.
+Closes wait with it (a pass closes only what had gone quiet by the held cutoff), so nothing closes
+while its next spot sits unread; `due_to_close` grows too, and both catch up once the session ends.
 
 ## One activation
 

@@ -1526,10 +1526,12 @@ and the job.
   that shares a reference and whose window, widened by the gap, holds its time (POTA also needs the
   same UTC day), else opens one; a spot that would have matched a closed activation is dropped.
   After the batch, two open rows of one base call and program whose `[started_at, last_spot_at]`
-  intersect fold into the older (a two-fer). POTA splits at 00:00 UTC: the later half's
+  intersect fold into the older (a two-fer), and so do two that share a reference and lie within
+  the gap of each other (a spot read out of order bridged them). POTA splits at 00:00 UTC: the later half's
   `continued_from` points at the earlier, linked whichever is read first.
 - **Close.** Once `activation_gap()` has passed since an activation's last spot (and the pass was
-  not capped at `activation_batch_limit()`), the close copies the window's RBN spots (CQ and DX,
+  not capped at `activation_batch_limit()`; while another transaction holds the cutoff back, the
+  gap is counted from the held cutoff), the close copies the window's RBN spots (CQ and DX,
   from the minute of the first spot, on the reference spots' bands) and DX Cluster spots into
   `spotted_activation_spots`, resolves each spotter once (a US license state, else the cty.dat
   entity), and stores the summary: spot and source counts, bands, modes, states, countries, the
