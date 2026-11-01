@@ -3,8 +3,9 @@
 // before any) is under staleMs old, 503 otherwise. A 503 restarts nothing; the
 // watchdog in sender.ts exits the process on the same threshold. The body is
 // the operator's status report for `fly checks list` and manual curl: what the
-// loop has done and, from SQL, the queue depth and the spots expired
-// undelivered in the last hour.
+// loop has done, whether LISTEN is up (`listening`; polling carries on without
+// it) and, from SQL, the queue depth and the spots expired undelivered in the
+// last hour.
 
 export interface SenderTotals {
   cycles: number;
@@ -32,6 +33,8 @@ export interface SenderStatus {
   lastError: string | null;
   /** A cycle is between claim and the last mark. */
   inFlight: boolean;
+  /** LISTEN on the deliveries channel was established; polling carries on either way. */
+  listening: boolean;
   totals: SenderTotals;
   /** Null until the first delivery_queue_stats() call succeeds. */
   queue: QueueStats | null;
@@ -70,6 +73,7 @@ export function healthHandler(
       last_progress_at: lastProgressAt,
       last_error: s.lastError,
       in_flight: s.inFlight,
+      listening: s.listening,
       totals: s.totals,
       queue: s.queue,
     }, { status: code });

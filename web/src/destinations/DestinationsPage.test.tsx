@@ -3,15 +3,18 @@ import { screen, waitFor, within } from "@testing-library/react";
 import { renderPage } from "../test/render";
 import { setMobile } from "../test/media";
 import {
-  deleteDestination, duplicateDestination, listDiscordDestinationSettings, listLocalClusterDestinationSettings, listPushDevices,
-  listWebhookDestinationSettings, sendTest, type Destination, type PushDevice, type SubscriptionWithLinks,
+  clearDestinationQueue, deleteDestination, duplicateDestination, listDestinationQueues, listDiscordDestinationSettings,
+  listLocalClusterDestinationSettings, listPushDevices, listWebhookDestinationSettings, sendTest, type Destination, type DestinationQueue,
+  type PushDevice, type SubscriptionWithLinks,
 } from "../lib/api";
 import { cardMeta } from "./cardMeta";
 import { DestinationsPage } from "./DestinationsPage";
 
 vi.mock("../lib/api", () => ({
+  clearDestinationQueue: vi.fn(),
   deleteDestination: vi.fn(),
   duplicateDestination: vi.fn(),
+  listDestinationQueues: vi.fn(),
   listDiscordDestinationSettings: vi.fn(),
   listLocalClusterDestinationSettings: vi.fn(),
   listPushDevices: vi.fn(),
@@ -39,8 +42,8 @@ const ago = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOSt
 
 beforeEach(() => {
   for (const fn of [
-    deleteDestination, duplicateDestination, listDiscordDestinationSettings, listLocalClusterDestinationSettings, listPushDevices,
-    listWebhookDestinationSettings, sendTest,
+    clearDestinationQueue, deleteDestination, duplicateDestination, listDestinationQueues, listDiscordDestinationSettings,
+    listLocalClusterDestinationSettings, listPushDevices, listWebhookDestinationSettings, sendTest,
   ]) {
     vi.mocked(fn).mockReset();
   }
@@ -48,7 +51,12 @@ beforeEach(() => {
   vi.mocked(listPushDevices).mockResolvedValue([]);
   vi.mocked(listDiscordDestinationSettings).mockResolvedValue([]);
   vi.mocked(listWebhookDestinationSettings).mockResolvedValue([]);
+  vi.mocked(listDestinationQueues).mockResolvedValue([]);
 });
+
+function queue(id: string, overrides: Partial<DestinationQueue> = {}): DestinationQueue {
+  return { destination_id: id, waiting: 0, oldest_waiting_seconds: null, dropped_24h: 0, backed_up: false, ...overrides };
+}
 
 function render(dests: Destination[], subs: SubscriptionWithLinks[] = [], loading = false) {
   const reload = vi.fn(() => Promise.resolve());
@@ -62,13 +70,19 @@ describe("cardMeta", () => {
   const now = new Date("2026-10-17T12:00:00Z");
 
   it("joins usage and the last delivery, capitalized for every type (webhook spec, decision 17)", () => {
-    expect(cardMeta(dest("a"), 0, now)).toBe("Not used by any connection · Never used");
-    expect(cardMeta(dest("a", { last_success_at: "2026-10-17T11:57:00Z" }), 1, now)).toBe("Used by 1 connection · Last delivery 3 minutes ago");
-    expect(cardMeta(dest("a", { last_success_at: "2026-10-17T09:00:00Z", last_error_at: "2026-10-17T11:00:00Z" }), 2, now))
+    expect(cardMeta(dest("a"), 0, 0, now)).toBe("Not used by any connection · Never used");
+    expect(cardMeta(dest("a", { last_success_at: "2026-10-17T11:57:00Z" }), 1, 0, now)).toBe("Used by 1 connection · Last delivery 3 minutes ago");
+    expect(cardMeta(dest("a", { last_success_at: "2026-10-17T09:00:00Z", last_error_at: "2026-10-17T11:00:00Z" }), 2, 0, now))
       .toBe("Used by 2 connections · Last delivery failed 1 hour ago");
-    expect(cardMeta(dest("a", { last_success_at: "2026-10-17T11:00:00Z", last_error_at: "2026-10-16T11:00:00Z" }), 2, now))
+    expect(cardMeta(dest("a", { last_success_at: "2026-10-17T11:00:00Z", last_error_at: "2026-10-16T11:00:00Z" }), 2, 0, now))
       .toBe("Used by 2 connections · Last delivery 1 hour ago");
-    expect(cardMeta(dest("a", { last_error_at: "2026-10-15T12:00:00Z" }), 0, now)).toBe("Not used by any connection · Last delivery failed 2 days ago");
+    expect(cardMeta(dest("a", { last_error_at: "2026-10-15T12:00:00Z" }), 0, 0, now)).toBe("Not used by any connection · Last delivery failed 2 days ago");
+  });
+
+  it("adds the waiting count only while spots wait (outbound sender Phase 2 spec, Copy)", () => {
+    expect(cardMeta(dest("a", { last_success_at: "2026-10-17T11:57:00Z" }), 1, 3, now))
+      .toBe("Used by 1 connection · Last delivery 3 minutes ago · 3 waiting");
+    expect(cardMeta(dest("a"), 0, 140, now)).toBe("Not used by any connection · Never used · 140 waiting");
   });
 });
 
@@ -243,6 +257,81 @@ describe("DestinationsPage", () => {
     await user.click(within(alert).getByRole("button", { name: "Send test" }));
     expect(sendTest).toHaveBeenCalledWith("a");
     await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Test spot sent to Dest a"));
+  });
+
+  it("leaves out the failing alert for a paused destination, whose Paused chip and editor cover it", async () => {
+    render([
+      dest("w", { name: "Hook", health: "failing", consecutive_failures: 5, last_error: "Webhook HTTP 410 (gone)", enabled: false,
+        auto_disabled_at: ago(3) }),
+      dest("d", { type: "discord", name: "Chat", health: "failing", consecutive_failures: 5, last_error: "HTTP 500" }),
+    ]);
+    const alert = screen.getByRole("alert");
+    expect(within(alert).getByText("Chat is failing")).toBeInTheDocument();
+    expect(screen.queryByText("Hook is failing")).not.toBeInTheDocument();
+  });
+
+  it("shows each card's waiting count from one queue list", async () => {
+    vi.mocked(listDestinationQueues).mockResolvedValue([queue("a", { waiting: 3, oldest_waiting_seconds: 20 }), queue("b")]);
+    render([dest("a"), dest("b")], [sub("s1", ["a"])]);
+    expect(await screen.findByText("Used by 1 connection · Never used · 3 waiting")).toBeInTheDocument();
+    expect(screen.getByText("Not used by any connection · Never used")).toBeInTheDocument();
+    expect(listDestinationQueues).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("does not load queues without destinations", () => {
+    render([]);
+    expect(listDestinationQueues).not.toHaveBeenCalled();
+  });
+
+  it("reports a failed queue list and keeps the cards", async () => {
+    vi.mocked(listDestinationQueues).mockRejectedValue(new Error("Could not find the function"));
+    const { app } = render([dest("a")]);
+    await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Could not find the function"));
+    expect(screen.getByText("Not used by any connection · Never used")).toBeInTheDocument();
+  });
+
+  it("shows the backed-up banner only for a backed-up destination, and clears its queue after a confirmation", async () => {
+    vi.mocked(listDestinationQueues)
+      .mockResolvedValueOnce([
+        queue("a", { waiting: 140, oldest_waiting_seconds: 840, backed_up: true }),
+        queue("b", { waiting: 120, oldest_waiting_seconds: 30, backed_up: false }),
+      ])
+      .mockResolvedValueOnce([queue("a", { waiting: 2, oldest_waiting_seconds: 5 }), queue("b", { waiting: 120, oldest_waiting_seconds: 30 })]);
+    vi.mocked(clearDestinationQueue).mockResolvedValue(138);
+    const { user, app } = render([dest("a", { name: "Hook" }), dest("b", { name: "Paused hook", enabled: false })]);
+    const alert = await screen.findByRole("alert");
+    expect(within(alert).getByText("Hook is backed up")).toBeInTheDocument();
+    expect(alert).toHaveTextContent(
+      "140 spots are waiting to be sent, the oldest for 14 minutes. Narrow the connections that send to it, or clear the queue.",
+    );
+    expect(screen.queryByText("Paused hook is backed up")).not.toBeInTheDocument();
+
+    await user.click(within(alert).getByRole("button", { name: "Clear queue" }));
+    const dialog = await screen.findByRole("dialog", { name: "Clear the queue for Hook?" });
+    expect(dialog).toHaveTextContent("140 spots waiting to be sent will be dropped.");
+    expect(dialog).toHaveTextContent("Spots already being sent, or waiting to be retried, are not affected. New spots keep coming.");
+    await user.click(within(dialog).getByRole("button", { name: "Clear queue" }));
+    expect(clearDestinationQueue).toHaveBeenCalledWith("a");
+    await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Cleared 138 spots from Hook"));
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+    expect(listDestinationQueues).toHaveBeenCalledTimes(2);
+    expect(screen.getByText("Not used by any connection · Never used · 2 waiting")).toBeInTheDocument();
+  });
+
+  it("keeps the queue when the clear is cancelled, and says when there was nothing to clear", async () => {
+    vi.mocked(listDestinationQueues).mockResolvedValue([queue("a", { waiting: 100, oldest_waiting_seconds: 1, backed_up: true })]);
+    vi.mocked(clearDestinationQueue).mockResolvedValue(0);
+    const { user, app } = render([dest("a", { name: "Hook" })]);
+    const alert = await screen.findByRole("alert");
+    await user.click(within(alert).getByRole("button", { name: "Clear queue" }));
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(clearDestinationQueue).not.toHaveBeenCalled();
+
+    await user.click(within(alert).getByRole("button", { name: "Clear queue" }));
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Clear queue" }));
+    await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Nothing to clear"));
   });
 
   it("names the connections a used destination would leave with nowhere to send, then deletes it", async () => {

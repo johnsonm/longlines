@@ -1,5 +1,5 @@
-// The sender itself: one serial poll loop over runDeliveryBatch, the queue
-// stats refresh, the watchdog and the /healthz server. main.ts is the process
+// The sender itself: one serial poll loop over runDeliveryBatch, the LISTEN
+// that wakes it, the queue stats refresh, the watchdog and the /healthz server. main.ts is the process
 // shell around it (environment, signals, exit code); everything here runs in
 // tests against a fake database, a fake clock and a local receiver.
 //
@@ -20,7 +20,7 @@ import { type ErrorContext, ValidationError } from "../supabase/functions/_share
 import { reportError } from "../supabase/functions/_shared/sentry.ts";
 import { parseWith } from "../supabase/functions/_shared/validate.ts";
 import { RETRY_MAX_MS, RETRY_MIN_MS, type SenderConfig } from "./config.ts";
-import type { SenderDb } from "./db.ts";
+import { DELIVERIES_CHANNEL, PROBE_TIMEOUT_MS, type SenderDb } from "./db.ts";
 import { healthHandler, type QueueStats, type SenderStatus, type SenderTotals } from "./health.ts";
 
 // A failed claim or bookkeeping call is retried after RETRY_MIN_MS, doubling to
@@ -155,6 +155,10 @@ export function startSender(
   let lastProgressAt: Date | null = null;
   let lastError: string | null = null;
   let inFlight = false;
+  // LISTEN on DELIVERIES_CHANNEL was established (listenLoop). postgres.js re-subscribes
+  // after a dropped listener connection on its own and can fail at it silently, so this is
+  // not proof it still is; polling stays the safety net.
+  let listening = false;
   let queue: QueueStats | null = null;
   const totals: SenderTotals = {
     cycles: 0,
@@ -173,6 +177,7 @@ export function startSender(
       lastProgressAt,
       lastError,
       inFlight,
+      listening,
       totals: {
         cycles: totals.cycles,
         claimed: totals.claimed,
@@ -215,8 +220,42 @@ export function startSender(
     totals.malformed += result.malformed.length;
   }
 
-  // Claim, send, mark; then sleep pollMs, or claim again at once when the
-  // batch was full. A failed claim (ClaimError), or a mark still failing after
+  // A notify from the matcher (wake) ends the idle sleep between cycles early.
+  // Notifies coalesce: any number during a cycle skip the next idle sleep once.
+  // `notified` is cleared at the top of each cycle, since the claim about to run
+  // covers every notify before it. A notify is never progress for the watchdog,
+  // and the backoff sleeps after a failure are not wake-able.
+  let notified = false;
+  let wakeIdle: AbortController | null = null;
+  function wake(): void {
+    notified = true;
+    if (wakeIdle !== null) {
+      wakeIdle.abort();
+    }
+  }
+  // Sleep `ms` between cycles, or not at all when a notify came in since the cycle began;
+  // ends early on a notify or on shutdown.
+  async function idle(ms: number): Promise<void> {
+    // A shutdown during the cycle has already fired its abort event, which the waiter would miss.
+    if (notified || signal.aborted) {
+      return;
+    }
+    const waiter = new AbortController();
+    function stopWaiting(): void {
+      waiter.abort();
+    }
+    signal.addEventListener("abort", stopWaiting, { once: true });
+    wakeIdle = waiter;
+    try {
+      await sleep(ms, waiter.signal);
+    } finally {
+      wakeIdle = null;
+      signal.removeEventListener("abort", stopWaiting);
+    }
+  }
+
+  // Claim, send, mark; then sleep pollMs (or less, on a notify), or claim again at once
+  // when the batch was full. A failed claim (ClaimError), or a mark still failing after
   // runDeliveryBatch's own retries, is logged and the next claim waits a
   // doubling delay; anything else thrown is a bug and ends the process through
   // `done`. A claimed row that did not parse (`malformed`) is logged and kept in
@@ -241,6 +280,7 @@ export function startSender(
     let claimMalformed = false;
     while (!signal.aborted) {
       inFlight = true;
+      notified = false;
       let result: DeliveryBatchResult;
       try {
         result = await runDeliveryBatch(deps.db, deps.send, now(), {
@@ -294,7 +334,55 @@ export function startSender(
       if (result.claimed >= claimLimit) {
         continue;
       }
-      await sleep(config.pollMs, signal);
+      await idle(config.pollMs);
+    }
+  }
+
+  // One LISTEN attempt, given up on after PROBE_TIMEOUT_MS or at shutdown.
+  async function listenOnce(): Promise<{ error: string | null }> {
+    const timer = new AbortController();
+    function stopTimer(): void {
+      timer.abort();
+    }
+    async function expiry(): Promise<{ error: string | null }> {
+      await sleep(PROBE_TIMEOUT_MS, timer.signal);
+      return { error: `no answer within ${String(PROBE_TIMEOUT_MS)} ms` };
+    }
+    signal.addEventListener("abort", stopTimer, { once: true });
+    try {
+      return await Promise.race([deps.db.listen(DELIVERIES_CHANNEL, wake), expiry()]);
+    } finally {
+      timer.abort();
+      signal.removeEventListener("abort", stopTimer);
+    }
+  }
+
+  // LISTEN for the matcher's notify, once. A failure (or no answer within
+  // PROBE_TIMEOUT_MS) is logged, reported once per streak and tried again after
+  // RETRY_MIN_MS, doubling to RETRY_MAX_MS; the sender keeps polling meanwhile
+  // and never exits for it. Once established, postgres.js keeps the subscription
+  // across reconnects.
+  async function listenLoop(): Promise<void> {
+    let retryMs = RETRY_MIN_MS;
+    let listenFailing = false;
+    while (!signal.aborted) {
+      const answer = await listenOnce();
+      // Read through a call: TypeScript keeps the loop condition's narrowing across the await.
+      if (stopped()) {
+        return;
+      }
+      if (answer.error === null) {
+        listening = true;
+        log("listening for deliveries");
+        return;
+      }
+      log(`listen failed: ${answer.error}; polling only, retrying in ${String(retryMs)} ms`);
+      if (!listenFailing) {
+        listenFailing = true;
+        report(`listen failed: ${answer.error}`, undefined);
+      }
+      await sleep(retryMs, signal);
+      retryMs = Math.min(retryMs * 2, RETRY_MAX_MS);
     }
   }
 
@@ -394,14 +482,14 @@ export function startSender(
     healthHandler(status, config.staleMs, now),
   );
   async function runLoops(): Promise<void> {
-    await Promise.all([pollLoop(), statsLoop(), watchdogLoop()]);
+    await Promise.all([pollLoop(), listenLoop(), statsLoop(), watchdogLoop()]);
   }
   const loops = runLoops();
   log(
     `sender started: poll ${String(config.pollMs)} ms, ` +
       `concurrency ${String(config.concurrency)}, ` +
       `stale ${String(config.staleMs)} ms, stats ${String(config.statsMs)} ms, ` +
-      `health on :${String(server.addr.port)}`,
+      `listen on ${DELIVERIES_CHANNEL}, health on :${String(server.addr.port)}`,
   );
 
   let stopping: Promise<void> | null = null;

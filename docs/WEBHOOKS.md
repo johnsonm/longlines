@@ -179,6 +179,13 @@ pause a busy destination. A success starts the count again. When it pauses, the 
 be sent are dropped and no new ones are queued. The app shows when it paused; turn Enabled back on
 and save (or `PATCH /v1/destinations/{id}` with `"enabled": true`) to resume.
 
+**410.** A `410 Gone` says the URL is gone for good, so the destination pauses at once, whatever
+the pause setting above says. The spots waiting to be sent are dropped and no new ones are queued,
+as with the pause after repeated failures, and the app says the receiver answered 410. Check the
+URL, then turn Enabled back on and save (or `PATCH` with `"enabled": true`) to resume. A 410 from
+the old URL that arrives after you replaced the URL does not pause the new one. Send test never
+pauses a destination. Any other `4xx`, `404` included, is an ordinary failure.
+
 **Throughput.** With one request per spot a destination gets at most 5 requests every few
 seconds, about 50 spots a minute; a busier connection should group. Requests to one destination go
 one after another, so a receiver that answers slowly also slows its own later spots: answer

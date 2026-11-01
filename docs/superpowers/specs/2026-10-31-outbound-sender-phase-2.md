@@ -2,7 +2,8 @@
 
 Date: 2026-10-31
 
-Status: planned; nothing shipped. Each PR appends to the Progress log.
+Status: Piece 1 (LISTEN), Piece 2 (permanent-failure pause) and Piece 3 (queue backlog and Clear
+queue) built, in review. Each PR appends to the Progress log.
 
 This spec supersedes section 9 ("Phase 2 outline") of `2026-10-15-outbound-sender-design.md`.
 Read that spec for how the sender, the claim and the outcome RPCs work today; this one only adds
@@ -421,6 +422,9 @@ listed keeps its current copy.
 - Title *(draft, Brad's call)*: {name} is backed up
 - Body *(draft, Brad's call)*: {N} spots are waiting to be sent, the oldest for {age}. Narrow the
   connections that send to it, or clear the queue.
+- Body for one spot *(draft, Brad's call)*: 1 spot has been waiting to be sent for {age}. Narrow
+  the connections that send to it, or clear the queue.
+- {age} reads "14 minutes", "1 hour", "40 seconds" (the largest whole unit, no "ago").
 - Button *(draft, Brad's call)*: Clear queue
 
 **Card meta (Piece 3)**
@@ -429,11 +433,13 @@ listed keeps its current copy.
 **Clear queue dialog (Piece 3)**
 - Title *(draft, Brad's call)*: Clear the queue for {name}?
 - Body *(draft, Brad's call)*: {N} spots waiting to be sent will be dropped. Spots already being
-  sent, or waiting to be retried, are not affected. New spots keep coming.
+  sent, or waiting to be retried, are not affected. New spots keep coming. One spot reads "1 spot
+  waiting to be sent will be dropped."
 - Buttons *(draft, Brad's call)*: Cancel · Clear queue
 
 **Toasts (Piece 3)**
-- *(draft, Brad's call)* Cleared {n} spots from {name} | Nothing to clear
+- *(draft, Brad's call)* Cleared {n} spots from {name} ("Cleared 1 spot from {name}") | Nothing
+  to clear
 
 ## Verification
 
@@ -504,3 +510,115 @@ next PR. Earlier entries are never edited.
   line in the Copy section. Notes for Piece 1: PR #337 also redefines `match_pending_spots` and
   touches `sender/__tests__/sender.test.ts` and `docs/openapi.yaml`; expect a rebase, and check
   that the `pg_notify('deliveries', '')` survives it.
+- 2026-10-31, Piece 1 (PR #341, branch `sender-listen`, on `main` after #337 and #338 merged): LISTEN in
+  the sender, no migration. #337's `match_pending_spots` (`20261031000100`) keeps the
+  `pg_notify('deliveries', '')`. `sender/db.ts` gains `DELIVERIES_CHANNEL`, `SqlClient.listen` (postgres.js's
+  three-argument slice) and `SenderDb.listen`, which answers a failed LISTEN as `{ error }` like
+  `rpc`. `sender/sender.ts`: `wake()` sets `notified` and aborts the idle wait; `idle(pollMs)`
+  replaces the poll sleep and returns at once when a notify came in during the cycle; `notified`
+  is cleared before each claim; the two backoff sleeps keep the loop signal, so a notify never
+  shortens them; `listenLoop` tries once, then on failure logs, reports once per streak and
+  retries at `RETRY_MIN_MS` doubling to `RETRY_MAX_MS`, and never exits. `SenderStatus.listening`
+  and `/healthz` `listening`; the start line names the channel. Tests: six new `sender.test.ts`
+  cases (a notify wakes the idle sleep without the clock moving; notifies during a cycle skip the
+  next idle once and only once; a notify is not progress; a notify does not cut a claim backoff
+  short; a failed LISTEN is retried with backoff, reported once and claims keep coming; a LISTEN
+  that never answers counts as failed after `PROBE_TIMEOUT_MS` and does not hold up shutdown), and
+  in `db.test.ts` the fake's `listen`, a relay case, a rejection case, a non-Error rethrow, and the
+  real LISTEN/NOTIFY round trip against `SENDER_TEST_DATABASE_URL`. Docs: ARCHITECTURE.md (the
+  matcher paragraph, the allowlist named instead of "exactly seven", `/healthz`, "Reaching the
+  queue"), OPERATIONS.md (overview, `SENDER_POLL_MS`, `/healthz` and a `listening` paragraph,
+  the cutover note) and CLAUDE.md "Sender rules". Deviations: (1) the LISTEN attempt is raced
+  against the injected `sleep(PROBE_TIMEOUT_MS)` and the loop signal instead of `withTimeout`, so
+  the fake clock drives the timeout in tests and shutdown never waits up to 30 s for a hung
+  attempt; same limit, same message shape. (2) The round trip's second session is
+  `postgres(clientOptions(...))`, not a URL, because a bare URL makes postgres.js read PG*
+  variables the test permissions deny. (3) Found while reading postgres.js 3.4.9: a failed
+  `listen()` keeps its listener, and the listener connection's `onclose` re-subscribes every kept
+  listener, so each retry after a failure can add one more `wake` callback; `wake` is idempotent,
+  so the cost is a closure per retry (at most one a minute during an outage). Documented on
+  `SenderDb.listen`; not worked around. Notes for Piece 2: `SENDER_RPCS` is unchanged here; the
+  docs now name the allowlist, so adding `pause_destination` means adding it to the
+  ARCHITECTURE.md list as well.
+- 2026-10-31, Piece 1 review (PR #341): an independent review found no code defect. It changed
+  one sentence in ARCHITECTURE.md, which said a matched spot "is claimed within about a second":
+  a notify makes the claim run at once, but a destination's batch hold and claim interval still
+  decide when its rows are claimable. Checked against postgres.js 3.4.9 that a LISTEN failing at
+  start recovers once the database answers (postgres.js retries on its own, the next attempt
+  resolves) and that each failed attempt leaves one extra `wake` callback, as recorded above.
+- 2026-10-31, Piece 2 (PR #342, branch `pause-gone`, stacked on `sender-listen`): the permanent-failure
+  pause, migration `20261031000300_pause_destination.sql`. `pause_destination(destination,
+  delivery ids, msg ids, error)` locks the destination, marks the rows of that destination failed
+  (attempts + 1, `last_error`), and then either pauses it (`enabled = false`,
+  `auto_disabled_at = coalesce(auto_disabled_at, now())`, `consecutive_failures + 1`, `last_error`,
+  `last_error_at`, health by the usual rule, never `paused`; every queued pending or failed row of
+  it made visible for the unwanted sweep) or, when none of the rows was claimed at its current
+  `url_generation`, only makes those rows visible again. Granted to `service_role` and
+  `delivery_sender`. `get_discord_destination` and `api_destination_json`'s `discord` object gain
+  `auto_disabled_at`. `send.ts`: `SendResult.gone`; `sendWebhook` answers a 410 with
+  `Webhook HTTP 410 (gone)`; `sendDiscord` reads a 404 or 401 body with a loose schema and answers
+  code 10015 with `Discord HTTP 404 (Unknown Webhook)` and code 50027 with
+  `Discord HTTP 401 (Invalid Webhook Token)`, every other 404 or 401 keeping `Discord HTTP 404`
+  or `401`. `run.ts` calls `pause_destination` in place of `mark_deliveries_failed` for a gone
+  result with failed rows (tried once) and logs `is gone: ...; paused`. `SENDER_RPCS`,
+  `db.test.ts` and `sender_role.test.sql` (`plan(23)`) gain it. Web: `DiscordDestination.auto_disabled_at`,
+  `DiscordDestinationInput.enabled: boolean | null`, `discordModel.toInput(form, loaded)` with the
+  webhook editor's keep-Enabled rule, the Discord editor's paused alert, the webhook editor's
+  alert worded by the row's `last_error`, and no failing banner on the Destinations page while
+  `auto_disabled_at` is set. `database.types.ts` regenerated (adds `pause_destination`). Docs:
+  openapi (`DiscordSettings.auto_disabled_at`, the PATCH description, `WebhookSettings`'
+  description), WEBHOOKS.md (a 410 paragraph), ARCHITECTURE.md (the allowlist, the gone reply),
+  OPERATIONS.md ("A destination paused itself"), the docs site's webhook, Discord and index pages,
+  and CLAUDE.md ("Delivery rules", "Webhook rules", "Discord rules", "Sender rules"). Built as the
+  recommended answer to the [OPEN] 410 call: a webhook pauses on 410 whatever its pause switch
+  says; still Brad's call. The two paused-alert lines are the Copy section's drafts, word for word.
+  Deviations and additions: (1) the webhook editor's wording keys on `WEBHOOK_GONE_ERROR` in
+  `webhookModel.ts`, and a Vitest case checks that `send.ts` still contains that text; the page
+  reads `last_error` from the list's row, since `get_webhook_destination` does not return it.
+  (2) The Discord editor always uses the gone wording, because a Discord destination has no count
+  pause. (3) `pause_destination` with an empty delivery id list changes nothing (it reads as
+  claimed before a URL change); the sender never calls it without failed rows. (4) pgTAP grew by
+  17 in `deliveries_rpc.test.sql` (a paused destination keeps its first `auto_disabled_at`, a row
+  of another destination is ignored, clients cannot call it), 5 in
+  `discord_destinations.test.sql` and 2 in `management_api.test.sql`. (5) `HealthChip`'s comment
+  now names Discord. Notes for Piece 3: `docs/openapi.yaml` and `management_api.test.sql`
+  (`plan(108)`) changed here; rebase on this branch.
+- 2026-10-31, Piece 2 review (PR #342): the review found no defect in the migration, the sender or
+  the web, and strengthened `deliveries_rpc.test.sql` (`plan(166)`): the pause case now claims a
+  row that was never attempted and checks that `pause_destination` makes it visible with no
+  attempt counted, so the queue-wide vt reset is pinned beyond the rows passed in, and the
+  already-paused case checks that the fifth failure in a row marks the destination `failing`.
+- 2026-10-31, Piece 3 (PR #343, branch `queue-clear`, stacked on `pause-gone`): the queue backlog and Clear
+  queue, migration `20261031000400_destination_queues.sql`. The knobs
+  `destination_backlog_waiting()` (100) and `destination_backlog_age()` (10 minutes); the view
+  `destination_queue_status` (`security_invoker`, select for `service_role` only; `waiting`,
+  `oldest_waiting_seconds`, null when nothing waits, and `dropped_24h`); `list_destination_queues()`
+  and `clear_destination_queue(uuid)` for `authenticated`; `api_call` redefined from
+  `20261029001300` with `clear_destination_queue` in the write list and the destination LL404
+  pre-check, answering `{"cleared": n}`. API: `POST /v1/destinations/:id/clear` in `routes.ts`,
+  `docs/openapi.yaml` and the docs site's route table. Web: `listDestinationQueues` and
+  `clearDestinationQueue` in `api.ts` (`DestinationQueue` overrides the generated type so
+  `oldest_waiting_seconds` may be null), regenerated `database.types.ts` (additions only), the
+  backed-up banner after the failing banners with Clear queue behind the new generic
+  `layout/ConfirmDialog.tsx` (which `ConfirmDeleteDialog` now renders through), the card meta's
+  `· {N} waiting`, the wording in `destinations/queueModel.ts`, and `durationWords` in
+  `lib/time.ts` (which `timeAgo` now uses) for the banner's age. A failed queues load is a toast
+  and the page keeps working. Tests: the new `destination_queues.test.sql` (22), 3 more in
+  `management_api.test.sql` (`plan(111)`), the authenticated list in `advisor.test.sql`, a route
+  case in `api_routes.test.ts`, and Vitest cases for the page, `cardMeta`, `queueModel`,
+  `ConfirmDialog` and `durationWords`. Docs: CLAUDE.md ("Delivery rules": the reworded drop
+  sentence and the queue-figures rule; "Web app rules": this spec as the copy source and
+  `ConfirmDialog`), ARCHITECTURE.md (a "Queue figures and Clear queue" paragraph),
+  OPERATIONS.md ("A destination is backed up") and the docs site's destinations page. Deviations
+  and additions: (1) `clear_destination_queue` takes the queue rows `for update of q skip locked`,
+  so a claim running at the same moment keeps the messages it is taking, and a claim that commits
+  first moves their vt ahead, which the lock's recheck leaves out. (2) The Copy section gained the
+  one-spot wordings (banner body, dialog body, toast) and how {age} reads; drafts like the rest.
+  (3) The Clear queue confirm button is `warning` coloured, to match the banner. (4) The dialog
+  names the waiting count from the last queues load, which includes rows in flight, so the toast's
+  count can be lower. Nothing changed for the sender, its role or `sender_role.test.sql`.
+- 2026-10-31, Piece 3 review (PR #343): `list_destination_queues` no longer calls a destination an
+  operator paused (`health = 'paused'`, enabled still true) backed up, as this spec's decision says
+  (one more pgTAP case, `plan(23)`); the OpenAPI description of the clear route no longer says rows
+  held back by a rate limit are kept (a throttle moves only the 429'd batch's vt, so the rest are
+  cleared), and CLAUDE.md, ARCHITECTURE.md and OPERATIONS.md say the same.

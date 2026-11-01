@@ -377,6 +377,16 @@ describe("editing", () => {
     await waitFor(() => expect(saveWebhookDestination).toHaveBeenCalledWith(expect.objectContaining({ enabled: true })));
   });
 
+  it("says a 410 paused it when that was the destination's last error", async () => {
+    vi.mocked(getWebhookDestination).mockResolvedValue({
+      ...LOADED, enabled: false, auto_disabled_at: new Date(Date.now() - 5 * 60_000).toISOString(),
+    });
+    render({ id: "w1", dests: [dest("w1", { last_error: "Webhook HTTP 410 (gone)" })] });
+    expect(await screen.findByText(
+      "Paused 5 minutes ago: the receiver answered HTTP 410 (gone). Check the URL, then turn Enabled on and save to resume.",
+    )).toBeInTheDocument();
+  });
+
   it("shows when the secret was last rotated", async () => {
     vi.mocked(getWebhookDestination).mockResolvedValue({ ...LOADED, secret_rotated_at: new Date(Date.now() - 5 * 86400_000).toISOString() });
     render({ id: "w1" });

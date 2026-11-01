@@ -463,6 +463,12 @@ isOneToOne: false
       foreignKeyName: "deliveries_destination_id_fkey"
       columns: ["destination_id"]
 isOneToOne: false
+      referencedRelation: "destination_queue_status"
+      referencedColumns: ["destination_id"]
+    },{
+      foreignKeyName: "deliveries_destination_id_fkey"
+      columns: ["destination_id"]
+isOneToOne: false
       referencedRelation: "destinations"
       referencedColumns: ["id"]
     },{
@@ -512,6 +518,12 @@ isOneToOne: false
                   }
                   Relationships: [
                     {
+      foreignKeyName: "discord_destination_settings_destination_id_fkey"
+      columns: ["destination_id"]
+isOneToOne: true
+      referencedRelation: "destination_queue_status"
+      referencedColumns: ["destination_id"]
+    },{
       foreignKeyName: "discord_destination_settings_destination_id_fkey"
       columns: ["destination_id"]
 isOneToOne: true
@@ -819,6 +831,12 @@ isOneToOne: false
       foreignKeyName: "local_cluster_destination_settings_destination_id_fkey"
       columns: ["destination_id"]
 isOneToOne: true
+      referencedRelation: "destination_queue_status"
+      referencedColumns: ["destination_id"]
+    },{
+      foreignKeyName: "local_cluster_destination_settings_destination_id_fkey"
+      columns: ["destination_id"]
+isOneToOne: true
       referencedRelation: "destinations"
       referencedColumns: ["id"]
     },{
@@ -899,6 +917,12 @@ isOneToOne: false
       foreignKeyName: "push_destination_devices_destination_id_fkey"
       columns: ["destination_id"]
 isOneToOne: false
+      referencedRelation: "destination_queue_status"
+      referencedColumns: ["destination_id"]
+    },{
+      foreignKeyName: "push_destination_devices_destination_id_fkey"
+      columns: ["destination_id"]
+isOneToOne: false
       referencedRelation: "destinations"
       referencedColumns: ["id"]
     },{
@@ -922,6 +946,12 @@ isOneToOne: false
                   }
                   Relationships: [
                     {
+      foreignKeyName: "push_destination_settings_destination_id_fkey"
+      columns: ["destination_id"]
+isOneToOne: true
+      referencedRelation: "destination_queue_status"
+      referencedColumns: ["destination_id"]
+    },{
       foreignKeyName: "push_destination_settings_destination_id_fkey"
       columns: ["destination_id"]
 isOneToOne: true
@@ -1177,6 +1207,12 @@ isOneToOne: false
       foreignKeyName: "send_test_limits_destination_id_fkey"
       columns: ["destination_id"]
 isOneToOne: false
+      referencedRelation: "destination_queue_status"
+      referencedColumns: ["destination_id"]
+    },{
+      foreignKeyName: "send_test_limits_destination_id_fkey"
+      columns: ["destination_id"]
+isOneToOne: false
       referencedRelation: "destinations"
       referencedColumns: ["id"]
     }
@@ -1299,6 +1335,12 @@ isOneToOne: false
       foreignKeyName: "subscription_destinations_destination_id_fkey"
       columns: ["destination_id"]
 isOneToOne: false
+      referencedRelation: "destination_queue_status"
+      referencedColumns: ["destination_id"]
+    },{
+      foreignKeyName: "subscription_destinations_destination_id_fkey"
+      columns: ["destination_id"]
+isOneToOne: false
       referencedRelation: "destinations"
       referencedColumns: ["id"]
     },{
@@ -1373,6 +1415,12 @@ isOneToOne: false
       foreignKeyName: "webhook_destination_headers_destination_id_fkey"
       columns: ["destination_id"]
 isOneToOne: false
+      referencedRelation: "destination_queue_status"
+      referencedColumns: ["destination_id"]
+    },{
+      foreignKeyName: "webhook_destination_headers_destination_id_fkey"
+      columns: ["destination_id"]
+isOneToOne: false
       referencedRelation: "destinations"
       referencedColumns: ["id"]
     }
@@ -1390,6 +1438,12 @@ isOneToOne: false
                   }
                   Relationships: [
                     {
+      foreignKeyName: "webhook_destination_settings_destination_id_fkey"
+      columns: ["destination_id"]
+isOneToOne: true
+      referencedRelation: "destination_queue_status"
+      referencedColumns: ["destination_id"]
+    },{
       foreignKeyName: "webhook_destination_settings_destination_id_fkey"
       columns: ["destination_id"]
 isOneToOne: true
@@ -1425,6 +1479,14 @@ isOneToOne: true
                 },"callsign_rollup_status": {
                   Row: {
                     "attempts": number | null,"day": string | null,"days_filled_at": string | null,"last_error": string | null,"last_failed_at": string | null,"references_filled_at": string | null,"rolled_at": string | null,"spots": number | null,"status": string | null
+                  }
+                  ComputedFields: never
+                  Relationships: [
+                    
+                  ]
+                },"destination_queue_status": {
+                  Row: {
+                    "auto_disabled_at": string | null,"destination_id": string | null,"dropped_24h": number | null,"enabled": boolean | null,"health": string | null,"name": string | null,"oldest_waiting_seconds": number | null,"throttled_until": string | null,"type": string | null,"user_id": string | null,"waiting": number | null
                   }
                   ComputedFields: never
                   Relationships: [
@@ -1635,6 +1697,9 @@ isOneToOne: true
               "attempts": number,"created_at": string,"delivery_id": number,"destination": Json,"msg_id": number,"spot": Json,"subscription_id": string
             }[]
                            },
+"clear_destination_queue":
+{ Args: { "p_destination_id": string }; Returns: number
+                           },
 "compact_callsign_rollups":
 { Args: Record<PropertyKey, never>; Returns: undefined
                            },
@@ -1690,6 +1755,12 @@ isOneToOne: true
                            },
 "delivery_spot_json":
 { Args: { "r": Omit<Database["public"]['Tables']["raw_spots"]['Row'], Database["public"]['Tables']["raw_spots"]['ComputedFields']> }; Returns: Json
+                           },
+"destination_backlog_age":
+{ Args: Record<PropertyKey, never>; Returns: string
+                           },
+"destination_backlog_waiting":
+{ Args: Record<PropertyKey, never>; Returns: number
                            },
 "destination_batch_full":
 { Args: { "p_type": string }; Returns: number
@@ -1954,6 +2025,11 @@ isOneToOne: true
               "callsigns": (string)[],"id": string,"member_count": number,"name": string,"on_air": Json,"subscription_count": number,"updated_at": string
             }[]
                            },
+"list_destination_queues":
+{ Args: Record<PropertyKey, never>; Returns: {
+              "backed_up": boolean,"destination_id": string,"dropped_24h": number,"oldest_waiting_seconds": number,"waiting": number
+            }[]
+                           },
 "list_discord_destination_settings":
 { Args: Record<PropertyKey, never>; Returns: Json
                            },
@@ -2123,6 +2199,9 @@ isOneToOne: true
                            },
 "patch_subscription":
 { Args: { "p_id": string,"p_patch": Json }; Returns: undefined
+                           },
+"pause_destination":
+{ Args: { "p_delivery_ids": (number)[],"p_destination_id": string,"p_error": string,"p_msg_ids": (number)[] }; Returns: undefined
                            },
 "poll_relay_pairing":
 { Args: { "p_device_code_hash": string }; Returns: Json

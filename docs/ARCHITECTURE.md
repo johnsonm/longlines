@@ -265,8 +265,8 @@ callsign; within a batch only the earliest spot per callsign is eligible),
 inserts one `deliveries` row per (destination, spot) with `on conflict do
 nothing` so two subscriptions sharing a destination deliver once, queues the
 new delivery ids, archives the events, and sends `pg_notify('deliveries', '')`
-when it created anything (the sender polls today and will listen on that
-channel later; the matcher never calls a function over pg_net). It runs after
+when it created anything (the sender listens on that channel and claims at
+once, polling as the safety net; the matcher never calls a function over pg_net). It runs after
 every successful ingest and on a one-minute cron as a safety net.
 
 ## Delivery: the sender
@@ -280,11 +280,14 @@ own RPCs are gone (`20261015001400_sender_cleanup`). The design, with its decisi
 the Phase 2 plan, is `docs/superpowers/specs/2026-10-15-outbound-sender-design.md`.
 
 - **The sender is dumb; policy lives in Postgres.** It connects as the `delivery_sender` role
-  through the Supavisor pooler (session mode, TLS, two connections) and may execute exactly seven
-  security-definer RPCs: `claim_deliveries`, `mark_deliveries_sent`, `mark_deliveries_failed`,
-  `throttle_destination`, `delivery_queue_stats`, `prune_push_devices` and `record_push_results`.
-  It has no table privileges, nothing on `pgmq` and no Supabase API key; `sender_role.test.sql`
-  pins that list. Its loop (`_shared/delivery/run.ts`, `runDeliveryBatch`) claims, sends and
+  through the Supavisor pooler (session mode, TLS, a pool of two connections plus postgres.js's
+  listener connection for LISTEN, three of the role's limit of four) and may execute only the
+  security-definer RPCs of its allowlist, `SENDER_RPCS` in `sender/db.ts`: the delivery loop's
+  `claim_deliveries`, `mark_deliveries_sent`, `mark_deliveries_failed`, `throttle_destination`,
+  `pause_destination`, `prune_push_devices` and `record_push_results`, the status calls `delivery_queue_stats` and
+  `record_sender_heartbeat`, and the spots stream's `authenticate_relay_token`,
+  `set_cluster_stream` and `reset_cluster_streams`. It has no table privileges, nothing on
+  `pgmq` and no Supabase API key; `sender_role.test.sql` pins that list. Its loop (`_shared/delivery/run.ts`, `runDeliveryBatch`) claims, sends and
   reports. What to send, in what order, how much and when to give up are decided in SQL.
 - **The claim is rate-aware and newest first.** `claim_deliveries(p_limit, p_vt)` first drops
   rows the user no longer wants (a disabled subscription, an unlinked or disabled destination),
@@ -349,22 +352,53 @@ the Phase 2 plan, is `docs/superpowers/specs/2026-10-15-outbound-sender-design.m
   `mark_deliveries_failed` backs the messages off (30 s to 30 m for Discord and push; a webhook's
   own retry policy, in SQL) and five in a row mark the destination `failing`. For a webhook only
   the rows that were in the failed request are marked (`SendResult.attempted`); the rest reappear
-  after the visibility timeout without counting an attempt. A push device reported gone (404/410) is pruned, and a push destination
+  after the visibility timeout without counting an attempt. A reply that says the URL is gone for
+  good (a webhook's 410, Discord's 404 with code 10015 or 401 with code 50027, `SendResult.gone`)
+  calls `pause_destination` instead: the rows are marked failed and the destination gets
+  `enabled = false` and `auto_disabled_at`, the webhook count pause's mechanism, unless none of
+  the rows was claimed at its current `url_generation` (then only the rows become visible again,
+  for the new URL). A push device reported gone (404/410) is pruned, and a push destination
   with no deliverable device fails. A push destination in its quiet hours set to "Don't send" is
   acked without a request: not a failure, not retried.
 - **Health and the watchdog.** `/healthz` answers on Fly's private network: 200 while the last
   progress (a successful claim, a finished send or a successful bookkeeping call; the start before
   any) is under `SENDER_STALE_MS` (2 minutes) old, 503 after; the body carries `last_claim_at`,
-  `last_progress_at`, `last_error`, `in_flight`, totals and `delivery_queue_stats()` (queue
-  depth, deliveries expired in the last hour). Fly restarts only a machine whose process exits, so
+  `last_progress_at`, `last_error`, `in_flight`, `listening` (LISTEN is up), totals and
+  `delivery_queue_stats()` (queue depth, deliveries expired in the last hour). Fly restarts only a machine whose process exits, so
   the watchdog exits 1 at the same threshold, which is what a wedged pooler connection looks like
   and would otherwise drop every push after 15 minutes behind a healthy-looking machine. A failed
   claim is logged and retried with backoff; the repeatable bookkeeping calls are retried twice
   within the cycle. Loss is measured from SQL
   (`dropped_at`), never from the age of the oldest pending row, which newest-first ordering makes
   meaningless.
+- **Queue figures and Clear queue.** `destination_queue_status` (`20261031000400`, service role
+  only) is the operator's per-destination view: `waiting` (pending and failed rows),
+  `oldest_waiting_seconds` and `dropped_24h` (rows lost in the last 24 hours; unwanted and
+  cleared rows keep `dropped_at` null, so they are not counted). `list_destination_queues()`
+  gives the owner the same figures for their destinations plus `backed_up`, decided in SQL by two
+  knobs: an enabled destination (not paused by an operator) with at least
+  `destination_backlog_waiting()` (100) rows waiting or whose oldest waiting row is
+  `destination_backlog_age()` (10 minutes) old. The Destinations page shows a banner for each backed-up destination and the waiting count on every card.
+  `clear_destination_queue(id)` (the banner's Clear queue and `POST /v1/destinations/{id}/clear`)
+  drops the owner's waiting rows whose queue message is visible now, with `dropped_at` null, and
+  archives their messages, the shape of the claim's unwanted sweep. It takes the queue rows
+  `for update skip locked`, so a claim in progress keeps what it took, and it leaves every row
+  whose vt is ahead: in flight in the sender, in webhook retry backoff or in the batch a 429 put
+  back (a throttle moves only that batch's vt; the destination's other rows stay visible and are
+  cleared).
+  Dropping an in-flight row before its `mark_deliveries_failed` would leave a failed row with no
+  queue message. No delivery is dropped in TypeScript; in SQL only the claim's sweeps,
+  `update_destination`'s resume and `clear_destination_queue` drop one.
 - **Reaching the queue.** The matcher's kick was a pg_net POST to the `deliver` function; it is
-  now `pg_notify('deliveries', '')`, which nothing listens for until the sender does.
+  now `pg_notify('deliveries', '')`, and the sender LISTENs on that channel (`SenderDb.listen`,
+  on postgres.js's own connection outside the pool). A notify only ends the idle sleep between
+  cycles early, so the claim runs within about a second of a match instead of up to
+  `SENDER_POLL_MS` later (a destination's batch hold and claim interval still decide when its
+  rows are claimable, and polling picks them up after that); notifies during a cycle coalesce into one early claim, the backoff after a
+  failure is never cut short, and a notify is never progress for the watchdog. Polling stays the
+  safety net: postgres.js re-subscribes after a dropped connection on its own and can fail at it
+  silently, and a LISTEN that fails at start is logged, reported once per streak and retried
+  with backoff while the sender keeps polling; it never exits for it.
 - **SSRF, now that the sender sits on Fly.** Outbound URL safety is checked twice: in SQL when
   the destination is created (`validate_destination_url`) and in the worker before each request
   (`urlsafety.ts`), which also resolves the hostname and refuses private addresses so a DNS
@@ -512,7 +546,9 @@ pause at most once per `webhook_pause_spacing()` (30 s) and restart after a succ
 sets `enabled = false` and `auto_disabled_at` and makes the destination's whole queue visible
 (rows in retry backoff included), and the claim's unwanted sweep then drops all of it with
 `dropped_at`, so resuming delivers none of it. `update_destination` turning it back on clears the
-pause. The default threshold is null until the web editor ships (its migration makes it 20).
+pause. The default threshold is null until the web editor ships (its migration makes it 20). A
+410 pauses the same way at once, whatever `pause_after_failures` says (`pause_destination`,
+migration `20261031000300`), and so does a Discord webhook that Discord says no longer exists.
 
 ## Local DX cluster destinations
 

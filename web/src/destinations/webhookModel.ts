@@ -236,6 +236,20 @@ export function toInput(form: WebhookForm, loaded?: WebhookForm): WebhookDestina
   };
 }
 
+/** The sender's error for an HTTP 410 (send.ts), which pauses the destination at once (pause_destination). */
+export const WEBHOOK_GONE_ERROR = "Webhook HTTP 410 (gone)";
+
+/**
+ * The editor's alert while the destination is paused (auto_disabled_at): the 410 wording when the destination's last
+ * error is the gone reply, else the count pause's. `ago` reads as "14 minutes ago".
+ */
+export function webhookPausedLine(ago: string, lastError: string | null): string {
+  if (lastError === WEBHOOK_GONE_ERROR) {
+    return `Paused ${ago}: the receiver answered HTTP 410 (gone). Check the URL, then turn Enabled on and save to resume.`;
+  }
+  return `Paused ${ago} after repeated failed requests. Spots waiting to be sent were dropped. Turn Enabled on and save to resume.`;
+}
+
 /** True when saving `current` would change what `initial` saved. */
 export function dirty(initial: WebhookForm, current: WebhookForm): boolean {
   return JSON.stringify(toInput(initial)) !== JSON.stringify(toInput(current));

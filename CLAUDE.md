@@ -219,8 +219,8 @@ The conventions are `docs/superpowers/specs/2026-10-22-strict-eslint-conventions
   (`subscriptions_rbn_needs_callsign` in SQL, `needsCallsign` in the web); change the two together.
 - The loop is `_shared/delivery/run.ts` (`runDeliveryBatch` over a `DeliveryRpc`), run only by
   the sender. It talks to the database only through `claim_deliveries`,
-  `mark_deliveries_sent`, `mark_deliveries_failed`, `throttle_destination`, `prune_push_devices`
-  and `record_push_results`, so delivery rows, queue messages and destination health change
+  `mark_deliveries_sent`, `mark_deliveries_failed`, `throttle_destination`, `pause_destination`,
+  `prune_push_devices` and `record_push_results`, so delivery rows, queue messages and destination health change
   atomically. One `mark_deliveries_sent` per cycle, before the throttles (the ack clears
   `throttled_until`).
 - Policy lives in SQL. `claim_deliveries` is rate-aware per destination and newest first, skips
@@ -246,8 +246,9 @@ The conventions are `docs/superpowers/specs/2026-10-22-strict-eslint-conventions
 - Rate limits are not failures: a 429 from any type, or the Discord cap, calls
   `throttle_destination` (with `Retry-After` when there is one, else null so SQL picks the level's
   backoff), which sets `throttled_until`, `throttle_level` and the messages' vt together and never
-  touches `consecutive_failures`. Never delay or drop a message outside those RPCs: the claim's
-  expiry sweep is the only thing that drops a delivery. `ready` in `claim_deliveries` applies the
+  touches `consecutive_failures`. Never delay or drop a message outside those RPCs, and never drop
+  a delivery in TypeScript: in SQL only the claim's sweeps, `update_destination`'s resume and
+  `clear_destination_queue` drop one. `ready` in `claim_deliveries` applies the
   sweep's age predicate too, so a row past its age is never claimed when more than the sweep's
   batch expire at once; change the two together. The same goes for a webhook row whose attempts
   are used up: the sweep and `ready` share `webhook_retries_exhausted`.
@@ -266,6 +267,15 @@ The conventions are `docs/superpowers/specs/2026-10-22-strict-eslint-conventions
   turning it on clears it, so the editor sends Enabled only when the switch changed from what it
   loaded (null otherwise) and a pause since load is never resumed silently. `webhook_default_settings()` sets the pause to 20 (`20261018000400`,
   shipped with the editor that shows and undoes a pause); backfilled webhooks keep it null.
+- A gone reply pauses at once (`20261031000300`, Phase 2 spec Piece 2): a webhook's HTTP 410,
+  Discord's 404 with code 10015 or 401 with code 50027 (read with a loose Zod schema; any other
+  404 or 401 is an ordinary failure) set `SendResult.gone`, and `run.ts` calls
+  `pause_destination` for the failed rows in place of `mark_deliveries_failed` (tried once, it
+  counts). It is the same pause (`enabled = false`, `auto_disabled_at`, the queue made visible for
+  the unwanted sweep, never `health`), whatever the webhook's pause switch says, and the
+  URL-generation guard applies: rows claimed before a URL change only become visible again. Send
+  test never pauses (`test_delivery.ts` never reads `gone`). The editors tell the gone pause from
+  the count pause by `last_error` (`WEBHOOK_GONE_ERROR`, pinned to `send.ts` by a test).
 - The webhook body is rendered in SQL (`webhook_spot_fields`, ordered `[{key, value}]` pairs in
   the claim's `spot.webhook_fields`); `format.ts` only builds the object in that order and never
   formats, converts or names a value. A row without the keys gets the legacy `{deliveries}` body
@@ -277,6 +287,17 @@ The conventions are `docs/superpowers/specs/2026-10-22-strict-eslint-conventions
   read only through `spot_license_name` (by base call, none for a club or a call in
   `hidden_callsigns`), never the spotter's. The FCC load stages them apart from the joined `name`
   (`_shared/uls.ts`, `fcc_uls_en`); never split `name` to get them.
+- Queue figures are SQL's (`20261031000400`, Phase 2 spec Piece 3): `destination_queue_status`
+  (service role only, the operator's view) and `list_destination_queues()` (the owner's rows) give
+  `waiting` (pending and failed rows), `oldest_waiting_seconds` and `dropped_24h` (loss only:
+  unwanted and cleared rows keep `dropped_at` null). `backed_up` is decided there by
+  `destination_backlog_waiting()` (100) and `destination_backlog_age()` (10 minutes), only for
+  an enabled destination an operator has not paused; the web only words it.
+  `clear_destination_queue` (owner, web and `POST /v1/destinations/{id}/clear`) drops only waiting
+  rows whose message is visible now, with `dropped_at` null, archives their messages and takes the
+  queue rows `for update skip locked`; it leaves rows whose vt is ahead (in flight, in retry
+  backoff, or the batch a 429 put back), since an in-flight row dropped before its
+  `mark_deliveries_failed` would be a failed row with no message.
 - Nothing in the app sets `destinations.health = 'paused'`; it is an operator tool, and the claim
   drops a paused destination's queued rows as unwanted, like `enabled = false`. To hold a queue
   and resume it, set `throttled_until`.
@@ -396,6 +417,11 @@ its Copy section is the copy source for the Discord editor.
   `discord_destination_settings` (RLS on, no policies, no client grants) and are written only by
   `save_discord_destination`, validated by `validate_discord_settings`. Fields are push's minus
   Comment (`discord_fields()`).
+- A Discord destination pauses only on a gone reply (Unknown Webhook, Invalid Webhook Token;
+  `pause_destination`, see "Delivery rules"); there is no count pause. `get_discord_destination`
+  and the API's `discord` object carry `auto_disabled_at`, the editor shows the paused alert, and
+  `discordModel.toInput` sends Enabled only when the switch changed from what it loaded (null
+  otherwise), as the webhook editor does, so a pause is never resumed silently.
 - SQL renders everything in `discord_spot_fields`: `claim_deliveries` adds its nine `discord_*`
   keys to the spot jsonb and the settings as `discord` to the destination jsonb;
   `preview_discord_message` and `discord_test_delivery` call the same function. `format.ts` only
@@ -447,8 +473,9 @@ The delivery side (retries, pause, attempts, rendering, Vault) is in "Delivery r
   `destination_batch_full('webhook')`, 50), `webhook_claim_max` (5 a claim for one request per
   spot), the retry policy (`webhook_retry_delay`, `webhook_retry_max_attempts`, and
   `webhook_retries_exhausted` shared by the sweep and `ready`) and the spaced pause count. A pause
-  is `enabled = false` plus `auto_disabled_at`, never `health`; the card's chip says Paused and the
-  editor says when, whatever the pause switch now says.
+  (webhook or Discord) is `enabled = false` plus `auto_disabled_at`, never `health`; the card's
+  chip says Paused, the Destinations page shows no failing banner for it, and the editor says when,
+  whatever the pause switch now says.
 - The reserved header list is in `webhook_header_name_valid` and `WEBHOOK_RESERVED_HEADERS`;
   change both together.
 - The secret is shown once, from `save_webhook_destination` on create and `rotate_signing_secret`,
@@ -526,7 +553,11 @@ editor.
   canvas (Desktop board); a feature it names must exist.
 - `sx` is for layout only (spacing, sizing, display, flex/grid placement, overflow, position).
   Colors, fonts, borders and shadows come from component props and variants.
-- Copy comes from `docs/ui-mock.html`; keep it word for word.
+- Copy comes from `docs/ui-mock.html`; keep it word for word. The Destinations page's backed-up
+  banner, card waiting count and Clear queue dialog take theirs from the Copy section of
+  `docs/superpowers/specs/2026-10-31-outbound-sender-phase-2.md`, worded in
+  `destinations/queueModel.ts`. A confirmation goes through `layout/ConfirmDialog.tsx`, which
+  `ConfirmDeleteDialog` renders through; never fork the dialog.
 - Matching previews come from the `preview_subscription` RPC, never from TypeScript.
 - Database types in `web/src/lib/database.types.ts` are generated; regenerate after migrations.
 - Env: `web/vite.config.ts` maps `SUPABASE_URL`/`SUPABASE_ANON_KEY` (what the Supabase Vercel
@@ -684,14 +715,22 @@ The design is `docs/superpowers/specs/2026-10-15-outbound-sender-design.md` (Pha
   a per-destination lease comes before any second machine.
 - Per-destination caps are per minute, in SQL (`destination_budget`), never per claim or per
   poll in TypeScript. The sender polls every `SENDER_POLL_MS` (5 s, floor 1 s) and re-claims at
-  once after a full batch; LISTEN on the matcher's `deliveries` channel is planned, not done.
+  once after a full batch.
+- It LISTENs on the matcher's `deliveries` channel (`DELIVERIES_CHANNEL`) only through
+  `SenderDb.listen`, on postgres.js's own listener connection beside the pool of two (three of
+  the role's four). A notify only wakes the idle sleep between cycles: notifies coalesce (any
+  during a cycle skip the next idle once; `notified` is cleared before each claim), the backoff
+  sleeps are never wake-able, and a notify is never watchdog progress. Polling stays the safety
+  net, since postgres.js re-subscribes after a drop on its own and can fail silently. A failed
+  LISTEN is logged, reported once per streak and retried with the claim backoff, never an exit;
+  `/healthz` says `listening`. No env knob.
 - The watchdog exits 1 after `SENDER_STALE_MS` without progress (a successful claim, a finished
   send or a successful bookkeeping RPC, reported through `runDeliveryBatch`'s `onProgress`), never
   since the last finished cycle, because a long healthy cycle killed before its ack re-sends the
   batch. Fly restarts only a machine whose process exits; a `/healthz` 503 alone restarts nothing.
   The repeatable bookkeeping RPCs (`mark_deliveries_sent`, `prune_push_devices`,
   `record_push_results`) are retried within the cycle (`BOOKKEEPING_RETRY_MS`); the counting ones
-  (`mark_deliveries_failed`, `throttle_destination`) are tried once. A failed claim or mark is then
+  (`mark_deliveries_failed`, `throttle_destination`, `pause_destination`) are tried once. A failed claim or mark is then
   logged and the next claim backs off, never an exit. Exit 1 otherwise means bad config, a pool
   that cannot open within `OPEN_DEADLINE_MS` (the start-up probe retries with the claim backoff and
   times out after `PROBE_TIMEOUT_MS`), or an unhandled rejection.
@@ -704,8 +743,9 @@ The design is `docs/superpowers/specs/2026-10-15-outbound-sender-design.md` (Pha
   name every variable the sender reads (`sender/__tests__/modules.test.ts`), and `deno.json`'s test
   permissions mirror it. `LONGLINES_ALLOW_INSECURE_DESTINATIONS` is honoured only with a local
   database host.
-- Tests never touch a hosted database: `db.test.ts` runs its RPC half only with
-  `SENDER_TEST_DATABASE_URL` pointing at the local stack and skips it otherwise. Never run
+- Tests never touch a hosted database: `db.test.ts` runs its RPC half (and the LISTEN/NOTIFY
+  round trip) only with `SENDER_TEST_DATABASE_URL` pointing at the local stack and skips it
+  otherwise. Never run
   `fly deploy` or `fly secrets set` yourself unless asked; a merge to main deploys the sender, so
   a merge that changes `sender/` or `_shared/delivery/*` ships to production.
 - The app lives on its own Fly network (`--network sender`, fixed at creation) and the hostname

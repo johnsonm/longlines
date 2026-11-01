@@ -1,14 +1,19 @@
 // The postgres.js adapter. The pure parts (the allowlist, the statements, the
-// row and error mapping) always run; the last tests open a real pool and run
-// only with SENDER_TEST_DATABASE_URL set (CI's migrations job points it at the
-// fresh local stack; never a hosted database).
+// row and error mapping) always run; the last tests open a real pool (and, for
+// LISTEN, a second session that notifies) and run only with
+// SENDER_TEST_DATABASE_URL set (CI's migrations job points it at the fresh
+// local stack; never a hosted database).
 import { assertEquals, assertRejects, assertThrows } from "@std/assert";
+// The test's second session for the LISTEN round trip: the sender's postgres.js, a test-only
+// import (as profile_lock_db.test.ts does), so no new runtime dependency.
+import postgres from "postgres";
 import { TimeoutError } from "../../supabase/functions/_shared/errors.ts";
 import { isLocalHost } from "../config.ts";
 import { RETRY_MAX_MS, RETRY_MIN_MS } from "../config.ts";
 import {
   clientOptions,
   DatabaseOpenError,
+  DELIVERIES_CHANNEL,
   OPEN_DEADLINE_MS,
   openSenderDb,
   PROBE_TIMEOUT_MS,
@@ -53,6 +58,7 @@ Deno.test("SENDER_RPCS is exactly the sender role's allowlist", function (): voi
     "delivery_queue_stats",
     "mark_deliveries_failed",
     "mark_deliveries_sent",
+    "pause_destination",
     "prune_push_devices",
     "record_push_results",
     "record_sender_heartbeat",
@@ -126,6 +132,24 @@ Deno.test(
       text: "select * from public.delivery_queue_stats()",
       params: [],
     });
+    assertEquals(
+      rpcStatement("pause_destination", {
+        p_error: "Webhook HTTP 410 (gone)",
+        p_msg_ids: [10],
+        p_delivery_ids: [1],
+        p_destination_id: "u",
+      }),
+      {
+        text: "select * from public.pause_destination(p_destination_id => $1::uuid, " +
+          "p_delivery_ids => $2::bigint[], p_msg_ids => $3::bigint[], p_error => $4::text)",
+        params: [
+          { value: "u", type: "uuid" },
+          { value: [1], type: "bigint[]" },
+          { value: [10], type: "bigint[]" },
+          { value: "Webhook HTTP 410 (gone)", type: "text" },
+        ],
+      },
+    );
     // A missing argument (throttle_destination without Retry-After) is null.
     const throttle = rpcStatement("throttle_destination", {
       p_destination_id: "u",
@@ -171,11 +195,23 @@ interface Executed {
   options: { prepare: boolean };
 }
 
-/** A SqlClient that records statements and answers from `rows`, or throws `failure`. */
+/**
+ * A SqlClient that records statements and answers from `rows`, or throws `failure`. A
+ * listen() is recorded by channel and keeps its callback, so a test can play a notify.
+ */
 function fakeSql(rows: Array<Record<string, unknown>>, failure: Error | undefined) {
   const executed: Executed[] = [];
   const ended: Array<{ timeout?: number } | undefined> = [];
+  const listened: Array<{ channel: string; onNotify: (payload: string) => void }> = [];
   const sql: SqlClient = {
+    listen(channel, onNotify, onListen) {
+      listened.push({ channel, onNotify });
+      if (failure !== undefined) {
+        return Promise.reject(failure);
+      }
+      onListen();
+      return Promise.resolve({ unlisten: () => Promise.resolve() });
+    },
     unsafe(text, params, options) {
       executed.push({ text, params, options });
       if (failure !== undefined) {
@@ -189,8 +225,36 @@ function fakeSql(rows: Array<Record<string, unknown>>, failure: Error | undefine
       return Promise.resolve();
     },
   };
-  return { sql, executed, ended };
+  return { sql, executed, ended, listened };
 }
+
+Deno.test(
+  "senderDb.listen subscribes to the channel and relays each notify without its payload",
+  async function (): Promise<void> {
+    const fake = fakeSql([], undefined);
+    let notified = 0;
+    function onNotify(): void {
+      notified++;
+    }
+    assertEquals(DELIVERIES_CHANNEL, "deliveries");
+    assertEquals(await senderDb(fake.sql).listen(DELIVERIES_CHANNEL, onNotify), { error: null });
+    assertEquals(fake.listened.map((l) => l.channel), ["deliveries"]);
+    fake.listened[0]!.onNotify("");
+    fake.listened[0]!.onNotify("ignored");
+    assertEquals(notified, 2);
+    assertEquals(fake.executed, []); // LISTEN goes through listen(), not the pool's statements
+  },
+);
+
+Deno.test(
+  "senderDb.listen answers a failed LISTEN with its message",
+  async function (): Promise<void> {
+    const fake = fakeSql([], new Error("write CONNECTION_CLOSED pooler:5432"));
+    assertEquals(await senderDb(fake.sql).listen(DELIVERIES_CHANNEL, noop), {
+      error: "write CONNECTION_CLOSED pooler:5432",
+    });
+  },
+);
 
 Deno.test(
   "senderDb runs the statement prepared, returns the rows as data and wraps jsonb with sql.json",
@@ -267,6 +331,7 @@ Deno.test(
     const sql: SqlClient = {
       unsafe: () => rejectWith("not an Error"),
       json: (value) => ({ json: value }),
+      listen: () => rejectWith("not an Error either"),
       end: () => Promise.resolve(),
     };
     let caught: unknown = undefined;
@@ -276,6 +341,12 @@ Deno.test(
       caught = error;
     }
     assertEquals(caught, "not an Error");
+    try {
+      await senderDb(sql).listen(DELIVERIES_CHANNEL, noop);
+    } catch (error) {
+      caught = error;
+    }
+    assertEquals(caught, "not an Error either");
   },
 );
 
@@ -489,6 +560,7 @@ Deno.test(
     const hung: SqlClient = {
       unsafe: () => new Promise(noop),
       json: (value) => ({ json: value }),
+      listen: () => new Promise(noop),
       end() {
         ended++;
         return Promise.reject(new Error("already closed"));
@@ -519,6 +591,7 @@ Deno.test(
       return {
         unsafe: () => rejectWith("not an Error"),
         json: (value) => ({ json: value }),
+        listen: () => rejectWith("not an Error"),
         end: () => Promise.resolve(),
       };
     }
@@ -592,6 +665,13 @@ Deno.test({
       });
       assertEquals(throttled.data, null);
       assertEquals(throttled.error, "Destination not found.");
+      const paused = await db.rpc("pause_destination", {
+        p_destination_id: "00000000-0000-0000-0000-000000000000",
+        p_delivery_ids: [],
+        p_msg_ids: [],
+        p_error: "sender db test",
+      });
+      assertEquals(paused, { data: null, error: "Destination not found." });
 
       // The spots stream's RPCs, with a token and a relay that exist nowhere: no rows, a null
       // hello, and a boolean that reaches the function as one.
@@ -610,6 +690,35 @@ Deno.test({
       // reset_cluster_streams is left out: it would mark a local relay offline under a running
       // sender.
     } finally {
+      await db.close();
+    }
+  },
+});
+
+Deno.test({
+  name: "senderDb.listen hears a pg_notify on the deliveries channel from another session",
+  ignore: DATABASE_URL === undefined,
+  async fn() {
+    const url = DATABASE_URL!;
+    const ssl = !isLocalHost(new URL(url).hostname);
+    const db = await openSenderDb({ databaseUrl: url, databaseSsl: ssl }, {});
+    // The matcher's side: a session of its own, as match_pending_spots runs in. clientOptions
+    // sets every option, so postgres.js reads no PG* variable the test permissions leave out.
+    const other = postgres(clientOptions({ databaseUrl: url, databaseSsl: ssl }));
+    let heard: () => void = noop;
+    function capture(resolve: () => void): void {
+      heard = resolve;
+    }
+    const notified = new Promise<void>(capture);
+    function onNotify(): void {
+      heard();
+    }
+    try {
+      assertEquals(await db.listen(DELIVERIES_CHANNEL, onNotify), { error: null });
+      await other`select pg_notify('deliveries', '')`;
+      await withTimeout(notified, 10_000, "no notify within 10 s");
+    } finally {
+      await other.end({ timeout: 5 });
       await db.close();
     }
   },

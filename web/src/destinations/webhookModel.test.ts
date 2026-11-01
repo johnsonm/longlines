@@ -4,12 +4,19 @@ import { sendTestBlocker as discordBlocker } from "./discordModel";
 import {
   addHeader, answeredStatus, blankForm, createdSentence, extraHeaderLines, fixedHeaderLines, headerNeedsName, looksLikeHttpsUrl, requestPath, urlReplaced, DEFAULT_WEBHOOK_SETTINGS, defaultFields, dirty, FIELDS_MAX, FIELDS_MIN, formOf, FREQUENCY_UNITS, headerInput,
   headerNeedsValue, HEADERS_MAX, KEY_STYLES, missingHelper, MISSING_VALUES, PAUSE_AFTER, removeHeader, REQUEST_OPTIONS, requestsHelper,
-  RETRY_POLICIES, sendTestBlocker, timeExample, TIME_FORMATS, toInput, updateHeader, WEBHOOK_FIELDS, webhookCardLine,
-  webhookKey, type HeaderRow,
+  RETRY_POLICIES, sendTestBlocker, timeExample, TIME_FORMATS, toInput, updateHeader, WEBHOOK_FIELDS, WEBHOOK_GONE_ERROR, webhookCardLine,
+  webhookKey, webhookPausedLine, type HeaderRow,
 } from "./webhookModel";
 
 // Read at transform time by Vite, so the node suite needs no fs access.
 const MIGRATIONS: Record<string, string> = import.meta.glob("../../../supabase/migrations/*.sql", {
+  query: "?raw",
+  import: "default",
+  eager: true,
+});
+
+// The sender's send module, for the 410 error text the paused alert keys on.
+const SEND_TS: Record<string, string> = import.meta.glob("../../../supabase/functions/_shared/delivery/send.ts", {
   query: "?raw",
   import: "default",
   eager: true,
@@ -222,6 +229,22 @@ describe("forms", () => {
     const fresh = blankForm();
     expect(toInput(fresh, fresh).enabled).toBe(true);
     expect(toInput({ ...fresh, enabled: false }, fresh).enabled).toBe(false);
+  });
+
+  it("words the paused alert by the destination's last error", () => {
+    expect(webhookPausedLine("5 minutes ago", WEBHOOK_GONE_ERROR)).toBe(
+      "Paused 5 minutes ago: the receiver answered HTTP 410 (gone). Check the URL, then turn Enabled on and save to resume.",
+    );
+    for (const lastError of [null, "Webhook HTTP 500", "Webhook HTTP 410"]) {
+      expect(webhookPausedLine("2 hours ago", lastError)).toBe(
+        "Paused 2 hours ago after repeated failed requests. Spots waiting to be sent were dropped. Turn Enabled on and save to resume.",
+      );
+    }
+  });
+
+  it("keys the 410 wording on the sender's own error text", () => {
+    const send = Object.values(SEND_TS)[0] ?? "";
+    expect(send).toContain(`"${WEBHOOK_GONE_ERROR}"`);
   });
 
   it("is dirty only when the save would change something", () => {

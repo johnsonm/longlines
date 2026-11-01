@@ -1,9 +1,9 @@
 -- pgTAP: API tokens and the management API's SQL (20261013000300; group sharing keys 20261019000400;
--- goals 20261029001300).
+-- goals 20261029001300; Discord auto_disabled_at 20261031000300).
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(106);
+select plan(111);
 
 -- ---------------------------------------------------------------------------
 -- Tokens
@@ -203,6 +203,11 @@ select throws_ok($$ select pg_temp.call('create_subscription', '{"body": {"name"
   'P0001', 'Destination not found.', 'a destination the body names but the caller lacks is a plain 400');
 select throws_ok($$ select pg_temp.read_call('create_group', '{"name":"x"}') $$, 'LL403', 'This token is read only.',
   'a read-only token is LL403');
+-- Clear queue (20261031000400): a write operation on the path's destination.
+select is(pg_temp.call('clear_destination_queue', jsonb_build_object('id', (select id from dest))),
+  '{"cleared": 0}'::jsonb, 'clearing an empty queue answers cleared 0');
+select throws_ok(format($$ select pg_temp.read_call('clear_destination_queue', '{"id": "%s"}') $$, (select id from dest)),
+  'LL403', 'This token is read only.', 'a read token cannot clear a queue');
 select throws_ok($$ select pg_temp.call('create_subscription', '{"body": {"name": "x", "destinations": ["nope"]}}') $$,
   'Not a destination id: nope.');
 select is(pg_temp.call('create_subscription', '{"body": {"name": "Null list", "destinations": null}}') -> 'destinations',
@@ -231,8 +236,9 @@ select is((select d -> 'discord' from jsonb_array_elements(pg_temp.call('list_de
   '{"style": "card", "footer": true, "separator": "dot", "bold_first": true, "card_color": "source", "title_link": "profile",
     "grid_fields": ["band", "spotter"], "line_fields": ["callsign", "frequency", "mode", "source", "reference", "place_name"],
     "link_preview": "hidden", "title_fields": ["callsign", "frequency", "mode"], "batch_seconds": 0,
-    "detail_fields": ["source", "reference", "place_name", "state"], "show_field_names": false}'::jsonb,
-  'a Discord destination shows its settings');
+    "detail_fields": ["source", "reference", "place_name", "state"], "show_field_names": false,
+    "auto_disabled_at": null}'::jsonb,
+  'a Discord destination shows its settings and when it paused (20261031000300)');
 select results_eq($$ select d ->> 'type', d ? 'discord', d ? 'push', d ? 'webhook'
                      from jsonb_array_elements(pg_temp.call('list_destinations')) d order by d ->> 'name' $$,
   $$ values ('discord'::text, true, false, false), ('push', false, true, false), ('webhook', false, false, true),
@@ -250,6 +256,15 @@ update destinations set enabled = false, auto_disabled_at = now() - interval '1 
 select is((select (j -> 'enabled')::boolean and j #> '{webhook,auto_disabled_at}' = 'null'::jsonb
            from pg_temp.call('update_destination', jsonb_build_object('id', (select id from dest), 'enabled', true)) j),
   true, 'PATCH with "enabled": true resumes a paused webhook');
+-- A Discord destination pauses on a gone reply (20261031000300); the same PATCH resumes it.
+create temp table chat as
+  select (d ->> 'id')::uuid as id from jsonb_array_elements(pg_temp.call('list_destinations')) d where d ->> 'name' = 'Chat';
+update destinations set enabled = false, auto_disabled_at = now() - interval '1 hour' where id = (select id from chat);
+select is((select d #>> '{discord,auto_disabled_at}' from jsonb_array_elements(pg_temp.call('list_destinations')) d
+           where d ->> 'name' = 'Chat')::timestamptz, now() - interval '1 hour', 'a paused Discord destination shows when');
+select is((select (j -> 'enabled')::boolean and j #> '{discord,auto_disabled_at}' = 'null'::jsonb
+           from pg_temp.call('update_destination', jsonb_build_object('id', (select id from chat), 'enabled', true)) j),
+  true, 'PATCH with "enabled": true resumes a paused Discord destination');
 select is(pg_temp.call('update_destination', jsonb_build_object('id', (select j ->> 'id' from pushed), 'enabled', false)) -> 'enabled',
   'false'::jsonb, 'PATCH turns a destination off');
 select is(pg_temp.call('update_destination', jsonb_build_object('id', (select j ->> 'id' from pushed), 'name', 'Phone')) -> 'enabled',
@@ -360,6 +375,8 @@ select throws_ok(format($$ select api_call((select id from other), 'get_subscrip
   (select id from sub)), 'Connection not found.');
 select throws_ok(format($$ select api_call((select id from other), 'patch_subscription', '{"id": "%s", "body": {"rules": []}}') $$,
   (select id from sub)), 'Connection not found.');
+select throws_ok(format($$ select api_call((select id from other), 'clear_destination_queue', '{"id": "%s"}') $$,
+  (select id from dest)), 'LL404', 'Destination not found.', 'another user''s destination queue is LL404');
 select throws_ok(format($$ select api_call((select id from other), 'replace_goal', '{"id": "%s", "body": {}}') $$,
   (select j ->> 'id' from nl)), 'LL404', 'Goal not found.', 'another user''s goal is LL404');
 select throws_ok(format($$ select api_call((select id from other), 'resolve_goal_review', '{"id": "%s", "review_id": "%s", "reference": null}') $$,

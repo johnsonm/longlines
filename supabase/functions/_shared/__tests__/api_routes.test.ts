@@ -36,6 +36,7 @@ Deno.test("matchRoute finds each route with its id", function (): void {
   assertEquals(route("POST", `/v1/groups/${ID}/members/remove`).op, "remove_group_members");
   assertEquals(matchRoute("POST", `/v1/connections/${ID}/callsigns`), { kind: "not_found" });
   assertEquals(route("POST", `/v1/destinations/${ID}/test`).op, "send_test");
+  assertEquals(route("POST", `/v1/destinations/${ID}/clear`).op, "clear_destination_queue");
   assertEquals(route("GET", "/v1/destinations").op, "list_destinations");
   assertEquals(route("PUT", `/v1/goals/${ID}`).op, "replace_goal");
   assertEquals(route("POST", `/v1/goals/${ID}/entries`).op, "mark_goal_entry");

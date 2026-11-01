@@ -195,9 +195,10 @@ paths:
         `failing` health and the failure count, and removes a webhook's extra headers, since
         their values were meant for the old address. `"enabled": false` stops new spots going to it
         and drops the ones already queued; connections that use it keep their other
-        destinations. `"enabled": true` on a webhook that paused itself after repeated failures
-        resumes it and starts its failure counts again. Fields left out, or sent as `null`, keep
-        their values.
+        destinations. `"enabled": true` on a paused destination (a webhook that paused itself
+        after repeated failures or on an HTTP 410, or a Discord destination whose webhook Discord
+        said no longer exists) resumes it and starts its failure counts again. Fields left out,
+        or sent as `null`, keep their values.
       security:
         - apiToken: [write]
       requestBody:
@@ -322,6 +323,37 @@ paths:
                           got no answer has none.
               examples:
                 webhook: { value: { error: Webhook HTTP 500, status: 500 } }
+
+  /destinations/{id}/clear:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    post:
+      operationId: clear_destination_queue
+      tags: [Destinations]
+      summary: Drop the spots waiting to be sent
+      description: |
+        Drops the destination's spots that are waiting to be sent and answers how many were
+        dropped. Spots already being sent, or waiting to be retried, are not affected. New spots
+        keep coming. Dropped spots are not sent later.
+      security:
+        - apiToken: [write]
+      responses:
+        "200":
+          description: How many waiting spots were dropped.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [cleared]
+                properties:
+                  cleared: { type: integer, minimum: 0 }
+              examples:
+                cleared: { value: { cleared: 140 } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ReadOnly" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "500": { $ref: "#/components/responses/ServerError" }
 
   /connections:
     get:
@@ -1047,6 +1079,12 @@ components:
           type: integer
           enum: [0, 10, 30, 60]
           description: 0 for one message per spot, or a window whose spots go in one message.
+        auto_disabled_at:
+          type: [string, "null"]
+          format: date-time
+          description: |
+            Set while the destination is paused because Discord said its webhook no longer
+            exists. Spots waiting to be sent were dropped; `"enabled": true` resumes it.
       example:
         style: card
         title_fields: [callsign, frequency, mode]
@@ -1061,6 +1099,7 @@ components:
         show_field_names: false
         separator: dot
         batch_seconds: 0
+        auto_disabled_at: null
 
     LocalClusterField:
       type: string
@@ -1122,7 +1161,9 @@ components:
         auto_disabled_at:
           type: [string, "null"]
           format: date-time
-          description: Set while the destination is paused after repeated failures.
+          description: |
+            Set while the destination is paused: after repeated failures, or at once when the
+            receiver answered HTTP 410 (gone).
       example:
         fields: [id, time, callsign, frequency, mode, band, source, reference, place_name,
                  state, spotter]

@@ -96,6 +96,9 @@ requests in a row turn the destination off. Failures count at most once every 30
 takes at least 10 minutes of steady failure. A success restarts the count. When it pauses, the card
 shows **Paused**, and the spots waiting for it are dropped.
 
+An HTTP 410 (gone) says the URL is gone for good, so the destination pauses at once, whatever that
+setting says. A **Send test** never pauses it.
+
 ### Allowed URLs
 
 The URL must be `https://`. Long Lines refuses addresses inside private networks: `localhost`,
@@ -154,6 +157,9 @@ re-serialized. The signed string is the timestamp, a period, then the body.
 
 **Paused.** The editor says "Paused 2 hours ago after repeated failed requests." Fix the server, turn
 **Enabled** on and save. Spots that matched while it was paused are not resent.
+
+**Paused after HTTP 410.** The editor says "the receiver answered HTTP 410 (gone)." Your server said the
+URL no longer exists. Check the URL (select **Replace URL** if it moved), turn **Enabled** on and save.
 
 **After changing the URL, my server gets no API key.** A new URL clears all extra header values, so
 they never reach a host they weren't meant for. Enter them again before saving.
