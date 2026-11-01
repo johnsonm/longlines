@@ -50,13 +50,8 @@ describe("SOURCES catalog fields", () => {
   // webhook_default_settings()'s fields, sent with missing values left out.
   const DEFAULT_KEYS = CATALOG.filter((k) => !["first_name", "last_name", "country", "url", "comment"].includes(k));
 
-  it("gives every live source but APRS-IS the webhook field catalog and its default spot", () => {
+  it("gives every live source the webhook field catalog and its default spot", () => {
     for (const s of live) {
-      if (s.id === "aprs") {
-        expect(s.schema).toBeNull();
-        expect(s.example).toBeNull();
-        continue;
-      }
       expect(s.schema!.map((f) => f.name), s.id).toEqual(CATALOG);
       expect(s.schema!.every((f) => f.description !== ""), s.id).toBe(true);
       const keys = Object.keys(s.example!);
@@ -91,6 +86,21 @@ describe("SOURCES catalog fields", () => {
     expect(field("rbn", "spotter").description).toBe("Callsign of the skimmer that heard the signal.");
     expect(field("dxcluster", "mode")).toMatchObject({ description: "From the comment, else the band plan.", derived: true });
     expect(field("pota", "mode").derived).toBe(false);
+  });
+
+  it("words APRS-IS spots as packets with no frequency, band or mode, offered as a connection source", () => {
+    const aprs = findLiveSource("aprs")!;
+    const field = (name: string) => aprs.schema!.find((f) => f.name === name)!.description;
+    for (const name of ["frequency_khz", "band", "mode", "reference", "place_name", "state", "url"]) {
+      expect(field(name), name).toBe("No value on APRS-IS spots, so the key is left out.");
+    }
+    expect(field("callsign")).toBe("Callsign that sent the packet, SSID included.");
+    expect(field("spotter")).toMatch(/^Callsign of the igate/);
+    expect(field("comment")).toMatch(/^The packet's information field as sent/);
+    expect(aprs.example).toEqual({ id: 58161711, time: "2026-10-14T14:38:15Z", callsign: "KK4PWJ-9", source: "aprs", spotter: "N4XYZ-10" });
+    expect(aprs.volume).toBe("high");
+    expect(aprs.statsKey).toBe("aprs");
+    expect(LIVE_SOURCES.map((s) => s.id)).toContain("aprs");
   });
 
   it("finds live sources only", () => {

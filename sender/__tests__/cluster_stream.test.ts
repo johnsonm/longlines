@@ -297,6 +297,11 @@ Deno.test(
     ) {
       assertEquals(spotEvent(without(key)), null, key);
     }
+    // A spot without a frequency (APRS-IS) is no event either; the claim never hands a relay one.
+    assertEquals(
+      spotEvent(Object.assign({}, CLUSTER_SPOT, { cluster_frequency_khz: null })),
+      null,
+    );
     assertEquals(
       [
         KEEPALIVE_MS,

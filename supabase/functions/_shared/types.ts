@@ -19,7 +19,7 @@ export type Source =
   | "wwbota"
   | "logged";
 
-/** A source name as the database stores it (raw_spots_source_check plus aprs). */
+/** A source name as the database stores it (raw_spots_source_check). */
 export const sourceSchema: z.ZodType<Source> = z.enum([
   "pota",
   "sotawatch",
@@ -59,7 +59,8 @@ export interface NormalizedSpot {
   spot_time: string; // ISO 8601 UTC
   callsign: string;
   spotter: string | null;
-  frequency_khz: number;
+  /** Null only for APRS-IS, which carries no frequency; every other source sets one. */
+  frequency_khz: number | null;
   band: string | null;
   mode: string | null;
   mode_family: ModeFamily | null;
@@ -114,8 +115,11 @@ export interface AprsPacketRow {
   line: string;
 }
 
-/** Why a well-formed upstream spot was intentionally not stored. */
-export type SkipReason = "too_old" | "test_comment" | "not_normal";
+/**
+ * Why a well-formed upstream spot was intentionally not stored. not_callsign is an APRS-IS
+ * packet whose source is not a station (WINLINK, MYANET).
+ */
+export type SkipReason = "too_old" | "test_comment" | "not_normal" | "not_callsign";
 
 /** normalize kept the spot. */
 export interface SpotResult {

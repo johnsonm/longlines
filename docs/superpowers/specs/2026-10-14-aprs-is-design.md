@@ -74,3 +74,21 @@ If it is far from 100 a second, the slice length or the window changes.
 2. `supabase functions deploy ingest-aprs`. The integration skips new functions.
 3. `fly secrets set APRS_LOGIN_CALL=<CALL-SSID>`. Use a call-SSID no other client uses.
 4. After a day, check the rate, `archive_status` and the `aprs_packets` size.
+
+## Amendment, 2026-10-31: connections
+
+The Alerting decision above ("None") is superseded: a connection can now list APRS-IS. The table
+stays as the record of the first decision. Migration `20261031000100_aprs_connections`; the rules
+are in CLAUDE.md ("Inbound worker rules", "Delivery rules") and `docs/ARCHITECTURE.md` ("APRS-IS").
+
+| Question | Decision (Brad, 2026-10-31) |
+| --- | --- |
+| Which packets | Watched stations only, as RBN: `runAprsPush` stores every packet, then sends the packets whose source call `watched_among('aprs', ...)` returns through `runIngest` into `raw_spots`. Only `position`, `mic_e`, `object` and `item` packets become spots; everything else, and a source call that is not a plausible callsign, is a skip. |
+| Cadence | One spot per station per 15 minutes (`APRS_SPOT_BUCKET_MS`). `source_spot_id` is `<callsign>\|<bucket>` and the hash `[callsign, bucket]`, the bucket being `received_at` floored to the window, so later packets in the window hit `ON CONFLICT DO NOTHING`. Fixed forever. |
+| Spot fields | Callsign: `source_call`, upper-cased. Spotter: the igate for `qAR`, `qAr`, `qAO`, `qAo`, else null. Comment: the info field as received (position decoding is a possible follow-up). Time: `received_at`; older than five minutes is a skip. Frequency, band, mode, mode family and references: null, so `raw_spots.frequency_khz` is nullable. |
+| Matching | Opt-in in `source_matches`: "any source" never includes it. Like RBN, a spot passes only an AND group that names stations, and a connection on RBN and/or APRS-IS alone must have one. |
+| Where it shows | Connections, the connection preview and the home diagram. Not in `spot_stream` (profiles, rollups, group statistics), Stats (which keeps counting packets), the band map, recent spots or callsign groups' on-air. |
+| Delivery | Labelled `APRS-IS` in push and the sender; Discord has its own colour; no source link. Never sent to a Local DX cluster (no frequency). |
+
+What did not change: the source id stays `aprs`, and outside `raw_spots` (`ingest_state`,
+`ingest_health`, the archive, `archive-aprs`, Stats) it still means packets.

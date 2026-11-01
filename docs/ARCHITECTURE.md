@@ -63,7 +63,8 @@ spotted by both POTA and SOTAwatch is two rows. Downstream consumers decide what
 means for their purpose; collapsing early would throw away information they may need.
 
 Common fields are normalized (uppercase callsigns, kHz frequencies, lowercase modes, derived
-`band` and `mode_family`) so consumers do not re-implement each source's quirks. Source-specific fields keep their
+`band` and `mode_family`) so consumers do not re-implement each source's quirks. APRS-IS spots
+are the one exception with no frequency: `frequency_khz`, `band` and `mode` are null for them. Source-specific fields keep their
 own nullable columns rather than a generic JSON blob, and `raw_payload` keeps the original record
 for debugging and replay.
 
@@ -81,6 +82,8 @@ fixed order:
 - DX Cluster: `spot_time, spotter, callsign, frequency, comment`
 - WWFF: `spot_time, activator, reference, frequency_khz, mode, remarks`
 - WWBOTA: `time, call, freq, mode, comment` (not `type`, which flips from Live to QRT after the fact)
+- APRS-IS (watched stations only): `callsign, bucket`, the bucket being `received_at` floored to
+  15 minutes, so a station makes at most one spot per window (see "APRS-IS")
 
 The unique constraint `(source, source_spot_id, content_hash)` plus `INSERT ... ON CONFLICT DO
 NOTHING RETURNING` does the rest: re-fetching an unchanged spot inserts nothing, and an edited
@@ -218,6 +221,7 @@ not block the cascade.
   WWBOTA reference columns included), read one source at a
   time through the `list_recent_spots(p_source, max_rows)` RPC (the table itself stays
   unreadable). For `rbn` the RPC reads `rbn_spots` instead, the whole feed in the same shape.
+  APRS-IS rows (watched beacons, see "APRS-IS") are left out.
 - `ingest_health`: read through the `list_ingest_health()` RPC so the Sources page can show it.
   RBN's spot counts come from `rbn_spots`.
 - Both views are invoker views that clients cannot select directly; the security definer RPCs
@@ -657,7 +661,7 @@ refresh cannot hold packets forever.
 ## Spots by country
 
 `countries` feeds the world map: spots per country of the station on the air, for POTA, SOTAwatch,
-WWFF, DX Cluster and RBN (APRS packets are not spots). The country is the cty.dat entity that
+WWFF, DX Cluster and RBN (APRS-IS packets and beacons are left out). The country is the cty.dat entity that
 `cty_lookup()` gives for the call as spotted, so VP2E/K1ABC counts in Anguilla, mapped to ISO
 3166-1 alpha-2 by `cty_entity_countries` (England and Scotland are both GB, Alaska is US).
 Three entities with no country (Spratly, Scarborough Reef, SMOM) are left out, as is any call
@@ -684,6 +688,8 @@ flowchart LR
   APRS[rotate.aprs2.net:10152, full feed] -- "one TCP session" --> R
   R -- "POST every packet line" --> FA[ingest-aprs]
   FA -- "rpc ingest_aprs_packets" --> AP[(aprs_packets)]
+  FA -- "rpc watched_among" --> W
+  FA -- "runIngest(watched position packets)" --> RPC
 ```
 
 The Reverse Beacon Network only offers a persistent telnet stream. Edge Functions cannot hold one,
@@ -779,12 +785,39 @@ feed is deliberate; never add a filter to the login. It runs at roughly 50-150 p
   answers with `user <call> pass -1 vers LongLines 0.1` (passcode -1 is receive-only). Servers send a
   `#` keepalive about every 20 s, so the feed reconnects after 2 minutes of silence and `/healthz`
   marks it unhealthy after 5. The forwarder buffers up to 150,000 lines (about 25 minutes).
-- **Packets, not spots.** `ingest-aprs` runs `runAprsPush` (`_shared/aprs.ts`): every line
+- **Every packet stored.** `ingest-aprs` runs `runAprsPush` (`_shared/aprs.ts`): every line
   `parseAprsLine` accepts goes to `aprs_packets` through `ingest_aprs_packets`, unparseable lines
-  to `ingest_failures`, and `ingest_state` records the batch. Nothing reaches `raw_spots`, the
-  matcher, `spot_stream` or the callsign rollups; Stats reads its own per-day rollups (see
-  "APRS-IS figures"), and `raw_spots`' source check does not allow
-  `aprs`. The Sources page shows the feed's health; it is not a subscription source.
+  to `ingest_failures`, and `ingest_state` records the batch. Stats reads its own per-day rollups
+  of packets (see "APRS-IS figures").
+- **Watched stations become spots** (since `20261031000100`; the design's amendment of
+  2026-10-31). As with RBN, only packets whose source call `watched_among('aprs', calls)` returns
+  continue through `runIngest` (`inboundAdapter("aprs", ...)`) into `raw_spots` and the matcher,
+  so `aprs` in `raw_spots` is the watched subset while `ingest_state`, `ingest_health`, the
+  archive and Stats keep meaning packets. Only `position`, `mic_e`, `object` and `item` packets
+  become spots; other types, a `source_call` that is not a plausible callsign (`MYANET`,
+  `WINLINK`) and a packet more than five minutes old are skips. The spot's callsign is the
+  upper-cased `source_call` (an object's own name stays in the comment), its spotter the igate
+  for `qAR`, `qAr`, `qAO` and `qAo` (null for `qAC`, `qAS` and the rest, which name servers), its
+  comment the info field as received (positions are not decoded), its time `received_at`, and
+  frequency, band, mode, mode family and every reference are null (`raw_spots.frequency_khz` is
+  nullable for this source only).
+- **One spot per station per 15 minutes.** A station beacons every 30 s to a few minutes, so the
+  dedup key is a time bucket: `received_at` floored to `APRS_SPOT_BUCKET_MS` (15 minutes),
+  `source_spot_id` `<callsign>|<bucket>` and the hash fields `callsign, bucket`. The first packet
+  in a window becomes the spot and the rest hit `ON CONFLICT DO NOTHING`. Neither the window nor
+  the hash order may change; either would make every spot look new.
+- **Matching.** APRS-IS is opt-in in `source_matches` (an empty "any source" list never includes
+  it), and like RBN an APRS-IS spot passes only an AND group that names stations
+  (`rules_name_stations`); the `subscriptions_rbn_needs_callsign` trigger refuses a connection
+  whose sources are only `rbn` / `aprs` without such a rule. An APRS-IS spot has no band, mode,
+  frequency or reference, so those rules' `is`, `contains`, `gt` and `lt` forms never pass it and
+  their `is_not` and `not_contains` forms always do; only callsign and group rules tell APRS-IS
+  spots apart. `match_pending_spots` never sends one to a `local_cluster`
+  destination (no frequency). Push and the sender label it `APRS-IS`; it has no `spot_source_url`.
+- **Kept out of reads.** `spot_stream` (so profiles, callsign rollups and group statistics), the
+  band map, the country rollup, reference profiles, `recent_spots` and callsign groups' on-air
+  check leave APRS-IS rows out; `preview_subscription` and `home_flow` include them. APRS-IS rows
+  in `raw_spots` are not archived from there; the packets' archive covers them.
 - **What is parsed.** The header (source, destination, digipeater path, the q-construct the
   server added and the igate after it) and the packet type from the data type identifier
   (`position`, `mic_e`, `object`, `item`, `message`, `status`, `weather`, `telemetry`, `nmea`,
@@ -975,7 +1008,7 @@ object.
   `wwbota_references` as one string joined with `,`; files written before WWFF shipped lack
   `wwff_reference` and `wwff_reference_name`, and files written before WWBOTA lack its two columns,
   which readers treat as null. Watched
-  RBN rows in `raw_spots` are not archived from there. APRS-IS: `received_at, source_call, destination, path,
+  RBN and APRS-IS rows in `raw_spots` are not archived from there. APRS-IS: `received_at, source_call, destination, path,
   q_construct, igate, packet_type, line`.
 - **Retention.** `maintain_rbn_spots()` (03:35 UTC, off the archive's 10-minute grid) retires RBN
   days older than seven that `callsign_rollup_days` records (callsign profiles keep per-station
@@ -1026,7 +1059,7 @@ call. The table behind that is AD1C's cty.dat, the country file loggers use
 
 ```mermaid
 flowchart LR
-  R[(raw_spots, except RBN copies)] --> V[spot_stream view]
+  R[(raw_spots, except RBN copies and APRS-IS)] --> V[spot_stream view]
   B[(rbn_spots)] --> V
   C[pg_cron :25 hourly] -- "backfill_callsign_rollups(2)" --> D[rollup_callsign_day]
   D -- "one pass per day" --> V
@@ -1052,7 +1085,7 @@ rollups keep per-station counts and breakdowns forever, never per-spotter rows (
   (`raw_spots.comment`, null for RBN). `program` is `POTA`,
   `SOTA`, `WWFF`, `WWBOTA` or `IOTA`, and `reference` and `reference_name` fall back to the WWFF
   columns, then the first WWBOTA bunker, then the IOTA reference, after the POTA and SOTA columns. It is `raw_spots` without its RBN rows
-  (copies) plus `rbn_spots`. A source that writes `raw_spots` appears with no change;
+  (copies) and its APRS-IS rows (watched beacons, `source not in ('rbn', 'aprs')`) plus `rbn_spots`. A source that writes `raw_spots` appears with no change;
   a new firehose table needs one `union all` arm. The base columns are computed per row for
   `rbn_spots`, so a query over many RBN rows groups by `callsign` first. Service-role only.
 - **`mode_bucket(mode, mode_family)`.** The Stats chart buckets (CW, SSB, FT8/FT4, FM, Other).
@@ -1516,7 +1549,7 @@ source. It is public, like Stats and profiles.
   at most one `band_map_snapshot()` every 30 seconds. There is no cron job: an idle site rebuilds
   nothing. The payload goes out with `Cache-Control: public, max-age=15`.
 - **What shows.** POTA, SOTAwatch and DX Cluster spots only. RBN is a skimmer firehose that would
-  bury the human spots (RBN still shows on profiles), and APRS-IS never reaches `raw_spots`. WWFF
+  bury the human spots (RBN still shows on profiles), and APRS-IS beacons have no frequency. WWFF
   is left out for now, though it is a peer of POTA and SOTA on Stats; adding it (a lane, a color,
   `band_map_snapshot`'s source list) is a separate product call. A
   station appears once per band, at its latest spot there, keyed by `base_callsign`, so

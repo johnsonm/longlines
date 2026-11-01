@@ -44,7 +44,8 @@ You can have up to 100 connections.
 
 1. Open **Connections** and select **New connection**.
 2. In **Pick your source**, choose a source and select **Continue**. Each row shows its average
-   spots per hour. Reverse Beacon Network is marked "High volume. Needs a callsign filter".
+   spots per hour. Reverse Beacon Network and APRS-IS are marked "High volume. Needs a callsign
+   filter".
 3. Type a **Name**, for example `NC parks on 20m`.
 4. Under **Filter**, add rules. Select **Add rule**, then choose a **Field**, a **Condition** and the
    **Values**. Leave the filter empty to pass every spot. See [Filter rules](/filter-rules/) for each
@@ -116,13 +117,14 @@ is enabled; the connection's switch doesn't show this. Then check the destinatio
 with **At most once per hour**, an activator who keeps getting spotted reaches you once an hour.
 
 **Save connection stays disabled.** The name is empty, a rule row has an invalid value (shown in red
-under the row), or, on Reverse Beacon Network, a group of rules has no Callsign or Callsign group
-rule.
+under the row), or, on Reverse Beacon Network or APRS-IS, a group of rules has no Callsign or
+Callsign group rule.
 
 **"You can have up to 100 connections."** You're at the account limit. Delete one first.
 
-**A new RBN connection's preview shows nothing.** Long Lines matches RBN spots only for stations that
-some live connection names, so a callsign nobody watches has no stored spots to preview yet. Save the
+**A new RBN or APRS-IS connection's preview shows nothing.** Long Lines matches RBN and APRS-IS spots
+only for stations that some live connection names, so a callsign nobody watches has no stored spots
+to preview yet. Save the
 connection with an enabled destination and spots start flowing.
 
 <!--

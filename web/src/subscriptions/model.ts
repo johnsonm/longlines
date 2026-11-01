@@ -99,14 +99,23 @@ export function opLabel(field: RuleField, op: RuleOp): string {
 }
 
 /**
+ * Rules that cannot tell APRS-IS spots apart: a spot has no frequency, band, mode or reference, so
+ * every one fails the positive ops and passes `is_not` / `not_contains`.
+ */
+const NOT_ON_APRS: readonly RuleField[] = ["band", "mode", "frequency", "reference"];
+
+/**
  * References exist only on POTA, SOTAwatch, WWFF and WWBOTA spots and on DX Cluster spots that name an
- * IOTA island; the island rule only on DX Cluster, which "any source" leaves out.
+ * IOTA island; the island rule only on DX Cluster, which "any source" leaves out. A connection on APRS-IS
+ * alone gets no band, mode, frequency or reference rows, since its spots have none of them.
  */
 export function fieldsFor(sources: string[]): RuleField[] {
   const refs = sources.length === 0
     || sources.some((s) => s === "pota" || s === "sotawatch" || s === "wwff" || s === "wwbota" || s === "dxcluster");
   const islands = sources.includes("dxcluster");
-  return FIELDS.map((f) => f.id).filter((f) => (f !== "reference" || refs) && (f !== "island" || islands));
+  const aprsOnly = sources.length > 0 && sources.every((s) => s === "aprs");
+  return FIELDS.map((f) => f.id).filter((f) =>
+    (f !== "reference" || refs) && (f !== "island" || islands) && !(aprsOnly && NOT_ON_APRS.includes(f)));
 }
 
 /** normalize_subscription_rules refuses more. */
@@ -324,11 +333,12 @@ export function pickableSource(id: string | null): SourceInfo | null {
 }
 
 /**
- * RBN spots only pass a group of rules that names stations, and the database refuses an RBN-only
- * subscription unless every group does (subscriptions_rbn_needs_callsign). The page says so before saving.
+ * RBN and APRS-IS spots only pass a group of rules that names stations, and the database refuses a
+ * subscription whose sources are all RBN or APRS-IS unless every group does (subscriptions_rbn_needs_callsign).
+ * The page says so before saving.
  */
 export function needsCallsign(sources: string[], rules: Rules): boolean {
-  return sources.length === 1 && sources[0] === "rbn" && !namesStations(rules);
+  return sources.length > 0 && sources.every((s) => s === "rbn" || s === "aprs") && !namesStations(rules);
 }
 
 /**

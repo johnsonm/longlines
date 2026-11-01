@@ -11,6 +11,7 @@ import { ruleHelperText, sourceWarning } from "../goals/model";
 import type { GoalCard } from "../goals/types";
 import { splitCallsigns } from "../groups/parse";
 import { BANDS, MODES, modeLabel, type SourceInfo } from "../sources/sources";
+import { rateNoun } from "../sources/rates";
 import {
   ANY_ISLAND, CONTINENTS, fieldInfo, fieldsFor, islandValues, MAX_RULES, needsCallsign, newRow, opLabel, QUIET_OPTIONS,
   newReferenceSearchCache, rowInvalid, rulesOf, searchProgram, withField,
@@ -204,7 +205,10 @@ export function FilterStep({
         <Alert severity="warning">
           <AlertTitle>{source.title} is a high volume source</AlertTitle>
           Add a callsign or callsign group rule to save this connection.
-          {perDay && ` Without one it would pass about ${perDay} spots a day.`}
+          {/* APRS-IS rates count every packet, and a station makes at most one spot every 15 minutes, so its figure is packets. */}
+          {perDay && (rateNoun(source.statsKey) === "packets"
+            ? ` ${source.title} carries about ${perDay} packets a day.`
+            : ` Without one it would pass about ${perDay} spots a day.`)}
         </Alert>
       )}
       {rows.length > 0 && (

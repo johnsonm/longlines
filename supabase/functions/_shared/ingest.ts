@@ -148,7 +148,7 @@ export async function runIngest(
     epoch_unchanged: false,
     fetched: 0,
     inserted: 0,
-    skipped: { too_old: 0, test_comment: 0, not_normal: 0 },
+    skipped: { too_old: 0, test_comment: 0, not_normal: 0, not_callsign: 0 },
     failed: 0,
     matched: null,
     duration_ms: 0,

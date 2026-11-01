@@ -225,9 +225,9 @@ select throws_ok($$ update discord_destination_settings set line_fields = array[
   '23514', null, 'the table''s checks refuse Comment too');
 select is(app_site_url(), 'https://longlines.io', 'the site URL knob');
 select is((select array_agg(discord_source_color(s) order by o)
-           from unnest(array['pota', 'sotawatch', 'wwff', 'wwbota', 'dxcluster', 'rbn', 'aprs']) with ordinality as t(s, o)),
-  array[3066993, 10181046, 1752220, 15844367, 3447003, 15105570, 9807270],
-  'by source: POTA green, SOTA purple, WWFF teal, WWBOTA gold, DX Cluster blue, RBN orange, anything else grey');
+           from unnest(array['pota', 'sotawatch', 'wwff', 'wwbota', 'dxcluster', 'rbn', 'aprs', 'bogus']) with ordinality as t(s, o)),
+  array[3066993, 10181046, 1752220, 15844367, 3447003, 15105570, 11027200, 9807270],
+  'by source: POTA green, SOTA purple, WWFF teal, WWBOTA gold, DX Cluster blue, RBN orange, APRS-IS dark orange, anything else grey');
 select is((select array_agg(discord_color(pg_temp.settings(jsonb_build_object('card_color', c)), (select j from spot)) order by o)
            from unnest(array['source', 'blue', 'green', 'purple', 'orange', 'red', 'grey']) with ordinality as t(c, o)),
   array[3066993, 3447003, 3066993, 10181046, 15105570, 15158332, 9807270], 'the named colors, the same for every spot');

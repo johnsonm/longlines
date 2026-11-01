@@ -192,8 +192,8 @@ describe("Pick your source", () => {
     expect(within(dialog).getByText("Pick your source")).toBeInTheDocument();
     expect(within(dialog).getByText("36 / hour")).toBeInTheDocument();
     expect(within(dialog).getByText("192 / hour")).toBeInTheDocument();
-    expect(within(dialog).getAllByText("High volume. Needs a callsign filter")).toHaveLength(1); // RBN
-    expect(within(dialog).queryByText("APRS-IS")).not.toBeInTheDocument();
+    expect(within(dialog).getAllByText("High volume. Needs a callsign filter")).toHaveLength(2); // RBN and APRS-IS
+    expect(within(dialog).getByRole("radio", { name: /APRS-IS/ })).toBeEnabled();
     expect(within(dialog).getByRole("radio", { name: /WWFF/ })).toBeEnabled();
     expect(within(dialog).queryByText("Not yet available")).not.toBeInTheDocument();
     expect(within(dialog).getByRole("radio", { name: /Parks on the Air/ })).toBeChecked();

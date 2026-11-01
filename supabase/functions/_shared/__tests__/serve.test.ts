@@ -221,11 +221,18 @@ Deno.test(
 );
 
 Deno.test(
-  "createAprsPushDb combines the ingest-state and aprs_packets surfaces",
+  "createAprsPushDb combines the ingest, watchlist and aprs_packets surfaces",
   function (): void {
     const db = createAprsPushDb(fakeSupabase({}).client);
     for (
-      const method of ["recordSpotFailures", "recordSuccess", "recordFailure", "ingestAprsPackets"]
+      const method of [
+        "ingestSpots",
+        "recordSpotFailures",
+        "recordSuccess",
+        "recordFailure",
+        "watchedAmong",
+        "ingestAprsPackets",
+      ]
     ) {
       assertEquals(typeof (db as unknown as Record<string, unknown>)[method], "function", method);
     }

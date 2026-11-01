@@ -1,4 +1,4 @@
-// Shared by the pushed sources (RBN, DX Cluster): the inbound request body, the
+// Shared by the pushed sources (RBN, DX Cluster, APRS-IS): the inbound request body, the
 // adapter shell around it, and the "HHMMZ" time stamp that telnet spot lines
 // carry instead of a date.
 //

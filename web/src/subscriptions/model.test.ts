@@ -179,6 +179,12 @@ describe("rows and rules", () => {
     expect(opLabel("island", "is_not")).toBe("is not");
   });
 
+  it("offers no band, mode, frequency or reference rows on APRS-IS alone, whose spots have none", () => {
+    expect(fieldsFor(["aprs"])).toEqual(["callsign", "group", "goal"]);
+    expect(fieldsFor(["aprs", "rbn"])).toEqual(["callsign", "group", "goal", "band", "mode", "frequency"]);
+    expect(fieldsFor(["aprs", "pota"])).toContain("reference");
+  });
+
   it("reads island values as references or continents, with Any island as all seven", () => {
     expect(islandValues([" eu-005 ", "na", "EU-005"])).toEqual(["EU-005", "NA"]);
     expect(islandValues(["EU-005", "EU", ANY_ISLAND])).toEqual(["AF", "AN", "AS", "EU", "NA", "OC", "SA"]);
@@ -239,7 +245,7 @@ describe("sources", () => {
 
   it("lets new subscriptions start only from live alerting sources", () => {
     expect(pickableSource("dxcluster")?.id).toBe("dxcluster");
-    expect(pickableSource("aprs")).toBeNull();
+    expect(pickableSource("aprs")?.id).toBe("aprs");
     expect(pickableSource("wwff")?.id).toBe("wwff");
     expect(pickableSource("wwbota")?.id).toBe("wwbota");
     // IOTA rides on DX Cluster: picking it starts a DX Cluster connection with an island rule (blankSub).
@@ -257,6 +263,17 @@ describe("sources", () => {
     expect(namesStations([calls, calls])).toBe(true);
     expect(needsCallsign(["pota"], [])).toBe(false);
     expect(needsCallsign(["rbn", "pota"], [])).toBe(false);
+  });
+
+  it("needs a callsign or group in every Or when every source is RBN or APRS-IS", () => {
+    const calls = [rule("callsign", "is", "KK4PWJ-9")];
+    expect(needsCallsign(["aprs"], [])).toBe(true);
+    expect(needsCallsign(["aprs"], [calls])).toBe(false);
+    expect(needsCallsign(["aprs"], [[rule("callsign", "is_not", "KK4PWJ-9")]])).toBe(true);
+    expect(needsCallsign(["rbn", "aprs"], [])).toBe(true);
+    expect(needsCallsign(["rbn", "aprs"], [calls])).toBe(false);
+    expect(needsCallsign(["aprs", "pota"], [])).toBe(false);
+    expect(needsCallsign([], [])).toBe(false);
   });
 });
 

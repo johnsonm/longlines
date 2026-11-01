@@ -47,6 +47,7 @@ const SOURCE_LABELS: Record<string, string> = {
   wwff: "WWFF",
   wwbota: "WWBOTA",
   logged: "Logged contacts",
+  aprs: "APRS-IS",
 };
 
 export function sourceLabel(source: string): string {
@@ -86,9 +87,15 @@ export function utcClock(iso: string): string {
   return new Date(iso).toISOString().slice(11, 19);
 }
 
-/** "14062.0 kHz CW (20m)": the Discord description and the legacy push body's first line. */
+/**
+ * "14062.0 kHz CW (20m)": the Discord description and the legacy push body's first line. An
+ * APRS-IS spot has no frequency, band or mode, so its description is empty, never "null kHz".
+ */
 export function spotDescription(spot: DeliverySpot): string {
-  const parts = [`${spot.frequency_khz.toFixed(1)} kHz`];
+  const parts: string[] = [];
+  if (spot.frequency_khz !== null) {
+    parts.push(`${spot.frequency_khz.toFixed(1)} kHz`);
+  }
   const mode = textOf(spot.mode);
   if (mode !== null) {
     parts.push(mode.toUpperCase());
@@ -121,12 +128,14 @@ export function embedForSpot(spot: DeliverySpot): DiscordEmbed {
   add("Spotter", spot.spotter);
   add("Time (UTC)", utcClock(spot.spot_time));
 
-  return {
-    title: spot.callsign,
-    description: spotDescription(spot),
-    fields,
-    timestamp: spot.spot_time,
-  };
+  const embed: DiscordEmbed = { title: spot.callsign, fields, timestamp: spot.spot_time };
+  // Discord refuses an embed whose description is empty, which a spot without a frequency,
+  // mode or band would give.
+  const description = spotDescription(spot);
+  if (description !== "") {
+    embed.description = description;
+  }
+  return embed;
 }
 
 /** Every Discord message carries this: mentions such as @everyone never ping. */
@@ -536,7 +545,11 @@ function legacyPushBody(spot: DeliverySpot): string {
     }
   }
   facts.push(sourceLabel(spot.source));
-  return `${spotDescription(spot)}\n${facts.join(" · ")}`;
+  const description = spotDescription(spot);
+  if (description === "") {
+    return facts.join(" · ");
+  }
+  return `${description}\n${facts.join(" · ")}`;
 }
 
 /**
