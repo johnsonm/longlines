@@ -588,7 +588,7 @@ next PR. Earlier entries are never edited.
   row that was never attempted and checks that `pause_destination` makes it visible with no
   attempt counted, so the queue-wide vt reset is pinned beyond the rows passed in, and the
   already-paused case checks that the fifth failure in a row marks the destination `failing`.
-- 2026-10-31, Piece 3 (branch `queue-clear`, stacked on `pause-gone`): the queue backlog and Clear
+- 2026-10-31, Piece 3 (PR #343, branch `queue-clear`, stacked on `pause-gone`): the queue backlog and Clear
   queue, migration `20261031000400_destination_queues.sql`. The knobs
   `destination_backlog_waiting()` (100) and `destination_backlog_age()` (10 minutes); the view
   `destination_queue_status` (`security_invoker`, select for `service_role` only; `waiting`,
