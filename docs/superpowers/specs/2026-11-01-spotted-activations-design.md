@@ -597,7 +597,7 @@ Not new copy; how the canvas lays out the lines above, for PR 4.
 Append one entry per PR: date, PR, what landed, deviations from this spec, notes for the next PR.
 Earlier entries are never edited.
 
-- 2026-11-01, PR 1 (branch `spotted-activations-spec`): this spec, planning only; no code, no
+- 2026-11-01, PR 1 (#344, branch `spotted-activations-spec`): this spec, planning only; no code, no
   migration. CLAUDE.md gains "Spotted activation rules" and the profile tabs under "Profile
   rules". Deviations from the approved plan: the migration is
   `20261101000100_spotted_activations.sql`, not `20261031000200`, because open PRs #342 and #343
