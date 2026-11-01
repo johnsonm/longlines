@@ -46,6 +46,11 @@ export function el(type: string, props: OgProps): OgElement {
 export const MAP_DRAWN_WIDTH = 620;
 export const MAP_DRAWN_HEIGHT = Math.round(MAP_DRAWN_WIDTH * MAP_HEIGHT / MAP_WIDTH);
 
+/** The image's padding, the gap between the columns, and the text column that fills the rest. */
+export const IMAGE_PADDING = 56;
+export const COLUMN_GAP = 32;
+export const TEXT_WIDTH = IMAGE_WIDTH - 2 * IMAGE_PADDING - COLUMN_GAP - MAP_DRAWN_WIDTH;
+
 /** The heard map as an inline SVG: shaded states, then a line to each other heard state. */
 export function mapElement(a: Pick<PreviewActivation, "location" | "heard">): OgElement {
   const g = heardGeometry(a);
@@ -82,7 +87,7 @@ export function activationImage(a: PreviewActivation): OgElement {
   // The heading and the names are clamped (with an ellipsis) to lines that always fit, so several
   // references or long names never push the date line or the footer off the image.
   const left = el("div", {
-    style: { display: "flex", flexDirection: "column", width: 460, height: "100%", justifyContent: "space-between" },
+    style: { display: "flex", flexDirection: "column", width: TEXT_WIDTH, flexShrink: 0, height: "100%", justifyContent: "space-between" },
     children: [
       el("div", {
         style: { display: "flex", flexDirection: "column", flexShrink: 1, minHeight: 0, overflow: "hidden" },
@@ -120,11 +125,36 @@ export function activationImage(a: PreviewActivation): OgElement {
       }),
     ],
   });
+  // Both columns have fixed widths that add up to the padded image, because Satori sizes a flex
+  // item by its text laid out as one line: a long caption (many countries) widened the map's
+  // column past the image's right edge, taking the centred map with it. Captions wrap within the
+  // map's width, at most two lines.
   const right = el("div", {
-    style: { display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flexGrow: 1 },
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center",
+      justifyContent: "center",
+      width: MAP_DRAWN_WIDTH,
+      flexShrink: 0,
+      marginLeft: COLUMN_GAP,
+      overflow: "hidden",
+    },
     children: [
       mapElement(a),
-      ...captions.map((caption, i) => textBlock(caption, { fontSize: 24, color: COLORS.secondary, marginTop: i === 0 ? 16 : 4 })),
+      ...captions.map((caption, i) =>
+        textBlock(caption, {
+          display: "block",
+          width: MAP_DRAWN_WIDTH,
+          lineClamp: 2,
+          wordBreak: "break-word",
+          textAlign: "center",
+          fontSize: 24,
+          lineHeight: 1.3,
+          color: COLORS.secondary,
+          marginTop: i === 0 ? 16 : 4,
+        })
+      ),
     ],
   });
   return el("div", {
@@ -133,7 +163,7 @@ export function activationImage(a: PreviewActivation): OgElement {
       flexDirection: "row",
       width: IMAGE_WIDTH,
       height: IMAGE_HEIGHT,
-      padding: 56,
+      padding: IMAGE_PADDING,
       backgroundColor: COLORS.paper,
       fontFamily: "geist",
     },

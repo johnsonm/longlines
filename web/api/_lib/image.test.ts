@@ -3,7 +3,7 @@ import { IOTA, TWOFER } from "../../src/activations/fixtures.ts";
 import { heardGeometry } from "../../src/activations/geometry.ts";
 import { STATE_SHAPES } from "../../src/stats/stateShapes.ts";
 import type { Fetch } from "./activation.ts";
-import { activationImage, COLORS, el, handleImage, MAP_DRAWN_HEIGHT, MAP_DRAWN_WIDTH, mapElement, type OgChild, type OgElement } from "./image.ts";
+import { activationImage, COLORS, COLUMN_GAP, el, IMAGE_PADDING, TEXT_WIDTH, handleImage, MAP_DRAWN_HEIGHT, MAP_DRAWN_WIDTH, mapElement, type OgChild, type OgElement } from "./image.ts";
 
 // The renderer is mocked: a test never runs Satori or resvg. It records what it was handed.
 // With `fail` set it draws as the real one does when Satori throws: a 200 whose body stream errors.
@@ -126,6 +126,20 @@ describe("activationImage", () => {
     const footer = walk(many).find((e) => texts(e).join("|") === "Long Lines|Estimated from spots, not logs.");
     expect(footer?.props.style).toMatchObject({ flexShrink: 0 });
     expect(texts(many)).toContain("Mon 26 Oct 2026 · 18:12–19:40 UTC · 1 h 28 min");
+  });
+
+  it("keeps the map column at the map's width and wraps a long caption within it", () => {
+    const image = activationImage(TWOFER);
+    const svg = walk(image).find((e) => e.type === "svg");
+    const column = walk(image).find((e) => Array.isArray(e.props.children) && e.props.children.includes(svg as OgChild));
+    expect(column?.props.style).toMatchObject({ width: MAP_DRAWN_WIDTH, flexShrink: 0 });
+    // The two columns and the gap fill the padded width exactly, so nothing can push past the edge.
+    expect(TEXT_WIDTH + COLUMN_GAP + MAP_DRAWN_WIDTH + 2 * IMAGE_PADDING).toBe(1200);
+    const textColumn = image.props.children;
+    expect(Array.isArray(textColumn) && typeof textColumn[0] !== "string" ? textColumn[0].props.style : undefined)
+      .toMatchObject({ width: TEXT_WIDTH, flexShrink: 0 });
+    const caption = walk(image).find((e) => typeof e.props.children === "string" && e.props.children.startsWith("Heard in"));
+    expect(caption?.props.style).toMatchObject({ display: "block", width: MAP_DRAWN_WIDTH, lineClamp: 2, textAlign: "center" });
   });
 
   it("builds plain element objects", () => {
