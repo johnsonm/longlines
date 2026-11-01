@@ -174,9 +174,9 @@ export async function countRequest(
 /**
  * Counts one request against the client's per-minute window (countRequest) and returns the
  * window's count, or null when it cannot be read. `bucket` names a separate budget: "" is the
- * shared lookup budget (profiles, group pages, reference pages and searches); relay-api keeps its
- * own buckets, so pairing a relay never spends a visitor's lookups. Shared by lookupLimit and
- * relay-api.
+ * shared lookup budget (profiles, group pages, reference pages, searches and spotted
+ * activations); relay-api keeps its own buckets, so pairing a relay never spends a visitor's
+ * lookups. Shared by lookupLimit and relay-api.
  */
 export async function countClientRequest(
   req: Request,

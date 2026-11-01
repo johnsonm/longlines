@@ -2131,7 +2131,11 @@ minutes after the first new reference spot.
 ```sh
 supabase migration list        # 20261101000100 pending
 supabase db push
+supabase functions deploy spotted-activations   # new function: the GitHub integration skips it
 ```
+
+Deploy the function once, by hand, before Vercel ships the web: until then the profile's Spotted
+activations tab and `/activations/<id>` show their error state (a gateway 404 is not "Not found").
 
 Then check, in the SQL editor:
 
@@ -2173,4 +2177,20 @@ select callsign_spotted_activations('KK4PWJ', now()) -> 'summary';
 
 A hidden call (`hidden_callsigns`) has no activations to read; a hidden spotter is left out of
 every page at read, with no rebuild.
+
+## Is the function working?
+
+```sh
+curl -si "$SUPABASE_URL/functions/v1/spotted-activations?callsign=KK4PWJ" | head -20
+curl -si "$SUPABASE_URL/functions/v1/spotted-activations?id=<id>" | head -20
+```
+
+200 with `Cache-Control: public, max-age=300` and the list or the activation; 404 `Spotted
+activation not found.` for a malformed id, a request that names neither or both, an unknown, open
+or hidden activation, or a hidden call; 400 `Enter a callsign, like KK4PWJ.` for a callsign that
+cannot be one; 429 past 30 lookups a minute from one client, counted with callsign profiles, group
+pages, reference pages and reference searches; 500 `Spotted activations are unavailable right now.` when the RPC failed
+or its reply did not fit the schema (the function logs `spotted-activations:` with the error, never
+the id or the call). Nothing is cached in the database: both reads are index lookups over closed
+rows.
 
