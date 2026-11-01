@@ -29,13 +29,12 @@ jobs:
       id-token: write
 
     steps:
-      # A comment's run starts on main, so check out the PR's head to review its files.
-      - name: Checkout PR head
+      # Main, not the PR's head: this run holds secrets, so it never checks out PR code (CodeQL's
+      # untrusted-checkout rule). The review reads the PR's diff through the GitHub API.
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          ref: refs/pull/${{ github.event.issue.number }}/head
           fetch-depth: 1
-          persist-credentials: false
 
       - name: Run Claude Code Review
         id: claude-review
