@@ -541,7 +541,7 @@ next PR. Earlier entries are never edited.
   decide when its rows are claimable. Checked against postgres.js 3.4.9 that a LISTEN failing at
   start recovers once the database answers (postgres.js retries on its own, the next attempt
   resolves) and that each failed attempt leaves one extra `wake` callback, as recorded above.
-- 2026-10-31, Piece 2 (branch `pause-gone`, stacked on `sender-listen`): the permanent-failure
+- 2026-10-31, Piece 2 (PR #342, branch `pause-gone`, stacked on `sender-listen`): the permanent-failure
   pause, migration `20261031000300_pause_destination.sql`. `pause_destination(destination,
   delivery ids, msg ids, error)` locks the destination, marks the rows of that destination failed
   (attempts + 1, `last_error`), and then either pauses it (`enabled = false`,
