@@ -578,3 +578,8 @@ next PR. Earlier entries are never edited.
   `discord_destinations.test.sql` and 2 in `management_api.test.sql`. (5) `HealthChip`'s comment
   now names Discord. Notes for Piece 3: `docs/openapi.yaml` and `management_api.test.sql`
   (`plan(108)`) changed here; rebase on this branch.
+- 2026-10-31, Piece 2 review (PR #342): the review found no defect in the migration, the sender or
+  the web, and strengthened `deliveries_rpc.test.sql` (`plan(166)`): the pause case now claims a
+  row that was never attempted and checks that `pause_destination` makes it visible with no
+  attempt counted, so the queue-wide vt reset is pinned beyond the rows passed in, and the
+  already-paused case checks that the fifth failure in a row marks the destination `failing`.

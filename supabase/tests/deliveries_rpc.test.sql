@@ -10,7 +10,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 \ir helpers/users.psql
-select plan(164);
+select plan(166);
 select pgmq.purge_queue('spot_events');
 select pgmq.purge_queue('deliveries_queue');
 
@@ -670,13 +670,16 @@ select pg_temp.reset_queue();
 update discord_destination_settings set batch_seconds = 0 where destination_id = (select id from dd);
 update destinations set enabled = true, auto_disabled_at = null, last_error = null, last_error_at = null
 where id = (select id from dd);
-select pg_temp.queue((select id from dd), 'gone-', 3, now());
+select pg_temp.queue((select id from dd), 'gone-', 4, now());
 create temp table gone as select * from claim_deliveries(200, 60);
-select is((select count(*) from gone where destination ->> 'id' = (select id::text from dd)), 3::bigint,
-  'three Discord rows are claimed');
--- The newest went out; Discord then answered the second message with Unknown Webhook.
+select is((select count(*) from gone where destination ->> 'id' = (select id::text from dd)), 4::bigint,
+  'four Discord rows are claimed');
+-- The newest went out; Discord then answered the second message with Unknown Webhook, and the
+-- last row was never attempted (it waits out the claim's vt, 60 s ahead).
 create temp table gone_sent as select delivery_id, msg_id from gone order by delivery_id limit 1;
-create temp table gone_failed as select delivery_id, msg_id from gone order by delivery_id offset 1;
+create temp table gone_failed as select delivery_id, msg_id from gone order by delivery_id offset 1 limit 2;
+create temp table gone_unattempted as select delivery_id, msg_id from gone order by delivery_id offset 3;
+select ok(pg_temp.vt_secs((select delivery_id from gone_unattempted)) > 0, 'the unattempted row is hidden by the claim');
 select mark_deliveries_sent(array(select delivery_id from gone_sent), array(select msg_id from gone_sent));
 -- One more row queued after the claim, and a row of another destination named by mistake.
 create temp table gone_q as select unnest(pg_temp.queue((select id from dd), 'gone-q-', 1, now())) as id;
@@ -698,23 +701,26 @@ select results_eq(
   'the destination is off with auto_disabled_at and counts one failure; health is never set to paused');
 select is((select count(*) from pgmq.q_deliveries_queue q join deliveries d on d.id = (q.message ->> 'delivery_id')::bigint
            where d.destination_id = (select id from dd) and q.vt > clock_timestamp()), 0::bigint,
-  'every queued row of the destination is visible at once, the one queued after the claim too');
+  'every queued row of the destination is visible at once, the unattempted one and the one queued after the claim too');
+select results_eq($$ select status, attempts from deliveries where id = (select delivery_id from gone_unattempted) $$,
+  $$ values ('pending'::text, 0) $$, 'the unattempted row counts no attempt');
 select is((select count(*) from claim_deliveries(200, 60) c where c.destination ->> 'id' = (select id::text from dd)), 0::bigint,
   'the next claim takes nothing of it');
 select results_eq(
   $$ select status, dropped_at is not null, count(*) from deliveries where destination_id = (select id from dd) group by 1, 2 order by 1 $$,
-  $$ values ('dropped'::text, true, 3::bigint), ('sent', false, 1) $$,
+  $$ values ('dropped'::text, true, 4::bigint), ('sent', false, 1) $$,
   'and drops its queue as lost (dropped_at), the sent row aside');
 select is((select count(*) from pgmq.q_deliveries_queue q join deliveries d on d.id = (q.message ->> 'delivery_id')::bigint
            where d.destination_id = (select id from dd)), 0::bigint, 'their messages are archived');
 
-update destinations set auto_disabled_at = now() - interval '1 hour' where id = (select id from dd);
+update destinations set auto_disabled_at = now() - interval '1 hour', consecutive_failures = 4 where id = (select id from dd);
 select pg_temp.queue((select id from dd), 'gone-again-', 1, now());
 select pause_destination((select id from dd), array(select max(id) from deliveries where destination_id = (select id from dd)),
   array(select q.msg_id from pgmq.q_deliveries_queue q join deliveries d on d.id = (q.message ->> 'delivery_id')::bigint
         where d.destination_id = (select id from dd)), 'Discord HTTP 404 (Unknown Webhook)');
-select results_eq($$ select auto_disabled_at, consecutive_failures from destinations where id = (select id from dd) $$,
-  $$ values (now() - interval '1 hour', 2) $$, 'a destination already paused keeps when it paused');
+select results_eq($$ select auto_disabled_at, consecutive_failures, health from destinations where id = (select id from dd) $$,
+  $$ values (now() - interval '1 hour', 5, 'failing'::text) $$,
+  'a destination already paused keeps when it paused, and the fifth failure in a row marks it failing');
 
 select throws_ok($$ select pause_destination('00000000-0000-0000-0000-000000000000', array[1]::bigint[], array[1]::bigint[], 'gone') $$,
   'P0001', 'Destination not found.', 'an unknown destination is refused');
