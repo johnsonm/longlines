@@ -1,25 +1,25 @@
 name: Claude Code Review
 
+# Runs only when asked: a PR comment that starts with `/claude-review`. Pushes never start
+# a review, so a PR can take any number of commits (and preview deploys) before one is wanted.
+# The command has no `@claude` in it, so the assistant workflow (claude.yml) stays out of it.
 on:
-  pull_request:
-    types: [opened, synchronize, ready_for_review, reopened]
-    # Optional: Only run on specific file changes
-    # paths:
-    #   - "src/**/*.ts"
-    #   - "src/**/*.tsx"
-    #   - "src/**/*.js"
-    #   - "src/**/*.jsx"
+  issue_comment:
+    types: [created]
 
-# A new push to a PR cancels the review of the commit it replaces, so only the latest is reviewed.
+# Asking again while a review runs cancels the older one, so only the latest head is reviewed.
 concurrency:
-  group: claude-review-${{ github.event.pull_request.number }}
+  group: claude-review-${{ github.event.issue.number }}
   cancel-in-progress: true
 
 jobs:
   claude-review:
-    # Not on drafts (marking one ready reviews it), and not on Dependabot's PRs, whose runs get
-    # no repository secrets, so the action could only fail.
-    if: ${{ !github.event.pull_request.draft && github.actor != 'dependabot[bot]' }}
+    # Only on PRs (issue_comment fires for issues too), and only for someone with write access to
+    # the repo: it is public, and any GitHub account can comment.
+    if: |
+      github.event.issue.pull_request &&
+      startsWith(github.event.comment.body, '/claude-review') &&
+      contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)
 
     runs-on: ubuntu-latest
     permissions:
@@ -29,6 +29,8 @@ jobs:
       id-token: write
 
     steps:
+      # Main, not the PR's head: this run holds secrets, so it never checks out PR code (CodeQL's
+      # untrusted-checkout rule). The review reads the PR's diff through the GitHub API.
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
@@ -42,8 +44,7 @@ jobs:
           show_full_output: true
           plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'
           plugins: 'code-review@claude-code-plugins'
-          prompt: '/code-review:code-review --comment ${{ github.repository }}/pull/${{ github.event.pull_request.number }}'
+          prompt: '/code-review:code-review --comment ${{ github.repository }}/pull/${{ github.event.issue.number }}'
           claude_args: '--allowedTools "mcp__github_inline_comment__create_inline_comment"'
           # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
           # or https://code.claude.com/docs/en/cli-reference for available options
-
