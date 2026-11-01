@@ -612,7 +612,7 @@ Earlier entries are never edited.
   only "never attached"). Open for Brad: the four assumptions
   and every line under "Drafts, not on the canvas". Notes for PR 2: open PRs #340 to #343 also edit
   CLAUDE.md; expect a rebase.
-- 2026-11-01, PR 2 (branch `spotted-activations-schema`): the schema and the detection job.
+- 2026-11-01, PR 2 (#345, branch `spotted-activations-schema`): the schema and the detection job.
   `20261101000100_spotted_activations.sql` adds the five tables, the `raw_spots (ingested_at, id)`
   index, the knobs, `new_activation_id`, `great_circle_km`, `assemble_spotted_activations`, the
   two read RPCs and the `assemble-spotted-activations` job; `spotted_activations.test.sql` (97
