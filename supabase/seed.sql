@@ -22,9 +22,14 @@
 -- KK4PWJ (a real call, used as the canvas does) gets a fixed week of spots covering every
 -- spotted activation case, and the last step assembles the week's spotted activations.
 --
--- One DO block on purpose: Supabase branching sends the seed file as a single
--- prepared batch, so a temp table created by one statement does not exist yet
--- when the next is prepared. PL/pgSQL plans each statement when it runs.
+-- The spots come from one DO block on purpose: Supabase branching sends the seed
+-- file as a single prepared batch, so a temp table created by one statement does
+-- not exist yet when the next is prepared. PL/pgSQL plans each statement when it
+-- runs. The slow steps after it (rollups, the stats snapshot, spotted
+-- activations) are statements of their own, because a preview branch cancels any
+-- statement after two minutes (statement_timeout), runs the seed well over half
+-- again as slowly as a laptop, and keeps nothing of a seed that fails. None of
+-- them reads a temp table.
 
 do $seed$
 begin
@@ -470,10 +475,24 @@ from (values (1, -6, '18:30', 'W2NYS', 14285.0, '20m', 'ssb'), (2, -6, '18:35', 
 join seed_days d on d.d = x.d,
      lateral (select d.day_start + x.hhmm::time - time '00:00' as spot_time) as t;
 
+-- The branch may reuse this connection, so leave nothing temporary behind.
+drop table seed_days, seed_states, seed_parks, seed_pota_activations, seed_pota_spots,
+           seed_associations, seed_sota_activations, seed_kk_parks;
+drop function pg_temp.seed_call(int, text[]), pg_temp.gauss(int), pg_temp.skewed(int, double precision, int),
+              pg_temp.family(text), pg_temp.freq(text, text, int), pg_temp.seed_hash(text, int),
+              pg_temp.seed_grid(numeric, numeric);
+
+end
+$seed$;
+
+-- Planner statistics for what the block wrote. Autovacuum cannot see it before the seed commits,
+-- and a table it last saw empty (reltuples 0) is planned as empty however much the seed added.
+analyze raw_spots, rbn_spots;
+
 -- Callsign rollups for the seeded days, as the hourly job would have made.
 -- They refuse to run without cty.dat, so load the few countries the seeded
 -- spotters come from (import-cty loads the real file; it never runs here).
-perform public.load_cty('seed',
+select public.load_cty('seed',
   '[{"prefix":"K","name":"United States","continent":"NA","cq_zone":5,"itu_zone":8,"lat":37.6,"lon":-91.87},
     {"prefix":"VE","name":"Canada","continent":"NA","cq_zone":5,"itu_zone":9,"lat":44.35,"lon":-78.75},
     {"prefix":"G","name":"England","continent":"EU","cq_zone":14,"itu_zone":27,"lat":52.77,"lon":-1.47},
@@ -493,7 +512,7 @@ perform public.load_cty('seed',
     {"pattern":"EA","exact":false,"entity":"EA","continent":"EU","cq_zone":14,"itu_zone":37},
     {"pattern":"OH","exact":false,"entity":"OH","continent":"EU","cq_zone":15,"itu_zone":18},
     {"pattern":"JA","exact":false,"entity":"JA","continent":"AS","cq_zone":25,"itu_zone":45}]');
-perform public.backfill_callsign_rollups();
+select count(*) from public.backfill_callsign_rollups();
 
 -- The first snapshot, with the day rollups (refresh_stats_snapshot() alone makes none), so the
 -- page has data before the hourly cron runs. The
@@ -502,31 +521,33 @@ perform public.backfill_callsign_rollups();
 -- after load_cty so the world map has countries.
 delete from rbn_rollup_days;
 delete from country_rollup_days;
-perform public.refresh_stats_snapshot_at(now());
+select public.refresh_stats_snapshot_at(now());
 
 -- Spotted activations for the seeded week, as the minute job would have assembled them: read
--- every seeded spot (a pass reads at most activation_batch_limit()), then close everything as a
--- day from now would (a pass closes at most activation_close_limit()), until a pass closes
--- nothing (another open transaction can hold the closes back; the minute job closes the rest).
-loop
-  exit when public.assemble_spotted_activations(now() + interval '1 minute') < public.activation_batch_limit();
-end loop;
+-- every seeded spot (a pass reads at most activation_batch_limit()), then, in a statement of its
+-- own, close everything as a day from now would (a pass closes at most activation_close_limit()),
+-- until a pass closes nothing (another open transaction can hold the closes back; the minute job
+-- closes the rest). Each read pass first analyzes the tables the passes before it filled, and the
+-- closes analyze them once: the job's cached plans would otherwise keep treating them as empty,
+-- and every pass would scan every row the ones before it wrote.
+do $read$
+begin
+  loop
+    analyze spotted_activations, spotted_activation_spots;
+    exit when public.assemble_spotted_activations(now() + interval '1 minute') < public.activation_batch_limit();
+  end loop;
+end
+$read$;
+
+do $close$
 declare
   v_open bigint := -1;
 begin
+  analyze spotted_activations, spotted_activation_spots;
   loop
     exit when v_open = (select count(*) from spotted_activations a where a.closed_at is null);
     v_open := (select count(*) from spotted_activations a where a.closed_at is null);
     perform public.assemble_spotted_activations(now() + interval '1 day');
   end loop;
-end;
-
--- The branch may reuse this connection, so leave nothing temporary behind.
-drop table seed_days, seed_states, seed_parks, seed_pota_activations, seed_pota_spots,
-           seed_associations, seed_sota_activations, seed_kk_parks;
-drop function pg_temp.seed_call(int, text[]), pg_temp.gauss(int), pg_temp.skewed(int, double precision, int),
-              pg_temp.family(text), pg_temp.freq(text, text, int), pg_temp.seed_hash(text, int),
-              pg_temp.seed_grid(numeric, numeric);
-
 end
-$seed$;
+$close$;

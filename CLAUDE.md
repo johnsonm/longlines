@@ -1410,7 +1410,11 @@ screens and for notification text.
   `supabase/tests/advisor.test.sql` lists the functions clients may call and the unpinned
   helpers, and fails on anything new.
 - `supabase/seed.sql` is a synthetic week relative to `now()` (made-up calls ending in `S`) for
-  preview branches and local resets; it ends with a stats refresh. pgTAP suites that count rows
+  preview branches and local resets; it ends with a stats refresh and the spotted activations'
+  assembly. A preview branch cancels any statement after two minutes and keeps nothing of a
+  seed that fails, so only the DO block that needs the temp tables is one statement; a slow step
+  goes after it as a statement of its own, and a step that fills a table it then reads analyzes
+  it first. pgTAP suites that count rows
   delete from those tables first, inside their rolled-back transaction, so they pass seeded or not.
 - Be polite to upstreams: User-Agent on every fetch, no polling faster than the cron schedule,
   no tests that hit live APIs.
