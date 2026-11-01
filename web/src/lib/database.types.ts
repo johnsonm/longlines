@@ -1195,6 +1195,80 @@ isOneToOne: false
                   Relationships: [
                     
                   ]
+                },"spotted_activation_redirects": {
+                  Row: {
+                    "new_id": string,"old_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "new_id": string,"old_id": string
+                  }
+                  Update: {
+                    "new_id"?: string,"old_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "spotted_activation_redirects_new_id_fkey"
+      columns: ["new_id"]
+isOneToOne: false
+      referencedRelation: "spotted_activations"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"spotted_activation_spots": {
+                  Row: {
+                    "activation_id": string,"band": string | null,"callsign": string,"frequency_khz": number | null,"id": number,"mode": string | null,"references": (string)[] | null,"self_spot": boolean,"source": string,"source_spot_id": string | null,"spot_time": string,"spotter": string | null,"spotter_base": string | null,"spotter_country": string | null,"spotter_entity": string | null,"spotter_state": string | null
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "activation_id": string,"band"?: string | null,"callsign": string,"frequency_khz"?: number | null,"id"?: never,"mode"?: string | null,"references"?: (string)[] | null,"self_spot": boolean,"source": string,"source_spot_id"?: string | null,"spot_time": string,"spotter"?: string | null,"spotter_base"?: string | null,"spotter_country"?: string | null,"spotter_entity"?: string | null,"spotter_state"?: string | null
+                  }
+                  Update: {
+                    "activation_id"?: string,"band"?: string | null,"callsign"?: string,"frequency_khz"?: number | null,"id"?: never,"mode"?: string | null,"references"?: (string)[] | null,"self_spot"?: boolean,"source"?: string,"source_spot_id"?: string | null,"spot_time"?: string,"spotter"?: string | null,"spotter_base"?: string | null,"spotter_country"?: string | null,"spotter_entity"?: string | null,"spotter_state"?: string | null
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "spotted_activation_spots_activation_id_fkey"
+      columns: ["activation_id"]
+isOneToOne: false
+      referencedRelation: "spotted_activations"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"spotted_activation_state": {
+                  Row: {
+                    "id": boolean,"last_run_at": string | null,"watermark_at": string,"watermark_id": number
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "id"?: boolean,"last_run_at"?: string | null,"watermark_at": string,"watermark_id": number
+                  }
+                  Update: {
+                    "id"?: boolean,"last_run_at"?: string | null,"watermark_at"?: string,"watermark_id"?: number
+                  }
+                  Relationships: [
+                    
+                  ]
+                },"spotted_activations": {
+                  Row: {
+                    "bands": (string)[] | null,"base_callsign": string,"closed_at": string | null,"continued_from": string | null,"countries": (string)[] | null,"created_at": string,"day": string,"farthest": Json | null,"id": string,"last_spot_at": string,"latitude": number | null,"location_states": (string)[] | null,"longitude": number | null,"modes": (string)[] | null,"program": string,"reference_names": (string)[],"references": (string)[],"source_counts": Json | null,"spot_count": number | null,"started_at": string,"states": (string)[] | null
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "bands"?: (string)[] | null,"base_callsign": string,"closed_at"?: string | null,"continued_from"?: string | null,"countries"?: (string)[] | null,"created_at"?: string,"day": string,"farthest"?: Json | null,"id": string,"last_spot_at": string,"latitude"?: number | null,"location_states"?: (string)[] | null,"longitude"?: number | null,"modes"?: (string)[] | null,"program": string,"reference_names": (string)[],"references": (string)[],"source_counts"?: Json | null,"spot_count"?: number | null,"started_at": string,"states"?: (string)[] | null
+                  }
+                  Update: {
+                    "bands"?: (string)[] | null,"base_callsign"?: string,"closed_at"?: string | null,"continued_from"?: string | null,"countries"?: (string)[] | null,"created_at"?: string,"day"?: string,"farthest"?: Json | null,"id"?: string,"last_spot_at"?: string,"latitude"?: number | null,"location_states"?: (string)[] | null,"longitude"?: number | null,"modes"?: (string)[] | null,"program"?: string,"reference_names"?: (string)[],"references"?: (string)[],"source_counts"?: Json | null,"spot_count"?: number | null,"started_at"?: string,"states"?: (string)[] | null
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "spotted_activations_continued_from_fkey"
+      columns: ["continued_from"]
+isOneToOne: false
+      referencedRelation: "spotted_activations"
+      referencedColumns: ["id"]
+    }
+                  ]
                 },"stats_snapshots": {
                   Row: {
                     "generated_at": string,"id": number,"payload": NonNullable<Json>,"window_end": string,"window_start": string
@@ -1265,6 +1339,20 @@ isOneToOne: false
                   }
                   Update: {
                     "created_at"?: string,"enabled"?: boolean,"group_ids"?: (string)[],"id"?: string,"name"?: string,"quiet_minutes"?: number,"rules"?: NonNullable<Json>,"sources"?: (string)[],"updated_at"?: string,"user_id"?: string
+                  }
+                  Relationships: [
+                    
+                  ]
+                },"us_state_centroids": {
+                  Row: {
+                    "lat": number,"lon": number,"name": string,"state": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "lat": number,"lon": number,"name": string,"state": string
+                  }
+                  Update: {
+                    "lat"?: number,"lon"?: number,"name"?: string,"state"?: string
                   }
                   Relationships: [
                     
@@ -1384,6 +1472,21 @@ isOneToOne: true
             "abandon_reference_load":
 { Args: { "p_error": string,"p_load": number }; Returns: undefined
                            },
+"activation_batch_limit":
+{ Args: Record<PropertyKey, never>; Returns: number
+                           },
+"activation_close_limit":
+{ Args: Record<PropertyKey, never>; Returns: number
+                           },
+"activation_gap":
+{ Args: Record<PropertyKey, never>; Returns: string
+                           },
+"activation_ingest_lag":
+{ Args: Record<PropertyKey, never>; Returns: string
+                           },
+"activation_merge_references":
+{ Args: { "p_add_names": (string)[],"p_add_refs": (string)[],"p_names": (string)[],"p_refs": (string)[] }; Returns: Record<string, unknown>
+                           },
 "answer_relay_pairing":
 { Args: { "p_approve": boolean,"p_user_code": string }; Returns: Json
                            },
@@ -1442,6 +1545,9 @@ isOneToOne: true
                            },
 "archive_slice_minutes":
 { Args: { "p_source": string }; Returns: number
+                           },
+"assemble_spotted_activations":
+{ Args: { "p_now": string }; Returns: number
                            },
 "authenticate_api_request":
 { Args: { "p_token_hash": string }; Returns: {
@@ -1511,6 +1617,9 @@ isOneToOne: true
                            },
 "callsign_profile":
 { Args: { "p_callsign": string }; Returns: Json
+                           },
+"callsign_spotted_activations":
+{ Args: { "p_callsign": string,"p_now": string }; Returns: Json
                            },
 "check_discord_setting_keys":
 { Args: { "p_settings": Json }; Returns: undefined
@@ -1775,6 +1884,9 @@ isOneToOne: true
 "goals_for_spot":
 { Args: { "p_spot_id": number }; Returns: (string)[]
                            },
+"great_circle_km":
+{ Args: { "p_lat1": number,"p_lat2": number,"p_lon1": number,"p_lon2": number }; Returns: number
+                           },
 "group_matches":
 { Args: { "p_base": string,"p_group_ids": (string)[] }; Returns: boolean
                            },
@@ -1978,6 +2090,9 @@ isOneToOne: true
                            },
 "mode_bucket":
 { Args: { "p_family": string,"p_mode": string }; Returns: string
+                           },
+"new_activation_id":
+{ Args: Record<PropertyKey, never>; Returns: string
                            },
 "new_api_token":
 { Args: Record<PropertyKey, never>; Returns: string
@@ -2298,6 +2413,26 @@ isOneToOne: true
                            },
 "spot_us_states":
 { Args: { "spot": Omit<Database["public"]['Tables']["raw_spots"]['Row'], Database["public"]['Tables']["raw_spots"]['ComputedFields']> }; Returns: (string)[]
+                           },
+"spotted_activation":
+{ Args: { "p_id": string }; Returns: Json
+                           },
+"spotted_activation_continued_by":
+{ Args: { "p_id": string }; Returns: string
+                           },
+"spotted_activation_continued_from":
+{ Args: { "p_id": string }; Returns: string
+                           },
+"spotted_activation_farthest":
+{ Args: { "p_id": string }; Returns: Json
+                           },
+"spotted_activation_heard":
+{ Args: { "p_id": string }; Returns: {
+              "code": string,"kind": string,"km": number,"latitude": number,"longitude": number,"name": string,"spots": number
+            }[]
+                           },
+"spotted_activation_time":
+{ Args: { "p_at": string }; Returns: string
                            },
 "stage_reference_rows":
 { Args: { "p_load": number,"p_rows": Json }; Returns: number
