@@ -79,20 +79,40 @@ function textBlock(content: string, style: Readonly<Record<string, string | numb
 export function activationImage(a: PreviewActivation): OgElement {
   const names = namesLabel(a.referenceNames);
   const captions = a.location === null ? [heardSentence(a.heard), LOCATION_UNKNOWN] : [heardSentence(a.heard)];
+  // The heading and the names are clamped (with an ellipsis) to lines that always fit, so several
+  // references or long names never push the date line or the footer off the image.
   const left = el("div", {
     style: { display: "flex", flexDirection: "column", width: 460, height: "100%", justifyContent: "space-between" },
     children: [
       el("div", {
-        style: { display: "flex", flexDirection: "column" },
+        style: { display: "flex", flexDirection: "column", flexShrink: 1, minHeight: 0, overflow: "hidden" },
         children: [
           textBlock(overline(a.program), { fontSize: 26, color: COLORS.primary, marginBottom: 20 }),
-          textBlock(pageHeading(a), { fontSize: 54, lineHeight: 1.15, color: COLORS.text, marginBottom: 20 }),
-          ...(names ? [textBlock(names, { fontSize: 28, lineHeight: 1.3, color: COLORS.secondary, marginBottom: 16, maxHeight: 112, overflow: "hidden" })] : []),
+          textBlock(pageHeading(a), {
+            display: "block",
+            lineClamp: 3,
+            wordBreak: "break-word",
+            fontSize: 54,
+            lineHeight: 1.15,
+            color: COLORS.text,
+            marginBottom: 20,
+          }),
+          ...(names
+            ? [textBlock(names, {
+              display: "block",
+              lineClamp: 3,
+              wordBreak: "break-word",
+              fontSize: 28,
+              lineHeight: 1.3,
+              color: COLORS.secondary,
+              marginBottom: 16,
+            })]
+            : []),
           textBlock(dateLine(a), { fontSize: 28, lineHeight: 1.3, color: COLORS.secondary }),
         ],
       }),
       el("div", {
-        style: { display: "flex", flexDirection: "column" },
+        style: { display: "flex", flexDirection: "column", flexShrink: 0 },
         children: [
           textBlock("Long Lines", { fontSize: 32, color: COLORS.text, marginBottom: 6 }),
           textBlock("Estimated from spots, not logs.", { fontSize: 24, color: COLORS.secondary }),
@@ -125,12 +145,18 @@ export function activationImage(a: PreviewActivation): OgElement {
 export async function handleImage(request: Request, env: EnvSource, fetchFn: Fetch): Promise<Response> {
   const admitted = admit(request, env);
   if ("refused" in admitted) return admitted.refused;
-  return withActivation(admitted, fetchFn, (a) =>
-    new ImageResponse(activationImage(a), {
+  return withActivation(admitted, fetchFn, async (a) => {
+    const image = new ImageResponse(activationImage(a), {
       width: IMAGE_WIDTH,
       height: IMAGE_HEIGHT,
       // Lower case: ImageResponse spreads these over its own "cache-control" (a year, immutable),
       // and a differently cased key would add a second value instead of replacing it.
       headers: { "cache-control": CACHE_CONTROL },
-    }));
+    });
+    // ImageResponse draws inside its body stream, after the 200 and its cache header are set, so
+    // a failed drawing would go out as a cacheable 200 with a broken body. Drawing it here first
+    // makes a failure throw instead: Vercel answers that with a 500, which nothing caches.
+    const png = await image.arrayBuffer();
+    return new Response(png, { status: image.status, headers: image.headers });
+  });
 }

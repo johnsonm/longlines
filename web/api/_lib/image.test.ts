@@ -6,12 +6,23 @@ import type { Fetch } from "./activation.ts";
 import { activationImage, COLORS, el, handleImage, MAP_DRAWN_HEIGHT, MAP_DRAWN_WIDTH, mapElement, type OgChild, type OgElement } from "./image.ts";
 
 // The renderer is mocked: a test never runs Satori or resvg. It records what it was handed.
-const rendered = vi.hoisted(() => ({ calls: [] as { element: unknown; options: { width?: number; height?: number; headers?: Record<string, string> } }[] }));
+// With `fail` set it draws as the real one does when Satori throws: a 200 whose body stream errors.
+const rendered = vi.hoisted(() => ({
+  fail: false,
+  calls: [] as { element: unknown; options: { width?: number; height?: number; headers?: Record<string, string> } }[],
+}));
 vi.mock("@vercel/og", () => ({
   ImageResponse: class extends Response {
     constructor(element: unknown, options: { width?: number; height?: number; headers?: Record<string, string> }) {
       rendered.calls.push({ element, options });
-      super("png", { headers: { "content-type": "image/png", ...options.headers } });
+      const body = rendered.fail
+        ? new ReadableStream({
+          start(controller) {
+            controller.error(new Error("Satori failed"));
+          },
+        })
+        : "png";
+      super(body, { headers: { "content-type": "image/png", ...options.headers } });
     }
   },
 }));
@@ -106,6 +117,17 @@ describe("activationImage", () => {
     expect(texts(activationImage({ ...TWOFER, referenceNames: [null, null] }))).toHaveLength(6);
   });
 
+  it("clamps the heading and the names so the date line and the footer always fit", () => {
+    const many = activationImage({ ...TWOFER, references: ["US-1182", "US-1871", "US-4560", "US-2730", "US-0001", "US-0002"] });
+    const heading = walk(many).find((e) => e.props.children === "KK4PWJ at US-1182 · US-1871 · US-4560 · US-2730 · US-0001 · US-0002");
+    expect(heading?.props.style).toMatchObject({ display: "block", lineClamp: 3 });
+    const names = walk(many).find((e) => e.props.children === "Juniper Ridge Wildlife Management Area · Willow Hollow Wildlife Management Area");
+    expect(names?.props.style).toMatchObject({ display: "block", lineClamp: 3 });
+    const footer = walk(many).find((e) => texts(e).join("|") === "Long Lines|Estimated from spots, not logs.");
+    expect(footer?.props.style).toMatchObject({ flexShrink: 0 });
+    expect(texts(many)).toContain("Mon 26 Oct 2026 · 18:12–19:40 UTC · 1 h 28 min");
+  });
+
   it("builds plain element objects", () => {
     expect(el("div", { children: "x" })).toEqual({ type: "div", key: null, props: { children: "x" } });
   });
@@ -114,6 +136,7 @@ describe("activationImage", () => {
 describe("handleImage", () => {
   beforeEach(() => {
     rendered.calls.length = 0;
+    rendered.fail = false;
   });
 
   it("renders the activation as a 1200 by 630 PNG, cached for 15 minutes", async () => {
@@ -126,6 +149,12 @@ describe("handleImage", () => {
     expect(rendered.calls).toHaveLength(1);
     expect(rendered.calls[0]?.options).toMatchObject({ width: 1200, height: 630 });
     expect(rendered.calls[0]?.element).toEqual(activationImage(TWOFER));
+  });
+
+  it("throws when the drawing fails, so Vercel answers a 500 and never a cacheable 200", async () => {
+    rendered.fail = true;
+    const { fetchFn } = fetchReplying(200, TWOFER);
+    await expect(handleImage(new Request("https://longlines.io/api/activation-image?id=kjw2khkyj47f"), ENV, fetchFn)).rejects.toThrow("Satori failed");
   });
 
   it("is a 404 for an unknown activation and renders nothing", async () => {

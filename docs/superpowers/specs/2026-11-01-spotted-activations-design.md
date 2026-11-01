@@ -764,4 +764,4 @@ Earlier entries are never edited.
   shared lookup budget as one client (Vercel's address); the CDN's 15 minutes keep that far
   below 30 a minute. `sharp`, an optional dependency of `@vercel/og`, is installed and used when
   present, which makes the image function about 41 MB (within Vercel's 250 MB).
-
+- 2026-11-01, PR 5 review (#348): the image function draws the PNG before answering, so a failed drawing is a 500 instead of a cacheable 200 with a broken body; the image clamps the heading and the names to three lines each (Satori `lineClamp`, with an ellipsis) so several references or long names never push the date line or the footer off; the payload reader refuses a canonical id that is not one, since it goes into the preview's links unencoded.

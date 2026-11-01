@@ -2232,4 +2232,5 @@ unknown, still open or hidden activation, or an id that cannot be one); a 500 `L
 not configured.` means the Vercel project lacks `SUPABASE_URL` or `SUPABASE_ANON_KEY`; a 502
 `Spotted activations are unavailable right now.` means the function failed, timed out (5 s),
 answered 429 or sent something else (Vercel's function logs show `activation preview:` and the
-status, never the id). None of those is cached.
+status, never the id). An image that fails to draw is Vercel's own 500 (the function logs the
+error), never a 200 with a broken body. None of those is cached.

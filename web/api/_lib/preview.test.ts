@@ -216,6 +216,7 @@ describe("parseActivation", () => {
   it.each([
     ["a list", []],
     ["no id", { ...TWOFER, id: 7 }],
+    ["an id that is not one", { ...TWOFER, id: "../api/x?y=1" }],
     ["an unknown program", { ...TWOFER, program: "bota" }],
     ["a reference that is not text", { ...TWOFER, references: [1] }],
     ["a name that is not text", { ...TWOFER, referenceNames: [1] }],

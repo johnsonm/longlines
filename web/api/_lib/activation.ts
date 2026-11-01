@@ -137,6 +137,13 @@ function list(value: unknown, key: string): unknown[] {
   return value;
 }
 
+/** The canonical id goes into the preview's links unencoded, so it must be one. */
+function activationId(value: unknown): string {
+  const id = text(value, "id");
+  if (!ACTIVATION_ID.test(id)) throw malformed("id");
+  return id;
+}
+
 const PROGRAMS: readonly ActivationProgram[] = ["pota", "sota", "wwff", "wwbota", "iota"];
 
 function program(value: unknown): ActivationProgram {
@@ -173,7 +180,7 @@ function location(value: unknown): ActivationLocation | null {
 export function parseActivation(body: unknown): PreviewActivation {
   const a = record(body, "reply");
   return {
-    id: text(a.id, "id"),
+    id: activationId(a.id),
     callsign: text(a.callsign, "callsign"),
     program: program(a.program),
     references: list(a.references, "references").map((r) => text(r, "reference")),
