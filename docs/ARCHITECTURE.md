@@ -1505,6 +1505,9 @@ flowchart LR
   C[(reference_catalog, cty_entities, callsign_licenses, us_state_centroids)] -- "at close" --> A
   SA --> P[spotted_activation / callsign_spotted_activations]
   SS --> P
+  B[browser, signed in or not] -- "GET ?id= or ?callsign=" --> F[spotted-activations function]
+  F -- "record_profile_lookup (shared with profiles)" --> L[(lookup_rate_limits)]
+  F --> P
 ```
 
 An activation is a run of one base call's spots at one program's references with no gap longer
@@ -1541,6 +1544,17 @@ and the job.
   `callsign_spotted_activations(call, now)` are service-role RPCs that read closed rows only and
   recompute places at read, so a hidden spotter counts nowhere and a hidden activator has no pages.
   Their shapes are pinned by `supabase/tests/spotted_activations.test.sql`.
+- **The function.** `spotted-activations` (`_shared/handlers/spotted_activations.ts`) works like
+  `reference-profile`: `verify_jwt = false`, never imports `isServiceRole`, shares `lookupLimit`,
+  never logs an id or a call, and sends `Cache-Control: public, max-age=300` only on a 200.
+  `GET ?id=<id>` reads `spotted_activation` and `GET ?callsign=<call>` reads
+  `callsign_spotted_activations` with the request's time. An id that is not 12 characters of `a-z`
+  and `2-7`, or a request that names neither or both, is a 404 "Spotted activation not found."
+  before any database call, as is a null from either RPC; a callsign that cannot be one is the
+  profile's 400. Both replies are read with loose Zod schemas (`spottedActivationSchema`,
+  `callsignActivationsSchema`), checked against captured seed output
+  (`__tests__/fixtures/spotted-activations.json`); a failed RPC or a reply outside the schema is
+  a 500 "Spotted activations are unavailable right now."
 - **Cost.** On the seeded local database (about 31,000 reference spots, 4,700 activations) the
   seed's catch-up reads in 7 capped passes (16 s) and closes in 46 passes (14 s). A steady pass
   with nothing new takes about 15 ms, 300 new spots about 0.2 s, and 100 closes about 0.3 s.

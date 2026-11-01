@@ -648,3 +648,27 @@ Earlier entries are never edited.
   quiet by the held cutoff (closing against `p_now` closed activations whose next spot sat unread,
   then dropped that spot as late); the seed's closing loop stops when a pass closes nothing; two
   pgTAP cases (99 assertions).
+- 2026-11-01, PR 3 (branch `spotted-activations-function`): the `spotted-activations` Edge
+  Function. `supabase/functions/spotted-activations/` (`index.ts`, the `callsign-profile`
+  `deno.json`), the handler `_shared/handlers/spotted_activations.ts` with the exported
+  interfaces and loose Zod schemas for both payloads (`spottedActivationSchema`,
+  `callsignActivationsSchema`), `verify_jwt = false` in `config.toml`, the function in
+  `function_config.test.ts`'s list, handler tests, and the function in ARCHITECTURE and
+  OPERATIONS (with the one-time `supabase functions deploy spotted-activations`). The schemas are
+  checked against real seed output: `__tests__/fixtures/spotted-activations.json` holds eight
+  `spotted_activation` replies (a two-fer with RBN and DX Cluster spots, both halves of a
+  midnight split, a single spot, a WWFF activation heard in two countries, a null spotter, a
+  three-bunker WWBOTA activation, an IOTA one) and two `callsign_spotted_activations` replies
+  (KK4PWJ's and an empty one), captured whole, not trimmed. Decisions the spec left open: a
+  request that names both `id` and `callsign`, or neither, is the 404 before any database call;
+  the id is taken exactly as sent (no trimming or lower-casing, since every id is lower case);
+  a null from `callsign_spotted_activations` (a hidden call, or one with no base) is the same 404
+  "Spotted activation not found.", so the web's loader treats both routes alike, while a
+  callsign that cannot be one is the profile's 400 "Enter a callsign, like KK4PWJ."; the 500
+  says "Spotted activations are unavailable right now." (a draft, not on the canvas); the
+  handler takes `now: Date` from the entrypoint for `p_now`. Nullable beyond the spec's shapes,
+  because SQL can produce them: `referenceNames` entries, a place's or `farthest`'s `name`, a
+  place's coordinates (an entity missing from `cty_entities` after a reimport), and a spot's
+  `spotter`, `spotterBase`, `place`, `frequencyKhz` and `mode`. Notes for PR 4: import nothing
+  from `_shared`; `web/src/activations/types.ts` mirrors these interfaces, and a 404 from either
+  route carries `{error: "Spotted activation not found."}`.

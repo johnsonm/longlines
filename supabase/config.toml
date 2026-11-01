@@ -482,6 +482,12 @@ verify_jwt = false
 [functions.reference-search]
 verify_jwt = false
 
+# spotted-activations serves the profile's Spotted activations tab and each spotted
+# activation's page to signed-out browsers. It checks no caller identity, only the
+# callsign profile's per-IP rate limit (_shared/handlers/spotted_activations.ts).
+[functions.spotted-activations]
+verify_jwt = false
+
 # band-map serves the public band map to signed-out browsers. It checks no
 # caller identity; every visitor shares one 30-second cache in SQL
 # (_shared/handlers/band_map.ts).

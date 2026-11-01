@@ -261,6 +261,7 @@ Deno.test("no verify_jwt = false function imports isServiceRole", function (): v
       "load-references",
       "reference-profile",
       "reference-search",
+      "spotted-activations",
       "relay-api",
     ]
   ) {
