@@ -19,14 +19,16 @@ APRS-IS. Hidden callsigns (stations whose profile was hidden on request) count n
 - **Period**: **Last 7 days** or **Last 30 days** (UTC days ending today). Changes compare with the
   same number of days before.
 - **Spots heard**, **Active members** (heard at least once), **Activations** (one member at one
-  reference on one UTC day, split by program) and **Places activated**.
+  reference on one UTC day, split by program) and **Different places** (how many references those
+  activations were at; a park activated on three days counts once here, three times in
+  **Activations**). Both lines name only the programs with any.
 - **Club activity over the past year**: a heat map of club spots per day, shaded at fixed levels (1 to
   99, 100 to 199, 200 to 399, 400 or more). It ignores the period. **View as table** shows the same
   data as rows.
 - **Who is most active**: the top 3 for Most spots, Most days on the air, CW, SSB, Digital (FT8 and
   FT4) and POTA activations.
 - **Members**: every member ranked by spots in the period, with days on the air, main mode and last
-  heard. **Search members** filters it.
+  heard. **Search members** filters it. Only you see it; it is never on the public page.
 - **Bands**, **Modes**, and **Most activated places** (top 10).
 
 The statistics are built when someone opens them and kept for up to an hour; the page says "Updated 12
@@ -41,9 +43,10 @@ made once and never changes, so a printed link works again if you turn sharing b
 with the link can see the page without signing in. It is not listed anywhere, and search engines are
 asked not to index it. Turn it off and the link stops working on the next load.
 
-**Show each member's callsign** decides how much the public sees. Off (the default), the public page
-shows club totals, charts, the heat map and places, but no rankings, no member table and no "By"
-column. You always see callsigns on your own page. Members are not notified when you make a page
+The public page never shows the member table, so the link doesn't hand out your club's roster.
+**Show each member's callsign** decides how much more the public sees. On, the page shows the **Who is
+most active** rankings and who activated each place. Off (the default), it shows club totals, charts,
+the heat map and places, but no rankings and no "By" column. You always see callsigns on your own page. Members are not notified when you make a page
 public, so tell them first.
 
 ## Set it up
@@ -63,7 +66,7 @@ To share the page:
 ## Common setups
 
 **Club newsletter.** Public page on, **Show each member's callsign** on, link in the newsletter.
-Members see the rankings.
+Members see the rankings, not the full roster.
 
 **Privacy-minded club.** Public page on, **Show each member's callsign** off. Visitors see the club's
 totals and places, not who did what.

@@ -1,16 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import { renderPage } from "../test/render";
-import { normalizeCallsigns, saveGroup } from "../lib/api";
+import { saveGroup } from "../lib/api";
 import { NewGroupDialog } from "./NewGroupDialog";
 
-vi.mock("../lib/api", () => ({ normalizeCallsigns: vi.fn(), saveGroup: vi.fn() }));
+vi.mock("../lib/api", () => ({ saveGroup: vi.fn() }));
 
 beforeEach(() => {
   vi.mocked(saveGroup).mockReset();
-  // A stand-in for normalize_group_callsigns: uppercase, drop /P, de-duplicate.
-  vi.mocked(normalizeCallsigns).mockReset().mockImplementation((values) =>
-    Promise.resolve({ callsigns: [...new Set(values.map((v) => v.toUpperCase().replace(/\/P$/, "")))], rejected: [] }));
 });
 
 function render() {
@@ -38,7 +35,7 @@ describe("NewGroupDialog", () => {
     const confirm = within(await screen.findByRole("dialog", { name: "Make the statistics page public?" }));
     expect(confirm.getByText("Club totals only, without callsigns")).toBeInTheDocument();
     await user.click(confirm.getByRole("checkbox", { name: "Show each member's callsign on the public page" }));
-    expect(confirm.getByText("The callsigns of all 3 members, and how active each one is")).toBeInTheDocument();
+    expect(confirm.getByText("The callsigns of the most active members, and who activated each place")).toBeInTheDocument();
     await user.click(confirm.getByRole("button", { name: "Keep private" }));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Make the statistics page public?" })).not.toBeInTheDocument());
     expect(screen.getByRole("switch", { name: "Public statistics page" })).not.toBeChecked();
@@ -60,15 +57,6 @@ describe("NewGroupDialog", () => {
     await user.click(screen.getByRole("button", { name: "Create group" }));
     expect(saveGroup).toHaveBeenCalledWith({ name: "Piedmont ARC", callsigns: [], public: true, show_callsigns: true });
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith("g1", "Piedmont ARC"));
-  });
-
-  it("reports a count that can't be worked out instead of confirming", async () => {
-    vi.mocked(normalizeCallsigns).mockRejectedValue(new Error(""));
-    const { user } = render();
-    await user.type(screen.getByRole("textbox", { name: "Callsigns" }), "W4ABC");
-    await user.click(screen.getByRole("switch", { name: "Public statistics page" }));
-    expect(await screen.findByText("Couldn't check those callsigns.")).toBeInTheDocument();
-    expect(screen.queryByRole("dialog", { name: "Make the statistics page public?" })).not.toBeInTheDocument();
   });
 
   it("shows what SQL refuses and stays open; Cancel closes", async () => {

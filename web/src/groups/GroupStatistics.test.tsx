@@ -37,8 +37,8 @@ describe("GroupStatistics", () => {
     expect(within(card("Active members")).getByText("Heard at least once")).toBeInTheDocument();
     expect(within(card("Activations")).getByText("31")).toBeInTheDocument();
     expect(within(card("Activations")).getByText("26 POTA, 5 SOTA")).toBeInTheDocument();
-    expect(within(card("Places activated")).getByText("22")).toBeInTheDocument();
-    expect(within(card("Places activated")).getByText("19 parks, 3 summits")).toBeInTheDocument();
+    expect(within(card("Different places")).getByText("22")).toBeInTheDocument();
+    expect(within(card("Different places")).getByText("19 parks, 3 summits")).toBeInTheDocument();
   });
 
   it("lists who is most active, with days out of the period and an empty list", () => {

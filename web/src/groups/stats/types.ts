@@ -45,7 +45,7 @@ export interface GroupStatistics {
   calendar: { day: string; spots: number; members: number }[]; // the past 365 days with spots, oldest first
   // Absent from a public page whose owner hides callsigns (group_stats_redact).
   top?: Record<TopList, TopEntry[]>; // up to three each, members with none left out
-  members?: GroupMember[]; // every member, ranked by spots, days, callsign
+  members?: GroupMember[]; // every member, ranked by spots, days, callsign; never on a public page
   bands: { band: string; spots: number }[]; // the fixed twelve, zero filled
   modes: { label: ModeBucket; spots: number }[]; // bucket order, empty buckets left out
   places: GroupPlace[]; // the top 10 by activations
@@ -66,7 +66,7 @@ export interface OwnerGroupStatistics extends GroupStatistics {
   group: OwnerGroup;
 }
 
-/** public_group_statistics through the group-page function: the payload, redacted unless callsigns are shown. */
+/** public_group_statistics through the group-page function: the payload without `members`, redacted unless callsigns are shown. */
 export interface PublicGroupStatistics extends GroupStatistics {
   group: { name: string; member_count: number; show_callsigns: boolean };
 }

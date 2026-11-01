@@ -3,7 +3,7 @@ import {
   Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, Paper, Stack, Switch, TextField, Typography,
   useMediaQuery, type Theme,
 } from "@mui/material";
-import { normalizeCallsigns, saveGroup } from "../lib/api";
+import { saveGroup } from "../lib/api";
 import { errorText } from "../app/hooks";
 import { PublicConfirmDialog } from "./PublicConfirmDialog";
 import { splitCallsigns } from "./parse";
@@ -25,19 +25,9 @@ export function NewGroupDialog({ onClose, onCreated }: Props) {
   const [calls, setCalls] = useState("");
   const [isPublic, setPublic] = useState(false);
   const [showCallsigns, setShowCallsigns] = useState(false);
-  // The confirm dialog's member count: the base calls SQL would store, null while it is being worked out.
-  const [confirming, setConfirming] = useState<number | null>(null);
+  const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const confirm = async () => {
-    const values = splitCallsigns(calls);
-    try {
-      setConfirming(values.length === 0 ? 0 : (await normalizeCallsigns(values)).callsigns.length);
-    } catch (err) {
-      setError(errorText(err, "Couldn't check those callsigns."));
-    }
-  };
 
   const create = async () => {
     setBusy(true);
@@ -79,7 +69,7 @@ export function NewGroupDialog({ onClose, onCreated }: Props) {
                 </Box>
                 <Switch
                   checked={isPublic}
-                  onChange={(e) => (e.target.checked ? void confirm() : setPublic(false))}
+                  onChange={(e) => (e.target.checked ? setConfirming(true) : setPublic(false))}
                   slotProps={{ input: { "aria-label": "Public statistics page" } }}
                 />
               </Stack>
@@ -91,16 +81,15 @@ export function NewGroupDialog({ onClose, onCreated }: Props) {
           <Button variant="contained" onClick={() => void create()} disabled={!name.trim() || busy}>Create group</Button>
         </DialogActions>
       </Dialog>
-      {confirming !== null && (
+      {confirming && (
         <PublicConfirmDialog
-          memberCount={confirming}
           initialShow={showCallsigns}
           onKeepPrivate={() => {
-            setConfirming(null);
+            setConfirming(false);
             setPublic(false);
           }}
           onMakePublic={(show) => {
-            setConfirming(null);
+            setConfirming(false);
             setPublic(true);
             setShowCallsigns(show);
           }}

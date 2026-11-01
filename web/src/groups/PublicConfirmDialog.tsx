@@ -2,10 +2,8 @@ import { useState } from "react";
 import {
   Button, Checkbox, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, Stack, Typography,
 } from "@mui/material";
-import { plural } from "../profile/format";
 
 interface Props {
-  memberCount: number;
   initialShow: boolean;
   onKeepPrivate: () => void;
   onMakePublic: (showCallsigns: boolean) => void;
@@ -16,7 +14,7 @@ interface Props {
  * in the New group dialog and the Settings tab. The first bullet follows the
  * checkbox (spec, decision 13).
  */
-export function PublicConfirmDialog({ memberCount, initialShow, onKeepPrivate, onMakePublic }: Props) {
+export function PublicConfirmDialog({ initialShow, onKeepPrivate, onMakePublic }: Props) {
   const [show, setShow] = useState(initialShow);
   return (
     <Dialog open onClose={onKeepPrivate} fullWidth maxWidth="sm">
@@ -27,14 +25,14 @@ export function PublicConfirmDialog({ memberCount, initialShow, onKeepPrivate, o
           <Typography component="ul" variant="body2" sx={{ m: 0, pl: 2.5 }}>
             <li>
               {show
-                ? `The callsigns of all ${plural(memberCount, "member", "members")}, and how active each one is`
+                ? "The callsigns of the most active members, and who activated each place"
                 : "Club totals only, without callsigns"}
             </li>
             <li>Club totals, charts and the year heat map</li>
             <li>The parks and summits members activated</li>
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            Your settings, the member list editor and your connections are never shown. Members do not get a notice, so tell them first.
+            Your settings, the member list and your connections are never shown. Members do not get a notice, so tell them first.
           </Typography>
           <FormControlLabel
             control={<Checkbox checked={show} onChange={(e) => setShow(e.target.checked)} />}

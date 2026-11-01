@@ -1747,7 +1747,8 @@ Page 10 of the design canvas; the design is
   `list_group_summaries`, which reads the same cached 30-day payload (so card and page agree)
   within a 3 s build budget and reads who is on the air live. The public reads `/g/<code>` through
   the `group-page` Edge Function and `public_group_statistics` (service role), which returns null
-  for an unknown or private code and redacts callsigns unless the owner shows them.
+  for an unknown or private code, never carries the members table, and redacts callsigns unless
+  the owner shows them.
 - **Sharing.** `callsign_groups.public`, `show_callsigns` and `public_slug` (10 base32
   characters, made the first time the page goes public, kept after) are written only by
   `save_callsign_group`. The management API cannot set them.

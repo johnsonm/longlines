@@ -1185,6 +1185,8 @@ Copy section is the copy source for the group pages.
   `public_slug` is made once and never changes.
 - A page without callsigns is redacted in SQL (`group_stats_redact`, inside
   `public_group_statistics`), never in the web, which only hides sections whose keys are absent.
+  The public page never carries `members` (`20261101000200`), callsigns shown or not: a link
+  must not hand out a club's roster. Only the owner's page has the members table.
 - `group-page` is `verify_jwt = false` and never imports `isServiceRole`. It shares the profile's
   rate limit, answers an unknown, private or malformed code with the same 404, never logs a code,
   and sends `Cache-Control: no-store` so turning a page off works on the next load. `/g/*` is

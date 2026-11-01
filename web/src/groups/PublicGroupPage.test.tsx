@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { renderPage } from "../test/render";
 import { loadPublicGroup } from "../lib/api";
 import { PublicGroupPage } from "./PublicGroupPage";
-import { redacted, STATS } from "./stats/fixtures";
+import { publicPage, redacted, STATS } from "./stats/fixtures";
 import type { PublicGroupStatistics } from "./stats/types";
 
 vi.mock("../lib/api", () => ({ loadPublicGroup: vi.fn() }));
@@ -39,6 +39,16 @@ describe("PublicGroupPage", () => {
     unmount();
     expect(robots()).toBeNull();
     expect(document.title).not.toBe("Piedmont ARC statistics");
+  });
+
+  it("shows the rankings but never the members table when the owner shows callsigns", async () => {
+    vi.mocked(loadPublicGroup).mockResolvedValue({
+      ...publicPage(STATS), group: { name: "Piedmont ARC", member_count: 12, show_callsigns: true },
+    });
+    renderPage(<PublicGroupPage slug="7f3kq6xm2a" />, { route: "/g/7f3kq6xm2a" });
+    expect(await screen.findByText("Who is most active")).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "Search members" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Ranked by spots heard in the period\./)).not.toBeInTheDocument();
   });
 
   it("reads the period from the address and changes it", async () => {
