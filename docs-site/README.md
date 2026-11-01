@@ -9,5 +9,5 @@ npm run dev     # http://localhost:4321
 npm run build   # static site in dist/
 ```
 
-Pushes to main deploy it to https://docs.longlines.io through
+Pushes to main that change `docs-site/` deploy it to https://docs.longlines.io through
 `.github/workflows/deploy-docs.yml`.

@@ -64,11 +64,11 @@ and lockfile, and nothing in it imports app code.
 cd docs-site
 npm ci
 npm run dev          # the site on http://localhost:4321
-npm run build        # what CI builds on every PR
+npm run build        # what CI builds on every PR that changes the site
 ```
 
-Every push to main deploys it to GitHub Pages at https://docs.longlines.io
-(`.github/workflows/deploy-docs.yml`).
+Every push to main that changes `docs-site/` deploys it to GitHub Pages at
+https://docs.longlines.io (`.github/workflows/deploy-docs.yml`).
 
 ## Linting the Deno code
 
