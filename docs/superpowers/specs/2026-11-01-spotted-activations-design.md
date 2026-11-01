@@ -648,7 +648,7 @@ Earlier entries are never edited.
   quiet by the held cutoff (closing against `p_now` closed activations whose next spot sat unread,
   then dropped that spot as late); the seed's closing loop stops when a pass closes nothing; two
   pgTAP cases (99 assertions).
-- 2026-11-01, PR 3 (branch `spotted-activations-function`): the `spotted-activations` Edge
+- 2026-11-01, PR 3 (#346, branch `spotted-activations-function`): the `spotted-activations` Edge
   Function. `supabase/functions/spotted-activations/` (`index.ts`, the `callsign-profile`
   `deno.json`), the handler `_shared/handlers/spotted_activations.ts` with the exported
   interfaces and loose Zod schemas for both payloads (`spottedActivationSchema`,
