@@ -955,6 +955,10 @@ for the profile's Spotted activations tab and the `/activations/<id>` page.
   `Box component="svg"` over `STATE_SHAPES`, never a chart library.
 - Link previews live in `web/api/` (Vercel functions behind a user-agent rewrite in
   `web/vercel.json`), never in an Edge Function. Every value they print is HTML-escaped.
+  They import from `src/` only DOM-free modules, by `.ts` paths (`activations/geometry`, `types`,
+  `model`, `paths`, `stats/format`, `stats/stateShapes`); keep those modules' own imports `.ts`
+  and Node-loadable. `web/api/tsconfig.json` is only for Vercel's compile; `tsconfig.node.json`
+  type-checks `api/`. Files under `web/api/_lib` (helpers, tests) are not functions.
 
 ## Band map rules
 

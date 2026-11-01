@@ -42,6 +42,12 @@ export function profileUrl(origin: string, callsign: string): string {
   return `${origin}/call/${callsign}`;
 }
 
+/** The callsign profile's Spotted activations tab, for a base call from SQL. */
+export function activationsTabPath(base: string): string {
+  const path = lookupPath(base);
+  return path ? `${path}?tab=activations` : "/lookup";
+}
+
 /** "Oct 5, 2026" for a YYYY-MM-DD day; the account page's format. */
 export function dateLabel(day: string): string {
   return formatDate(`${day}T00:00:00Z`);

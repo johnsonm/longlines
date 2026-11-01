@@ -1555,6 +1555,17 @@ and the job.
   `callsignActivationsSchema`), checked against captured seed output
   (`__tests__/fixtures/spotted-activations.json`); a failed RPC or a reply outside the schema is
   a 500 "Spotted activations are unavailable right now."
+- **Link previews.** Supabase serves a function's HTML as `text/plain`, so the previews are two
+  Vercel Functions in `web/api/` (Node.js runtime, the Web-standard `export default { fetch }`).
+  `web/vercel.json` rewrites `/activations/<id>` and `/<call>/activations/<id>` to
+  `api/activation-preview` only for link-preview crawlers' user agents, ahead of the app's
+  catch-all; it returns Open Graph and Twitter tags (every value HTML-escaped) whose image is
+  `api/activation-image`, a 1200 by 630 PNG that `@vercel/og` draws from Satori element objects
+  (no JSX) with the page's own `geometry.ts` and `STATE_SHAPES`. Each makes one request to
+  `spotted-activations` with the anon key; its 404 is theirs, any other failure a 502, and a
+  200 is cached by Vercel's CDN for 15 minutes. They import only DOM-free modules from `src/`,
+  by `.ts` paths, and `web/api/tsconfig.json` makes Vercel's file-by-file compile emit ES modules
+  with those paths turned into `.js`.
 - **Cost.** On the seeded local database (about 31,000 reference spots, 4,700 activations) the
   seed's catch-up reads in 7 capped passes (16 s) and closes in 46 passes (14 s). A steady pass
   with nothing new takes about 15 ms, 300 new spots about 0.2 s, and 100 closes about 0.3 s.

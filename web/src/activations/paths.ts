@@ -1,7 +1,7 @@
-// The one place an activation's paths and links are built. /activations/<id> is the canonical
+// The one place an activation's page and link are built. /activations/<id> is the canonical
 // page; /<callsign>/activations/<id> only redirects to it, so nothing here builds that alias.
-
-import { lookupPath } from "../profile/format";
+// The callsign profile's Spotted activations tab is a profile path (activationsTabPath in
+// profile/format.ts). Import-free, so the link previews (web/api) load it from Node.
 
 /** "/activations/bt2bjhxdrues". */
 export function activationPath(id: string): string {
@@ -11,10 +11,4 @@ export function activationPath(id: string): string {
 /** The canonical, shareable link of an activation page. */
 export function activationUrl(origin: string, id: string): string {
   return `${origin}${activationPath(id)}`;
-}
-
-/** The callsign profile's Spotted activations tab, for a base call from SQL. */
-export function activationsTabPath(base: string): string {
-  const path = lookupPath(base);
-  return path ? `${path}?tab=activations` : "/lookup";
 }

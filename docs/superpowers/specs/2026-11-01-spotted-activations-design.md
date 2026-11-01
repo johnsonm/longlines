@@ -718,3 +718,50 @@ Earlier entries are never edited.
   docs-site heading "An activation's page" reads "A spotted activation's page"; the alias route's
   comment and this spec's Web section no longer claim it shadows no route (it outranks `/call/*`
   and `/ref/:program/*` for a second segment `activations`, which no callsign or program is).
+- 2026-11-01, PR 5 (branch `spotted-activations-previews`): link previews. `web/api/activation-preview.ts`
+  and `web/api/activation-image.ts` (thin files around `web/api/_lib/preview.ts`,
+  `_lib/image.ts` and the shared `_lib/activation.ts`, which reads the environment, checks the
+  id and makes the one request to `spotted-activations`), the two user-agent rewrites in
+  `web/vercel.json` ahead of the catch-all, `@vercel/og` in `web/package.json` (with a `"//"`
+  key saying why, since JSON has no comments), `"api"` in `tsconfig.node.json`'s `include`, and
+  `api/**/*.test.ts` and `api/**/*.ts` in Vitest's node project and coverage. Tests: the HTML
+  builder (tags, escaping of hostile names and calls, the canonical id after a redirect), the
+  handlers (404 before any request for a malformed id, the function's 404, 502 for any other
+  failure, 500 without the environment, 405), the payload reader, the image element builder
+  (1200 by 630, one path per state, a line and dot per heard state, the texts), the two function
+  files, and `vercel.json` (rule order, every named crawler matches and no browser does), with
+  `@vercel/og` mocked. Deviations: both functions run on the Node.js runtime, the image included
+  (the spec said Edge), because Vercel's docs now recommend migrating from Edge to Node.js and
+  list OG image generation on Node.js; both use the Web-standard `export default { fetch }`
+  signature, which Vercel's Functions API reference gives for functions in `api/` without a
+  framework, so no `@vercel/node` types are needed. `@vercel/og` is pinned to 1.0.1
+  (2026-08-08), not the latest 1.0.3 (2026-09-22): 1.0.2 and 1.0.3 throw `Dynamic require of
+  "fs" is not supported` when Node loads them as ES modules. Vercel's Node.js builder compiles
+  `api/` file by file with the nearest `tsconfig.json`, and the solution-style
+  `web/tsconfig.json` would make it emit CommonJS into this `"type": "module"` package, so
+  `web/api/tsconfig.json` (ES modules, `rewriteRelativeImportExtensions`) is new; this was
+  checked by running `@vercel/node` 29.0.1's `build` on a copy of `web/` and loading both built
+  functions under Node against a stub function (a real 1200 by 630 PNG came back). To make the
+  shared modules loadable from Node: `activationsTabPath` moved from `activations/paths.ts` to
+  `profile/format.ts` (so `paths.ts` imports nothing), and `activations/model.ts`,
+  `activations/fixtures.ts`, `stats/format.ts` and `stats/stateShapes.ts` import by `.ts` paths
+  (the us-atlas JSON with `with { type: "json" }`); `dateLine` takes only the four fields it
+  reads. Decisions the spec left open: `og:url`, `og:image` and the canonical link use the
+  request's origin, so a preview deployment links to itself; the image's `Cache-Control` is the
+  preview's `public, s-maxage=900` (`ImageResponse` defaults to a year, immutable, and a hidden
+  call must disappear); errors are never cached (`no-store`); the request to the function times
+  out after 5 seconds; HEAD is answered as GET and other methods get a 405. The image is drawn in
+  MUI's stock light palette (written out, nothing there loads MUI), with unheard states in
+  `action.selected` because `action.hover` is too faint at thumbnail size, in Geist, the one font
+  `@vercel/og` bundles (regular weight only); SVG text needs fonts the renderer lacks, so the map
+  has no labels. Drafts beyond the canvas (Brad to confirm): `og:description` joins the names,
+  the date line and the estimate as sentences ("Eno River State Park. Thu 29 Oct 2026 ·
+  18:12–19:40 UTC · 1 h 28 min. Estimated from spots, not logs."); `og:image:alt` "Map of where
+  KK4PWJ was heard"; the image's footer "Long Lines" over "Estimated from spots, not logs." and
+  its caption (the page's map caption, plus "Location not known for this reference." without a
+  location); the plain replies "Link previews are not configured." (500) and "Spotted
+  activations are unavailable right now." (502). Notes: the previews spend the function's
+  shared lookup budget as one client (Vercel's address); the CDN's 15 minutes keep that far
+  below 30 a minute. `sharp`, an optional dependency of `@vercel/og`, is installed and used when
+  present, which makes the image function about 41 MB (within Vercel's 250 MB).
+

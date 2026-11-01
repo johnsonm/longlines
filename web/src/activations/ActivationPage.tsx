@@ -8,7 +8,7 @@ import { Navigate, Link as RouterLink } from "react-router";
 import { errorText, useApp } from "../app/hooks";
 import { PageTitle } from "../layout/PageTitle";
 import { copyLink } from "../lib/share";
-import { lookupPath } from "../profile/format";
+import { activationsTabPath, lookupPath } from "../profile/format";
 import { ChartCard } from "../stats/parts";
 import { ActivationSpots } from "./ActivationSpots";
 import { HeardMap } from "./HeardMap";
@@ -16,7 +16,7 @@ import {
   bandsLabel, bandsModesLabel, chips, CONTACTS_UNKNOWN, continuedFrom as continuedFromText, continuedOn as continuedOnText, dateLine, documentTitle, EMPTY, estimateNote, farthestLabel, heardIn, modesLabel,
   namesLabel, NOT_FOUND, overline, referencesLabel, spotsLine, timeOnAirRow,
 } from "./model";
-import { activationPath, activationsTabPath, activationUrl } from "./paths";
+import { activationPath, activationUrl } from "./paths";
 import { SpotsTimeline } from "./SpotsTimeline";
 import type { SpottedActivation } from "./types";
 import { useSpottedActivation } from "./useActivations";

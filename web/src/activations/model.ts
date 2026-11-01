@@ -3,11 +3,11 @@
 // them. Times and days are UTC, as the payload gives them, and are read from the ISO strings
 // directly, so the reader's time zone never moves a day.
 
-import { fmt } from "../stats/format";
+import { fmt } from "../stats/format.ts";
 import type {
   ActivationCard, ActivationFarthest, ActivationPlace, ActivationProgram, ActivationReferenceCounts, ActivationSources, ActivationSpot,
   MostActivated, SpottedActivation,
-} from "./types";
+} from "./types.ts";
 
 /**
  * activation_gap() in SQL, in minutes: the longest quiet inside an activation. The estimate note
@@ -307,7 +307,7 @@ export function documentTitle(a: Pick<SpottedActivation, "callsign" | "reference
 }
 
 /** "Thu 29 Oct 2026 · 18:12–19:40 UTC · 1 h 28 min". */
-export function dateLine(a: SpottedActivation): string {
+export function dateLine(a: Pick<SpottedActivation, "day" | "startedAt" | "lastSpotAt" | "durationSeconds">): string {
   const d = duration(a.durationSeconds);
   return [dayHeading(a.day), `${timeWindow(a)} UTC`, d].filter((s): s is string => !!s).join(" · ");
 }
