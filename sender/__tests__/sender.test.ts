@@ -5,10 +5,11 @@ import type {
   PendingDelivery,
 } from "../../supabase/functions/_shared/delivery/types.ts";
 import type { SenderConfig } from "../config.ts";
-import type { SenderDb } from "../db.ts";
+import { PROBE_TIMEOUT_MS, type SenderDb } from "../db.ts";
 import { healthHandler, type SenderStatus } from "../health.ts";
 import {
   abortableSleep,
+  RETRY_MAX_MS,
   RETRY_MIN_MS,
   type SenderDeps,
   startSender,
@@ -110,11 +111,26 @@ function claimsFrom(claims: PendingDelivery[][]) {
   };
 }
 
-/** A SenderDb that records every call; `answer` overrides the default empty answers. */
+/**
+ * A SenderDb that records every call; `answer` overrides the default empty answers. A
+ * LISTEN is the call `listen` with the channel as its args, answered `{ error: null }`
+ * unless `answer` gives an error; notify() runs every callback a LISTEN registered.
+ */
 function fakeDb(answer: (call: RpcCall) => Answer | undefined) {
   const calls: RpcCall[] = [];
+  const listeners: Array<() => void> = [];
   let closed = 0;
   const db: SenderDb = {
+    async listen(channel, onNotify) {
+      const call = { fn: "listen", args: { channel } };
+      calls.push(call);
+      const a = await answer(call);
+      if (a !== undefined && a !== null && a.error !== undefined && a.error !== null) {
+        return { error: a.error };
+      }
+      listeners.push(onNotify);
+      return { error: null };
+    },
     async rpc(fn, args) {
       const call = { fn, args };
       calls.push(call);
@@ -140,7 +156,18 @@ function fakeDb(answer: (call: RpcCall) => Answer | undefined) {
       return Promise.resolve();
     },
   };
-  return { db, calls, closed: () => closed, of: (fn: string) => calls.filter((c) => c.fn === fn) };
+  function notify(): void {
+    for (const listener of listeners) {
+      listener();
+    }
+  }
+  return {
+    db,
+    calls,
+    notify,
+    closed: () => closed,
+    of: (fn: string) => calls.filter((c) => c.fn === fn),
+  };
 }
 
 function dest(id: string, overrides: Partial<DeliveryDestination>): DeliveryDestination {
@@ -257,6 +284,8 @@ Deno.test(
     assertEquals(signature !== null && signature.startsWith("sha256="), true);
 
     await waitFor("the stats", () => db.of("delivery_queue_stats").length === 1);
+    await waitFor("the listen", () => sender.status().listening);
+    assertEquals(db.of("listen")[0]!.args, { channel: "deliveries" });
     const h = await health(sender.addr.port);
     assertEquals(h.status, 200);
     assertEquals(h.body, {
@@ -265,6 +294,7 @@ Deno.test(
       last_progress_at: T0.toISOString(),
       last_error: null,
       in_flight: false,
+      listening: true,
       totals: {
         cycles: 1,
         claimed: 2,
@@ -290,6 +320,8 @@ Deno.test(
     await hook.server.shutdown();
     assertEquals(db.closed(), 1);
     assertStringIncludes(logs[0]!, "sender started: poll 5000 ms, concurrency 4, stale 120000 ms");
+    assertStringIncludes(logs[0]!, "listen on deliveries");
+    assertEquals(logs.includes("listening for deliveries"), true);
     assertEquals(logs.filter((m) => m === "shutting down").length, 1);
     // The per-cycle line is the batch result as JSON, only for cycles that did something.
     const cycles = logs.filter((m) => m.startsWith("{"));
@@ -923,6 +955,244 @@ Deno.test(
   },
 );
 
+/** Real time for the loops to run, while the fake clock stands still. */
+function settle(): Promise<void> {
+  return new Promise((r) => setTimeout(r, 50));
+}
+
+Deno.test(
+  "startSender claims at once on a notify, without the clock moving",
+  async function (): Promise<void> {
+    const db = fakeDb(() => undefined);
+    const clock = fakeClock(T0);
+    const sender = startSender(config({}), { db: db.db, send: allSent }, {
+      hostname: "127.0.0.1",
+      log: noop,
+      now: clock.now,
+      sleep: clock.sleep,
+    });
+    await waitFor("the listen", () => sender.status().listening);
+    await waitFor("the first claim", () => db.of("claim_deliveries").length === 1);
+    await settle();
+    assertEquals(db.of("claim_deliveries").length, 1);
+    db.notify();
+    await waitFor("the woken claim", () => db.of("claim_deliveries").length === 2);
+    // The idle sleep after it is the full pollMs again.
+    await settle();
+    assertEquals(db.of("claim_deliveries").length, 2);
+    await clock.advance(4_999);
+    assertEquals(db.of("claim_deliveries").length, 2);
+    await clock.advance(1);
+    await waitFor("the polled claim", () => db.of("claim_deliveries").length === 3);
+    assertEquals((await health(sender.addr.port)).body.listening, true);
+    await sender.shutdown();
+    await sender.done;
+  },
+);
+
+Deno.test(
+  "startSender skips the next idle sleep once, and only once, for notifies during a cycle",
+  async function (): Promise<void> {
+    const d = dest("d1", {});
+    const claims = [[row(1, d)]];
+    const db = fakeDb(claimsFrom(claims));
+    let release: () => void = noop;
+    function capture(resolve: () => void) {
+      release = resolve;
+    }
+    const blocked = new Promise<void>(capture);
+    async function blockedSend(
+      _d: DeliveryDestination,
+      b: readonly PendingDelivery[],
+    ): ReturnType<SenderDeps["send"]> {
+      await blocked;
+      return { ok: true, sent: b.length };
+    }
+    const clock = fakeClock(T0);
+    const sender = startSender(config({}), { db: db.db, send: blockedSend }, {
+      hostname: "127.0.0.1",
+      log: noop,
+      now: clock.now,
+      sleep: clock.sleep,
+    });
+    await waitFor("the listen", () => sender.status().listening);
+    await waitFor("the claim", () => db.of("claim_deliveries").length === 1);
+    // Two notifies while the send is in flight coalesce into one early claim.
+    db.notify();
+    db.notify();
+    release();
+    await waitFor("the ack", () => db.of("mark_deliveries_sent").length === 1);
+    await waitFor("the early claim", () => db.of("claim_deliveries").length === 2);
+    await settle();
+    assertEquals(db.of("claim_deliveries").length, 2);
+    await clock.advance(5_000);
+    await waitFor("the polled claim", () => db.of("claim_deliveries").length === 3);
+    await sender.shutdown();
+    await sender.done;
+  },
+);
+
+Deno.test(
+  "startSender never counts a notify as progress: the watchdog still ends a wedged claim",
+  async function (): Promise<void> {
+    function answer(call: RpcCall) {
+      if (call.fn === "claim_deliveries") {
+        return new Promise<never>(noop);
+      }
+      return undefined;
+    }
+    const db = fakeDb(answer);
+    const clock = fakeClock(T0);
+    const sender = startSender(config({ staleMs: 10_000 }), { db: db.db, send: allSent }, {
+      hostname: "127.0.0.1",
+      log: noop,
+      now: clock.now,
+      sleep: clock.sleep,
+    });
+    const failing = assertRejects(
+      () => sender.done,
+      WatchdogError,
+      "watchdog: no progress for 10 s",
+    );
+    await waitFor("the listen", () => sender.status().listening);
+    await waitFor("the claim", () => db.of("claim_deliveries").length === 1);
+    for (let i = 0; i < 5; i++) {
+      await clock.advance(1_000);
+      db.notify();
+    }
+    assertEquals(sender.status().lastProgressAt, null);
+    await clock.advance(5_000);
+    await failing;
+    assertEquals(db.of("claim_deliveries").length, 1);
+    await sender.shutdown();
+  },
+);
+
+Deno.test(
+  "startSender does not cut a claim backoff short for a notify, nor the idle sleep after it",
+  async function (): Promise<void> {
+    let claims = 0;
+    function answer(call: RpcCall) {
+      if (call.fn === "claim_deliveries") {
+        claims += 1;
+        if (claims === 1) {
+          return { error: "connection reset" };
+        }
+      }
+      return undefined;
+    }
+    const db = fakeDb(answer);
+    const clock = fakeClock(T0);
+    const sender = startSender(config({ pollMs: 1_000 }), { db: db.db, send: allSent }, {
+      hostname: "127.0.0.1",
+      log: noop,
+      now: clock.now,
+      sleep: clock.sleep,
+      report: noop,
+    });
+    await waitFor("the listen", () => sender.status().listening);
+    await waitFor("the failed claim", () => db.of("claim_deliveries").length === 1);
+    db.notify();
+    await settle();
+    assertEquals(db.of("claim_deliveries").length, 1);
+    await clock.advance(RETRY_MIN_MS - 1);
+    assertEquals(db.of("claim_deliveries").length, 1);
+    await clock.advance(1);
+    await waitFor("the retried claim", () => db.of("claim_deliveries").length === 2);
+    // The retried claim covered the notify, so the idle sleep after it is the whole pollMs.
+    await clock.advance(999);
+    assertEquals(db.of("claim_deliveries").length, 2);
+    await clock.advance(1);
+    await waitFor("the polled claim", () => db.of("claim_deliveries").length === 3);
+    await sender.shutdown();
+    await sender.done;
+  },
+);
+
+Deno.test(
+  "startSender retries a failed LISTEN with doubling delays, reports once and keeps polling",
+  async function (): Promise<void> {
+    let listens = 0;
+    function answer(call: RpcCall) {
+      if (call.fn === "listen") {
+        listens += 1;
+        if (listens <= 2) {
+          return { error: "connection refused" };
+        }
+      }
+      return undefined;
+    }
+    const db = fakeDb(answer);
+    const clock = fakeClock(T0);
+    const logs: string[] = [];
+    const reports: string[] = [];
+    const sender = startSender(config({ pollMs: 1_000 }), { db: db.db, send: allSent }, {
+      hostname: "127.0.0.1",
+      log: (m) => logs.push(m),
+      now: clock.now,
+      sleep: clock.sleep,
+      report: (line) => reports.push(line),
+    });
+    const failed = "listen failed: connection refused; polling only, retrying in";
+    await waitFor("the first claim", () => db.of("claim_deliveries").length === 1);
+    await waitFor("the failure", () => logs.includes(`${failed} ${RETRY_MIN_MS} ms`));
+    let h = await health(sender.addr.port);
+    assertEquals(h.status, 200);
+    assertEquals(h.body.listening, false);
+    // Claims keep coming at pollMs while LISTEN is down.
+    await clock.advance(RETRY_MIN_MS);
+    await waitFor("the second failure", () => logs.includes(`${failed} ${RETRY_MIN_MS * 2} ms`));
+    assertEquals(db.of("listen").length, 2);
+    assertEquals(db.of("claim_deliveries").length >= 5, true);
+    await clock.advance(RETRY_MIN_MS * 2);
+    await waitFor("the listen", () => sender.status().listening);
+    assertEquals(db.of("listen").length, 3);
+    assertEquals(reports, ["listen failed: connection refused"]);
+    assertEquals(logs.includes("listening for deliveries"), true);
+    h = await health(sender.addr.port);
+    assertEquals(h.body.listening, true);
+    // Never again once established.
+    await clock.advance(RETRY_MAX_MS);
+    assertEquals(db.of("listen").length, 3);
+    await sender.shutdown();
+    await sender.done;
+  },
+);
+
+Deno.test(
+  "startSender counts a LISTEN that never answers as failed, and shutdown does not wait for it",
+  async function (): Promise<void> {
+    function answer(call: RpcCall) {
+      if (call.fn === "listen") {
+        return new Promise<never>(noop);
+      }
+      return undefined;
+    }
+    const db = fakeDb(answer);
+    const clock = fakeClock(T0);
+    const logs: string[] = [];
+    const reports: string[] = [];
+    const sender = startSender(config({}), { db: db.db, send: allSent }, {
+      hostname: "127.0.0.1",
+      log: (m) => logs.push(m),
+      now: clock.now,
+      sleep: clock.sleep,
+      report: (line) => reports.push(line),
+    });
+    await waitFor("the listen", () => db.of("listen").length === 1);
+    await clock.advance(PROBE_TIMEOUT_MS);
+    await waitFor("the failure", () => reports.length === 1);
+    assertEquals(reports, [`listen failed: no answer within ${PROBE_TIMEOUT_MS} ms`]);
+    await clock.advance(RETRY_MIN_MS);
+    await waitFor("the second listen", () => db.of("listen").length === 2);
+    assertEquals(sender.status().listening, false);
+    // The second attempt is still waiting; shutdown ends it.
+    await sender.shutdown();
+    await sender.done;
+    assertEquals(logs.includes("listening for deliveries"), false);
+  },
+);
+
 Deno.test("abortableSleep ends on the timer or on abort", async function (): Promise<void> {
   const controller = new AbortController();
   await abortableSleep(1, controller.signal);
@@ -942,6 +1212,7 @@ Deno.test(
       lastProgressAt: null,
       lastError: null,
       inFlight: false,
+      listening: false,
       totals: {
         cycles: 0,
         claimed: 0,
@@ -973,6 +1244,7 @@ Deno.test(
       last_progress_at: "2026-10-15T12:01:30.000Z",
       last_error: null,
       in_flight: false,
+      listening: false,
       totals: status.totals,
       queue: null,
     });

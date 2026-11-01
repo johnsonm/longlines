@@ -5,15 +5,20 @@
 // npm:postgres@3.4.9 (postgres.js) is the sender's one runtime dependency:
 // the sender reaches Postgres directly through the Supavisor pooler (every
 // poll through an Edge Function or PostgREST would be an invocation), needs
-// TLS and named-parameter calls, and will LISTEN for the matcher's pg_notify
-// later. jsr:@db/postgres has no LISTEN. Mapped in sender/deno.json, the image's
-// import map.
+// TLS and named-parameter calls, and LISTENs for the matcher's pg_notify on
+// DELIVERIES_CHANNEL (SenderDb.listen). jsr:@db/postgres has no LISTEN. Mapped
+// in sender/deno.json, the image's import map.
 import postgres, { type JSONValue, type ParameterOrJSON } from "postgres";
 import { z } from "zod";
 import type { DeliveryRpc } from "../supabase/functions/_shared/delivery/run.ts";
 import { type ErrorContext, TimeoutError } from "../supabase/functions/_shared/errors.ts";
 import { parseWith } from "../supabase/functions/_shared/validate.ts";
 import { RETRY_MAX_MS, RETRY_MIN_MS } from "./config.ts";
+
+/** postgres.js's onListen callback: nothing to do once the LISTEN ran. */
+function noop(): void {
+  // Nothing to do.
+}
 
 /** A call to a function or with a parameter outside SENDER_RPCS. */
 export class RpcAllowlistError extends Error {
@@ -132,6 +137,11 @@ export interface EndOptions {
   timeout?: number;
 }
 
+/** What postgres.js's listen() resolves to once the LISTEN statement ran. */
+export interface ListenHandle {
+  unlisten(): Promise<void>;
+}
+
 /** The slice of postgres.js the adapter uses, so tests can pass a fake. */
 export interface SqlClient {
   unsafe(
@@ -140,8 +150,25 @@ export interface SqlClient {
     options: UnsafeOptions,
   ): PromiseLike<Iterable<Record<string, unknown>>>;
   json(value: JSONValue): SqlParam;
+  /**
+   * LISTEN on `channel` over postgres.js's own listener connection (max 1, no idle timeout,
+   * outside the pool). `onNotify` gets each payload; `onListen` runs once the LISTEN ran,
+   * and again after postgres.js re-subscribes on a new connection.
+   */
+  listen(
+    channel: string,
+    onNotify: (payload: string) => void,
+    onListen: () => void,
+  ): PromiseLike<ListenHandle>;
+  /** Ends the pool and the listener connection. */
   end(options: EndOptions | undefined): Promise<void>;
 }
+
+/**
+ * The channel match_pending_spots notifies (`pg_notify('deliveries', '')`, 20261015001200)
+ * when it created deliveries. The payload is empty; a notify only means "claim now".
+ */
+export const DELIVERIES_CHANNEL = "deliveries";
 
 /** Any other argument: what the allowlist's scalar and array types take, or null. */
 type PlainParam = number | string | boolean | null | number[] | string[];
@@ -168,7 +195,14 @@ const PLAIN_PARAM_SCHEMAS: Readonly<Record<Exclude<SqlType, "jsonb">, z.ZodType<
 const jsonParamSchema: z.ZodType<JSONValue> = z.json();
 
 export interface SenderDb extends DeliveryRpc {
-  /** Close the pool; waits up to a few seconds for an in-flight statement. */
+  /**
+   * LISTEN on `channel`; `onNotify` runs for every notify on it. `error` is the message
+   * when the LISTEN failed, or null, so a failed call never throws. postgres.js keeps the
+   * subscription across reconnects on its own and keeps a failed attempt's callback too,
+   * so a retry after a failure may register `onNotify` twice: callers make it idempotent.
+   */
+  listen(channel: string, onNotify: () => void): Promise<{ error: string | null }>;
+  /** Close the pool and the listener; waits up to a few seconds for an in-flight statement. */
   close(): Promise<void>;
 }
 
@@ -209,6 +243,23 @@ export function senderDb(sql: SqlClient): SenderDb {
         throw error;
       }
     },
+    async listen(channel: string, onNotify: () => void): Promise<{ error: string | null }> {
+      // The payload is ignored: the matcher sends an empty one and a notify only wakes the loop.
+      function relay(): void {
+        onNotify();
+      }
+      try {
+        await sql.listen(channel, relay, noop);
+        return { error: null };
+      } catch (error) {
+        // As rpc: postgres.js rejects with Errors (a refused statement or a lost connection).
+        if (error instanceof Error) {
+          return { error: error.message };
+        }
+        throw error;
+      }
+    },
+    // end() also ends postgres.js's listener connection.
     close: () => sql.end({ timeout: 5 }),
   };
 }
@@ -351,7 +402,9 @@ export function clientOptions(config: DbConnectionConfig): ClientOptions {
     database,
     ssl: sslOption(config, url.hostname),
     // Two connections: the poll loop and the stats refresh may overlap, and the spots stream's
-    // occasional presence calls queue behind them; LISTEN takes one later.
+    // occasional presence calls queue behind them. LISTEN (SenderDb.listen) opens a third
+    // outside this pool, postgres.js's listener (max 1, no idle timeout): three of the
+    // delivery_sender role's connection limit of four (sender_role.test.sql).
     max: 2,
     prepare: true,
     connect_timeout: 10,

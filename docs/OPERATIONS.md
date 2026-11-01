@@ -266,8 +266,11 @@ user's JWT claims, which is how the RLS assertions work.
 Outbound delivery (Discord, webhooks, web push, and Local DX cluster spots to Long Lines Relay
 through its spots stream) is the sender: a Deno process on Fly.io in
 `sender/` (app `longlines-sender`), the way the inbound worker holds the inbound streams. It connects to
-Postgres as the `delivery_sender` role through the Supavisor pooler, polls `claim_deliveries()`
-every few seconds and reports every outcome through its RPC allowlist. Every decision (what to
+Postgres as the `delivery_sender` role through the Supavisor pooler, claims with
+`claim_deliveries()` as soon as the matcher's `pg_notify('deliveries', '')` arrives (it LISTENs
+on that channel) and otherwise every few seconds, and reports every outcome through its RPC
+allowlist. It holds three of the role's four connections: a pool of two and postgres.js's
+listener connection. Every decision (what to
 claim, each destination's budget, throttles, expiry, health) is made in SQL; the sender only sends.
 Design notes are in `docs/ARCHITECTURE.md` ("Delivery: the sender"). The "Send test" button
 (`send-test`) and the management API (`api`) still send from Edge Functions with the same modules.
@@ -327,7 +330,7 @@ In this order, from the repository root:
 | `SENDER_DATABASE_URL` | yes | `postgresql://delivery_sender.<ref>:<password>@<pooler host>:5432/postgres`: the session pooler (port 5432, IPv4), TLS required; URL-encode a password with reserved characters. The sender holds no Supabase API key. |
 | `LONGLINES_VAPID_PUBLIC_KEY`, `LONGLINES_VAPID_PRIVATE_KEY`, `LONGLINES_VAPID_SUBJECT` | for push | The same pair the Edge Functions hold ("Push notifications" below). Without all three, push deliveries fail with "Push isn't configured on the server." and Discord and webhooks carry on. |
 | `SENDER_DATABASE_CA` | no, recommended | The PEM certificate the pooler's certificate must chain to (Supabase's `prod-ca-2021.crt`; "Verifying the database certificate" below). Without it the link is encrypted but the server is not verified, and the sender logs a warning at start. |
-| `SENDER_POLL_MS` | no | Pause between claims that found less than a full batch; 5000, floor 1000, at most 3600000. |
+| `SENDER_POLL_MS` | no | Pause between claims that found less than a full batch; a notify on the `deliveries` channel ends it early. 5000, floor 1000, at most 3600000. |
 | `SENDER_CONCURRENCY` | no | Destinations sent at once within a cycle; 4. |
 | `SENDER_STALE_MS` | no | The watchdog: exit 1 after this long without a successful claim; 120000. At most 3600000, and at least 30000 more than the larger of `SENDER_POLL_MS` and the 60000 claim retry (90000 with the default poll), or the sender refuses to start. |
 | `SENDER_STATS_MS` | no | How often `/healthz` refreshes its queue figures; 60000, at most 3600000. |
@@ -370,7 +373,7 @@ value with literal `\n` escapes works too.
 
 ```sh
 fly logs -a longlines-sender          # one JSON line per cycle that sent or failed something; queue stats every minute
-fly checks list -a longlines-sender   # /healthz: healthy, last_claim_at, last_progress_at, last_error, in_flight, totals, queue
+fly checks list -a longlines-sender   # /healthz: healthy, last_claim_at, last_progress_at, last_error, in_flight, listening, totals, queue
 ```
 
 `/healthz` is 200 while the last progress (a successful claim, a finished send or a successful
@@ -382,6 +385,15 @@ their age limit (push: the destination's "drop if offline" setting, 30 minutes b
 DX cluster 2 minutes, which is how it drops spots while its relay is offline; everything else 24
 hours) and were dropped undelivered; that is the figure to watch, after taking out Local DX
 cluster rows (the "Spots stream" query below counts them).
+
+`listening` is true once the sender's LISTEN on the `deliveries` channel ran; the log says
+`listening for deliveries` soon after the start line. While it is false the sender logs
+`listen failed: ...; polling only, retrying in N ms` (reported to Sentry once per streak) and
+retries with backoff up to a minute; deliveries still go out, only up to `SENDER_POLL_MS` later.
+A notify never counts as progress, so it cannot hide a wedged claim from the watchdog.
+postgres.js re-subscribes on its own after the listener connection drops and can fail at that
+silently, so `listening: true` is not proof the subscription is still up: if matched spots keep
+waiting about a poll interval, restart the machine (`fly machine restart -a longlines-sender`).
 
 ```sql
 select status, count(*) from deliveries where created_at > now() - interval '1 hour' group by 1;
@@ -397,7 +409,7 @@ where jobname = 'match-pending-spots' order by start_time desc limit 10;
 
 There is no delivery Edge Function any more: the cutover migration unscheduled the old `deliver`
 cron job and took the pg_net kick out of `match_pending_spots`, which now does
-`pg_notify('deliveries', '')` instead (nothing listens yet; the sender polls), and the cleanup
+`pg_notify('deliveries', '')` instead (the sender LISTENs on it and polls as the safety net), and the cleanup
 migration deleted the function with its two RPCs.
 
 ### A destination keeps failing

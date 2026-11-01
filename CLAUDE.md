@@ -684,7 +684,15 @@ The design is `docs/superpowers/specs/2026-10-15-outbound-sender-design.md` (Pha
   a per-destination lease comes before any second machine.
 - Per-destination caps are per minute, in SQL (`destination_budget`), never per claim or per
   poll in TypeScript. The sender polls every `SENDER_POLL_MS` (5 s, floor 1 s) and re-claims at
-  once after a full batch; LISTEN on the matcher's `deliveries` channel is planned, not done.
+  once after a full batch.
+- It LISTENs on the matcher's `deliveries` channel (`DELIVERIES_CHANNEL`) only through
+  `SenderDb.listen`, on postgres.js's own listener connection beside the pool of two (three of
+  the role's four). A notify only wakes the idle sleep between cycles: notifies coalesce (any
+  during a cycle skip the next idle once; `notified` is cleared before each claim), the backoff
+  sleeps are never wake-able, and a notify is never watchdog progress. Polling stays the safety
+  net, since postgres.js re-subscribes after a drop on its own and can fail silently. A failed
+  LISTEN is logged, reported once per streak and retried with the claim backoff, never an exit;
+  `/healthz` says `listening`. No env knob.
 - The watchdog exits 1 after `SENDER_STALE_MS` without progress (a successful claim, a finished
   send or a successful bookkeeping RPC, reported through `runDeliveryBatch`'s `onProgress`), never
   since the last finished cycle, because a long healthy cycle killed before its ack re-sends the
@@ -704,8 +712,9 @@ The design is `docs/superpowers/specs/2026-10-15-outbound-sender-design.md` (Pha
   name every variable the sender reads (`sender/__tests__/modules.test.ts`), and `deno.json`'s test
   permissions mirror it. `LONGLINES_ALLOW_INSECURE_DESTINATIONS` is honoured only with a local
   database host.
-- Tests never touch a hosted database: `db.test.ts` runs its RPC half only with
-  `SENDER_TEST_DATABASE_URL` pointing at the local stack and skips it otherwise. Never run
+- Tests never touch a hosted database: `db.test.ts` runs its RPC half (and the LISTEN/NOTIFY
+  round trip) only with `SENDER_TEST_DATABASE_URL` pointing at the local stack and skips it
+  otherwise. Never run
   `fly deploy` or `fly secrets set` yourself unless asked; a merge to main deploys the sender, so
   a merge that changes `sender/` or `_shared/delivery/*` ships to production.
 - The app lives on its own Fly network (`--network sender`, fixed at creation) and the hostname
