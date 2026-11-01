@@ -718,7 +718,7 @@ Earlier entries are never edited.
   docs-site heading "An activation's page" reads "A spotted activation's page"; the alias route's
   comment and this spec's Web section no longer claim it shadows no route (it outranks `/call/*`
   and `/ref/:program/*` for a second segment `activations`, which no callsign or program is).
-- 2026-11-01, PR 5 (branch `spotted-activations-previews`): link previews. `web/api/activation-preview.ts`
+- 2026-11-01, PR 5 (#348, branch `spotted-activations-previews`): link previews. `web/api/activation-preview.ts`
   and `web/api/activation-image.ts` (thin files around `web/api/_lib/preview.ts`,
   `_lib/image.ts` and the shared `_lib/activation.ts`, which reads the environment, checks the
   id and makes the one request to `spotted-activations`), the two user-agent rewrites in
