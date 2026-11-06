@@ -164,17 +164,17 @@ plus the parallel `load_ised_special.ts` / `load-ised-special/` / `handlers_load
 files; edit `supabase/functions/_shared/types.ts`, `supabase/functions/_shared/db.ts`,
 `supabase/config.toml`.
 
-- [ ] `IsedLicenseDb` and `IsedSpecialDb` in `types.ts` (status, begin, stageRows, finish, abandon)
+- [x] `IsedLicenseDb` and `IsedSpecialDb` in `types.ts` (status, begin, stageRows, finish, abandon)
       and `createIsedLicenseDb` / `createIsedSpecialDb` in `db.ts`, each RPC result read with its
       schema from `_shared/ised.ts` / `_shared/ised_special.ts`.
-- [ ] Failing handler tests with fakes, copying `handlers_load_licenses.test.ts`:
+- [x] Failing handler tests with fakes, copying `handlers_load_licenses.test.ts`:
       a missing or wrong `x-inbound-secret` is 401 before any db call; each action maps to its
       method; a body with an extra key or a row with an address key is 400; more than
       `MAX_ISED_ROWS_PER_REQUEST` rows is 400; a failed RPC (a finish refusal included) is a 500
       with its message, as the FCC handler maps it.
-- [ ] Implement `handleLoadIsedLicenses(req, deps)` and `handleLoadIsedSpecial(req, deps)` with
+- [x] Implement `handleLoadIsedLicenses(req, deps)` and `handleLoadIsedSpecial(req, deps)` with
       their entrypoints (`Deno.serve(handler);`).
-- [ ] `config.toml`: `[functions.load-ised-licenses]` and `[functions.load-ised-special]` with
+- [x] `config.toml`: `[functions.load-ised-licenses]` and `[functions.load-ised-special]` with
       `verify_jwt = false` and the comment the FCC entry has. Neither handler imports
       `isServiceRole` (`function_config.test.ts`).
 - [ ] `deno task test`, `deno task check`, `npm run lint`, `npm run typecheck`. Commit.

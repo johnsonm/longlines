@@ -2,6 +2,8 @@ import { z } from "zod";
 import type { AprsPacketType } from "./aprs.ts";
 import type { ModeFamily } from "./modes.ts";
 import type { LicenseLoad, UlsCounts, UlsKind, UlsRow } from "./uls.ts";
+import type { IsedLoadStatus, IsedRow } from "./ised.ts";
+import type { IsedSpecialRow } from "./ised_special.ts";
 import type {
   ReferenceCatalogRow,
   ReferenceFinishState,
@@ -307,6 +309,24 @@ export interface LicenseDb {
   /** Marks the load ready for apply_license_loads; throws when the staged counts differ. */
   finishLoad(load: number, counts: UlsCounts): Promise<void>;
   /** Fails a load the inbound worker gave up on and empties staging. */
+  abandonLoad(load: number, error: string): Promise<void>;
+}
+
+/** The ISED amateur license load's staging RPCs (20261126000100). Implemented by db.ts. */
+export interface IsedLicenseDb {
+  loadStatus(): Promise<IsedLoadStatus>;
+  beginLoad(version: string): Promise<number>;
+  stageRows(load: number, rows: IsedRow[]): Promise<number>;
+  finishLoad(load: number, rows: number): Promise<void>;
+  abandonLoad(load: number, error: string): Promise<void>;
+}
+
+/** The ISED special callsign load's staging RPCs (20261126000100). Implemented by db.ts. */
+export interface IsedSpecialDb {
+  loadStatus(): Promise<IsedLoadStatus>;
+  beginLoad(version: string): Promise<number>;
+  stageRows(load: number, rows: IsedSpecialRow[]): Promise<number>;
+  finishLoad(load: number, rows: number): Promise<void>;
   abandonLoad(load: number, error: string): Promise<void>;
 }
 

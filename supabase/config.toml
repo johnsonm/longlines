@@ -535,6 +535,16 @@ verify_jwt = false
 [functions.load-licenses]
 verify_jwt = false
 
+# load-ised-licenses is called by the same inbound worker with the same secret for the weekly
+# ISED amateur license load (_shared/handlers/load_ised_licenses.ts).
+[functions.load-ised-licenses]
+verify_jwt = false
+
+# load-ised-special is called by the same inbound worker with the same secret for the weekly
+# ISED special callsign load (_shared/handlers/load_ised_special.ts).
+[functions.load-ised-special]
+verify_jwt = false
+
 # load-references is called by the same inbound worker with the same secret for the weekly
 # POTA, SOTA and WWFF reference list loads (_shared/handlers/load_references.ts).
 [functions.load-references]

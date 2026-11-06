@@ -15,6 +15,8 @@ import {
   type UlsKind,
   type UlsRow,
 } from "./uls.ts";
+import { type IsedLoadStatus, isedLoadStatusSchema, type IsedRow } from "./ised.ts";
+import type { IsedSpecialRow } from "./ised_special.ts";
 import {
   type ReferenceCatalogRow,
   type ReferenceFinishState,
@@ -36,6 +38,8 @@ import type {
   ConvertDb,
   IngestDb,
   InsertedSpot,
+  IsedLicenseDb,
+  IsedSpecialDb,
   LicenseDb,
   NdjsonSlice,
   NormalizedSpot,
@@ -322,6 +326,76 @@ export function createLicenseDb(client: SupabaseClient): LicenseDb {
     },
     async abandonLoad(load: number, error: string): Promise<void> {
       await call("fcc_license_load_abandon", { p_load: load, p_error: error });
+    },
+  };
+}
+
+/** IsedLicenseDb over the ised_license_load_* RPCs (20261126000100). */
+export function createIsedLicenseDb(client: SupabaseClient): IsedLicenseDb {
+  async function call(fn: string, args: Record<string, unknown> | undefined): Promise<unknown> {
+    const result = await client.rpc(fn, args);
+    if (result.error !== null) {
+      throw callFailed(fn, result.error, result.status);
+    }
+    const data: unknown = result.data;
+    return data;
+  }
+  return {
+    async loadStatus(): Promise<IsedLoadStatus> {
+      const data = await call("ised_license_load_status", undefined);
+      return parseWith(isedLoadStatusSchema, data, "loadStatus: ised_license_load_status result");
+    },
+    async beginLoad(version: string): Promise<number> {
+      const data = await call("ised_license_load_begin", { p_version: version });
+      return parseWith(loadNumberSchema, data, "beginLoad: ised_license_load_begin result");
+    },
+    async stageRows(load: number, rows: IsedRow[]): Promise<number> {
+      const data = await call("ised_license_load_rows", {
+        p_load: load,
+        p_rows: rows,
+      });
+      return parseWith(loadNumberSchema, data, "stageRows: ised_license_load_rows result");
+    },
+    async finishLoad(load: number, rows: number): Promise<void> {
+      await call("ised_license_load_finish", { p_load: load, p_rows: rows });
+    },
+    async abandonLoad(load: number, error: string): Promise<void> {
+      await call("ised_license_load_abandon", { p_load: load, p_error: error });
+    },
+  };
+}
+
+/** IsedSpecialDb over the ised_special_load_* RPCs (20261126000100). */
+export function createIsedSpecialDb(client: SupabaseClient): IsedSpecialDb {
+  async function call(fn: string, args: Record<string, unknown> | undefined): Promise<unknown> {
+    const result = await client.rpc(fn, args);
+    if (result.error !== null) {
+      throw callFailed(fn, result.error, result.status);
+    }
+    const data: unknown = result.data;
+    return data;
+  }
+  return {
+    async loadStatus(): Promise<IsedLoadStatus> {
+      const data = await call("ised_special_load_status", undefined);
+      return parseWith(isedLoadStatusSchema, data, "loadStatus: ised_special_load_status result");
+    },
+    async beginLoad(version: string): Promise<number> {
+      const data = await call("ised_special_load_begin", { p_version: version });
+      return parseWith(loadNumberSchema, data, "beginLoad: ised_special_load_begin result");
+    },
+    async stageRows(load: number, rows: IsedSpecialRow[]): Promise<number> {
+      const data = await call("ised_special_load_rows", {
+        p_load: load,
+        p_rows: rows,
+      });
+      return parseWith(loadNumberSchema, data, "stageRows: ised_special_load_rows result");
+    },
+    async finishLoad(load: number, rows: number): Promise<void> {
+      await call("ised_special_load_finish", { p_load: load, p_rows: rows });
+    },
+    async abandonLoad(load: number, error: string): Promise<void> {
+      await call("ised_special_load_abandon", { p_load: load, p_error: error });
     },
   };
 }
