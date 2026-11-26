@@ -8,8 +8,10 @@
 // strictly dropped and never staged or stored.
 
 import { z } from "zod";
-import { ValidationError } from "./errors.ts";
+import { cleanIsedText, IsedDelimReader, MAX_ISED_RECORD } from "./ised_delim.ts";
 import { type LicenseLoad, licenseLoadSchema } from "./uls.ts";
+
+export { MAX_ISED_RECORD };
 
 export const CANADIAN_CALLSIGN = /^(?:C[F-KYZ]|V[A-GOXY]|X[J-O])[A-Z0-9]{1,7}[A-Z]$/;
 
@@ -31,8 +33,6 @@ export const isedRowSchema: z.ZodType<IsedRow> = z.strictObject({
   qualifications: z.string(),
 });
 
-export const MAX_ISED_RECORD = 64 * 1024;
-
 const REQUIRED_COLUMNS = [
   "callsign",
   "first_name",
@@ -46,99 +46,25 @@ const REQUIRED_COLUMNS = [
   "club_name",
 ];
 
-function cleanText(val: string | undefined): string | null {
-  if (val === undefined) {
-    return null;
-  }
-  const trimmed = val.trim();
-  if (trimmed === "") {
-    return null;
-  }
-  return trimmed;
-}
-
 export class IsedRecords {
-  #partial = "";
-  #header: string[] | null = null;
+  readonly #reader = new IsedDelimReader("IsedRecords: amateur_delim.txt", REQUIRED_COLUMNS);
   #skipped = 0;
-  readonly #where = "IsedRecords: amateur_delim.txt";
 
   get skipped(): number {
-    return this.#skipped;
+    return this.#reader.skipped + this.#skipped;
   }
 
   push(chunk: string): IsedRow[] {
-    const lines = (this.#partial + chunk).split(/\r?\n/);
-    const last = lines.pop();
-    if (last === undefined) {
-      this.#partial = "";
-    } else {
-      this.#partial = last;
-    }
-    if (this.#partial.length > MAX_ISED_RECORD) {
-      throw new ValidationError(`ISED line longer than ${String(MAX_ISED_RECORD)} characters`, {
-        cause: undefined,
-        where: this.#where,
-      });
-    }
-    return this.#take(lines);
+    return this.#parse(this.#reader.push(chunk));
   }
 
   flush(): IsedRow[] {
-    const tail = this.#partial;
-    this.#partial = "";
-    if (tail === "") {
-      return [];
-    }
-    return this.#take([tail]);
+    return this.#parse(this.#reader.flush());
   }
 
-  #take(lines: string[]): IsedRow[] {
+  #parse(maps: Map<string, string>[]): IsedRow[] {
     const rows: IsedRow[] = [];
-    for (const rawLine of lines) {
-      const line = rawLine.replace(/\r$/, "");
-      if (line.trim() === "") {
-        continue;
-      }
-      if (line.length > MAX_ISED_RECORD) {
-        throw new ValidationError(`ISED line longer than ${String(MAX_ISED_RECORD)} characters`, {
-          cause: undefined,
-          where: this.#where,
-        });
-      }
-      const fields = line.split(";");
-
-      if (this.#header === null) {
-        this.#header = fields.map((f) => f.trim().toLowerCase());
-        for (const req of REQUIRED_COLUMNS) {
-          if (!this.#header.includes(req)) {
-            throw new ValidationError(`ISED header missing required column: ${req}`, {
-              cause: undefined,
-              where: this.#where,
-            });
-          }
-        }
-        continue;
-      }
-
-      if (fields.length !== this.#header.length) {
-        this.#skipped++;
-        continue;
-      }
-
-      const map = new Map<string, string>();
-      for (let i = 0; i < this.#header.length; i++) {
-        const headerName = this.#header[i];
-        const fieldValue = fields[i];
-        if (headerName !== undefined) {
-          let val = "";
-          if (fieldValue !== undefined) {
-            val = fieldValue;
-          }
-          map.set(headerName, val);
-        }
-      }
-
+    for (const map of maps) {
       const callVal = map.get("callsign");
       let callsign = "";
       if (callVal !== undefined) {
@@ -149,16 +75,16 @@ export class IsedRecords {
         continue;
       }
 
-      const firstName = cleanText(map.get("first_name"));
-      const lastName = cleanText(map.get("surname"));
-      const cName = cleanText(map.get("club_name"));
-      const cName2 = cleanText(map.get("club_name_2"));
-      const prov = cleanText(map.get("prov_cd"));
-      const qA = cleanText(map.get("qual_a"));
-      const qB = cleanText(map.get("qual_b"));
-      const qC = cleanText(map.get("qual_c"));
-      const qD = cleanText(map.get("qual_d"));
-      const qE = cleanText(map.get("qual_e"));
+      const firstName = cleanIsedText(map.get("first_name"));
+      const lastName = cleanIsedText(map.get("surname"));
+      const cName = cleanIsedText(map.get("club_name"));
+      const cName2 = cleanIsedText(map.get("club_name_2"));
+      const prov = cleanIsedText(map.get("prov_cd"));
+      const qA = cleanIsedText(map.get("qual_a"));
+      const qB = cleanIsedText(map.get("qual_b"));
+      const qC = cleanIsedText(map.get("qual_c"));
+      const qD = cleanIsedText(map.get("qual_d"));
+      const qE = cleanIsedText(map.get("qual_e"));
 
       let clubName: string | null = null;
       if (cName !== null && cName2 !== null) {
