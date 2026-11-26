@@ -182,31 +182,33 @@ files; edit `supabase/functions/_shared/types.ts`, `supabase/functions/_shared/d
 ## Task 4: Inbound worker
 
 Files: create `inbound/ised_licenses.ts`, `inbound/__tests__/ised_licenses.test.ts`; edit
-`inbound/config.ts`, `inbound/inbound.ts`, `inbound/Dockerfile`, root `deno.json` (test env
-permissions), `inbound/__tests__/inbound.test.ts`.
+`inbound/config.ts`, `inbound/inbound.ts`, `inbound/Dockerfile`, `inbound/__tests__/modules.test.ts`,
+`inbound/__tests__/inbound.test.ts`, `inbound/__tests__/licenses.test.ts`,
+`inbound/__tests__/catalogs.test.ts`.
 
-- [ ] `config.ts`: `ISED_AMATEUR_ZIP` and `INBOUND_ISED_LICENSES` read like `INBOUND_LICENSES`
-      (`off`, a URL, or unset for the ISED file; unset with local functions means off; https
-      outside local development) into `isedZipUrl: string | null`.
-- [ ] Failing tests against a local server (`zip_server.ts`) serving a zip built in the test from
-      the Task 1 fixture, and a fake client:
+- [x] `config.ts`: `ISED_AMATEUR_ZIP` / `INBOUND_ISED_LICENSES` and `ISED_SPECIAL_ZIP` /
+      `INBOUND_ISED_SPECIAL` read like `INBOUND_LICENSES` (`off`, a URL, or unset for the ISED
+      file; unset with local functions means off; https outside local development) into
+      `isedZipUrl: string | null` and `isedSpecialZipUrl: string | null`.
+- [x] Failing tests against a local server (`zip_server.ts`) serving a zip built in the test from
+      the Task 1 and Task 1B fixtures, and a fake client:
   - `shouldImportIsed(version, status, now)`: no load yet, yes; last applied began under 7 days
     ago, no; a newer `Last-Modified` and a week passed, yes; an unfinished load under 12 hours
     old, no
-  - a full import posts begin, batched rows, finish with the parsed row count
+  - a full import posts begin, batched rows, finish with the parsed/staged row count
   - a 500 mid-download, a zip without `amateur_delim.txt` and a finish refusal each abandon the
     load with the error
   - the HEAD and the GET send the User-Agent
-- [ ] Implement: once a day HEAD; on import, GET the whole body under `STREAM_HEADER_TIMEOUT_MS`,
+- [x] Implement: once a day HEAD; on import, GET the whole body under `STREAM_HEADER_TIMEOUT_MS`,
       wrap it in an in-memory `RangeSource` (no new zip code), `openZipEntry` the list,
-      `pipeThrough(new TextDecoderStream())` (UTF-8, the default) into `IsedRecords`, post in
-      batches. No floor in TypeScript: SQL's finish decides.
-- [ ] Wire into `inbound.ts` beside the FCC loop (its own `FunctionPoster` for
-      `load-ised-licenses`, log prefix `[ised]`, joined on shutdown); add
-      `INBOUND_ISED_LICENSES` to the Dockerfile's `--allow-env` and to `deno.json`'s test env
-      list (`modules.test.ts` compares them).
-- [ ] `deno task coverage` (inbound stays at 80% and `ised_licenses.ts` is loaded by a test),
-      `npm run lint`, `npm run typecheck`. Commit.
+      `pipeThrough(new TextDecoderStream())` (UTF-8, the default) into `IsedRecords` /
+      `IsedSpecialRecords`, post in batches. No floor in TypeScript: SQL's finish decides.
+- [x] Wire into `inbound.ts` beside the FCC loop (separate `FunctionPoster`s for
+      `load-ised-licenses` and `load-ised-special`, log prefixes `[ised]` and `[ised-special]`,
+      joined on shutdown); add `INBOUND_ISED_LICENSES` and `INBOUND_ISED_SPECIAL` to the
+      Dockerfile's `--allow-env` (`modules.test.ts` checks them).
+- [x] `deno task coverage` (inbound stays at 80% and `ised_licenses.ts` is loaded by a test),
+      `deno task check`, `deno task lint`, `deno fmt --check`, `eslint`. Commit.
 
 ## Task 5: Profile page
 

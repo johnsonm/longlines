@@ -4,7 +4,13 @@ import {
   FunctionCallError,
   ValidationError,
 } from "../../supabase/functions/_shared/errors.ts";
-import { CATALOG_URLS, FCC_AMATEUR_ZIP, loadConfig } from "../config.ts";
+import {
+  CATALOG_URLS,
+  FCC_AMATEUR_ZIP,
+  ISED_AMATEUR_ZIP,
+  ISED_SPECIAL_ZIP,
+  loadConfig,
+} from "../config.ts";
 import {
   APRS_DEFAULT_HOST,
   APRS_DEFAULT_PORT,
@@ -49,6 +55,8 @@ Deno.test("loadConfig reads the environment and normalises values", function ():
     loginCall: "KK4PWJ",
     healthPort: 8080,
     licenseZipUrl: FCC_AMATEUR_ZIP,
+    isedZipUrl: ISED_AMATEUR_ZIP,
+    isedSpecialZipUrl: ISED_SPECIAL_ZIP,
     catalogUrls: CATALOG_URLS,
     sentry: null,
   });
@@ -115,6 +123,57 @@ Deno.test("loadConfig turns the license load off, off locally, or points it at a
     "INBOUND_LICENSES must be off or a URL",
   );
 });
+
+Deno.test(
+  "loadConfig turns the ISED license and special loads off, off locally, or points them at another file",
+  function (): void {
+    assertEquals(
+      loadConfig(env(withValues(BASE, { INBOUND_ISED_LICENSES: " OFF " }))).isedZipUrl,
+      null,
+    );
+    assertEquals(
+      loadConfig(env(withValues(BASE, { INBOUND_ISED_SPECIAL: " off " }))).isedSpecialZipUrl,
+      null,
+    );
+    const local = withValues(BASE, {
+      LONGLINES_FUNCTIONS_URL: "http://127.0.0.1:54321/functions/v1",
+    });
+    assertEquals(loadConfig(env(local)).isedZipUrl, null);
+    assertEquals(loadConfig(env(local)).isedSpecialZipUrl, null);
+    assertEquals(
+      loadConfig(env(withValues(local, { INBOUND_ISED_LICENSES: ISED_AMATEUR_ZIP }))).isedZipUrl,
+      ISED_AMATEUR_ZIP,
+    );
+    assertEquals(
+      loadConfig(env(withValues(local, { INBOUND_ISED_SPECIAL: ISED_SPECIAL_ZIP })))
+        .isedSpecialZipUrl,
+      ISED_SPECIAL_ZIP,
+    );
+    assertEquals(
+      loadConfig(
+        env(withValues(BASE, { INBOUND_ISED_LICENSES: "http://127.0.0.1:8000/amateur_delim" })),
+      ).isedZipUrl,
+      "http://127.0.0.1:8000/amateur_delim",
+    );
+    assertThrows(
+      () =>
+        loadConfig(
+          env(
+            withValues(BASE, {
+              INBOUND_ISED_LICENSES: "http://mirror.example.org/amateur_delim",
+            }),
+          ),
+        ),
+      ConfigError,
+      "INBOUND_ISED_LICENSES must use https outside local development",
+    );
+    assertThrows(
+      () => loadConfig(env(withValues(BASE, { INBOUND_ISED_SPECIAL: "no" }))),
+      ConfigError,
+      "INBOUND_ISED_SPECIAL must be off or a URL",
+    );
+  },
+);
 
 Deno.test("loadConfig turns the reference list load on or off, off locally", function (): void {
   assertEquals(loadConfig(env(withValues(BASE, { INBOUND_CATALOGS: " OFF " }))).catalogUrls, null);

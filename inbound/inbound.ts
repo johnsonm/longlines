@@ -2,12 +2,21 @@
 // license load (licenses.ts), the weekly reference list load (catalogs.ts), the Health page heartbeat (status.ts) and the /healthz server. main.ts is the process shell around it (environment,
 // signals, exit code); everything here runs in tests against local servers.
 
+import type { IsedRow } from "../supabase/functions/_shared/ised.ts";
+import type { IsedSpecialRow } from "../supabase/functions/_shared/ised_special.ts";
 import { type CatalogImportLoop, referenceClient, runCatalogImports } from "./catalogs.ts";
 import type { InboundConfig } from "./config.ts";
 import type { Feed } from "./feeds.ts";
 import { Forwarder, type ForwarderOptions } from "./forwarder.ts";
 import { functionClient, FunctionPoster, type InboundLine } from "./functions.ts";
 import { type FeedHealth, healthHandler } from "./health.ts";
+import {
+  type IsedImportLoop,
+  isedLicenseClient,
+  isedSpecialClient,
+  runIsedLicenseImports,
+  runIsedSpecialImports,
+} from "./ised_licenses.ts";
 import { licenseClient, type LicenseImportLoop, runLicenseImports } from "./licenses.ts";
 import { runStatusLoop, type StatusLoop } from "./status.ts";
 import { abortableSleep, runTelnet, type SessionStatus, type TelnetOptions } from "./telnet.ts";
@@ -143,6 +152,12 @@ export interface InboundOptions {
   log?: (message: string) => void;
   /** Overrides for the license load's timing and limits (tests). */
   licenses?: Partial<Omit<LicenseImportLoop, "zipUrl" | "client" | "signal" | "log">>;
+  /** Overrides for the ISED amateur license load's timing and limits (tests). */
+  ised?: Partial<Omit<IsedImportLoop<IsedRow>, "zipUrl" | "client" | "signal" | "log">>;
+  /** Overrides for the ISED special callsign load's timing and limits (tests). */
+  isedSpecial?: Partial<
+    Omit<IsedImportLoop<IsedSpecialRow>, "zipUrl" | "client" | "signal" | "log">
+  >;
   /** Overrides for the reference list load's timing, limits, clock and fetch (tests). */
   catalogs?: Partial<Omit<CatalogImportLoop, "urls" | "client" | "signal" | "log">>;
   /** The Health page heartbeat's interval and memory figure (tests). */
@@ -203,6 +218,68 @@ export function startInbound(
       loop.fetchFn = overrides.fetchFn;
     }
     licenses = runLicenseImports(loop);
+  }
+
+  function logIsed(message: string): void {
+    log(`[ised] ${message}`);
+  }
+  let ised: Promise<void> | null = null;
+  if (config.isedZipUrl !== null) {
+    const isedPoster = new FunctionPoster({
+      functionsUrl: config.functionsUrl,
+      functionName: "load-ised-licenses",
+      secret: config.inboundSecret,
+      fetchFn: fetch,
+    });
+    const loop: IsedImportLoop<IsedRow> = {
+      zipUrl: config.isedZipUrl,
+      client: isedLicenseClient((body) => isedPoster.post(body, undefined)),
+      signal: controller.signal,
+      log: logIsed,
+    };
+    const overrides = options.ised;
+    if (overrides !== undefined) {
+      loop.batchSize = overrides.batchSize;
+      loop.readTimeoutMs = overrides.readTimeoutMs;
+      loop.headerTimeoutMs = overrides.headerTimeoutMs;
+      loop.retryDelaysMs = overrides.retryDelaysMs;
+      loop.firstCheckMs = overrides.firstCheckMs;
+      loop.checkMs = overrides.checkMs;
+      loop.now = overrides.now;
+      loop.fetchFn = overrides.fetchFn;
+    }
+    ised = runIsedLicenseImports(loop);
+  }
+
+  function logIsedSpecial(message: string): void {
+    log(`[ised-special] ${message}`);
+  }
+  let isedSpecial: Promise<void> | null = null;
+  if (config.isedSpecialZipUrl !== null) {
+    const isedSpecialPoster = new FunctionPoster({
+      functionsUrl: config.functionsUrl,
+      functionName: "load-ised-special",
+      secret: config.inboundSecret,
+      fetchFn: fetch,
+    });
+    const loop: IsedImportLoop<IsedSpecialRow> = {
+      zipUrl: config.isedSpecialZipUrl,
+      client: isedSpecialClient((body) => isedSpecialPoster.post(body, undefined)),
+      signal: controller.signal,
+      log: logIsedSpecial,
+    };
+    const overrides = options.isedSpecial;
+    if (overrides !== undefined) {
+      loop.batchSize = overrides.batchSize;
+      loop.readTimeoutMs = overrides.readTimeoutMs;
+      loop.headerTimeoutMs = overrides.headerTimeoutMs;
+      loop.retryDelaysMs = overrides.retryDelaysMs;
+      loop.firstCheckMs = overrides.firstCheckMs;
+      loop.checkMs = overrides.checkMs;
+      loop.now = overrides.now;
+      loop.fetchFn = overrides.fetchFn;
+    }
+    isedSpecial = runIsedSpecialImports(loop);
   }
 
   function logCatalogs(message: string): void {
@@ -283,6 +360,12 @@ export function startInbound(
     // No license load runs without a zip URL.
     if (licenses !== null) {
       waits.push(licenses);
+    }
+    if (ised !== null) {
+      waits.push(ised);
+    }
+    if (isedSpecial !== null) {
+      waits.push(isedSpecial);
     }
     // Nor a reference list load without its URLs.
     if (catalogs !== null) {

@@ -865,6 +865,8 @@ Deno.test("the inbound worker loads the reference lists through load-references 
       loginCall: "N0CALL",
       healthPort: 0,
       licenseZipUrl: null,
+      isedZipUrl: null,
+      isedSpecialZipUrl: null,
       catalogUrls: served.urls,
       sentry: null,
     },

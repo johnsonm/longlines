@@ -7,6 +7,12 @@ import type { ReferenceProgram } from "../supabase/functions/_shared/reference_c
 /** The FCC's weekly full amateur license file (inbound/licenses.ts). */
 export const FCC_AMATEUR_ZIP = "https://data.fcc.gov/download/pub/uls/complete/l_amat.zip";
 
+/** ISED's amateur certificate list zip (inbound/ised_licenses.ts). */
+export const ISED_AMATEUR_ZIP = "https://apc-cap.ic.gc.ca/datafiles/amateur_delim.zip";
+
+/** ISED's special callsigns zip (inbound/ised_licenses.ts). */
+export const ISED_SPECIAL_ZIP = "https://apc-cap.ic.gc.ca/datafiles/special_callsign.zip";
+
 /** Each program's official reference list (inbound/catalogs.ts). */
 export type CatalogUrls = Readonly<Record<ReferenceProgram, string>>;
 
@@ -25,8 +31,12 @@ export interface InboundConfig {
   /** Callsign used to log in to the telnet servers. */
   loginCall: string;
   healthPort: number;
-  /** Zip the weekly license load reads (inbound/licenses.ts); null when it is off. */
+  /** Zip the weekly FCC license load reads (inbound/licenses.ts); null when it is off. */
   licenseZipUrl: string | null;
+  /** Zip the weekly ISED amateur license load reads (inbound/ised_licenses.ts); null when off. */
+  isedZipUrl: string | null;
+  /** Zip the weekly ISED special callsign load reads (inbound/ised_licenses.ts); null when off. */
+  isedSpecialZipUrl: string | null;
   /** The lists the weekly reference load reads (inbound/catalogs.ts); null when it is off. */
   catalogUrls: CatalogUrls | null;
   /** SENTRY_DSN (project longlines-inbound) and friends; null when error reporting is off. */
@@ -46,10 +56,15 @@ function trimmed(value: string | undefined): string {
   return value.trim();
 }
 
-function required(env: (name: string) => string | undefined, name: string): string {
+function required(
+  env: (name: string) => string | undefined,
+  name: string,
+): string {
   const value = trimmed(env(name));
   if (value === "") {
-    throw new ConfigError(`missing environment variable ${name}`, { cause: undefined });
+    throw new ConfigError(`missing environment variable ${name}`, {
+      cause: undefined,
+    });
   }
   return value;
 }
@@ -58,35 +73,50 @@ function required(env: (name: string) => string | undefined, name: string): stri
 export function portNumber(value: string, name: string): number {
   const port = Number(value);
   if (!Number.isInteger(port) || port <= 0 || port > 65535) {
-    throw new ConfigError(`${name} must be a port number`, { cause: undefined });
+    throw new ConfigError(`${name} must be a port number`, {
+      cause: undefined,
+    });
   }
   return port;
 }
 
 /**
- * INBOUND_LICENSES: "off", another URL (a local copy), or unset for the FCC file.
- * Unset with local functions means off, so a local inbound worker run does not
- * download 160 MB from the FCC unless asked to (INBOUND_LICENSES=<FCC URL>).
+ * Reads a zip URL env var: "off", another URL (a local copy), or unset for `defaultUrl`.
+ * Unset with local functions means off, so a local inbound worker run does not download
+ * upstream license archives unless asked to.
  */
-function licenseZipUrl(value: string | undefined, localFunctions: boolean): string | null {
+function zipUrlFromEnv(
+  envName: string,
+  defaultUrl: string,
+  value: string | undefined,
+  localFunctions: boolean,
+): string | null {
   const v = trimmed(value);
   if (v === "") {
     if (localFunctions) {
       return null;
     }
-    return FCC_AMATEUR_ZIP;
+    return defaultUrl;
   }
   if (v.toLowerCase() === "off") {
     return null;
   }
   if (!URL.canParse(v)) {
-    throw new ConfigError("INBOUND_LICENSES must be off or a URL", { cause: undefined });
-  }
-  const url = new URL(v);
-  if (url.protocol !== "https:" && !(url.protocol === "http:" && isLocalHost(url.hostname))) {
-    throw new ConfigError("INBOUND_LICENSES must use https outside local development", {
+    throw new ConfigError(`${envName} must be off or a URL`, {
       cause: undefined,
     });
+  }
+  const url = new URL(v);
+  if (
+    url.protocol !== "https:" &&
+    !(url.protocol === "http:" && isLocalHost(url.hostname))
+  ) {
+    throw new ConfigError(
+      `${envName} must use https outside local development`,
+      {
+        cause: undefined,
+      },
+    );
   }
   return v;
 }
@@ -95,7 +125,10 @@ function licenseZipUrl(value: string | undefined, localFunctions: boolean): stri
  * INBOUND_CATALOGS: "off", "on", or unset for on. Unset with local functions means off, so a local
  * inbound run does not download 60 MB of lists unless asked to (INBOUND_CATALOGS=on).
  */
-function catalogUrls(value: string | undefined, localFunctions: boolean): CatalogUrls | null {
+function catalogUrls(
+  value: string | undefined,
+  localFunctions: boolean,
+): CatalogUrls | null {
   const v = trimmed(value).toLowerCase();
   if (v === "") {
     if (localFunctions) {
@@ -109,20 +142,32 @@ function catalogUrls(value: string | undefined, localFunctions: boolean): Catalo
   if (v === "on") {
     return CATALOG_URLS;
   }
-  throw new ConfigError("INBOUND_CATALOGS must be on or off", { cause: undefined });
+  throw new ConfigError("INBOUND_CATALOGS must be on or off", {
+    cause: undefined,
+  });
 }
 
-export function loadConfig(env: (name: string) => string | undefined): InboundConfig {
-  const functionsUrl = required(env, "LONGLINES_FUNCTIONS_URL").replace(/\/+$/, "");
+export function loadConfig(
+  env: (name: string) => string | undefined,
+): InboundConfig {
+  const functionsUrl = required(env, "LONGLINES_FUNCTIONS_URL").replace(
+    /\/+$/,
+    "",
+  );
   if (!URL.canParse(functionsUrl)) {
-    throw new ConfigError("LONGLINES_FUNCTIONS_URL must be a URL", { cause: undefined });
+    throw new ConfigError("LONGLINES_FUNCTIONS_URL must be a URL", {
+      cause: undefined,
+    });
   }
   const url = new URL(functionsUrl);
   const local = isLocalHost(url.hostname);
   if (url.protocol !== "https:" && !local) {
-    throw new ConfigError("LONGLINES_FUNCTIONS_URL must use https outside local development", {
-      cause: undefined,
-    });
+    throw new ConfigError(
+      "LONGLINES_FUNCTIONS_URL must use https outside local development",
+      {
+        cause: undefined,
+      },
+    );
   }
   let healthPort = env("INBOUND_HEALTH_PORT");
   if (healthPort === undefined) {
@@ -134,7 +179,24 @@ export function loadConfig(env: (name: string) => string | undefined): InboundCo
     inboundSecret: required(env, "LONGLINES_INBOUND_SECRET"),
     loginCall: required(env, "INBOUND_LOGIN_CALL").toUpperCase(),
     healthPort: port,
-    licenseZipUrl: licenseZipUrl(env("INBOUND_LICENSES"), local),
+    licenseZipUrl: zipUrlFromEnv(
+      "INBOUND_LICENSES",
+      FCC_AMATEUR_ZIP,
+      env("INBOUND_LICENSES"),
+      local,
+    ),
+    isedZipUrl: zipUrlFromEnv(
+      "INBOUND_ISED_LICENSES",
+      ISED_AMATEUR_ZIP,
+      env("INBOUND_ISED_LICENSES"),
+      local,
+    ),
+    isedSpecialZipUrl: zipUrlFromEnv(
+      "INBOUND_ISED_SPECIAL",
+      ISED_SPECIAL_ZIP,
+      env("INBOUND_ISED_SPECIAL"),
+      local,
+    ),
     catalogUrls: catalogUrls(env("INBOUND_CATALOGS"), local),
     sentry: sentryConfigFromEnv(env),
   };
