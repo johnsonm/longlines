@@ -24,9 +24,9 @@ import { compact, fmt } from "../stats/format";
 import { ChartCard, GRID, Kpi } from "../stats/parts";
 import { UsStateMap } from "../stats/UsStateMap";
 import {
-  activationsDetail, dateLabel, frequencyLabel, lastHeardDetail, lastHeardSpot, lastHeardWhen, lookupPath, monthLabel,
-  noLicenseMessage, onAirNow, otherForms, placeLabel, plural, profileUrl, qrzUrl, shortDay, sourceSeries, sourcesDetail,
-  spotRows, totalActivations, usStates,
+  activationsDetail, dateLabel, frequencyLabel, lastHeardDetail, lastHeardSpot, lastHeardWhen, licenseSubheader,
+  lookupPath, monthLabel, noLicenseMessage, onAirNow, otherForms, placeLabel, plural, profileUrl, qrzUrl, shortDay,
+  sourceSeries, sourcesDetail, spotRows, totalActivations, usStates,
 } from "./format";
 import { ActivityHeatMap } from "./ActivityHeatMap";
 import { Flag } from "./Flag";
@@ -230,19 +230,25 @@ function LastHeard({ heard, last }: { heard: HeardProfile; last: NonNullable<Hea
   );
 }
 
-function LicenseCard({ license, usPrefix }: { license: License | null; usPrefix: boolean }) {
-  const rows: [string, string | null][] = license
+function LicenseCard({ license, usPrefix, caPrefix = false }: { license: License | null; usPrefix: boolean; caPrefix?: boolean }) {
+  const rows: [string, string | null][] = !license
+    ? []
+    : license.authority === "ISED"
     ? [
+      ["Name", license.name],
+      ["Qualifications", license.operatorClass],
+      ["Province", license.state],
+    ]
+    : [
       ["Name", license.name],
       ["Class", license.operatorClass],
       ["Status", license.status],
       ["Granted", license.grantedOn && dateLabel(license.grantedOn)],
       ["Expires", license.expiresOn && dateLabel(license.expiresOn)],
       ["State", license.state],
-    ]
-    : [];
+    ];
   return (
-    <ChartCard title="License" subheader="From the FCC Universal Licensing System. Refreshed weekly.">
+    <ChartCard title="License" subheader={licenseSubheader(license, caPrefix)}>
       {license
         ? (
           <Table size="small">
@@ -256,7 +262,7 @@ function LicenseCard({ license, usPrefix }: { license: License | null; usPrefix:
             </TableBody>
           </Table>
         )
-        : <Typography color="text.secondary">{noLicenseMessage(usPrefix)}</Typography>}
+        : <Typography color="text.secondary">{noLicenseMessage(usPrefix, caPrefix)}</Typography>}
     </ChartCard>
   );
 }
@@ -266,7 +272,7 @@ function NotHeard({ profile }: { profile: CallsignProfile }) {
   return (
     <Grid container spacing={2}>
       <Grid size={{ xs: 12, md: 6 }}>
-        <LicenseCard license={profile.license} usPrefix={profile.usPrefix} />
+        <LicenseCard license={profile.license} usPrefix={profile.usPrefix} caPrefix={profile.caPrefix} />
       </Grid>
       <Grid size={{ xs: 12, md: 6 }}>
         <Card variant="outlined" sx={{ height: "100%" }}>
@@ -349,7 +355,7 @@ function Heard({ profile, heard }: { profile: CallsignProfile; heard: HeardProfi
 
       <Grid container spacing={2}>
         <Grid size={{ xs: 12, md: 4 }}>
-          <LicenseCard license={profile.license} usPrefix={profile.usPrefix} />
+          <LicenseCard license={profile.license} usPrefix={profile.usPrefix} caPrefix={profile.caPrefix} />
         </Grid>
         <Grid size={{ xs: 12, md: 8 }}>
           <ChartCard title="Activity" subheader="Spots per month, since Long Lines started">
@@ -488,7 +494,7 @@ function Heard({ profile, heard }: { profile: CallsignProfile; heard: HeardProfi
 export function Footer({ email }: { email: string }) {
   return (
     <Typography variant="body2" color="text.secondary">
-      License data comes from the public FCC database. Long Lines never shows street addresses.
+      License data comes from the public FCC and ISED databases. Long Lines never shows street addresses.
       {email && (
         <>
           {" "}To have this page hidden, email <Link href={`mailto:${email}`}>{email}</Link>.

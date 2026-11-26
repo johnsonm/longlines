@@ -8,7 +8,7 @@ import { LocationProbe } from "../test/LocationProbe";
 import { setMobile } from "../test/media";
 import type { AppContextValue } from "../app/context";
 import { CallsignPage, Footer } from "./CallsignPage";
-import { FULL, HEARD, NOT_HEARD } from "./fixtures";
+import { FULL, HEARD, ISED, NOT_HEARD } from "./fixtures";
 import type { CallsignProfile } from "./types";
 import { useCallsignProfile } from "./useCallsignProfile";
 
@@ -118,7 +118,7 @@ describe("CallsignPage states", () => {
     expect(screen.getByRole("heading", { name: "G4ABC" })).toBeInTheDocument();
     expect(screen.getByText("England")).toBeInTheDocument();
     expect(screen.getByRole("img", { name: "England" })).toHaveAttribute("src", expect.stringMatching(/gb-eng\.svg$/));
-    expect(screen.getByText("No FCC record. This looks like a callsign issued outside the United States.")).toBeInTheDocument();
+    expect(screen.getByText("No FCC or ISED record. This looks like a callsign issued outside the United States and Canada.")).toBeInTheDocument();
     expect(screen.getByText("Long Lines hasn't heard G4ABC on the air yet.")).toBeInTheDocument();
     expect(screen.queryByText("Spots per month, since Long Lines started")).not.toBeInTheDocument();
     expect(screen.queryByText(/Last heard/)).not.toBeInTheDocument();
@@ -133,9 +133,25 @@ describe("CallsignPage states", () => {
   });
 
   it("says no FCC record found for a US prefix", () => {
-    profileIs({ ...NOT_HEARD, callsign: "W1QRP", usPrefix: true, country: { name: "United States", continent: "NA" } });
+    profileIs({ ...NOT_HEARD, callsign: "W1QRP", usPrefix: true, caPrefix: false, country: { name: "United States", continent: "NA" } });
     renderAt("/call/W1QRP");
+    expect(screen.getByText("From the FCC Universal Licensing System. Refreshed weekly.")).toBeInTheDocument();
     expect(screen.getByText("No FCC record found for this callsign.")).toBeInTheDocument();
+  });
+
+  it("says no ISED record found with the ISED subheader for a Canadian prefix", () => {
+    profileIs({ ...NOT_HEARD, callsign: "VE3NONE", usPrefix: false, caPrefix: true, country: { name: "Canada", continent: "NA" } });
+    renderAt("/call/VE3NONE");
+    expect(screen.getByText("From Innovation, Science and Economic Development Canada. Refreshed weekly.")).toBeInTheDocument();
+    expect(screen.getByText("No ISED record found for this callsign.")).toBeInTheDocument();
+  });
+
+  it("treats a cached profile without caPrefix as not Canadian", () => {
+    const cached: CallsignProfile = { ...NOT_HEARD, callsign: "G4OLD", caPrefix: undefined };
+    profileIs(cached);
+    renderAt("/call/G4OLD");
+    expect(screen.getByText("From the FCC Universal Licensing System. Refreshed weekly.")).toBeInTheDocument();
+    expect(screen.getByText("No FCC or ISED record. This looks like a callsign issued outside the United States and Canada.")).toBeInTheDocument();
   });
 
   it("treats a station that only spotted others as not heard, showing its hunting", () => {
@@ -173,6 +189,24 @@ describe("CallsignPage profile", () => {
     expect(screen.getByText("From the FCC Universal Licensing System. Refreshed weekly.")).toBeInTheDocument();
     expect(screen.getByText("Mar 1, 2036")).toBeInTheDocument();
     expect(screen.getByText("NC")).toBeInTheDocument();
+  });
+
+  it("renders an ISED license with Name, Qualifications and Province and no Status, Granted or Expires", () => {
+    profileIs(ISED);
+    renderAt("/call/VE3TSS");
+    expect(screen.getByRole("heading", { name: "VE3TSS" })).toBeInTheDocument();
+    expect(screen.getByText("From Innovation, Science and Economic Development Canada. Refreshed weekly.")).toBeInTheDocument();
+    const card = within(screen.getByText("License").closest<HTMLElement>(".MuiCard-root")!);
+    expect(card.getByRole("rowheader", { name: "Name" })).toBeInTheDocument();
+    expect(card.getByText("Hélène McFadden")).toBeInTheDocument();
+    expect(card.getByRole("rowheader", { name: "Qualifications" })).toBeInTheDocument();
+    expect(card.getByText("Advanced, Basic, 12 WPM")).toBeInTheDocument();
+    expect(card.getByRole("rowheader", { name: "Province" })).toBeInTheDocument();
+    expect(card.getByText("ON")).toBeInTheDocument();
+    expect(card.queryByRole("rowheader", { name: "Class" })).not.toBeInTheDocument();
+    expect(card.queryByRole("rowheader", { name: "Status" })).not.toBeInTheDocument();
+    expect(card.queryByRole("rowheader", { name: "Granted" })).not.toBeInTheDocument();
+    expect(card.queryByRole("rowheader", { name: "Expires" })).not.toBeInTheDocument();
   });
 
   it("says a station spotted in the last half hour is on the air now", () => {
@@ -233,7 +267,7 @@ describe("CallsignPage profile", () => {
     expect(screen.getByText("31 dB")).toBeInTheDocument();
     // The recent spots are the Spots tab's.
     expect(screen.queryByText("Recent spots")).not.toBeInTheDocument();
-    expect(screen.getByText(/License data comes from the public FCC database\. Long Lines never shows street addresses\./))
+    expect(screen.getByText(/License data comes from the public FCC and ISED databases\. Long Lines never shows street addresses\./))
       .toBeInTheDocument();
   });
 
@@ -423,7 +457,7 @@ describe("Footer", () => {
     const link = screen.getByRole("link", { name: "hide@example.com" });
     expect(link).toHaveAttribute("href", "mailto:hide@example.com");
     expect(link.parentElement).toHaveTextContent(
-      "License data comes from the public FCC database. Long Lines never shows street addresses. To have this page hidden, email hide@example.com.",
+      "License data comes from the public FCC and ISED databases. Long Lines never shows street addresses. To have this page hidden, email hide@example.com.",
     );
   });
 

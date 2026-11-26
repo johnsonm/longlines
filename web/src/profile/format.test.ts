@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
-  activationsDetail, dateLabel, frequencyLabel, lastHeardDetail, lastHeardSpot, lastHeardWhen, lookupPath, monthLabel,
-  noLicenseMessage, onAirNow, otherForms, placeLabel, plural, profileUrl, qrzUrl, shortDay, sourceSeries, sourcesDetail,
-  spotRows, totalActivations, usStates,
+  activationsDetail, dateLabel, frequencyLabel, lastHeardDetail, lastHeardSpot, lastHeardWhen, licenseSubheader,
+  lookupPath, monthLabel, noLicenseMessage, onAirNow, otherForms, placeLabel, plural, profileUrl, qrzUrl, shortDay,
+  sourceSeries, sourcesDetail, spotRows, totalActivations, usStates,
 } from "./format";
 import type { HeardProfile } from "./types";
 
@@ -87,9 +87,26 @@ describe("profile format", () => {
     expect(placeLabel({ license: null, country: null })).toBeNull();
   });
 
-  it("only says outside the United States for a non-US prefix", () => {
-    expect(noLicenseMessage(true)).toBe("No FCC record found for this callsign.");
-    expect(noLicenseMessage(false)).toBe("No FCC record. This looks like a callsign issued outside the United States.");
+  it("picks the license subheader by authority, else by Canadian prefix", () => {
+    expect(licenseSubheader({ authority: "ISED" }, false))
+      .toBe("From Innovation, Science and Economic Development Canada. Refreshed weekly.");
+    expect(licenseSubheader({ authority: "FCC" }, true))
+      .toBe("From the FCC Universal Licensing System. Refreshed weekly.");
+    expect(licenseSubheader(null, true))
+      .toBe("From Innovation, Science and Economic Development Canada. Refreshed weekly.");
+    expect(licenseSubheader(null, false))
+      .toBe("From the FCC Universal Licensing System. Refreshed weekly.");
+    expect(licenseSubheader(null))
+      .toBe("From the FCC Universal Licensing System. Refreshed weekly.");
+  });
+
+  it("picks the no-license message for US, Canadian, and other prefixes", () => {
+    expect(noLicenseMessage(true, false)).toBe("No FCC record found for this callsign.");
+    expect(noLicenseMessage(false, true)).toBe("No ISED record found for this callsign.");
+    expect(noLicenseMessage(false, false))
+      .toBe("No FCC or ISED record. This looks like a callsign issued outside the United States and Canada.");
+    expect(noLicenseMessage(false))
+      .toBe("No FCC or ISED record. This looks like a callsign issued outside the United States and Canada.");
   });
 
   it("sums activations and names them per program", () => {

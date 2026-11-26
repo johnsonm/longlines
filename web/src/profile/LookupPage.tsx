@@ -14,7 +14,7 @@ export function LookupPage() {
       <Box>
         <PageTitle>Callsign lookup</PageTitle>
         <Typography color="text.secondary">
-          See what Long Lines has heard from any station: license details from the FCC, plus every spot since Long Lines started.
+          See what Long Lines has heard from any station: license details from the FCC and ISED, plus every spot since Long Lines started.
           Every profile has its own link you can share.
         </Typography>
       </Box>

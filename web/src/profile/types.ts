@@ -14,13 +14,14 @@ export type CallsignProfile = {
   callsign: string; // the base call: a lookup of KK4PWJ/P returns KK4PWJ
   generatedAt: string; // profiles are cached for up to 15 minutes
   usPrefix: boolean; // K, N, W or AA-AL: picks the no-license message
+  caPrefix?: boolean; // V[A-GOXY], C[F-KYZ] or X[J-O]: picks the no-license message; absent in profiles cached before 20261126000100
   country: { name: string; continent: string } | null; // cty.dat entity of the call
   license: License | null; // null: no record, or the call is hidden
   heard: HeardProfile | null; // null: never spotted and never spotted anyone, or hidden
 };
 
 export type License = {
-  authority: string; // "FCC"
+  authority: string; // "FCC" | "ISED"
   name: string | null;
   operatorClass: string | null; // "Amateur Extra", ...; null for clubs
   status: string | null; // "Active", "Expired", ...

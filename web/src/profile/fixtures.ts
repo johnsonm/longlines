@@ -55,6 +55,7 @@ export const FULL: CallsignProfile = {
   callsign: "KK4PWJ",
   generatedAt: "2026-10-12T14:40:00Z",
   usPrefix: true,
+  caPrefix: false,
   country: { name: "United States", continent: "NA" },
   license: {
     authority: "FCC", name: "Alex R Example", operatorClass: "Amateur Extra", status: "Active",
@@ -63,10 +64,24 @@ export const FULL: CallsignProfile = {
   heard: HEARD,
 };
 
+export const ISED: CallsignProfile = {
+  callsign: "VE3TSS",
+  generatedAt: "2026-10-29T14:40:00Z",
+  usPrefix: false,
+  caPrefix: true,
+  country: { name: "Canada", continent: "NA" },
+  license: {
+    authority: "ISED", name: "Hélène McFadden", operatorClass: "Advanced, Basic, 12 WPM", status: null,
+    grantedOn: null, expiresOn: null, state: "ON",
+  },
+  heard: HEARD,
+};
+
 export const NOT_HEARD: CallsignProfile = {
   callsign: "G4ABC",
   generatedAt: "2026-10-12T14:40:00Z",
   usPrefix: false,
+  caPrefix: false,
   country: { name: "England", continent: "EU" },
   license: null,
   heard: null,

@@ -215,15 +215,15 @@ Files: create `inbound/ised_licenses.ts`, `inbound/__tests__/ised_licenses.test.
 Files: edit `web/src/profile/types.ts`, `format.ts`, `format.test.ts`, `CallsignPage.tsx`,
 `CallsignPage.test.tsx`, `LookupPage.tsx`, `LookupPage.test.tsx`, `fixtures.ts`.
 
-- [ ] `types.ts`: `caPrefix?: boolean` (absent in profiles cached before the migration), with a
+- [x] `types.ts`: `caPrefix?: boolean` (absent in profiles cached before the migration), with a
       comment; `License.authority` comment `"FCC" | "ISED"`.
-- [ ] Failing tests: `noLicenseMessage` for US, Canadian and other calls; the subheader by
+- [x] Failing tests: `noLicenseMessage` for US, Canadian and other calls; the subheader by
       authority, and by prefix with no license; an ISED license shows Name, Qualifications and
       Province and no Status, Granted or Expires rows; a profile without `caPrefix` reads as not
       Canadian; the footer and the lookup intro name ISED.
-- [ ] Implement with the spec's copy word for word (and the attribution line if Brad confirmed
+- [x] Implement with the spec's copy word for word (and the attribution line if Brad confirmed
       one). `sx` stays layout only. Add an ISED fixture (a synthetic `VE3TSS`).
-- [ ] `cd web && npm test && npm run build && npm run lint && npm run coverage`. Commit.
+- [x] `cd web && npm test && npm run build && npm run lint && npm run coverage`. Commit.
 
 ## Task 6: Documentation
 

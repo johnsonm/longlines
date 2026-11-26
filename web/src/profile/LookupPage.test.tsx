@@ -24,7 +24,7 @@ describe("LookupPage", () => {
   it("explains the page and focuses the search box on desktop", () => {
     renderPage(<LookupPage />, { route: "/lookup" });
     expect(screen.getByRole("heading", { name: "Callsign lookup" })).toBeInTheDocument();
-    expect(screen.getByText(/See what Long Lines has heard from any station/)).toBeInTheDocument();
+    expect(screen.getByText(/license details from the FCC and ISED/)).toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "Callsign" })).toHaveFocus();
     expect(screen.getByPlaceholderText("Callsign, like KK4PWJ")).toBeInTheDocument();
   });

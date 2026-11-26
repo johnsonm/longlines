@@ -8,7 +8,7 @@ import { formatDate } from "../lib/time";
 import { sourceName } from "../sources/sources";
 import { fmt } from "../stats/format";
 import { stateName } from "../stats/stateShapes";
-import type { CallsignProfile, HeardProfile, ProfileSpot } from "./types";
+import type { CallsignProfile, HeardProfile, License, ProfileSpot } from "./types";
 
 const TIME = new Intl.DateTimeFormat("en-US", { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: "UTC" });
 const DATE = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
@@ -124,11 +124,19 @@ export function placeLabel(profile: Pick<CallsignProfile, "license" | "country">
   return profile.country?.name ?? null;
 }
 
-/** The License card's text when there is no record; "outside the United States" only for a non-US prefix. */
-export function noLicenseMessage(usPrefix: boolean): string {
-  return usPrefix
-    ? "No FCC record found for this callsign."
-    : "No FCC record. This looks like a callsign issued outside the United States.";
+/** The License card's subheader: by authority when licensed, else by Canadian prefix. */
+export function licenseSubheader(license: Pick<License, "authority"> | null, caPrefix = false): string {
+  const ised = license ? license.authority === "ISED" : caPrefix;
+  return ised
+    ? "From Innovation, Science and Economic Development Canada. Refreshed weekly."
+    : "From the FCC Universal Licensing System. Refreshed weekly.";
+}
+
+/** The License card's text when there is no record; picks US, Canadian, or outside-US-and-Canada copy by prefix. */
+export function noLicenseMessage(usPrefix: boolean, caPrefix = false): string {
+  if (usPrefix) return "No FCC record found for this callsign.";
+  if (caPrefix) return "No ISED record found for this callsign.";
+  return "No FCC or ISED record. This looks like a callsign issued outside the United States and Canada.";
 }
 
 const PROGRAM_NOUNS: Record<string, [string, string]> = {
