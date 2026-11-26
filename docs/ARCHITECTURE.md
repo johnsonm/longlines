@@ -771,9 +771,9 @@ uses about 20 MB). Issue #13 records the options that were weighed first.
   entry plus a source adapter and an `ingest-<source>` function built with `servePush`.
   `_shared/inbound_lines.ts` holds what the pushed sources share: the request body and the `HHMMZ`
   dating.
-- **Not only telnet.** The inbound worker also runs the weekly FCC license load and the weekly POTA, SOTA
-  and WWFF reference list load, because the files are too big for an Edge Function (see
-  "Licenses (FCC)" and "Reference catalog").
+- **Not only telnet.** The inbound worker also runs the weekly FCC and ISED license loads and the
+  weekly POTA, SOTA and WWFF reference list load, because the files are too big for an Edge
+  Function (see "Licenses (FCC and ISED)" and "Reference catalog").
 
 ## DX Cluster
 
@@ -1244,20 +1244,22 @@ rollups keep per-station counts and breakdowns forever, never per-spotter rows (
   raising from it would roll back the successful days, so the failures table is the signal.
   Service-role only, like the tables.
 
-# Licenses (FCC)
+# Licenses (FCC and ISED)
 
 ```mermaid
 flowchart LR
-  R[inbound, every 6 h] -- "HEAD, then Range GETs" --> Z[[data.fcc.gov l_amat.zip]]
-  R -- "status, begin, rows x ~1,000, finish" --> F[load-licenses function]
-  F -- "fcc_license_load_* RPCs" --> S[(fcc_uls_hd, fcc_uls_en, fcc_uls_am, license_loads)]
+  R[inbound, FCC every 6 h / ISED daily] -- "HEAD, then Range or full GET" --> Z[[FCC l_amat.zip & ISED zips]]
+  R -- "status, begin, rows, finish" --> F[load-licenses / load-ised-licenses / load-ised-special]
+  F -- "license load RPCs" --> S[(fcc_uls_*, ised_*_stage, license_loads)]
   C[pg_cron :50 hourly] -- "apply_license_loads()" --> S
-  C -- "one transaction" --> L[(callsign_licenses)]
+  C -- "isolated per authority" --> L[(callsign_licenses, ised_special_callsigns)]
 ```
 
-Profiles show a station's license (spec `docs/superpowers/specs/2026-10-12-callsign-lookup-design.md`).
-`callsign_licenses` holds one row per callsign with an `authority` column, so other countries'
-registries can load into it later; FCC is the only loader for now.
+Profiles show a station's license (US spec `docs/superpowers/specs/2026-10-12-callsign-lookup-design.md`,
+Canadian spec `docs/superpowers/specs/2026-10-29-canadian-license-import-design.md`).
+`callsign_licenses` holds one row per callsign with an `authority` column (`FCC` or `ISED`).
+
+## FCC
 
 - **Where it runs.** The FCC publishes the full amateur file, `l_amat.zip`, every Sunday: about
   200 MB, of which the three files used are 160 MB compressed and 525 MB inflated, about 1.7M
@@ -1297,9 +1299,47 @@ registries can load into it later; FCC is the only loader for now.
   matches the recorded counts (unlogged tables are emptied by a crash) or the insert fails, the
   load is marked `failed` and the old set stays.
 - **Access.** Service-role only, like `license_loads`, the staging tables and the RPCs. The data
-  is public FCC data, but a direct read would show the license of a call in `hidden_callsigns`,
+  is public FCC and ISED data, but a direct read would show the license of a call in `hidden_callsigns`,
   so clients get licenses only through `callsign_profile()` (the `callsign-profile` function).
   `20261012000050` granted `select` to `anon` and `authenticated`; `20261012000070` revokes it.
+
+## ISED (Canada)
+
+- **Cadence.** ISED publishes `amateur_delim.zip` (~2.3 MB, ~92,000 certificates) nightly. To keep
+  downloads weekly, `inbound/ised_licenses.ts` HEADs the zip once a day and downloads it only when
+  the newest applied ISED load began at least seven days ago (`ised_license_load_status`) and
+  `Last-Modified` is newer. An unfinished load (`loading` or `failed`) backs off for twelve hours.
+  An inbound worker pointed at localhost functions leaves ISED loads off unless
+  `INBOUND_ISED_LICENSES` (or `INBOUND_ISED_SPECIAL`) names a URL.
+- **Parsing and privacy.** The inbound worker GETs the zip into memory, wraps it in an in-memory
+  `RangeSource`, reads `amateur_delim.txt` through `inbound/zip.ts` (`openZipEntry`) and UTF-8
+  `TextDecoderStream`, and parses semicolon-delimited lines with `_shared/ised.ts` (over the shared
+  `_shared/ised_delim.ts` reader). Columns are mapped by header name, never position; there is no
+  quoting so literal `"` nicknames stay intact. Street address, city, postal code and club address
+  fields are dropped by the parser and have no columns in `ised_amateur_stage`.
+- **Floor.** Staging batches of up to 5,000 rows post to `load-ised-licenses` (`verify_jwt = false`,
+  `x-inbound-secret`). There is no row floor in TypeScript: `ised_license_load_finish` enforces
+  `ised_license_floor()` in SQL (90% of current ISED rows in `callsign_licenses`, or 80,000 on a
+  first load) and verifies the staged count matches the worker's count before marking the load
+  `ready`.
+- **Clubs and qualifications.** In SQL (`apply_ised_license_load`), any row with `club_name` set is
+  treated as a club: `name` gets `club_name` (and `club_name_2` joined by a space), while
+  `first_name`, `last_name` and `operator_class` are stored as null so the trustee's name is never
+  exposed and `spot_license_name` returns nothing for clubs. For individuals, `ised_operator_class`
+  maps the qualification letters (`A`–`E`) in precedence order (`Advanced`, `Basic with Honours` or
+  `Basic`, `12 WPM` or `5 WPM`); `status`, `granted_on` and `expires_on` stay null because Canadian
+  certificates do not expire, and `state` holds the two-letter province code (`country = 'CA'`).
+- **Shared apply.** The existing hourly `:50` `apply_license_loads()` cron runs
+  `apply_fcc_license_load()` and then `apply_ised_license_load()`. Each authority swaps inside its
+  own exception block with a lost-staging count check (`staged_counts() is distinct from
+  v_load.counts`), so a failed ISED load or crash-emptied unlogged staging table never blocks or
+  touches FCC rows (and vice versa).
+- **Special callsigns.** `special_callsign.zip` (`special_callsign.txt`) is parsed by
+  `_shared/ised_special.ts` (skipping 2-character RIC-9 special event prefixes and malformed dates),
+  staged via `load-ised-special` into `ised_special_stage` (floor `ised_special_floor()`: 90% or 10),
+  and swapped in a separate exception block into `ised_special_callsigns` keyed by
+  `(callsign, beg_date, end_date)`, keeping `callsign_licenses` and its `callsign` primary key
+  untouched.
 
 # Reference catalog
 

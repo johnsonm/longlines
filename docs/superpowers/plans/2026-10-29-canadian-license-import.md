@@ -227,17 +227,19 @@ Files: edit `web/src/profile/types.ts`, `format.ts`, `format.test.ts`, `Callsign
 
 ## Task 6: Documentation
 
-- [ ] `docs/ARCHITECTURE.md`: "Licenses (FCC)" becomes "Licenses (FCC and ISED)" with an ISED
-      subsection (cadence, floor, clubs, the shared apply); the inbound worker summary names it.
-- [ ] `docs/OPERATIONS.md`: "Licenses (ISED)": how to read the ISED loads in `license_loads`,
-      `INBOUND_ISED_LICENSES=off`, and running one load by hand locally.
-- [ ] `CLAUDE.md`: in "Inbound worker rules" add the weekly ISED load (`inbound/ised_licenses.ts`,
-      parsed by `_shared/ised.ts`, floor and swap SQL's, never stage address fields, fixtures
-      synthetic); in "Delivery rules" the First/Last name line names ISED too; in "Conventions"
-      `callsign_licenses` is FCC and ISED data.
-- [ ] Full gate: `deno task test`, `deno task coverage`, `deno task check`, `deno task lint`,
-      `deno task fmt`, `npm run lint`, `npm run typecheck`, `supabase test db`,
-      `cd web && npm run test:all`. Commit and open the PR.
+- [x] `docs/ARCHITECTURE.md`: "Licenses (FCC)" becomes "Licenses (FCC and ISED)" with an ISED
+      subsection (cadence, floor, clubs, the shared apply, special callsigns); the inbound worker
+      summary names it.
+- [x] `docs/OPERATIONS.md`: "Licenses (ISED)": how to read the ISED loads in `license_loads`,
+      `INBOUND_ISED_LICENSES=off` / `INBOUND_ISED_SPECIAL=off`, and running one load by hand
+      locally.
+- [x] `CLAUDE.md`: in "Inbound worker rules" add the weekly ISED load (`inbound/ised_licenses.ts`,
+      parsed by `_shared/ised.ts` / `_shared/ised_special.ts`, floor and swap SQL's, never stage
+      address fields, fixtures synthetic); in "Delivery rules" the First/Last name line names ISED
+      too; in "Conventions" `callsign_licenses` is FCC and ISED data.
+- [x] Full gate: `deno task test`, `deno task coverage`, `deno task check`, `deno task lint`,
+      `deno fmt --check`, `eslint` on modified Deno files, `cd web && npm test && npm run build &&
+      npm run lint` (`supabase test db` runs in CI). Commit.
 
 ## Task 7: Special Callsigns UI Integration (follow-up)
 

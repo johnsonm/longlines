@@ -1847,7 +1847,7 @@ totals stay as they are.
 
 # Licenses (FCC)
 
-How it works is in `docs/ARCHITECTURE.md` ("Licenses (FCC)").
+How it works is in `docs/ARCHITECTURE.md` ("Licenses (FCC and ISED)").
 
 ## First deploy
 
@@ -1896,6 +1896,66 @@ serving the same zip with Range support.
 A local run (functions URL on localhost) does not load licenses by default. To exercise the real
 load locally, serve `load-licenses` and set `INBOUND_LICENSES=https://data.fcc.gov/download/pub/uls/complete/l_amat.zip`;
 it downloads about 160 MB, so not routinely.
+
+# Licenses (ISED)
+
+How it works is in `docs/ARCHITECTURE.md` ("Licenses (FCC and ISED)").
+
+## First deploy
+
+Deploy the migration and both Edge Functions before merging the inbound worker changes:
+
+```sh
+supabase db push                               # 20261126000100_ised_licenses
+supabase functions deploy load-ised-licenses   # new function: the GitHub integration skips it
+supabase functions deploy load-ised-special    # new function: the GitHub integration skips it
+```
+
+Both functions use the existing `LONGLINES_INBOUND_SECRET`. After the inbound worker starts, the
+first amateur check runs after ten minutes (`[ised]`) and the first special callsign check runs
+after twelve minutes (`[ised-special]`). `amateur_delim.zip` is ~2.3 MB (~92,000 rows in ~19
+requests of 5,000) and `special_callsign.zip` is smaller; both swap in at the next `:50` via the
+existing `apply-license-loads` cron job.
+
+```sql
+select id, authority, version, status, started_at, ready_at, applied_at, counts, licenses, error
+from license_loads
+where authority in ('ISED', 'ISED-SPECIAL')
+order by id desc
+limit 6;
+
+select * from callsign_licenses where authority = 'ISED' limit 5;
+select count(*) from ised_special_callsigns;
+```
+
+## Is it current?
+
+The newest `ISED` and `ISED-SPECIAL` loads should be `applied` with `applied_at` under about eight
+days old. Inbound logs prefix lines with `[ised]` and `[ised-special]` (`fly logs`):
+
+- `loading ... (<Last-Modified>)`, then `<entry>: <staged> staged, <skipped> skipped`, then
+  `load finished`.
+- `load failed: ...` names the download, parse, floor, or function error; the load is marked
+  `failed` with the same text in `error` and retried twelve hours after it started. The previous
+  rows stay loaded throughout.
+
+## Turning it off and running locally
+
+`fly secrets set INBOUND_ISED_LICENSES=off` (and/or `INBOUND_ISED_SPECIAL=off`) stops the inbound
+worker from loading those archives; `fly secrets unset INBOUND_ISED_LICENSES` turns it back on.
+Either variable can also point at another HTTPS URL (or a localhost URL in development).
+
+A local run (functions URL on localhost) leaves both off by default. To run one load by hand
+locally, serve `load-ised-licenses` (and `load-ised-special` if desired) and start the inbound
+worker with:
+
+```sh
+INBOUND_ISED_LICENSES=https://apc-cap.ic.gc.ca/datafiles/amateur_delim.zip
+INBOUND_ISED_SPECIAL=https://apc-cap.ic.gc.ca/datafiles/special_callsign.zip
+```
+
+Then run `select public.apply_license_loads();` in psql to swap the `ready` load in immediately
+without waiting for `:50`.
 
 # Reference catalog (POTA, SOTA, WWFF lists)
 

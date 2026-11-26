@@ -285,8 +285,9 @@ The conventions are `docs/superpowers/specs/2026-10-22-strict-eslint-conventions
   (`format.ts`); change both together.
 - First name and Last name (push, Discord and webhook fields) are the spotted call's license names,
   read only through `spot_license_name` (by base call, none for a club or a call in
-  `hidden_callsigns`), never the spotter's. The FCC load stages them apart from the joined `name`
-  (`_shared/uls.ts`, `fcc_uls_en`); never split `name` to get them.
+  `hidden_callsigns`), never the spotter's. The FCC and ISED loads stage them apart from the joined
+  `name` (`_shared/uls.ts`, `fcc_uls_en`; `_shared/ised.ts`, `ised_amateur_stage`, nulled for
+  clubs); never split `name` to get them.
 - Queue figures are SQL's (`20261031000400`, Phase 2 spec Piece 3): `destination_queue_status`
   (service role only, the operator's view) and `list_destination_queues()` (the owner's rows) give
   `waiting` (pending and failed rows), `oldest_waiting_seconds` and `dropped_24h` (loss only:
@@ -685,6 +686,15 @@ editor.
   (`apply_license_loads`, pg_cron), because the swap outlasts the API's 8 s statement timeout.
   Never stage or store ULS address, city, ZIP, PO box, phone, email or FRN fields. No test
   downloads from the FCC; tests build a zip and serve it locally (`inbound/__tests__/zip_server.ts`).
+- It also runs the weekly ISED license and special callsign loads (`inbound/ised_licenses.ts`, off
+  with `INBOUND_ISED_LICENSES=off` / `INBOUND_ISED_SPECIAL=off`): daily HEAD, weekly GET of
+  `amateur_delim.zip` and `special_callsign.zip` into an in-memory `RangeSource` read via
+  `inbound/zip.ts`, parsed by `_shared/ised.ts` and `_shared/ised_special.ts` over
+  `_shared/ised_delim.ts` (UTF-8, columns by header name, no quoting) and staged through
+  `load-ised-licenses` and `load-ised-special`. The floor (`ised_license_floor`,
+  `ised_special_floor`) and the swap (`apply_license_loads` → `apply_ised_license_load`, isolated
+  from FCC) are SQL's. Never stage or store ISED address, city, postal code or club address fields,
+  and keep test fixtures strictly synthetic (never cut lines from the real file).
 - It also runs the weekly reference list load (`inbound/catalogs.ts`, off with `INBOUND_CATALOGS=off`):
   one program at a time, a list is streamed when its applied load began a week ago and the file's
   `Last-Modified` is newer, parsed by `_shared/reference_catalog.ts` (columns by header name, never
@@ -1396,9 +1406,9 @@ screens and for notification text.
   of frequency parsing.
 - Tables, the view and the RPCs have `anon`/`authenticated` grants revoked; keep that on any new
   object. The exception is `select` on `stats_snapshots` (anon). `callsign_licenses` is public FCC
-  data but stays service-role only, so `hidden_callsigns` cannot be read around; clients get
-  licenses from the `callsign-profile` function. Every `public` table has RLS on
-  (`advisor.test.sql` checks it).
+  and ISED data (and `ised_special_callsigns` is public ISED data) but both stay service-role only,
+  so `hidden_callsigns` cannot be read around; clients get licenses from the `callsign-profile`
+  function. Every `public` table has RLS on (`advisor.test.sql` checks it).
 - `runIngest` bound-checks every spot (`assertStorableSpot`: spot time at most a day ahead and not
   before 2000, calls and references at most 64 characters, `source_spot_id` at most 256); the
   firehose row builders apply the same bounds, and `withoutNul` also makes strings well formed.
